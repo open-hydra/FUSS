@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "FUSS"
+authors:
+  - family-names: "Barbato"
+    given-names: "Vincenzo"
+license: GPL-3.0
+url: "https://github.com/open-hydra/FUSS"
+doi: ""
+type: software

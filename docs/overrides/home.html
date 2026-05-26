@@ -1,0 +1,200 @@
+{% extends "main.html" %}
+
+{% block tabs %}
+{{ super() }}
+
+<style>.md-header { position: initial; }</style>
+
+<div class="fuss-home">
+
+  <!-- ══════════════════════════════════════════ HERO ══════════════════════════════════════════ -->
+  <section class="fuss-hero">
+    <div class="fuss-hero__grid"></div>
+    <div class="fuss-hero__glow fuss-hero__glow--a"></div>
+    <div class="fuss-hero__glow fuss-hero__glow--b"></div>
+    <div class="fuss-hero__wrap">
+
+      <span class="fuss-badge">
+        <span class="fuss-badge__dot"></span>
+        Hydra CFD Suite
+      </span>
+
+      <h1 class="fuss-hero__h1">FUSS</h1>
+      <p class="fuss-hero__sub">Fourier Un-Steady Solver</p>
+      <p class="fuss-hero__body">
+        Open-source solver for steady-state and time-accurate heat conduction in solid bodies
+        on multi-block structured grids — from one-dimensional conduction benchmarks to
+        multi-material 2-D and 3-D problems with mixed boundary conditions.
+      </p>
+
+      <div class="fuss-hero__btns">
+        <a href="{{ 'getting-started/' | url }}" class="fuss-btn fuss-btn--primary">
+          Get Started &nbsp;&rarr;
+        </a>
+        <a href="{{ 'overview/' | url }}" class="fuss-btn fuss-btn--ghost">
+          Overview
+        </a>
+      </div>
+
+      <div class="fuss-hero__pills">
+        <div class="fuss-pill"><strong>6+</strong>&nbsp;Boundary Condition Types</div>
+        <div class="fuss-pill"><strong>Multi-material</strong>&nbsp;Domains</div>
+        <div class="fuss-pill"><strong>OpenMP</strong>&nbsp;+ MPI</div>
+        <div class="fuss-pill"><strong>Modern</strong>&nbsp;Fortran</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════ FEATURES ════════════════════════════════════════ -->
+  <section class="fuss-features">
+    <div class="fuss-container">
+      <div class="fuss-section-hd">
+        <h2>Everything you need for solid heat transfer</h2>
+        <p>A complete, validated thermal solver written in modern Fortran</p>
+      </div>
+      <div class="fuss-grid">
+
+        <article class="fuss-card fuss-card--indigo">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0z"/>
+              <line x1="12" y1="9" x2="16" y2="9"/>
+            </svg>
+          </div>
+          <h3>Solid Heat Conduction</h3>
+          <p>Transient and steady-state Fourier heat equation on multi-block structured grids with temperature-dependent material properties.</p>
+        </article>
+
+        <article class="fuss-card fuss-card--violet">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/>
+              <line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/>
+            </svg>
+          </div>
+          <h3>Cell-Centred Finite Volume</h3>
+          <p>Second-order central differences for the diffusive flux. Arithmetic-mean conductivity within materials; harmonic-mean across interfaces.</p>
+        </article>
+
+        <article class="fuss-card fuss-card--orange">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <h3>Mixed Boundary Conditions</h3>
+          <p>Fixed temperature (constant or time-varying), prescribed flux, convection, radiation, symmetry, and block-to-block connections — applicable face-by-face.</p>
+        </article>
+
+        <article class="fuss-card fuss-card--teal">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <h3>Accelerated Time Marching</h3>
+          <p>3-stage SSP Runge–Kutta with implicit residual smoothing and geometric multigrid. Local time stepping for fast steady-state convergence.</p>
+        </article>
+
+        <article class="fuss-card fuss-card--green">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </div>
+          <h3>Parallel Execution</h3>
+          <p>Shared-memory parallelism via OpenMP and distributed-memory MPI with ghost-cell exchange across block boundaries on HPC clusters.</p>
+        </article>
+
+        <article class="fuss-card fuss-card--pink">
+          <div class="fuss-card__icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+          </div>
+          <h3>Flexible I/O</h3>
+          <p>Tecplot (ASCII &amp; binary) and VTK output. Point probes for time histories and full restart capability.</p>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ QUICK START ══════════════════════════════════════ -->
+  <section class="fuss-qs">
+    <div class="fuss-container fuss-qs__inner">
+
+      <div class="fuss-qs__text">
+        <h2>Up and running in minutes</h2>
+        <p>FUSS ships with a single install script that handles all dependencies, compiles the Fortran core, and puts the binary on your PATH.</p>
+        <div class="fuss-qs__links">
+          <a href="{{ 'getting-started/installation/' | url }}" class="fuss-btn fuss-btn--primary">
+            Installation guide &rarr;
+          </a>
+          <a href="{{ 'getting-started/quick-start/' | url }}" class="fuss-btn fuss-btn--secondary">
+            Quick start
+          </a>
+        </div>
+      </div>
+
+      <div class="fuss-qs__code">
+        <div class="fuss-term">
+          <div class="fuss-term__bar">
+            <span class="fuss-term__dot fuss-term__dot--r"></span>
+            <span class="fuss-term__dot fuss-term__dot--y"></span>
+            <span class="fuss-term__dot fuss-term__dot--g"></span>
+            <span class="fuss-term__label">terminal</span>
+          </div>
+          <pre class="fuss-term__body"><code><span class="tc"># Clone and build</span>
+<span class="tp">$</span> git clone https://github.com/open-hydra/FUSS.git
+<span class="tp">$</span> cd FUSS &amp;&amp; ./install.sh build --compilers=gnu
+
+<span class="tc"># Run a simulation</span>
+<span class="tp">$</span> cd test/steady-state/temperature_Plate
+<span class="tp">$</span> ./FUSS.sh solve</code></pre>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════════════════════════════════════════ ECOSYSTEM ════════════════════════════════════════ -->
+  <section class="fuss-eco">
+    <div class="fuss-container">
+      <div class="fuss-section-hd">
+        <h2>The Hydra CFD Suite</h2>
+        <p>FUSS is the solid heat-conduction solver in an integrated multi-physics simulation suite</p>
+      </div>
+      <div class="fuss-eco__flow">
+        <a href="https://github.com/open-hydra/ATLAS" target="_blank" rel="noopener" class="fuss-eco__node">
+          <span class="fuss-eco__node-name">ATLAS</span>
+          <span class="fuss-eco__node-role">Pre-processor</span>
+          <span class="fuss-eco__node-desc">Initial &amp; boundary conditions, material property tables</span>
+        </a>
+        <div class="fuss-eco__arrow">&#8594;</div>
+        <div class="fuss-eco__node fuss-eco__node--active">
+          <span class="fuss-eco__node-tag">You are here</span>
+          <span class="fuss-eco__node-name">FUSS</span>
+          <span class="fuss-eco__node-role">Solver</span>
+          <span class="fuss-eco__node-desc">Transient &amp; steady-state heat conduction in solids</span>
+        </div>
+        <div class="fuss-eco__arrow">&harr;</div>
+        <a href="https://github.com/open-hydra/MOSE" target="_blank" rel="noopener" class="fuss-eco__node">
+          <span class="fuss-eco__node-name">MOSE</span>
+          <span class="fuss-eco__node-role">Sister solver</span>
+          <span class="fuss-eco__node-desc">Compressible Euler &amp; Navier-Stokes with finite-rate chemistry</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /.fuss-home -->
+{% endblock %}
+
+{% block content %}{% endblock %}
+{% block footer %}{{ super() }}{% endblock %}

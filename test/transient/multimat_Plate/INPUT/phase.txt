@@ -1,0 +1,3 @@
+solid phase
+insulation 1
+conductive 1
