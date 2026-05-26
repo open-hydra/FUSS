@@ -19,7 +19,7 @@ FUSS is the **solid heat-conduction solver** of the **Hydra** ecosystem — an i
 | **FUSS** | Solver: transient and steady-state heat conduction in solids | This package |
 
 !!! info "Using FUSS without ATLAS"
-    The input files required by FUSS (initial conditions, boundary condition table, material property tables) are **typically produced by ATLAS**. If ATLAS is not available, all input files can be prepared manually; see the [User Guide](user/using.md) for the expected formats. FUSS also exposes a built-in mesh generator (GRIB) for simple Cartesian geometries.
+    The input files required by FUSS (initial conditions, boundary condition table, material property tables) are **typically produced by ATLAS**. If ATLAS is not available, all input files can be prepared manually; see the [User Guide](user/using.md) for the expected formats.
 
 ---
 

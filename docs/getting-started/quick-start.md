@@ -46,13 +46,7 @@ test/steady-state/temperature_Plate/
 ```
 
 !!! info "Where do input files come from?"
-    The boundary-condition table (`bc.txt`) and the material property table (`properties.dat`) are typically produced by **ATLAS**, the pre-processor of [Hydra](../overview.md#hydra-cfd-suite). ATLAS is distributed separately and is not part of the FUSS package. For this bundled test case all necessary files are already provided or generated at runtime. If ATLAS is not available, the files can be prepared manually following the formats described in the [User Guide](../user/using.md).
-
-### Input Files Description
-
-- **`input.ini`** — Solver configuration specifying numerics (time scheme, VNN, IRS), mesh generation (GRIB), material properties, initial condition, and BC assignments.
-- **`bc.txt`** — Boundary condition table defining face-by-face boundary treatment.
-- **`properties.dat`** — Tabulated material properties (thermal conductivity, density, specific heat) versus temperature. Generated automatically from the `[GPB-Phase1]` scalars when no manual file is provided.
+    The boundary-condition table (`bc.txt`) and the material property table (`properties.dat`) are typically produced by **ATLAS**, the pre-processor of [Hydra](../overview.md#hydra-cfd-suite). ATLAS is distributed separately and is not part of the FUSS package. For this bundled test case all necessary files are already provided. If ATLAS is not available, the files can be prepared manually following the formats described in the [User Guide](../user/using.md).
 
 ---
 
@@ -112,7 +106,7 @@ T = 273.15
 Key choices:
 - Steady-state mode (`time-accurate = false`) — local time stepping accelerates convergence.
 - RK3 + IRS — third-order Runge–Kutta with implicit residual smoothing lets us run at VNN = 2.0.
-- All four edges use a wall section with a prescribed temperature `T` — the parameter combination selects Dirichlet behaviour at the INI level.
+- All four edges use a wall section with a prescribed temperature `T`.
 
 ---
 
@@ -255,7 +249,5 @@ Now that you understand the basic workflow:
 ## References
 
 - **NAFEMS P16 benchmark:** *Benchmark Tests for Thermal Analysis*, NAFEMS Publication P16, Test 9 (I), YR3087, Vol. 2, 1986.
-- **Finite-volume method for diffusion:** Ferziger, J. H., Perić, M., Street, R. L. *Computational Methods for Fluid Dynamics*, 4th ed., Springer, 2020.
-- **SSP Runge–Kutta:** Shu, C.-W., Osher, S. "Efficient implementation of essentially non-oscillatory shock-capturing schemes" (1988).
 
 ---
