@@ -20,11 +20,11 @@ Because the two outer blocks are nearly perfectly insulating, no heat crosses th
 
 The governing equation inside Block 2 is:
 
-$$\rho c_v \frac{\partial T}{\partial t} = k \frac{\partial^2 T}{\partial y^2}$$
+$$\rho c_p \frac{\partial T}{\partial t} = k \frac{\partial^2 T}{\partial y^2}$$
 
 with thermal diffusivity:
 
-$$\alpha = \frac{k}{\rho c_v} = \frac{1.0}{1.0 \times 1.0} = 1.0\ \text{m}^2/\text{s}$$
+$$\alpha = \frac{k}{\rho c_p} = \frac{1.0}{1.0 \times 1.0} = 1.0\ \text{m}^2/\text{s}$$
 
 **Boundary conditions**
 
@@ -45,7 +45,7 @@ $$\alpha = \frac{k}{\rho c_v} = \frac{1.0}{1.0 \times 1.0} = 1.0\ \text{m}^2/\te
 
 **Material properties**
 
-| Material | k (W/mK) | ρ (kg/m³) | c_v (J/kgK) | α (m²/s) |
+| Material | k (W/mK) | ρ (kg/m³) | c_p (J/kgK) | α (m²/s) |
 |---|---|---|---|---|
 | Insulator | 1 × 10⁻¹² | 1.0 | 1.0 | ≈ 0 |
 | Conductor | 1.0 | 1.0 | 1.0 | 1.0 |
@@ -105,7 +105,7 @@ The simulation writes a full field solution every 10 solver iterations. The foll
 
 For each snapshot `verify.py`:
 1. Parses the Tecplot ASCII file and extracts Block 2.
-2. Reads the cell-centred temperature at the central I column (i = 4, x ≈ −0.025 m).
+2. Reads the cell-centred temperature at the central I column (i = 5, x ≈ +0.025 m).
 3. Normalises: T* = (T − 100) / (101 − 100).
 4. Evaluates the analytical T* at the same Y cell-centre positions.
 5. Computes the L-inf and L2 errors over the 40 cells in Y.

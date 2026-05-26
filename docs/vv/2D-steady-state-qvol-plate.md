@@ -57,7 +57,7 @@ Boundary conditions (FUSS block-face notation):
 - **Face 4** (y = 0.4 m): Prescribed wall temperature (`type = wall`, `T = 273.15`)
 - **Faces 5–6**: `null` (degenerate 2-D z-direction)
 
-The volumetric heat source is set via the initial condition block (`qvol = 1e6` W/m³).
+The volumetric heat source is set via the source-term block (`[STB-Block1]`, `qvol = 1e6` W/m³).
 
 ## Temperature field
 

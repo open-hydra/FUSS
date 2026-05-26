@@ -76,9 +76,9 @@ Each case is a self-contained directory:
 ```
 test/steady-state/temperature_Plate/
 ├── input.ini          # Solver configuration (time scheme, VNN, BCs, …)
-├── INPUT/             # Initial-condition files
+├── INPUT/             # Mesh-coupled initial condition, BC table, material data
 ├── MESH/              # Pre-generated structured grid
-├── SOLUTION/          # Reference or solver output used by verify.py
+├── OUTPUT/            # Solver output (created at runtime)
 ├── verify.py          # Comparison script
 └── FUSS.sh            # Run helper
 ```
@@ -87,8 +87,8 @@ test/steady-state/temperature_Plate/
 |------------|---------|
 | `input.ini` | Solver configuration |
 | `MESH/` | Pre-generated structured grid |
-| `INPUT/` | Initial-condition field (ORION format) |
-| `SOLUTION/` | Reference solution files used by `verify.py` |
+| `INPUT/` | Initial-condition field, BC table, phase descriptor, property table |
+| `OUTPUT/` | Solver output (field, wall, probes, residual history) — used by `verify.py` |
 | `verify.py` | Reads solver output, compares against reference, writes figure |
 | `FUSS.sh` | Launch wrapper (serial, OpenMP, MPI) |
 

@@ -111,7 +111,7 @@ def main():
     print()
     print(sep)
     print(" 1-D STEADY STATE THERMAL ANALYSIS ")
-    print(" NAFEMS Benchmark T2 ")
+    print(" NAFEMS Benchmark T9 (iii) ")
     print(sep)
     print(f"  {'Quantity':<20} {'Value (K)':>10}  {'Value (°C)':>10}")
     print(sep)

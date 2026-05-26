@@ -12,7 +12,7 @@ program FUSS_docgen
     call Register_Probes(1, 'probe-placeholder')  ! Register one probe with placeholder name
     call Register_Numerics(2)
 
-    call reg%generate_markdown('docs/user/input/registry.md')
+    call reg%generate_markdown('docs/user/registry.md')
 
 end program FUSS_docgen
     

@@ -66,7 +66,7 @@ The mesh is a 2D structured grid (100 × 2 cells) spanning the physical domain (
 Boundary conditions (FUSS block-face notation):
 
 - **Face 1** (x = 0): Prescribed wall temperature (`type = wall`, `T = 2000`)
-- **Face 2** (x = 0.1 m): Prescribed wall temperature, time-varying (`type = wall`, `T-time = Tw_time.dat`)
+- **Face 2** (x = 0.1 m): Prescribed wall temperature, time-varying (`type = wall`, `T-timefile = Tw_time.dat`)
 - **Faces 3–6**: `null` (degenerate 2-D y- and z-directions; effectively adiabatic)
 
 ## Probes
@@ -75,8 +75,8 @@ Two point probes record the temperature history with a time step of 0.1 s:
 
 | Probe | Grid index (block, i, j, k) | Nominal x position |
 |---|---|---|
-| p1 | 1, 36, 1, 1 | x ≈ 0.0355 m |
-| p2 | 1, 37, 1, 1 | x ≈ 0.0365 m |
+| p1 | 1, 90, 1, 1 | x ≈ 0.0895 m |
+| p2 | 1, 91, 1, 1 | x ≈ 0.0905 m |
 
 The probe output files are written to `OUTPUT/p1.txt` and `OUTPUT/p2.txt` as two-column (time, T) ASCII files.
 

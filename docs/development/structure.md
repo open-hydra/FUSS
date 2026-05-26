@@ -27,9 +27,12 @@ FUSS/
 │       ├── driver/          # High-level solver orchestration
 │       ├── io/              # File I/O (solution, BCs, probes, walls)
 │       ├── numerics/        # Numerical methods
-│       │   ├── fluxes/      #   Diffusive flux computation and BCs
+│       │   ├── fluxes/      #   Diffusive flux computation
+│       │   │   └── bc/      #     Boundary-condition flux routines
+│       │   ├── multigrid/   #   Restriction / prolongation
 │       │   ├── space/       #   Metrics, ghost-cell filling
-│       │   └── time/        #   Time stepping (RK, IRS, multigrid)
+│       │   └── time/        #   Time stepping
+│       │       └── explicit/#     Runge–Kutta, IRS, state update
 │       ├── parallel/        # MPI ghost-cell exchange
 │       └── physics/         # Solid material properties
 │

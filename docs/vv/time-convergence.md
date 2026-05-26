@@ -1,6 +1,6 @@
 # Time Convergence – Parallel Scaling Performance
 
-Steady-state heat conduction across a four-block two-material plate. The physical problem is kept simple and its mesh intentionally large so that wall-clock execution time is dominated by the solver work rather than I/O or initialisation overhead. The same 1000-iteration pseudo-time run is repeated under eight parallelisation configurations — three shared-memory (openMP) and five distributed+shared-memory (MPI × openMP) — to assess the parallel scaling of FUSS.
+Steady-state heat conduction across a four-block two-material plate. The physical problem is kept simple and its mesh intentionally large so that wall-clock execution time is dominated by the solver work rather than I/O or initialisation overhead. The same 500-iteration pseudo-time run is repeated under eight parallelisation configurations — three shared-memory (openMP) and five distributed+shared-memory (MPI × openMP) — to assess the parallel scaling of FUSS.
 
 ---
 
@@ -51,12 +51,12 @@ All cases use the same single simulation configuration:
 
 | Parameter | Value |
 |---|---|
-| Time scheme | RK3 |
-| VNN | 2.0 |
+| Time scheme | RK2 |
+| VNN | 1.5 |
 | Time-accurate | false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Stopping criterion | iter-threshold = 1000 |
+| Stopping criterion | iter-threshold = 500 |
 
 ## Grid structure
 

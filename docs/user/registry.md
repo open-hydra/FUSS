@@ -1,4 +1,4 @@
-# Input Parameters
+# FUSS Input Parameters
 
 
 ## FUSS-Parameters

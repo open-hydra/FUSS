@@ -114,7 +114,7 @@ T        = 300.0
 qvol     = 0.0
 ```
 
-At the interface between the two blocks, set the BC type to `1` (block-to-block connection) on the matching faces. The diffusive flux at the interface then uses the **harmonic-mean conductivity** of the two materials, correctly representing series thermal resistance (see [Spatial Discretisation](../theory/numerics.md)).
+At the interface between the two blocks, set the matching faces to `connection` in their `[BCB-Block*]` sections (internal code `101`). The diffusive flux at the interface then uses the **harmonic-mean conductivity** of the two materials, correctly representing series thermal resistance (see [Spatial Discretisation](../theory/numerics.md)).
 
 ### Volumetric heat generation
 
@@ -124,4 +124,4 @@ A non-zero `qvol` activates a uniform volumetric heat source $\dot{q}_\text{vol}
 
 ## Restart
 
-When resuming from a previous run (`newrun = false` in `input.ini`), FUSS reads the initial condition from the latest solution file in `SOLUTION/` instead of using the `[ICB-Block*]` sections. The solution files share the same Tecplot/VTK format used for the run-time field output and are loaded through ORION. The temperature field, physical time, and iteration counter are all restored, while the material assignment is preserved from the prior run.
+When resuming from a previous run (`newrun = false` in `input.ini`), FUSS reads the initial condition from the latest solution file in `OUTPUT/` instead of using the `[ICB-Block*]` sections. The solution files share the same Tecplot/VTK format used for the run-time field output and are loaded through ORION. The temperature field, physical time, and iteration counter are all restored, while the material assignment is preserved from the prior run.
