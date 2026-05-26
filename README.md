@@ -2,11 +2,11 @@
   <h1 align="center">FUSS</h1>
   <p align="center"><b>Fourier Un-Steady Solver</b></p>
 </p>
-
 <p align="center">
-  <a href="https://github.com/open-hydra/FUSS/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3"></a>
+  <img src="https://zenodo.org/badge/1239585241.svg" alt="DOI: https://doi.org/10.5281/zenodo.20395702">
   <a href="https://open-hydra.github.io/FUSS/"><img src="https://img.shields.io/badge/docs-online-brightgreen.svg" alt="Documentation"></a>
   <img src="https://img.shields.io/badge/language-Fortran-734f96.svg" alt="Language: Fortran">
+  <a href="https://github.com/open-hydra/FUSS/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPLv3-blue.svg" alt="License: GPLv3"></a>
 </p>
 
 ---
