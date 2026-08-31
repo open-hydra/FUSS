@@ -69,6 +69,11 @@ contains
       ! Frequency
       probe(i)%dtime = obj_io_probes(i)%dtime
       probe(i)%diter = obj_io_probes(i)%diter
+      ! Output counter for the time-based trigger in Write_Probes_Data.
+      ! Without this the component is undefined: dtime*ntime evaluates to
+      ! garbage, the "time >= dtime*ntime" test never fires and the probe file
+      ! is written empty (observed on test/transient/oscillating_Rod).
+      probe(i)%ntime = 0
 
       ! Location
       probe(i)%location%c = obj_io_probes(i)%loc
@@ -159,7 +164,10 @@ contains
         write(probe(i)%unit,*) iter, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
       elseif (time >= probe(i)%dtime*probe(i)%ntime) then
         write(probe(i)%unit,*) time, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
-        probe(i)%ntime = probe(i)%ntime+1
+        ! Advance to the next output slot. The max() makes this self-correcting
+        ! on restart, where ntime starts at 0 but time does not -- otherwise the
+        ! counter would have to catch up one call at a time, duplicating rows.
+        probe(i)%ntime = max( probe(i)%ntime + 1, int(time/probe(i)%dtime) + 1 )
       endif
     enddo
 
