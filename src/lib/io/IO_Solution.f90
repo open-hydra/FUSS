@@ -171,9 +171,19 @@ contains
       IOfield%block(b)%Nj = IOinit%block(b)%Nj
       IOfield%block(b)%Nk = IOinit%block(b)%Nk
       IOfield%block(b)%mesh = IOinit%block(b)%mesh
+      ! Variable layout differs between the two input files, because ORION puts
+      ! only the CELL-CENTRED variables in %vars (x,y,z go to %mesh):
+      !   the ic.tec file : "x" "y" "z" T matID -> vars(1)=T, vars(2)=matID
+      !   the st.tec file : "x" "y" "z" qvol   -> vars(1)=qvol  [extent (1:1)]
+      ! (note: no globs in these comments -- the build uses -cpp, and a
+      !  slash-star sequence would open a C block comment)
+      ! so the source is read from index 1, not 3. Indexing IOsource with 3 is
+      ! out of bounds; in a RELEASE build it silently linearises to
+      ! vars(1,i+2,j,k) -- the source shifted by two cells, plus a read past the
+      ! end of the array in the last two cells.
       IOfield%block(b)%vars(1:2,:,:,:) = IOinit%block(b)%vars(1:2,:,:,:)
       if (error_source == 0) then
-        IOfield%block(b)%vars(3,:,:,:) = IOsource%block(b)%vars(3,:,:,:)
+        IOfield%block(b)%vars(3,:,:,:) = IOsource%block(b)%vars(1,:,:,:)
       else
         IOfield%block(b)%vars(3,:,:,:) = 0.0d0
       endif
