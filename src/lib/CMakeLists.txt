@@ -3,6 +3,12 @@ file(GLOB_RECURSE FUSS_SRC
     ${CMAKE_CURRENT_SOURCE_DIR}/*.f90
 )
 
+# Exclude unit-test PROGRAMS from the library. src/lib/morph/test/ holds
+# standalone executables (test_morph_gcl, test_morph_block); the recursive glob
+# above would otherwise link two extra program units into libFUSSL and break it.
+# They are built and run by test/run_morph_guards.sh instead.
+list(FILTER FUSS_SRC EXCLUDE REGEX "/test/")
+
 add_library(FUSSL ${FUSS_SRC})
 add_library(FUSSL::FUSSL ALIAS FUSSL)
 target_link_libraries(FUSSL PRIVATE FiNeR::FiNeR ORION)

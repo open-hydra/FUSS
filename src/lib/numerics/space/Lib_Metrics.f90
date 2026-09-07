@@ -1,3 +1,23 @@
+!>@brief Ghost-cell metrics for boundary conditions, plus the geometry kernels
+!>       they depend on.
+!>
+!> MIGRATION IN PROGRESS -- READ BEFORE EDITING THE KERNELS BELOW.
+!>
+!> Check_Mesh_Type, Compute_Norm_Area and Compute_Metric_Tensor have been MOVED
+!> into the MORPH component (src/lib/morph/metrics/Morph_Metrics.f90), which is
+!> now what Mod_Metrics.f90 calls for cell geometry. The copies here are
+!> retained ONLY because the BC_*_Metrics routines in this file call
+!> Compute_Metric_Tensor from ~25 sites, and those routines have not been moved
+!> yet (plan 09 section 7 says they should be, passing connectivity as plain
+!> integer descriptors rather than FUSS_bc_type).
+!>
+!> So the same arithmetic currently exists in two places. That is a drift
+!> hazard, and it is deliberately temporary:
+!>   * do NOT "improve" one copy without the other;
+!>   * the zero-motion regression gate (plan 05 section 5.2) compares whole-run
+!>     results against the Phase 0 baseline and will fail if the two copies stop
+!>     agreeing, so the duplication is at least mechanically observed;
+!>   * the duplication disappears when the BC_*_Metrics routines move into MORPH.
 module FUSS_Lib_Metrics
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Base_Types_m

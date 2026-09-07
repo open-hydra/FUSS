@@ -1,64 +1,72 @@
 module FUSS_Mod_Metrics
   use iso_fortran_env, only: I4 => int32, R8 => real64
-  
+
   implicit none
 
 contains
 
+  !> Build the geometry for every block and every ghost-cell interface.
+  !>
+  !> The cell-level geometry (volume, metric tensor, cell lengths, face normals
+  !> and areas) is computed by the MORPH component through Adapter_Morph. The
+  !> arithmetic is unchanged from the routines that used to live in
+  !> Lib_Metrics.f90, so results are bit-identical; see plan 09 for why the
+  !> geometry was split out.
+  !>
+  !> The BC ghost-cell metrics below still use Lib_Metrics because they need the
+  !> block-connectivity topology. Plan 09 section 7 recommends moving them into
+  !> MORPH too, passing connectivity as plain integer descriptors; that is a
+  !> separate step and is deliberately not done here, so that this change can be
+  !> verified as inert on its own.
   subroutine Setup_Metrics ( domain )
     use FUSS_Base_Types_m
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
-    use FUSS_Lib_Metrics
+    use FUSS_Lib_Metrics, only: delthe, BC_Connect_Metrics, BC_Symmetry_Metrics, &
+                                BC_Extrapolate_Metrics
+    use FUSS_Adapter_Morph, only: Adapter_Mesh_Type, Adapter_Block_Metrics
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer :: b, i, j, k
+    integer :: b, i
     integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
-    type(FUSS_vector_3D_type) :: N1, N2, N3, N4, N5, N6, N7, N8
+    integer :: ci, cj, ck
+    logical :: ok
+    character(len=256) :: message
 
-    call Check_Mesh_Type ( domain )
-    
+    ! Mesh classification. These were globals written directly by
+    ! Check_Mesh_Type; MORPH returns them instead of reaching into solver state.
+    call Adapter_Mesh_Type ( domain%blk(1), ndir, delthe )
+
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
-      !$omp parallel
-      ! Compute metric tensor and cell dimension across i,j,k. => block % M, & block % dl      
-      !$omp do collapse(3) private(i, j, k, N1, N2, N3, N4, N5, N6, N7, N8)
-      do k = 1, domain % blk(b) % dim(3)
-      do j = 1, domain % blk(b) % dim(2)
-      do i = 1, domain % blk(b) % dim(1)
-        N1 % c = domain % blk(b) % node(i-1,j-1,k-1) % c
-        N2 % c = domain % blk(b) % node(i-1,j-1,k  ) % c
-        N3 % c = domain % blk(b) % node(i-1,j  ,k-1) % c
-        N4 % c = domain % blk(b) % node(i-1,j  ,k  ) % c
-        N5 % c = domain % blk(b) % node(i  ,j-1,k-1) % c
-        N6 % c = domain % blk(b) % node(i  ,j-1,k  ) % c
-        N7 % c = domain % blk(b) % node(i  ,j  ,k-1) % c
-        N8 % c = domain % blk(b) % node(i  ,j  ,k  ) % c
-        call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, domain % blk(b) % M(i,j,k), domain % blk(b) % dl(i,j,k), domain % blk(b) % vol(i,j,k) )
-      enddo; enddo; enddo
-      !$omp end parallel
 
-      ! Compute Normal & Area
-      call Compute_Norm_Area ( domain % blk(b) )
+      call Adapter_Block_Metrics ( domain%blk(b), domain%nb, b, ok, message, ci, cj, ck )
+
+      if ( .not. ok ) then
+        write(*,'(A)')            ' [ERROR] mesh geometry is invalid'
+        write(*,'(A,A)')          '         ', trim(message)
+        write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
+        stop
+      endif
     enddo
-    
+
     !$omp parallel
     ! Create the nodes for gc layers of ghost cell
     !$omp do schedule (dynamic) private(i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do i = 1, domain % nbound
       Bm = domain % bc(i) % b
-      Im = domain % bc(i) % i 
-      Jm = domain % bc(i) % j 
-      Km = domain % bc(i) % k 
+      Im = domain % bc(i) % i
+      Jm = domain % bc(i) % j
+      Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
       select case ( domain % bc(i) % type )
         case(101) ! block connection
           Bs = domain % bc(i) % bs
-          Is = domain % bc(i) % is 
-          Js = domain % bc(i) % js 
-          Ks = domain % bc(i) % ks 
+          Is = domain % bc(i) % is
+          Js = domain % bc(i) % js
+          Ks = domain % bc(i) % ks
           Fs = domain % bc(i) % fs
           d11s = domain % bc(i) % d11
           d12s = domain % bc(i) % d12
