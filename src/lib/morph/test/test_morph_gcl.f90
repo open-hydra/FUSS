@@ -11,8 +11,8 @@
 !> Build (no CMake needed):
 !>   gfortran -O2 -fcheck=bounds -o test_morph_gcl \
 !>       src/lib/morph/base/Morph_Types_m.f90 \
-!>       src/lib/morph/metrics/Morph_Metrics.f90 \
 !>       src/lib/morph/metrics/Morph_GCL.f90 \
+!>       src/lib/morph/metrics/Morph_Metrics.f90 \
 !>       src/lib/morph/test/test_morph_gcl.f90
 program test_morph_gcl
   use iso_fortran_env, only: R8 => real64
@@ -87,13 +87,12 @@ program test_morph_gcl
       endif
     endif
 
-    ! ---- Signed vs legacy absolute-value volume, on the untangled old cell.
-    do n = 1, 8
-      Nd(n)%c = x_old(:,n)
-    enddo
-    call st%clear()
-    call Morph_Metric_Tensor( Nd(1),Nd(2),Nd(3),Nd(4),Nd(5),Nd(6),Nd(7),Nd(8), &
-                              M, dl, vol_legacy, st )
+    ! ---- How much did fixing the volume formula actually change?
+    ! Morph_Metric_Tensor now returns the signed volume, so comparing it against
+    ! itself would prove nothing. legacy_volume() below is a local copy of the
+    ! five-tetrahedron abs() sum that FUSS used before, kept HERE (not in the
+    ! component) purely so this test can quantify the correction.
+    vol_legacy = legacy_volume( x_old )
     gap = Morph_GCL_Volume_Gap( x_old, vol_legacy )
     worst_gap = max( worst_gap, gap )
 
@@ -101,6 +100,8 @@ program test_morph_gcl
 
   write(*,'(A,ES10.2)') '   worst relative GCL residual      : ', worst_rel
   write(*,'(A,ES10.2)') '   worst signed-vs-legacy volume gap: ', worst_gap
+  write(*,'(A)')        '     (that gap is the size of the correction from fixing the'
+  write(*,'(A)')        '      old five-tetrahedron abs() volume; it is 0 for planar faces)'
   write(*,*)
 
   ok = ( nfail == 0 )
@@ -174,6 +175,49 @@ contains
     x(:,7) = [1.0_R8, 1.0_R8, 0.0_R8]
     x(:,8) = [1.0_R8, 1.0_R8, 1.0_R8]
   end subroutine unit_cell
+
+  !> FUSS's ORIGINAL cell volume: five tetrahedra, absolute value of each.
+  !> Kept here only so the test can report how large the correction was. Do not
+  !> use this anywhere else -- it is exact for planar-faced cells, carries an
+  !> O(face warp) error otherwise, and cannot detect an inverted cell.
+  real(R8) function legacy_volume ( x ) result ( vol )
+    real(R8), intent(in) :: x(3,8)
+    real(R8) :: vx(8), vy(8), vz(8)
+
+    ! The original remapped the corner order before summing.
+    vx(1)=x(1,1); vy(1)=x(2,1); vz(1)=x(3,1)
+    vx(2)=x(1,5); vy(2)=x(2,5); vz(2)=x(3,5)
+    vx(3)=x(1,3); vy(3)=x(2,3); vz(3)=x(3,3)
+    vx(4)=x(1,7); vy(4)=x(2,7); vz(4)=x(3,7)
+    vx(5)=x(1,2); vy(5)=x(2,2); vz(5)=x(3,2)
+    vx(6)=x(1,6); vy(6)=x(2,6); vz(6)=x(3,6)
+    vx(7)=x(1,4); vy(7)=x(2,4); vz(7)=x(3,4)
+    vx(8)=x(1,8); vy(8)=x(2,8); vz(8)=x(3,8)
+
+    ! tvol is a sibling internal procedure, not nested inside this one:
+    ! Fortran does not allow an internal procedure to contain further internal
+    ! procedures.
+    vol = tvol(vx,vy,vz,1,2,3,5) + tvol(vx,vy,vz,2,4,3,8) &
+        + tvol(vx,vy,vz,5,8,6,2) + tvol(vx,vy,vz,5,7,8,3) &
+        + tvol(vx,vy,vz,5,8,2,3)
+
+  end function legacy_volume
+
+
+  real(R8) function tvol ( vx, vy, vz, ia, ib, ic, id ) result ( v )
+    real(R8), intent(in) :: vx(8), vy(8), vz(8)
+    integer,  intent(in) :: ia, ib, ic, id
+
+    v = abs(((vx(ib)-vx(ia))* &
+      ((vy(ic)-vy(ia))*(vz(id)-vz(ia))-(vy(id)-vy(ia))*(vz(ic)-vz(ia)))+ &
+                              (vy(ib)-vy(ia))* &
+      ((vx(id)-vx(ia))*(vz(ic)-vz(ia))-(vx(ic)-vx(ia))*(vz(id)-vz(ia)))+ &
+                              (vz(ib)-vz(ia))* &
+      ((vx(ic)-vx(ia))*(vy(id)-vy(ia))-(vx(id)-vx(ia))*(vy(ic)-vy(ia)))) &
+      /6.d0)
+
+  end function tvol
+
 
   !> Deterministic pseudo-random sequence in (0,1). Reproducible across runs and
   !> platforms, so a failure is always reproducible.

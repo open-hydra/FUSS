@@ -2,9 +2,8 @@
 !>       normals and areas, computed from node positions alone.
 !>
 !> These routines were MOVED here from FUSS's Lib_Metrics.f90 (Compute_Metric_Tensor,
-!> Compute_Norm_Area, Check_Mesh_Type). The arithmetic is unchanged, so that the
-!> zero-motion regression in plan 05 section 5.2 reproduces the Phase 0 results
-!> bit-identically. Two deliberate differences from the originals:
+!> Compute_Norm_Area, Check_Mesh_Type). Three deliberate differences from the
+!> originals:
 !>
 !>   1. Failures return a morph_status_t instead of calling `stop`. MORPH is a
 !>      library; the caller decides what to do. (The originals aborted on a
@@ -14,11 +13,17 @@
 !>      which is numerically identical but raises a spurious IEEE divide-by-zero
 !>      and would trap under -ffpe-trap. Degenerate faces occur routinely on the
 !>      collapsed k-faces of 2-D meshes, so this is not a hypothetical path.
+!>   3. THE CELL VOLUME IS NOW SIGNED AND EXACT. The original five-tetrahedron
+!>      abs() sum was wrong for warped cells (see Morph_Metric_Tensor). This
+!>      CHANGES RESULTS on any non-planar-faced mesh, so the Phase 0 regression
+!>      baseline was regenerated when it landed -- deliberately, as a correctness
+!>      fix rather than an inert refactor.
 !>
 !> MORPH must never `use` a FUSS module -- see Morph_Types_m.
 module Morph_Metrics
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use Morph_Types_m
+  use Morph_GCL, only: Morph_Cell_Volume_Signed
 
   implicit none
   private
@@ -48,19 +53,15 @@ contains
     geom%dim = dim
 
     ! Cell-centred quantities carry one ghost layer, matching FUSS's convention.
-    allocate( geom%vol        (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%vol_old    (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%vol_gcl    (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%vol_gcl_old(0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%M          (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%dl         (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol     (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol_old (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%M       (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%dl      (0:im+1, 0:jm+1, 0:km+1) )
     allocate( geom%dV_swept(6, 1:im, 1:jm, 1:km) )
 
-    geom%vol         = 0.0_R8
-    geom%vol_old     = 0.0_R8
-    geom%vol_gcl     = 0.0_R8
-    geom%vol_gcl_old = 0.0_R8
-    geom%dV_swept    = 0.0_R8
+    geom%vol      = 0.0_R8
+    geom%vol_old  = 0.0_R8
+    geom%dV_swept = 0.0_R8
 
     ! Face arrays: interfaces normal to direction d have one extra plane in d.
     do d = 1, 3
@@ -80,10 +81,8 @@ contains
     type(morph_geom_t), intent(inout) :: geom
     integer(I4) :: d
 
-    if (allocated(geom%vol))         deallocate(geom%vol)
-    if (allocated(geom%vol_old))     deallocate(geom%vol_old)
-    if (allocated(geom%vol_gcl))     deallocate(geom%vol_gcl)
-    if (allocated(geom%vol_gcl_old)) deallocate(geom%vol_gcl_old)
+    if (allocated(geom%vol))      deallocate(geom%vol)
+    if (allocated(geom%vol_old))  deallocate(geom%vol_old)
     if (allocated(geom%M))        deallocate(geom%M)
     if (allocated(geom%dl))       deallocate(geom%dl)
     if (allocated(geom%dV_swept)) deallocate(geom%dV_swept)
@@ -171,7 +170,7 @@ contains
     ! Local
     integer(I4) :: h
     real(R8)    :: det, A(3,3), cofactor(3,3)
-    real(R8)    :: vx(8), vy(8), vz(8)
+    real(R8)    :: x(3,8)
 
     ! A is M^-1, the inverse metric tensor:
     !   A = [ xcs, ycs, zcs ; xet, yet, zet ; xzi, yzi, zzi ]
@@ -209,47 +208,29 @@ contains
       dl%c(h) = sqrt( A(h,1)**2 + A(h,2)**2 + A(h,3)**2 )
     enddo
 
-    ! Cell volume as the sum of five tetrahedra.
-    ! NOTE: each tetrahedron contributes its ABSOLUTE volume, so this sum stays
-    ! positive even for a tangled (inverted) cell. `vol > 0` is therefore NOT a
-    ! validity test -- use Morph_Quality's Jacobian-sign check for that.
-    vx(1) = N1%c(1); vy(1) = N1%c(2); vz(1) = N1%c(3)
-    vx(2) = N5%c(1); vy(2) = N5%c(2); vz(2) = N5%c(3)
-    vx(3) = N3%c(1); vy(3) = N3%c(2); vz(3) = N3%c(3)
-    vx(4) = N7%c(1); vy(4) = N7%c(2); vz(4) = N7%c(3)
-    vx(5) = N2%c(1); vy(5) = N2%c(2); vz(5) = N2%c(3)
-    vx(6) = N6%c(1); vy(6) = N6%c(2); vz(6) = N6%c(3)
-    vx(7) = N4%c(1); vy(7) = N4%c(2); vz(7) = N4%c(3)
-    vx(8) = N8%c(1); vy(8) = N8%c(2); vz(8) = N8%c(3)
+    ! Cell volume, SIGNED, by the divergence theorem over the six bilinear
+    ! faces (see Morph_GCL).
+    !
+    ! This replaces FUSS's original formula, which summed five tetrahedra taking
+    ! the ABSOLUTE value of each. That formula was exact only for planar-faced
+    ! cells: for a unit cell with one corner displaced by d it returned
+    ! 1 + d/3 instead of the exact trilinear value 1 + d/4 -- a 0.8% error at
+    ! d = 0.1, systematic wherever the mesh is warped. Being unsigned it also
+    ! reported a positive volume for a tangled cell, so it could not be used as
+    ! a validity test, and it could not telescope against signed swept volumes,
+    ! so it was unusable for the Geometric Conservation Law.
+    !
+    ! With the signed formula all three problems go away at once: the volume is
+    ! exact for trilinear hexahedra, `vol <= 0` genuinely means inverted, and
+    ! the same number satisfies the GCL.
+    x(:,1) = N1%c;  x(:,2) = N2%c;  x(:,3) = N3%c;  x(:,4) = N4%c
+    x(:,5) = N5%c;  x(:,6) = N6%c;  x(:,7) = N7%c;  x(:,8) = N8%c
 
-    vol = tvol(vx,vy,vz,1,2,3,5) + tvol(vx,vy,vz,2,4,3,8) &
-        + tvol(vx,vy,vz,5,8,6,2) + tvol(vx,vy,vz,5,7,8,3) &
-        + tvol(vx,vy,vz,5,8,2,3)
+    vol = Morph_Cell_Volume_Signed( x )
 
     if ( vol <= 0.0_R8 ) then
-      call status%fail ( MORPH_ERR_NEGVOL, 'non-positive cell volume' )
+      call status%fail ( MORPH_ERR_NEGVOL, 'non-positive signed cell volume (inverted cell)' )
     endif
-
-  contains
-
-    !> Dummy names are ia..id, not i1..i4: a dummy called `i4` would shadow the
-    !> module kind parameter `I4` (Fortran is case-insensitive), which makes the
-    !> `integer(I4)` declaration on the line below illegal. The original in
-    !> Lib_Metrics.f90 used default `integer` and so never hit this.
-    pure function tvol ( vx, vy, vz, ia, ib, ic, id ) result ( volume )
-      real(R8),    intent(in) :: vx(8), vy(8), vz(8)
-      integer(I4), intent(in) :: ia, ib, ic, id
-      real(R8)                :: volume
-
-      volume = abs(((vx(ib)-vx(ia))* &
-        ((vy(ic)-vy(ia))*(vz(id)-vz(ia))-(vy(id)-vy(ia))*(vz(ic)-vz(ia)))+ &
-                                (vy(ib)-vy(ia))* &
-        ((vx(id)-vx(ia))*(vz(ic)-vz(ia))-(vx(ic)-vx(ia))*(vz(id)-vz(ia)))+ &
-                                (vz(ib)-vz(ia))* &
-        ((vx(ic)-vx(ia))*(vy(id)-vy(ia))-(vx(id)-vx(ia))*(vy(ic)-vy(ia)))) &
-        /6.d0)
-
-    end function tvol
 
   end subroutine Morph_Metric_Tensor
 

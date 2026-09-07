@@ -5,17 +5,14 @@
 !>
 !>       exactly, to floating-point round-off, for ARBITRARY node motion.
 !>
-!> WHY A SECOND VOLUME FORMULA EXISTS
-!> ----------------------------------
-!> FUSS's original cell volume (Morph_Metric_Tensor, moved from Lib_Metrics.f90)
-!> sums five tetrahedra taking the ABSOLUTE value of each. That is not a signed
-!> volume, so it cannot telescope against signed swept volumes and cannot be
-!> used to satisfy the GCL. It is kept unchanged for the static path so that the
-!> zero-motion regression stays bit-identical with Phase 0; this module supplies
-!> the signed formulation used whenever the mesh actually moves.
+!> Morph_Cell_Volume_Signed below is THE cell volume for the whole code:
+!> Morph_Metric_Tensor calls it, so the volume the solver uses and the volume
+!> that telescopes against the swept volumes are the same number by construction.
 !>
-!> For a valid (untangled) cell the two agree to round-off. Morph_GCL_Volume_Gap
-!> reports the difference so the discrepancy is observable rather than assumed.
+!> It replaced FUSS's original five-tetrahedron abs() sum, which was exact only
+!> for planar-faced cells, could not detect a tangled cell, and could not
+!> telescope. Morph_GCL_Volume_Gap is retained as a diagnostic for comparing
+!> against that legacy formula.
 !>
 !> HOW THE IDENTITY IS MADE EXACT
 !> ------------------------------
@@ -157,11 +154,9 @@ contains
     do k = 1, dim(3)
     do j = 1, dim(2)
     do i = 1, dim(1)
-      ! The SIGNED volumes are the ones that telescope; using geom%vol (legacy,
-      ! unsigned) here would report a spurious violation on warped meshes.
-      r = abs( ( geom%vol_gcl(i,j,k) - geom%vol_gcl_old(i,j,k) ) &
+      r = abs( ( geom%vol(i,j,k) - geom%vol_old(i,j,k) ) &
                - sum( geom%dV_swept(1:6,i,j,k) ) )
-      vscale = max( abs(geom%vol_gcl(i,j,k)), abs(geom%vol_gcl_old(i,j,k)) )
+      vscale = max( abs(geom%vol(i,j,k)), abs(geom%vol_old(i,j,k)) )
       resid_max = max( resid_max, r )
       if ( vscale > 0.0_R8 ) resid_rel_max = max( resid_rel_max, r / vscale )
     enddo; enddo; enddo

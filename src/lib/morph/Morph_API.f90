@@ -58,11 +58,9 @@ contains
     call status%clear()
 
     call Morph_Metrics_Block ( node, dim, geom, status )
-    call fill_signed_volumes ( node, dim, geom )
 
-    geom%vol_old     = geom%vol
-    geom%vol_gcl_old = geom%vol_gcl
-    geom%dV_swept    = 0.0_R8
+    geom%vol_old  = geom%vol
+    geom%dV_swept = 0.0_R8
 
   end subroutine Morph_Init
 
@@ -94,9 +92,8 @@ contains
     endif
 
     ! Roll the time levels BEFORE the law runs.
-    node_old         = node
-    geom%vol_old     = geom%vol
-    geom%vol_gcl_old = geom%vol_gcl
+    node_old     = node
+    geom%vol_old = geom%vol
 
     ! Move the nodes.
     call law%apply ( node, node_old, dim, t, dt, law_status )
@@ -107,7 +104,6 @@ contains
 
     ! Rebuild geometry at the new positions.
     call Morph_Metrics_Block ( node, dim, geom, status )
-    call fill_signed_volumes ( node, dim, geom )
     call fill_swept_volumes  ( node_old, node, dim, geom )
 
     ! Validity. Reported, never fatal here -- the caller decides.
@@ -119,26 +115,6 @@ contains
 
 
   ! ---------------------------------------------------------------------------
-
-  subroutine fill_signed_volumes ( node, dim, geom )
-    type(morph_vec3_t), intent(in)    :: node(0:,0:,0:)
-    integer(I4),        intent(in)    :: dim(3)
-    type(morph_geom_t), intent(inout) :: geom
-    ! Local
-    integer(I4) :: i, j, k
-    real(R8)    :: x(3,8)
-
-    !$omp parallel do collapse(3) private(i,j,k,x)
-    do k = 1, dim(3)
-    do j = 1, dim(2)
-    do i = 1, dim(1)
-      call gather_cell ( node, i, j, k, x )
-      geom%vol_gcl(i,j,k) = Morph_Cell_Volume_Signed( x )
-    enddo; enddo; enddo
-    !$omp end parallel do
-
-  end subroutine fill_signed_volumes
-
 
   subroutine fill_swept_volumes ( node_old, node_new, dim, geom )
     type(morph_vec3_t), intent(in)    :: node_old(0:,0:,0:), node_new(0:,0:,0:)
