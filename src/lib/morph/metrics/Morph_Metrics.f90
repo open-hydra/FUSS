@@ -48,15 +48,19 @@ contains
     geom%dim = dim
 
     ! Cell-centred quantities carry one ghost layer, matching FUSS's convention.
-    allocate( geom%vol     (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%vol_old (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%M       (0:im+1, 0:jm+1, 0:km+1) )
-    allocate( geom%dl      (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol        (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol_old    (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol_gcl    (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%vol_gcl_old(0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%M          (0:im+1, 0:jm+1, 0:km+1) )
+    allocate( geom%dl         (0:im+1, 0:jm+1, 0:km+1) )
     allocate( geom%dV_swept(6, 1:im, 1:jm, 1:km) )
 
-    geom%vol      = 0.0_R8
-    geom%vol_old  = 0.0_R8
-    geom%dV_swept = 0.0_R8
+    geom%vol         = 0.0_R8
+    geom%vol_old     = 0.0_R8
+    geom%vol_gcl     = 0.0_R8
+    geom%vol_gcl_old = 0.0_R8
+    geom%dV_swept    = 0.0_R8
 
     ! Face arrays: interfaces normal to direction d have one extra plane in d.
     do d = 1, 3
@@ -76,8 +80,10 @@ contains
     type(morph_geom_t), intent(inout) :: geom
     integer(I4) :: d
 
-    if (allocated(geom%vol))      deallocate(geom%vol)
-    if (allocated(geom%vol_old))  deallocate(geom%vol_old)
+    if (allocated(geom%vol))         deallocate(geom%vol)
+    if (allocated(geom%vol_old))     deallocate(geom%vol_old)
+    if (allocated(geom%vol_gcl))     deallocate(geom%vol_gcl)
+    if (allocated(geom%vol_gcl_old)) deallocate(geom%vol_gcl_old)
     if (allocated(geom%M))        deallocate(geom%M)
     if (allocated(geom%dl))       deallocate(geom%dl)
     if (allocated(geom%dV_swept)) deallocate(geom%dV_swept)

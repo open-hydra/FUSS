@@ -82,10 +82,27 @@ module Morph_Types_m
   !> The GCL requires, per cell and to round-off:
   !>   vol - vol_old  ==  sum_f dV_swept(f,...)
   !> Morph_GCL_Residual returns exactly that mismatch so the caller can assert.
+  !> TWO volume fields, deliberately:
+  !>
+  !>   vol      - the LEGACY 5-tetrahedron formula moved from FUSS. This is what
+  !>              the solver consumes for flux division and the dt limit, so that
+  !>              a static run reproduces Phase 0 bit-identically. It is exact
+  !>              for planar-faced cells and carries an O(face warp) error
+  !>              otherwise, and being unsigned it cannot detect a tangled cell.
+  !>
+  !>   vol_gcl  - the SIGNED divergence-theorem volume. This is the one that
+  !>              telescopes against dV_swept, so the ALE update and the GCL
+  !>              identity must use it and only it. Mixing the two silently
+  !>              breaks conservation, which is why they are separate fields
+  !>              rather than one field with a mode flag.
+  !>
+  !> For an untangled, planar-faced cell the two agree to round-off.
   type :: morph_geom_t
     integer(I4)                       :: dim(3) = 0
-    real(R8),            allocatable  :: vol(:,:,:)          !> current cell volume
-    real(R8),            allocatable  :: vol_old(:,:,:)      !> previous cell volume
+    real(R8),            allocatable  :: vol(:,:,:)          !> legacy volume, FUSS-facing
+    real(R8),            allocatable  :: vol_old(:,:,:)      !> legacy volume, previous step
+    real(R8),            allocatable  :: vol_gcl(:,:,:)      !> signed volume, current
+    real(R8),            allocatable  :: vol_gcl_old(:,:,:)  !> signed volume, previous
     real(R8),            allocatable  :: dV_swept(:,:,:,:)   !> (6, i, j, k)
     type(morph_tens3_t), allocatable  :: M(:,:,:)            !> metric transformation tensor
     type(morph_vec3_t),  allocatable  :: dl(:,:,:)           !> average cell length per direction

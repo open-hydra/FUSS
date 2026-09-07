@@ -157,9 +157,11 @@ contains
     do k = 1, dim(3)
     do j = 1, dim(2)
     do i = 1, dim(1)
-      r = abs( ( geom%vol(i,j,k) - geom%vol_old(i,j,k) ) &
+      ! The SIGNED volumes are the ones that telescope; using geom%vol (legacy,
+      ! unsigned) here would report a spurious violation on warped meshes.
+      r = abs( ( geom%vol_gcl(i,j,k) - geom%vol_gcl_old(i,j,k) ) &
                - sum( geom%dV_swept(1:6,i,j,k) ) )
-      vscale = max( abs(geom%vol(i,j,k)), abs(geom%vol_old(i,j,k)) )
+      vscale = max( abs(geom%vol_gcl(i,j,k)), abs(geom%vol_gcl_old(i,j,k)) )
       resid_max = max( resid_max, r )
       if ( vscale > 0.0_R8 ) resid_rel_max = max( resid_rel_max, r / vscale )
     enddo; enddo; enddo
