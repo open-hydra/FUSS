@@ -58,10 +58,50 @@ contains
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)
 
+    ! Mesh motion (ALE) -------------------------------------
+    call Register_Mesh_Motion()
+
     !! ------------------------------------------------------
     !! ------------------------------------------------------
 
   end subroutine Register_Numerics
+
+
+  !> Moving-mesh options. The default `static` law is exactly inert, so adding
+  !> these parameters cannot change any existing case.
+  subroutine Register_Mesh_Motion ()
+    use FUSS_Config_Types_m
+    use FUSS_Parameters_m
+    implicit none
+    character(len=llen) :: section
+
+    section = trim(codename)//'-MeshMotion'
+
+    obj_mesh_motion%warning_message = 'none'
+    obj_mesh_motion%error_message   = 'none'
+    obj_mesh_motion%description     = 'none'
+
+    call reg%add( trim(section), 'law', obj_mesh_motion%law, 'static', &
+                  'Mesh motion law', 'static ,  prescribed', .false. )
+
+    call reg%add( trim(section), 'amp', obj_mesh_motion%amp, '0.0', &
+                  'Prescribed-motion displacement amplitude per coordinate [m]', '>= 0', .false. )
+    call reg%add( trim(section), 'kx', obj_mesh_motion%kx, '0.0', &
+                  'Prescribed-motion wavenumbers multiplying x [1/m]', 'real', .false. )
+    call reg%add( trim(section), 'ky', obj_mesh_motion%ky, '0.0', &
+                  'Prescribed-motion wavenumbers multiplying y [1/m]', 'real', .false. )
+    call reg%add( trim(section), 'kz', obj_mesh_motion%kz, '0.0', &
+                  'Prescribed-motion wavenumbers multiplying z [1/m]', 'real', .false. )
+    call reg%add( trim(section), 'omega', obj_mesh_motion%omega, '0.0', &
+                  'Prescribed-motion angular frequency [1/s]', 'real', .false. )
+
+    ! The discrete GCL residual is asserted every step when the mesh moves; a
+    ! violation means the geometry and the state update disagree about how much
+    ! volume was swept, which corrupts the solution silently.
+    call reg%add( trim(section), 'gcl-tolerance', obj_mesh_motion%gcl_tol, '1.0e-10', &
+                  'Max relative discrete-GCL residual before the run is stopped', '> 0', .false. )
+
+  end subroutine Register_Mesh_Motion
 
 
   subroutine Register_Multigrid_Levels(nmgl)

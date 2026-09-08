@@ -136,6 +136,38 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
 
   !! ------------------------------------------------------
+  !! Mesh motion ------------------------------------------
+  !! ------------------------------------------------------
+  !> Configuration for the moving-mesh (ALE) path. The mesh update itself lives
+  !> in the MORPH component; this only selects and parameterises the motion law.
+  !>
+  !> `law = static` is the default and is exactly inert: MORPH forces swept
+  !> volumes to zero bitwise for cells that do not move, so a run with
+  !> mesh-motion compiled in reproduces a non-moving run bit-for-bit.
+  !>
+  !> `prescribed` is the analytic test law used to verify the ALE/GCL machinery
+  !> (plan 05 section 5.1). It is a function of the REFERENCE node position and
+  !> time, so every MPI rank computes identical node positions without
+  !> communication, and a restart lands on exactly the same geometry.
+  type :: mesh_motion_t
+    character(len=llen) :: warning_message
+    character(len=llen) :: error_message
+    character(len=llen) :: description
+    ! USER-DEFINED INPUTS
+    character(len=llen) :: law          ! static | prescribed
+    real(R8)            :: amp(3)       ! displacement amplitude per coordinate [m]
+    real(R8)            :: kx(3)        ! spatial wavenumbers [1/m]
+    real(R8)            :: ky(3)
+    real(R8)            :: kz(3)
+    real(R8)            :: omega        ! temporal angular frequency [1/s]
+    real(R8)            :: gcl_tol      ! max acceptable relative GCL residual
+    ! Useful variables
+    logical             :: enabled      ! .true. unless law == 'static'
+  end type mesh_motion_t
+  !! ------------------------------------------------------
+  !! ------------------------------------------------------
+
+  !! ------------------------------------------------------
   !! BC ---------------------------------------------------
   !! ------------------------------------------------------
   type :: io_bc_t
@@ -188,6 +220,7 @@ module FUSS_Config_Types_m
   type(time_scheme_t), public           :: obj_time_scheme
   type(irs_t), public                   :: obj_irs
   type(multigrid_t), public             :: obj_multigrid
+  type(mesh_motion_t), public           :: obj_mesh_motion
   type(table_t), public                 :: obj_table
   !! ------------------------------------------------------
   !! ------------------------------------------------------

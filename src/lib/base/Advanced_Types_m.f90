@@ -13,7 +13,14 @@ module FUSS_Advanced_Types_m
   type :: block_type
     integer                                :: dim(3)           ! Number of cells in i-j-k (ghost not included)
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
+    ! Moving-mesh (ALE) bookkeeping, allocated only when mesh motion is active.
+    ! vol_old is the volume at the previous step; dV_swept(f,i,j,k) is the volume
+    ! swept by face f of that cell over the step, signed positive outward.
+    ! The discrete GCL guarantees vol - vol_old == sum_f dV_swept per cell.
+    real(R8), allocatable                  :: vol_old(:,:,:)   ! Cell volume at step n
+    real(R8), allocatable                  :: dV_swept(:,:,:,:)! (6,i,j,k) swept volumes
     type(FUSS_vector_3D_type), allocatable :: node(:,:,:)      ! Mesh grid points (including ghost)
+    type(FUSS_vector_3D_type), allocatable :: node_old(:,:,:)  ! Mesh grid points at the previous step (moving mesh only)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n

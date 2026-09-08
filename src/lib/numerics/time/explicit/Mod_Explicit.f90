@@ -12,6 +12,7 @@ contains
     use FUSS_Config_Types_m
     use FUSS_Global_m
     use FUSS_Mod_dt,         only: Set_Global_dt, Compute_dt
+    use FUSS_Mod_Metrics,    only: Update_Mesh
     use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
@@ -23,7 +24,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     external :: External_Function
     ! Local
-    logical  :: endsim, iosim, endmg
+    logical  :: endsim, iosim, endmg, advance_time
     integer  :: i_rk, b, level
     real(R8) :: average
 
@@ -33,16 +34,37 @@ contains
     obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
     obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
 
+    ! --- Time step, on the geometry this step starts from.
+    advance_time = .false.
     if (obj_sim_param%HYDRA_time_accurate) then
       call Set_Global_dt ( domain(level) )
-      domain(level) % time = domain(level) % time + domain(level) % dtglobal
+      advance_time = .true.
     else
       domain(level) % dtglobal = 1d5
       call Compute_dt ( domain(level), obj_time_scheme%vnn, obj_time_scheme%rampa_vnn_iter )  ! Compute local and minimum time step
       if ( obj_time_scheme%time_accurate ) then
         call Set_Global_dt ( domain(level) )  ! Time-accurate: apply global minimum time step
-        domain(level) % time = domain(level) % time + domain(level) % dtglobal
+        advance_time = .true.
       endif
+    endif
+
+    ! --- Move the mesh over this step, then advance the clock.
+    !
+    ! This must come AFTER dt is known: the motion law is evaluated at t+dt, and
+    ! on the very first step dtglobal is not yet set to anything meaningful.
+    ! Placing the update before Compute_dt (as first written) fed the law an
+    ! uninitialised step size and the mesh jumped to an arbitrary position.
+    !
+    ! dt is therefore taken from the geometry at the START of the step, a
+    ! first-order lag in the stability limit. It costs accuracy, never
+    ! conservation: the swept volumes come from the actual old and new node
+    ! positions, not from dt, so the discrete GCL holds regardless.
+    !
+    ! Outside the OpenMP region below -- the geometry kernels open their own.
+    call Update_Mesh ( domain(level), domain(level)%time, domain(level)%dtglobal )
+
+    if ( advance_time ) then
+      domain(level) % time = domain(level) % time + domain(level) % dtglobal
     endif
 
     !$omp parallel

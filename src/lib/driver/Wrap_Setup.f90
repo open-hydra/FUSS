@@ -238,7 +238,71 @@ contains
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
 
+      call Check_Mesh_Motion_Compatibility()
+
     end subroutine Check_Input
+
+
+    !> Reject combinations of moving mesh with convergence-acceleration features
+    !> whose interaction has not been analysed.
+    !>
+    !> These are enforced as ERRORS rather than documented as caveats on
+    !> purpose. Both would otherwise produce a plausible-looking answer that is
+    !> quietly wrong, which is the worst possible failure mode for a solver:
+    !>
+    !>   * IRS smooths the residual AFTER the volumetric source has been folded
+    !>     in and scaled by dt (Lib_Newstate.f90, Scale_Residual_Cons ->
+    !>     Residual_Smoothing). With a moving mesh the residual also carries the
+    !>     ALE swept-volume flux, and Jacobi-smoothing that term across cells
+    !>     destroys the discrete GCL balance it was constructed to satisfy.
+    !>
+    !>   * Multigrid builds the metrics of every level once, at setup
+    !>     (Wrap_Setup -> Setup_Metrics over all MGL levels). There is no
+    !>     coarse-level mesh-motion law, so coarse levels would keep the initial
+    !>     geometry while the fine level moves.
+    !>
+    !> Lifting either restriction is a separate piece of work, not a flag flip.
+    subroutine Check_Mesh_Motion_Compatibility()
+      implicit none
+      logical :: bad
+
+      ! Test `law` directly rather than obj_mesh_motion%enabled: Check_Input
+      ! runs immediately after Read_Inifile, whereas `enabled` is derived later
+      ! in Assign_Setup. Reading the flag here would silently test an unset
+      ! value and the guard would never fire -- which is exactly what happened
+      ! the first time this was written.
+      if ( trim(obj_mesh_motion%law) == 'static' ) return
+
+      bad = .false.
+
+      if ( obj_irs%enabled ) then
+        write(*,'(A)') ' [ERROR] mesh motion is not compatible with implicit residual smoothing.'
+        write(*,'(A)') '         IRS smooths the residual after the ALE swept-volume flux has'
+        write(*,'(A)') '         been added, which breaks the discrete GCL balance.'
+        write(*,'(A)') '         Set irs = false, or law = static.'
+        bad = .true.
+      endif
+
+      if ( trim(obj_time_scheme%integration_variables) /= 'cons' ) then
+        write(*,'(A)') ' [ERROR] mesh motion requires integration-variables = cons.'
+        write(*,'(A)') '         The primitive path integrates T with a rho*cp coefficient and'
+        write(*,'(A)') '         carries no ALE swept-volume term, so it would silently ignore'
+        write(*,'(A)') '         the volume change instead of conserving energy across it.'
+        bad = .true.
+      endif
+
+      if ( obj_multigrid%MGL > 1 ) then
+        write(*,'(A)') ' [ERROR] mesh motion is not compatible with multigrid.'
+        write(*,'(A)') '         Coarse-level metrics are built once at setup and there is no'
+        write(*,'(A)') '         coarse-level motion law, so coarse grids would keep the'
+        write(*,'(A)') '         initial geometry while the fine grid moves.'
+        write(*,'(A)') '         Use a single grid level, or law = static.'
+        bad = .true.
+      endif
+
+      if ( bad ) stop
+
+    end subroutine Check_Mesh_Motion_Compatibility
 
 
     subroutine Check_BC()

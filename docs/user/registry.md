@@ -57,3 +57,15 @@
 |-----------|---------|---------|----------|-------------|
 | level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 |
 | level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 |
+
+## FUSS-MeshMotion
+
+| Parameter | Default | Allowed | Required | Description |
+|-----------|---------|---------|----------|-------------|
+| law | static | static ,  prescribed |  no | Mesh motion law |
+| amp | 0.0 | >= 0 |  no | Prescribed-motion displacement amplitude per coordinate [m] |
+| kx | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying x [1/m] |
+| ky | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying y [1/m] |
+| kz | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying z [1/m] |
+| omega | 0.0 | real |  no | Prescribed-motion angular frequency [1/s] |
+| gcl-tolerance | 1.0e-10 | > 0 |  no | Max relative discrete-GCL residual before the run is stopped |

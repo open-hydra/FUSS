@@ -35,12 +35,23 @@ contains
 
     level = obj_multigrid%MG_level
 
-    ! Update IOfield solutiontime
+    ! Update IOfield solutiontime.
+    !
+    ! Set it on EVERY multigrid level, not just level 1. Previously only
+    ! IOfield(1) was assigned, so a coarse-level write emitted whatever happened
+    ! to be in memory: field-level2.tec headers carried values like
+    ! SOLUTIONTIME=1.33e+180. Being uninitialised, it also changed whenever the
+    ! block type's memory layout changed, which makes byte-comparison
+    ! regressions on multigrid cases spuriously fail.
     if ( obj_time_scheme%time_accurate ) then
-      simulation%IOfield(1)%solutiontime = simulation%domain(1)%time
+      do m = 1, obj_multigrid%MGL
+        simulation%IOfield(m)%solutiontime = simulation%domain(m)%time
+      enddo
       IOwall%solutiontime = simulation%domain(1)%time
     else
-      simulation%IOfield(1)%solutiontime = -real(obj_sim_param%iter_general,8)
+      do m = 1, obj_multigrid%MGL
+        simulation%IOfield(m)%solutiontime = -real(obj_sim_param%iter_general,8)
+      enddo
       IOwall%solutiontime = -real(obj_sim_param%iter_general,8)
     endif
 

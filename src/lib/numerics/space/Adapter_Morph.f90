@@ -40,11 +40,19 @@ module FUSS_Adapter_Morph
 
   public :: Adapter_Mesh_Type
   public :: Adapter_Block_Metrics
+  public :: Adapter_Update_Mesh
   public :: Adapter_Free
 
   !> One geometry bundle per block, kept across calls so the per-step path does
   !> not churn the allocator. Indexed by block number.
   type(morph_geom_t), allocatable, save :: geom_(:)
+
+  !> Motion laws. One PRESCRIBED instance per block, because that law caches the
+  !> reference mesh it displaces from; a single shared instance would apply
+  !> block 1's reference geometry to every block. The static law is stateless so
+  !> one instance suffices.
+  type(morph_motion_static_t),                  save :: law_static_
+  type(morph_motion_prescribed_t), allocatable, save :: law_pre_(:)
 
 contains
 
@@ -109,8 +117,92 @@ contains
   end subroutine Adapter_Block_Metrics
 
 
+  !> Advance one block's mesh by dt under the configured law and refresh every
+  !> geometric quantity the ALE state update needs.
+  !>
+  !> Returns the relative discrete-GCL residual so the caller can assert on it.
+  !> That assertion is the whole safety net for the moving-mesh path: if the
+  !> geometry and the state update disagree about how much volume was swept, the
+  !> solution is silently wrong rather than obviously broken.
+  subroutine Adapter_Update_Mesh ( blk, nb, b, t, dt, gcl_rel, ok, message, ci, cj, ck )
+    use FUSS_Config_Types_m, only: obj_mesh_motion
+    type(FUSS_block_type), intent(inout) :: blk
+    integer(I4),           intent(in)    :: nb, b
+    real(R8),              intent(in)    :: t, dt
+    real(R8),              intent(out)   :: gcl_rel
+    logical,               intent(out)   :: ok
+    character(len=*),      intent(out)   :: message
+    integer(I4),           intent(out)   :: ci, cj, ck
+    ! Local
+    type(morph_vec3_t), allocatable :: node(:,:,:), node_old(:,:,:)
+    type(morph_status_t) :: status
+    integer(I4) :: i, j, k, d
+    real(R8)    :: gcl_abs
+
+    gcl_rel = 0.0_R8
+
+    if ( .not. allocated(law_pre_) ) then
+      allocate( law_pre_(1:nb) )
+      do i = 1, nb
+        law_pre_(i)%name  = 'prescribed'
+        law_pre_(i)%amp   = obj_mesh_motion%amp
+        law_pre_(i)%kx    = obj_mesh_motion%kx
+        law_pre_(i)%ky    = obj_mesh_motion%ky
+        law_pre_(i)%kz    = obj_mesh_motion%kz
+        law_pre_(i)%omega = obj_mesh_motion%omega
+      enddo
+    endif
+
+    call pack_nodes ( blk, node )
+    allocate( node_old, source = node )
+
+    select case ( trim(obj_mesh_motion%law) )
+    case ( 'prescribed' )
+      call Morph_Update ( node, node_old, blk%dim, t, dt, law_pre_(b), geom_(b), status )
+    case default
+      call Morph_Update ( node, node_old, blk%dim, t, dt, law_static_,  geom_(b), status )
+    end select
+
+    ok = status%ok()
+    message = status%message
+    ci = status%i; cj = status%j; ck = status%k
+    if ( .not. ok ) return
+
+    call Morph_GCL_Residual ( geom_(b), blk%dim, gcl_abs, gcl_rel )
+
+    ! ---- Copy the new geometry back into the block's own arrays.
+    do k = 0, blk%dim(3)
+    do j = 0, blk%dim(2)
+    do i = 0, blk%dim(1)
+      blk%node(i,j,k)%c     = node(i,j,k)%c
+      blk%node_old(i,j,k)%c = node_old(i,j,k)%c
+    enddo; enddo; enddo
+
+    do k = 1, blk%dim(3)
+    do j = 1, blk%dim(2)
+    do i = 1, blk%dim(1)
+      blk%vol(i,j,k)          = geom_(b)%vol(i,j,k)
+      blk%vol_old(i,j,k)      = geom_(b)%vol_old(i,j,k)
+      blk%dV_swept(1:6,i,j,k) = geom_(b)%dV_swept(1:6,i,j,k)
+      blk%M(i,j,k)%c          = geom_(b)%M(i,j,k)%c
+      blk%dl(i,j,k)%c         = geom_(b)%dl(i,j,k)%c
+    enddo; enddo; enddo
+
+    do d = 1, 3
+      do k = lbound(blk%dir(d)%f,3), ubound(blk%dir(d)%f,3)
+      do j = lbound(blk%dir(d)%f,2), ubound(blk%dir(d)%f,2)
+      do i = lbound(blk%dir(d)%f,1), ubound(blk%dir(d)%f,1)
+        blk%dir(d)%f(i,j,k)%N = geom_(b)%dir(d)%f(i,j,k)%n
+        blk%dir(d)%f(i,j,k)%A = geom_(b)%dir(d)%f(i,j,k)%A
+      enddo; enddo; enddo
+    enddo
+
+  end subroutine Adapter_Update_Mesh
+
+
   subroutine Adapter_Free ()
-    if ( allocated(geom_) ) deallocate( geom_ )
+    if ( allocated(geom_)   ) deallocate( geom_ )
+    if ( allocated(law_pre_) ) deallocate( law_pre_ )
   end subroutine Adapter_Free
 
 

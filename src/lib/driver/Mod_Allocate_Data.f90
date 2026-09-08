@@ -64,7 +64,7 @@ contains
 
   subroutine Allocate_Block( blk, nijk )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_irs
+    use FUSS_Config_Types_m, only: obj_irs, obj_mesh_motion
     use FUSS_Global_m
     implicit none
     integer, intent(in)                  :: nijk(3)
@@ -76,6 +76,18 @@ contains
 
     ! Metrics
     allocate( blk % node ( 0:ni, 0:nj, 0:nk ) )
+
+    ! Previous-step node positions, needed only by the ALE path. Allocated on
+    ! demand so a static run carries no extra memory: at 3 reals per node this
+    ! would otherwise be a permanent cost for every existing case.
+    if ( obj_mesh_motion%enabled ) then
+      allocate( blk % node_old ( 0:ni, 0:nj, 0:nk ) )
+      allocate( blk % vol_old  ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+      allocate( blk % dV_swept ( 6, 1:ni, 1:nj, 1:nk ) )
+      blk % vol_old  = 0.0_R8
+      blk % dV_swept = 0.0_R8
+    endif
+
     allocate( blk % M    ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
     allocate( blk % dl   ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
     allocate( blk % vol  ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
@@ -93,6 +105,38 @@ contains
     ! Temp storage for residuals in IRS
     if ( obj_irs%enabled ) then
       allocate( blk % RS1, blk % RS2, mold = blk % R )
+    end if
+
+    ! ------------------------------------------------------------------------
+    ! Initialise everything.
+    !
+    ! Setup_Metrics fills only the INTERIOR cells 1..n of vol/M/dl (ghost-cell
+    ! metrics are stored separately in bc%Mg/dlg/volg), so the ghost entries of
+    ! these arrays were previously left as whatever the allocator handed back.
+    ! That was observable: adding fields to this derived type -- which shifts the
+    ! heap layout and therefore the garbage -- changed the results of 254 of 262
+    ! solution artefacts across the test suite, including single-grid cases.
+    !
+    ! Results must not depend on the memory layout of a derived type. Zeroing
+    ! here makes runs reproducible across unrelated code changes, which is also
+    ! what makes byte-comparison regression gates meaningful at all.
+    ! ------------------------------------------------------------------------
+    blk % vol   = 0.0_R8
+    blk % dl    = FUSS_vector_3D_type( [0.0_R8, 0.0_R8, 0.0_R8] )
+    blk % M     = FUSS_tensor_3D_type( reshape([0.0_R8,0.0_R8,0.0_R8, &
+                                                0.0_R8,0.0_R8,0.0_R8, &
+                                                0.0_R8,0.0_R8,0.0_R8], [3,3]) )
+    blk % node  = FUSS_vector_3D_type( [0.0_R8, 0.0_R8, 0.0_R8] )
+
+    blk % T       = 0.0_R8
+    blk % TO      = 0.0_R8
+    blk % R       = 0.0_R8
+    blk % matID   = 0.0_R8
+    blk % qvol    = 0.0_R8
+    blk % dtlocal = 0.0_R8
+    if ( obj_irs%enabled ) then
+      blk % RS1 = 0.0_R8
+      blk % RS2 = 0.0_R8
     end if
 
   end subroutine Allocate_Block

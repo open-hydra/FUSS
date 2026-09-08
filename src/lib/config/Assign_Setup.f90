@@ -23,8 +23,14 @@ contains
     else
       obj_time_scheme%n_rk = 1
     end if
-    if (obj_irs%beta>0d0) obj_irs%enabled = .true. 
+    if (obj_irs%beta>0d0) obj_irs%enabled = .true.
     call Assign_Integration_Variables()
+
+    ! Mesh motion. Derived here rather than registered directly, so that the
+    ! INI exposes one readable keyword (`law`) instead of a bare on/off flag
+    ! that could disagree with it. Must run before Setup_Data_Structure, which
+    ! allocates blk%node_old only when this is true.
+    obj_mesh_motion%enabled = ( trim(obj_mesh_motion%law) /= 'static' )
 
     !! Descriptions, warnings and errors
 
@@ -41,6 +47,13 @@ contains
     end if
     if (obj_irs%enabled) then
       obj_irs%description = 'Beta set to '//trim(str(.true.,real(obj_irs%beta)))
+    end if
+
+    ! Mesh motion
+    if (obj_mesh_motion%enabled) then
+      obj_mesh_motion%description = 'ALE, law = '//trim(obj_mesh_motion%law)
+    else
+      obj_mesh_motion%description = 'static mesh'
     end if
 
   end subroutine Assign_Setup

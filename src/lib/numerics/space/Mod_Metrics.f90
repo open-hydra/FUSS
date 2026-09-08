@@ -87,4 +87,60 @@ contains
 
   end subroutine Setup_Metrics
 
+
+  !> Advance the mesh one step and refresh all geometry. Called once per time
+  !> step, NOT once per Runge-Kutta stage: the swept volumes describe the motion
+  !> over the whole step, and re-applying the law per stage would move the mesh
+  !> n_RK times as far.
+  !>
+  !> Must be called OUTSIDE any OpenMP parallel region -- the MORPH kernels open
+  !> their own, exactly as Setup_Metrics does.
+  !>
+  !> `dt` here only decides WHERE the mesh is placed. The discrete GCL holds for
+  !> whatever motion actually occurred, because the swept volumes are computed
+  !> from the old and new node positions themselves, not from dt. So an imperfect
+  !> dt estimate costs accuracy, never conservation.
+  subroutine Update_Mesh ( domain, t, dt )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_mesh_motion
+    use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    real(R8),               intent(in)    :: t, dt
+    ! Local
+    integer  :: b, ci, cj, ck
+    logical  :: ok
+    real(R8) :: gcl_rel
+    character(len=256) :: message
+
+    if ( .not. obj_mesh_motion%enabled ) return
+
+    do b = 1, domain%nb
+      if (.not. is_local_block(b)) cycle
+
+      call Adapter_Update_Mesh ( domain%blk(b), domain%nb, b, t, dt, &
+                                 gcl_rel, ok, message, ci, cj, ck )
+
+      if ( .not. ok ) then
+        write(*,'(A)')         ' [ERROR] mesh update failed'
+        write(*,'(A,A)')       '         ', trim(message)
+        write(*,'(A,4(I0,A))') '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
+        stop
+      endif
+
+      ! Assert the discrete GCL every step. A violation means the geometry and
+      ! the ALE state update disagree about how much volume was swept, which
+      ! corrupts the solution silently -- so it is fatal, not a warning.
+      if ( gcl_rel > obj_mesh_motion%gcl_tol ) then
+        write(*,'(A)')          ' [ERROR] discrete Geometric Conservation Law violated'
+        write(*,'(A,ES12.4,A,ES12.4)') '         relative residual ', gcl_rel, &
+                                       ' exceeds tolerance ', obj_mesh_motion%gcl_tol
+        write(*,'(A,I0)')       '         block ', b
+        stop
+      endif
+    enddo
+
+  end subroutine Update_Mesh
+
 end module FUSS_Mod_Metrics
