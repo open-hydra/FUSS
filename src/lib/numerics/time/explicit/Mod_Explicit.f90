@@ -13,6 +13,7 @@ contains
     use FUSS_Global_m
     use FUSS_Mod_dt,         only: Set_Global_dt, Compute_dt
     use FUSS_Mod_Metrics,    only: Update_Mesh
+    use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE
     use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
@@ -68,6 +69,15 @@ contains
     endif
 
     !$omp parallel
+
+    ! Conservative remap onto the moved mesh -- ONCE per step, before the RK
+    ! stages. Ghost temperatures must be current for the upwind lookup at block
+    ! interfaces, hence the fill. Both are no-ops when the mesh is static.
+    if ( obj_mesh_motion%enabled ) then
+      call Fill_Ghost_Cell ( domain(level) )
+      call Remap_State_ALE ( domain(level) )
+    endif
+
     call Copy_State ( domain(level) )
 
     rk: do i_rk = 1, obj_time_scheme%n_RK

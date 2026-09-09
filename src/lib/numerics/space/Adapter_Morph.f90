@@ -150,6 +150,7 @@ contains
         law_pre_(i)%ky    = obj_mesh_motion%ky
         law_pre_(i)%kz    = obj_mesh_motion%kz
         law_pre_(i)%omega = obj_mesh_motion%omega
+        law_pre_(i)%taper_to_boundary = obj_mesh_motion%taper
       enddo
     endif
 

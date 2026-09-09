@@ -128,6 +128,40 @@ program test_morph_block
     write(*,'(A)') '   GCL holds every step under prescribed motion: PASS'
   endif
 
+  ! =========================================================================
+  ! 3. FACE PAIRING -- the property the ALE flux's conservation rests on.
+  !
+  ! Cell (i,j,k)'s face 2 (i-high) and cell (i+1,j,k)'s face 1 (i-low) are the
+  ! SAME physical face. For the solver's swept-volume fluxes to telescope, the
+  ! two cells must see equal and opposite swept volumes. If they do not, energy
+  ! is created or destroyed at every interior face and no amount of care in the
+  ! state update can recover it.
+  ! =========================================================================
+  block
+    real(R8) :: pair_max, denom
+    integer  :: ii, jj, kk
+    pair_max = 0.0_R8
+    do kk = 1, NK
+    do jj = 1, NJ
+    do ii = 1, NI
+      denom = max( abs(geom%vol(ii,jj,kk)), 1.0e-300_R8 )
+      if ( ii < NI ) pair_max = max( pair_max, &
+           abs( geom%dV_swept(2,ii,jj,kk) + geom%dV_swept(1,ii+1,jj,kk) ) / denom )
+      if ( jj < NJ ) pair_max = max( pair_max, &
+           abs( geom%dV_swept(4,ii,jj,kk) + geom%dV_swept(3,ii,jj+1,kk) ) / denom )
+      if ( kk < NK ) pair_max = max( pair_max, &
+           abs( geom%dV_swept(6,ii,jj,kk) + geom%dV_swept(5,ii,jj,kk+1) ) / denom )
+    enddo; enddo; enddo
+    write(*,'(A,ES10.2)') '   worst face-pairing asymmetry (relative): ', pair_max
+    if ( pair_max > TOL_REL ) then
+      write(*,'(A)') '   FAIL: shared faces disagree on their swept volume;'
+      write(*,'(A)') '         the ALE flux cannot be conservative.'
+      ok = .false.
+    else
+      write(*,'(A)') '   shared faces see equal and opposite swept volumes: PASS'
+    endif
+  end block
+
   call Morph_Quality_Check( node, dim, min_vol, min_jac, st )
   write(*,'(A,ES12.4,A,ES12.4)') '   final mesh: min signed vol = ', min_vol, &
                                  '   min corner Jacobian = ', min_jac

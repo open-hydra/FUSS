@@ -252,7 +252,7 @@ contains
 
   subroutine Write_vtk_tec ( domain, IOfield, file )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io
+    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion
     use FUSS_Global_m
     use FUSS_Parameters_m
     use IR_Precision
@@ -282,6 +282,24 @@ contains
 
       ! Update IOfield variables with domain primitives and other variables
       do b = 1, size(IOfield%block)
+
+        ! Write the CURRENT node positions, not the ones read at setup.
+        !
+        ! With a moving mesh the solution would otherwise be plotted, probed and
+        ! post-processed against the initial geometry. That is not merely a
+        ! cosmetic problem: any external check that pairs the written field with
+        ! written cell volumes -- an energy-conservation audit, for instance --
+        ! silently compares moved-mesh values against initial-mesh volumes and
+        ! reports an imbalance that is entirely an artefact of the output.
+        ! Restarts need this too (plan 05 section 4.5).
+        if ( obj_mesh_motion%enabled ) then
+          do k = 0, IOfield%block(b)%Nk ; do j = 0, IOfield%block(b)%Nj ; do i = 0, IOfield%block(b)%Ni
+            IOfield%block(b)%mesh(1,i,j,k) = domain%blk(b)%node(i,j,k)%c(1)
+            IOfield%block(b)%mesh(2,i,j,k) = domain%blk(b)%node(i,j,k)%c(2)
+            IOfield%block(b)%mesh(3,i,j,k) = domain%blk(b)%node(i,j,k)%c(3)
+          enddo; enddo; enddo
+        endif
+
         IOfield%block(b)%vars(1,:,:,:) = domain%blk(b)%T(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
         IOfield%block(b)%vars(2,:,:,:) = domain%blk(b)%matID(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
         IOfield%block(b)%vars(3,:,:,:) = domain%blk(b)%qvol(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)

@@ -75,10 +75,12 @@ fi
 # (d) MORPH compiles standalone, with no FUSS sources on the path.
 #     If this fails, something crossed the seam that (a) did not catch.
 # ---------------------------------------------------------------------------
+# Dependency order matters: Morph_Metrics uses Morph_GCL for the cell volume,
+# so GCL must be compiled first or its .mod does not exist yet.
 SRC="
 $MORPH/base/Morph_Types_m.f90
-$MORPH/metrics/Morph_Metrics.f90
 $MORPH/metrics/Morph_GCL.f90
+$MORPH/metrics/Morph_Metrics.f90
 $MORPH/motion/Morph_Motion_m.f90
 $MORPH/motion/Morph_Motion_Static.f90
 $MORPH/motion/Morph_Motion_Prescribed.f90

@@ -161,6 +161,7 @@ module FUSS_Config_Types_m
     real(R8)            :: kz(3)
     real(R8)            :: omega        ! temporal angular frequency [1/s]
     real(R8)            :: gcl_tol      ! max acceptable relative GCL residual
+    logical             :: taper        ! taper motion to zero on the block boundary
     ! Useful variables
     logical             :: enabled      ! .true. unless law == 'static'
   end type mesh_motion_t

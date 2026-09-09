@@ -101,6 +101,12 @@ contains
     call reg%add( trim(section), 'gcl-tolerance', obj_mesh_motion%gcl_tol, '1.0e-10', &
                   'Max relative discrete-GCL residual before the run is stopped', '> 0', .false. )
 
+    ! Boundary taper: only interior nodes move. Used by the conservation audit,
+    ! where a fixed domain boundary makes exact energy conservation the expected
+    ! result rather than an approximation.
+    call reg%add( trim(section), 'taper-to-boundary', obj_mesh_motion%taper, '.false.', &
+                  'Taper prescribed motion to zero on the block boundary', 'logical', .false. )
+
   end subroutine Register_Mesh_Motion
 
 

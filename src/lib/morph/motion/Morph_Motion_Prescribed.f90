@@ -40,6 +40,14 @@ module Morph_Motion_Prescribed
     !> Phase offsets so the three components are not in lockstep.
     real(R8) :: phase(3) = [0.0_R8, 2.0943951023931953_R8, 4.1887902047863905_R8]
 
+    !> Taper the displacement to zero on the block boundary, so only INTERIOR
+    !> nodes move. Used by the conservation audit: with the domain boundary
+    !> fixed and the walls adiabatic, total energy must be exactly conserved no
+    !> matter how violently the interior mesh moves, because every ALE flux is
+    !> then internal and telescopes. Without the taper the boundary sweeps and
+    !> material genuinely enters or leaves, so energy is not expected to balance.
+    logical :: taper_to_boundary = .false.
+
     !> Reference mesh, captured on the first call.
     type(morph_vec3_t), allocatable, private :: node_ref(:,:,:)
     logical,                         private :: have_ref = .false.
@@ -58,7 +66,8 @@ contains
     type(morph_status_t),             intent(out)   :: status
     ! Local
     integer(I4) :: i, j, k, c
-    real(R8)    :: xr(3), tnew, arg
+    real(R8)    :: xr(3), tnew, arg, w
+    real(R8), parameter :: PI = 3.14159265358979323846_R8
 
     call status%clear()
 
@@ -77,15 +86,28 @@ contains
 
     tnew = t + dt
 
-    !$omp parallel do collapse(3) private(i,j,k,c,xr,arg)
+    !$omp parallel do collapse(3) private(i,j,k,c,xr,arg,w)
     do k = lbound(node,3), ubound(node,3)
     do j = lbound(node,2), ubound(node,2)
     do i = lbound(node,1), ubound(node,1)
       xr = self%node_ref(i,j,k)%c
+
+      ! Boundary taper. sin(pi*xi) is exactly zero at xi = 0 and 1, so nodes on
+      ! the block boundary do not move at all -- not "move a little", exactly
+      ! zero, which is what makes the conservation audit a clean statement.
+      ! Degenerate directions (dim == 1, e.g. the k direction of a 2-D mesh) are
+      ! skipped rather than tapered to zero everywhere.
+      w = 1.0_R8
+      if ( self%taper_to_boundary ) then
+        if ( dim(1) > 1 ) w = w * sin( PI * real(i,R8) / real(dim(1),R8) )
+        if ( dim(2) > 1 ) w = w * sin( PI * real(j,R8) / real(dim(2),R8) )
+        if ( dim(3) > 1 ) w = w * sin( PI * real(k,R8) / real(dim(3),R8) )
+      endif
+
       do c = 1, 3
         arg = self%kx(c)*xr(1) + self%ky(c)*xr(2) + self%kz(c)*xr(3) &
               + self%omega*tnew + self%phase(c)
-        node(i,j,k)%c(c) = xr(c) + self%amp(c) * sin(arg)
+        node(i,j,k)%c(c) = xr(c) + w * self%amp(c) * sin(arg)
       enddo
     enddo; enddo; enddo
     !$omp end parallel do
