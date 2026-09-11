@@ -81,8 +81,16 @@ contains
     obj_mesh_motion%error_message   = 'none'
     obj_mesh_motion%description     = 'none'
 
+    ! The allowed list is load-bearing, not documentation: `enabled` is derived
+    ! as (law /= 'static'), while the adapter selects the law by name with a
+    ! static default. A misspelt law would therefore switch the ALE path ON and
+    ! then move nothing -- a silently wrong run. Validate_Registry rejects any
+    ! name not listed here, so keep this in sync with Adapter_Update_Mesh.
     call reg%add( trim(section), 'law', obj_mesh_motion%law, 'static', &
-                  'Mesh motion law', 'static ,  prescribed', .false. )
+                  'Mesh motion law', 'static ,  prescribed ,  translation', .false. )
+
+    call reg%add( trim(section), 'vel', obj_mesh_motion%vel, '0.0', &
+                  'Rigid-translation velocity [m/s]', 'real', .false. )
 
     call reg%add( trim(section), 'amp', obj_mesh_motion%amp, '0.0', &
                   'Prescribed-motion displacement amplitude per coordinate [m]', '>= 0', .false. )

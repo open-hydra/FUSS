@@ -291,6 +291,47 @@ contains
         bad = .true.
       endif
 
+      ! A moving mesh in a non-time-accurate run is not merely inaccurate, it is
+      ! undefined. Mod_Explicit advances domain%time only when one of the two
+      ! time-accurate flags is set; otherwise time stays pinned at -1.0 and the
+      ! motion law is evaluated at (-1 + dtglobal) every iteration. dtglobal is
+      ! itself the evolving local-time-stepping minimum, so the mesh does not
+      ! freeze -- it wobbles as convergence proceeds, and the swept volumes are
+      ! whatever that wobble produced. The GCL still holds, so nothing would
+      ! flag it.
+      if ( .not. obj_time_scheme%time_accurate .and. &
+           .not. obj_sim_param%HYDRA_time_accurate ) then
+        write(*,'(A)') ' [ERROR] mesh motion requires a time-accurate run.'
+        write(*,'(A)') '         With local time stepping the simulation clock is never advanced,'
+        write(*,'(A)') '         so the motion law would be evaluated at a meaningless time that'
+        write(*,'(A)') '         drifts with the local dt.'
+        write(*,'(A)') '         Set time-accurate = true, or law = static.'
+        bad = .true.
+      endif
+
+      ! The oscillatory prescribed law anchors its displacement to a REFERENCE
+      ! mesh, which it captures from whatever geometry it is first handed. On a
+      ! restart that geometry is the already-moved mesh out of the solution
+      ! file, so the displacement would be applied a second time on top of
+      ! itself and the run would continue from a different -- and physically
+      ! meaningless -- geometry. Nothing downstream could detect it: the GCL
+      ! would still hold, because the mesh is self-consistent, just wrong.
+      !
+      ! Restoring it properly means persisting the reference mesh, which is
+      ! effort spent on a verification-only law. The laws that Phase 3 actually
+      ! needs (translation, and node-shifting driven by the wall recession rate)
+      ! displace INCREMENTALLY from the current mesh and so restart correctly
+      ! with no extra state at all. Refuse the one case that cannot.
+      if ( trim(obj_mesh_motion%law) == 'prescribed' .and. .not. obj_sim_param%newrun ) then
+        write(*,'(A)') ' [ERROR] the prescribed mesh-motion law cannot be restarted.'
+        write(*,'(A)') '         It displaces from a reference mesh captured at setup, which on a'
+        write(*,'(A)') '         restart is the already-moved geometry, so the displacement would'
+        write(*,'(A)') '         be applied twice.'
+        write(*,'(A)') '         Use law = translation, which displaces incrementally, or start a'
+        write(*,'(A)') '         new run.'
+        bad = .true.
+      endif
+
       if ( obj_multigrid%MGL > 1 ) then
         write(*,'(A)') ' [ERROR] mesh motion is not compatible with multigrid.'
         write(*,'(A)') '         Coarse-level metrics are built once at setup and there is no'

@@ -48,6 +48,7 @@ module Morph_GCL
   public :: Morph_Swept_Volumes_Cell
   public :: Morph_GCL_Residual
   public :: Morph_GCL_Volume_Gap
+  public :: Morph_Swept_Outflow_Ratio
 
   !> Local node numbering used throughout this module, matching the ordering
   !> that Morph_Metric_Tensor expects:
@@ -163,6 +164,57 @@ contains
     !$omp end parallel do
 
   end subroutine Morph_GCL_Residual
+
+
+  !> Largest fraction of its own volume that any cell sweeps OUT in this step.
+  !>
+  !> This is the moving-mesh analogue of a Courant number, and it is the exact
+  !> positivity condition for the Lagrange+remap update rather than a heuristic.
+  !> The remap gives cell c the coefficient
+  !>
+  !>     V_old + sum over faces with dV < 0 of dV
+  !>
+  !> on its own enthalpy. Once the volume swept out exceeds V_old that
+  !> coefficient turns negative, the update starts extrapolating instead of
+  !> averaging, and the scheme is unconditionally unstable however exact the GCL
+  !> is. The GCL residual cannot see this: a mesh that moves much too far in one
+  !> step is still perfectly self-consistent.
+  !>
+  !> Returns >= 0; the caller should refuse to continue at >= 1.
+  subroutine Morph_Swept_Outflow_Ratio ( geom, dim, ratio, ci, cj, ck )
+    type(morph_geom_t), intent(in)  :: geom
+    integer(I4),        intent(in)  :: dim(3)
+    real(R8),           intent(out) :: ratio
+    integer(I4),        intent(out) :: ci, cj, ck   !> where the maximum was found
+    ! Local
+    integer(I4) :: i, j, k, f
+    real(R8)    :: out_vol, r, vold
+
+    ratio = 0.0_R8
+    ci = 0; cj = 0; ck = 0
+
+    ! Not parallelised: it is a reduction that has to carry the LOCATION of the
+    ! maximum, the loop is only run when the mesh moves, and it costs a single
+    ! pass over cells against the several the metric rebuild already does.
+    do k = 1, dim(3)
+    do j = 1, dim(2)
+    do i = 1, dim(1)
+      out_vol = 0.0_R8
+      do f = 1, 6
+        if ( geom%dV_swept(f,i,j,k) < 0.0_R8 ) out_vol = out_vol - geom%dV_swept(f,i,j,k)
+      enddo
+
+      vold = abs( geom%vol_old(i,j,k) )
+      if ( vold <= 0.0_R8 ) cycle
+
+      r = out_vol / vold
+      if ( r > ratio ) then
+        ratio = r
+        ci = i; cj = j; ck = k
+      endif
+    enddo; enddo; enddo
+
+  end subroutine Morph_Swept_Outflow_Ratio
 
 
   !> Largest relative disagreement between the signed volume used by the GCL and

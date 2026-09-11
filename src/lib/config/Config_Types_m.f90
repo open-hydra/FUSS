@@ -154,7 +154,8 @@ module FUSS_Config_Types_m
     character(len=llen) :: error_message
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
-    character(len=llen) :: law          ! static | prescribed
+    character(len=llen) :: law          ! static | prescribed | translation
+    real(R8)            :: vel(3)       ! rigid translation velocity [m/s]
     real(R8)            :: amp(3)       ! displacement amplitude per coordinate [m]
     real(R8)            :: kx(3)        ! spatial wavenumbers [1/m]
     real(R8)            :: ky(3)

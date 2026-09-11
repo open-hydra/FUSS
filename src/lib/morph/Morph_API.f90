@@ -17,11 +17,13 @@ module Morph_API
   use Morph_Types_m
   use Morph_Metrics,           only: Morph_Metrics_Block, Morph_Mesh_Type, Morph_Geom_Allocate
   use Morph_GCL,               only: Morph_Cell_Volume_Signed, Morph_Swept_Volumes_Cell, &
-                                     Morph_GCL_Residual, Morph_GCL_Volume_Gap
+                                     Morph_GCL_Residual, Morph_GCL_Volume_Gap, &
+                                     Morph_Swept_Outflow_Ratio
   use Morph_Quality,           only: Morph_Quality_Check
   use Morph_Motion_m,          only: morph_motion_t
   use Morph_Motion_Static,     only: morph_motion_static_t
   use Morph_Motion_Prescribed, only: morph_motion_prescribed_t
+  use Morph_Motion_Translation,only: morph_motion_translation_t
 
   implicit none
   private
@@ -30,6 +32,7 @@ module Morph_API
   public :: morph_vec3_t, morph_tens3_t, morph_face_t, morph_dir_t
   public :: morph_geom_t, morph_status_t
   public :: morph_motion_t, morph_motion_static_t, morph_motion_prescribed_t
+  public :: morph_motion_translation_t
 
   ! Status codes
   public :: MORPH_OK, MORPH_ERR_SINGULAR, MORPH_ERR_NEGVOL, MORPH_ERR_JACOBIAN
@@ -41,6 +44,7 @@ module Morph_API
   public :: Morph_Mesh_Type
   public :: Morph_GCL_Residual
   public :: Morph_GCL_Volume_Gap
+  public :: Morph_Swept_Outflow_Ratio
   public :: Morph_Quality_Check
   public :: Morph_Geom_Allocate
 

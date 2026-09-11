@@ -49,9 +49,10 @@ module FUSS_Adapter_Morph
 
   !> Motion laws. One PRESCRIBED instance per block, because that law caches the
   !> reference mesh it displaces from; a single shared instance would apply
-  !> block 1's reference geometry to every block. The static law is stateless so
-  !> one instance suffices.
+  !> block 1's reference geometry to every block. The static and translation
+  !> laws are stateless so one instance of each suffices.
   type(morph_motion_static_t),                  save :: law_static_
+  type(morph_motion_translation_t),             save :: law_trans_
   type(morph_motion_prescribed_t), allocatable, save :: law_pre_(:)
 
 contains
@@ -124,12 +125,15 @@ contains
   !> That assertion is the whole safety net for the moving-mesh path: if the
   !> geometry and the state update disagree about how much volume was swept, the
   !> solution is silently wrong rather than obviously broken.
-  subroutine Adapter_Update_Mesh ( blk, nb, b, t, dt, gcl_rel, ok, message, ci, cj, ck )
+  subroutine Adapter_Update_Mesh ( blk, nb, b, t, dt, gcl_rel, sweep_ratio, si, sj, sk, &
+                                   ok, message, ci, cj, ck )
     use FUSS_Config_Types_m, only: obj_mesh_motion
     type(FUSS_block_type), intent(inout) :: blk
     integer(I4),           intent(in)    :: nb, b
     real(R8),              intent(in)    :: t, dt
     real(R8),              intent(out)   :: gcl_rel
+    real(R8),              intent(out)   :: sweep_ratio      !> max volume swept out / cell volume
+    integer(I4),           intent(out)   :: si, sj, sk       !> where that maximum is
     logical,               intent(out)   :: ok
     character(len=*),      intent(out)   :: message
     integer(I4),           intent(out)   :: ci, cj, ck
@@ -139,7 +143,9 @@ contains
     integer(I4) :: i, j, k, d
     real(R8)    :: gcl_abs
 
-    gcl_rel = 0.0_R8
+    gcl_rel     = 0.0_R8
+    sweep_ratio = 0.0_R8
+    si = 0; sj = 0; sk = 0
 
     if ( .not. allocated(law_pre_) ) then
       allocate( law_pre_(1:nb) )
@@ -152,14 +158,21 @@ contains
         law_pre_(i)%omega = obj_mesh_motion%omega
         law_pre_(i)%taper_to_boundary = obj_mesh_motion%taper
       enddo
+      law_trans_%name = 'translation'
+      law_trans_%vel  = obj_mesh_motion%vel
     endif
 
     call pack_nodes ( blk, node )
     allocate( node_old, source = node )
 
+    ! Keep the names here in sync with the allowed list in Register_Numerics:
+    ! an unlisted name reaching `case default` would run the static law with the
+    ! ALE path switched on. Validate_Registry is what makes that unreachable.
     select case ( trim(obj_mesh_motion%law) )
     case ( 'prescribed' )
       call Morph_Update ( node, node_old, blk%dim, t, dt, law_pre_(b), geom_(b), status )
+    case ( 'translation' )
+      call Morph_Update ( node, node_old, blk%dim, t, dt, law_trans_,  geom_(b), status )
     case default
       call Morph_Update ( node, node_old, blk%dim, t, dt, law_static_,  geom_(b), status )
     end select
@@ -170,6 +183,7 @@ contains
     if ( .not. ok ) return
 
     call Morph_GCL_Residual ( geom_(b), blk%dim, gcl_abs, gcl_rel )
+    call Morph_Swept_Outflow_Ratio ( geom_(b), blk%dim, sweep_ratio, si, sj, sk )
 
     ! ---- Copy the new geometry back into the block's own arrays.
     do k = 0, blk%dim(3)

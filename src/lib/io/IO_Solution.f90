@@ -59,7 +59,6 @@ contains
         Read_IC  => Read_vtk_tec
       endif
       obj_io%nameinit   = 'INPUT/'//trim(FUSS_phase_prefix)//'ic'//extension
-      obj_io%namesource = 'INPUT/'//trim(FUSS_phase_prefix)//'st'//extension
       inquire(file=obj_io%nameinit, exist=present)
 
     else
@@ -93,6 +92,14 @@ contains
       endif
 
     endif
+
+    ! The volumetric source is an INPUT in both cases, so its name is set for
+    ! both. It used to be assigned only on the newrun branch, which left it
+    ! undefined on a restart: Read_vtk_tec then opened a garbage filename, the
+    ! read failed, and qvol was silently set to zero for the whole restarted
+    ! run. Nothing reported it -- a restart of a case with a volumetric source
+    ! simply continued without the source.
+    obj_io%namesource = 'INPUT/'//trim(FUSS_phase_prefix)//'st'//extension
 
   end subroutine Setup_Input_Solution
 

@@ -20,6 +20,7 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
 OUTDIR=""
+ALL=0
 CASES=()
 
 while test $# -gt 0; do
@@ -27,9 +28,13 @@ while test $# -gt 0; do
     -p | --parallel) NTHREADS=$2; shift 2 ;;
     -o | --out)      OUTDIR=$2;   shift 2 ;;
     -c | --case)     CASES+=("$2"); shift 2 ;;
+    -a | --all)      ALL=1; shift ;;
     -h | --help)
-      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-c CASE]..."
+      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-a] [-c CASE]..."
       echo "  with no -c, every test/**/FUSS.sh case is run"
+      echo "  -a also runs cases marked .slow (grid-convergence studies);"
+      echo "     without it they are skipped, so keep -a consistent between"
+      echo "     the two manifests you intend to diff"
       exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -37,7 +42,14 @@ done
 
 if [ ${#CASES[@]} -eq 0 ]; then
   # deterministic ordering matters: the manifest is diffed line by line
-  while IFS= read -r c; do CASES+=("$c"); done < <(
+  while IFS= read -r c; do
+    # A .slow marker means the case exists to be MEASURED (a refinement study
+    # with its own verify.py), not to be fingerprinted for bit-identity, and it
+    # costs minutes rather than seconds. Excluding it by default keeps this
+    # script something people actually run.
+    if [ "$ALL" -eq 0 ] && [ -f "$ROOT/$c/.slow" ]; then continue; fi
+    CASES+=("$c")
+  done < <(
     cd "$ROOT" && find test -name FUSS.sh -printf '%h\n' | sort
   )
 fi
@@ -62,9 +74,14 @@ for case_dir in "${CASES[@]}"; do
     continue
   fi
 
-  # Start from a clean slate so a stale SOLUTION cannot masquerade as a result.
-  rm -rf "$abs/SOLUTION" "$abs/OUTPUT" "$abs/bin"
-  mkdir -p "$abs/SOLUTION"
+  # Start from a clean slate so a stale result cannot masquerade as a fresh one.
+  #
+  # SOLUTION/ is deliberately NOT touched. It holds committed REFERENCE data,
+  # and the solver never writes there -- every output path in Write_vtk_tec is
+  # rooted at 'OUTPUT/'. An earlier version of this script wiped it too, which
+  # quietly deleted ten tracked files and 341k lines of reference solutions the
+  # first time the suite was run.
+  rm -rf "$abs/OUTPUT" "$abs/bin"
 
   printf '%-52s' "RUN   $case_dir"
   log="$OUTDIR/$(echo "$case_dir" | tr '/' '_').log"
@@ -78,11 +95,17 @@ for case_dir in "${CASES[@]}"; do
   fi
 
   # Fingerprint every solution artefact, in sorted order.
+  #
+  # OUTPUT/ only. SOLUTION/ is static reference data checked into the
+  # repository, so fingerprinting it would add the same constant lines to every
+  # manifest -- and, because the earlier version of this script emptied it
+  # before this find ran, no existing baseline contains those lines. Keeping to
+  # OUTPUT keeps new manifests comparable with the old ones.
   while IFS= read -r f; do
     rel=${f#"$abs"/}
     sum=$(md5sum "$f" | cut -d' ' -f1)
     echo "$case_dir	$rel	$sum" >> "$MANIFEST"
-  done < <(find "$abs/SOLUTION" "$abs/OUTPUT" -type f 2>/dev/null | sort)
+  done < <(find "$abs/OUTPUT" -type f 2>/dev/null | sort)
 done
 
 echo

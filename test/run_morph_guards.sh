@@ -84,6 +84,7 @@ $MORPH/metrics/Morph_Metrics.f90
 $MORPH/motion/Morph_Motion_m.f90
 $MORPH/motion/Morph_Motion_Static.f90
 $MORPH/motion/Morph_Motion_Prescribed.f90
+$MORPH/motion/Morph_Motion_Translation.f90
 $MORPH/quality/Morph_Quality.f90
 $MORPH/Morph_API.f90
 "

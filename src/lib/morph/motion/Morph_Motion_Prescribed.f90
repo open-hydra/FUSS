@@ -8,8 +8,18 @@
 !>     - it is exactly rank-independent, so every MPI rank computes identical
 !>       node positions with no communication. That is what lets Phase 1 avoid
 !>       touching the per-field-hardcoded Mod_GhostExchange (plan 05 4.4a).
-!>     - it cannot drift: the mesh at time t is the same however many steps were
-!>       taken to reach it, so a restart lands on exactly the same geometry.
+!>     - it cannot drift WITHIN A RUN: the mesh at time t is the same however
+!>       many steps were taken to reach it, and however uneven those steps were.
+!>
+!>   It does NOT survive a restart, and an earlier version of this comment
+!>   wrongly claimed it did. The reference is captured from whatever geometry
+!>   the law is first handed; after a restart that is the moved mesh out of the
+!>   solution file, so the displacement is applied on top of itself. There is no
+!>   symptom -- the mesh stays self-consistent and the GCL still holds -- so the
+!>   combination is refused outright in Check_Mesh_Motion_Compatibility rather
+!>   than left to be discovered. Use morph_motion_translation_t, which displaces
+!>   incrementally and therefore carries no state across a restart, when a
+!>   restartable moving mesh is what is wanted.
 !>
 !> * Each coordinate uses a DIFFERENT wavenumber and phase, so the motion is
 !>   genuinely three-dimensional, non-uniform, and not aligned with any single

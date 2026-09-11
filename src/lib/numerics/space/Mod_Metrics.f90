@@ -22,15 +22,13 @@ contains
     use FUSS_Base_Types_m
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
-    use FUSS_Lib_Metrics, only: delthe, BC_Connect_Metrics, BC_Symmetry_Metrics, &
-                                BC_Extrapolate_Metrics
+    use FUSS_Lib_Metrics, only: delthe
     use FUSS_Adapter_Morph, only: Adapter_Mesh_Type, Adapter_Block_Metrics
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer :: b, i
-    integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
+    integer :: b
     integer :: ci, cj, ck
     logical :: ok
     character(len=256) :: message
@@ -51,6 +49,52 @@ contains
         stop
       endif
     enddo
+
+    call Setup_BC_Metrics ( domain )
+
+  end subroutine Setup_Metrics
+
+
+  !> Build the ghost-cell metrics for every boundary entry.
+  !>
+  !> Split out of Setup_Metrics so that Update_Mesh can redo it every step: these
+  !> are functions of the block geometry, and on a moving mesh leaving them at
+  !> their t = 0 values means the geometry the solver describes at the boundary
+  !> is not the geometry it is solving on.
+  !>
+  !> HONEST STATUS: I could not construct a case where this call changes the
+  !> answer. What was measured, not assumed:
+  !>
+  !>   * bc%dlg and bc%volg are written here and read NOWHERE in the solver.
+  !>     They are dead state today.
+  !>   * bc%Mg is read in exactly one place, BC_Connection (bc types 101/102).
+  !>     Multiplying every bc%Mg by 0.5 every step, on a two-block case with 160
+  !>     type-101 records and vigorous prescribed mesh motion, left the solution
+  !>     file bit-identical over 214 steps. Removing this call entirely on the
+  !>     same case did too.
+  !>   * The wall flux routines do not use any of these: BC_Wall_Temperature and
+  !>     friends read blk%M and blk%dir(d)%f, which Adapter_Morph already
+  !>     refreshes.
+  !>
+  !> It is kept because stale geometry at a boundary is wrong on its face and
+  !> the cost is one pass over boundary entries per step, not because a test
+  !> demands it. If a later phase makes the boundary metrics matter -- plan 08's
+  !> receding surface compresses exactly the cells these describe -- this is
+  !> already in the right place. If instead someone concludes bc%Mg/dlg/volg are
+  !> simply vestigial, deleting them is a separate and defensible change, and
+  !> the measurements above are the evidence for it.
+  !>
+  !> This does not affect a static mesh: Update_Mesh returns before calling it
+  !> when motion is disabled.
+  subroutine Setup_BC_Metrics ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_Metrics, only: BC_Connect_Metrics, BC_Symmetry_Metrics, &
+                                BC_Extrapolate_Metrics
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: i
+    integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
 
     !$omp parallel
     ! Create the nodes for gc layers of ghost cell
@@ -85,7 +129,7 @@ contains
     enddo
     !$omp end parallel
 
-  end subroutine Setup_Metrics
+  end subroutine Setup_BC_Metrics
 
 
   !> Advance the mesh one step and refresh all geometry. Called once per time
@@ -109,9 +153,9 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     real(R8),               intent(in)    :: t, dt
     ! Local
-    integer  :: b, ci, cj, ck
+    integer  :: b, ci, cj, ck, si, sj, sk
     logical  :: ok
-    real(R8) :: gcl_rel
+    real(R8) :: gcl_rel, sweep_ratio
     character(len=256) :: message
 
     if ( .not. obj_mesh_motion%enabled ) return
@@ -120,7 +164,8 @@ contains
       if (.not. is_local_block(b)) cycle
 
       call Adapter_Update_Mesh ( domain%blk(b), domain%nb, b, t, dt, &
-                                 gcl_rel, ok, message, ci, cj, ck )
+                                 gcl_rel, sweep_ratio, si, sj, sk, &
+                                 ok, message, ci, cj, ck )
 
       if ( .not. ok ) then
         write(*,'(A)')         ' [ERROR] mesh update failed'
@@ -139,7 +184,26 @@ contains
         write(*,'(A,I0)')       '         block ', b
         stop
       endif
+
+      ! Moving-mesh stability. The GCL says the geometry is self-consistent; it
+      ! says nothing about the mesh having moved too far in one step. Once a
+      ! cell sweeps out more than its own volume the remap's coefficient on that
+      ! cell's own state goes negative and the update extrapolates. dt is chosen
+      ! from conduction alone and carries no mesh-velocity limit, so nothing
+      ! upstream prevents this.
+      if ( sweep_ratio >= 1.0d0 ) then
+        write(*,'(A)')          ' [ERROR] the mesh moved too far in one time step'
+        write(*,'(A,ES12.4,A)') '         a cell swept out ', sweep_ratio, ' times its own volume;'
+        write(*,'(A)')          '         the conservative remap is unstable at or above 1.'
+        write(*,'(A,4(I0,A))')  '         worst at block ', b, ', cell (', si, ',', sj, ',', sk, ')'
+        write(*,'(A)')          '         Reduce the mesh velocity or the time step (lower vnn).'
+        stop
+      endif
     enddo
+
+    ! The ghost-cell metrics are functions of the geometry that has just moved,
+    ! so they have to be rebuilt too. See Setup_BC_Metrics.
+    call Setup_BC_Metrics ( domain )
 
   end subroutine Update_Mesh
 

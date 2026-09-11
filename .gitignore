@@ -4,3 +4,5 @@ CMakePresets.json
 site
 
 OUTPUT
+__pycache__
+.claude-context
