@@ -62,27 +62,39 @@ contains
   !> their t = 0 values means the geometry the solver describes at the boundary
   !> is not the geometry it is solving on.
   !>
-  !> HONEST STATUS: I could not construct a case where this call changes the
-  !> answer. What was measured, not assumed:
+  !> bc%Mg IS LOAD-BEARING. It is read in exactly one place, BC_Connection (bc
+  !> types 101/102), where it supplies the NEIGHBOUR's metric in the
+  !> conductivity-and-metric weighted interface temperature
   !>
-  !>   * bc%dlg and bc%volg are written here and read NOWHERE in the solver.
-  !>     They are dead state today.
-  !>   * bc%Mg is read in exactly one place, BC_Connection (bc types 101/102).
-  !>     Multiplying every bc%Mg by 0.5 every step, on a two-block case with 160
-  !>     type-101 records and vigorous prescribed mesh motion, left the solution
-  !>     file bit-identical over 214 steps. Removing this call entirely on the
-  !>     same case did too.
-  !>   * The wall flux routines do not use any of these: BC_Wall_Temperature and
-  !>     friends read blk%M and blk%dir(d)%f, which Adapter_Morph already
-  !>     refreshes.
+  !>     T_int = (k1 T1 D1 + k2 T2 D2) / (k1 D1 + k2 D2)
   !>
-  !> It is kept because stale geometry at a boundary is wrong on its face and
-  !> the cost is one pass over boundary entries per step, not because a test
-  !> demands it. If a later phase makes the boundary metrics matter -- plan 08's
-  !> receding surface compresses exactly the cells these describe -- this is
-  !> already in the right place. If instead someone concludes bc%Mg/dlg/volg are
-  !> simply vestigial, deleting them is a separate and defensible change, and
-  !> the measurements above are the evidence for it.
+  !> which is exactly the flux-continuity interface temperature between two cell
+  !> centres at dx1/2 and dx2/2. Get D2 wrong and the interface temperature is
+  !> wrong.
+  !>
+  !> Measured, on test/numerics-features/conjugate_two_layer -- two materials,
+  !> dx2/dx1 = 4, exact solution piecewise linear:
+  !>
+  !>     correct                 max |T - T_exact| = 4.5e-09 K
+  !>     every bc%Mg halved      max |T - T_exact| = 2.9e+01 K
+  !>
+  !> Be careful how you test this. The same sabotage on multimat_Plate changes
+  !> NOTHING, over 214 steps, bit for bit -- because every interface there has
+  !> the same cell spacing on both sides, and with D1 = D2 the weights reduce to
+  !> the conductivity ratio and the neighbour's metric drops out. That is the one
+  !> configuration in which this field looks dead, and until 2026-09-10 it was
+  !> the only multi-block configuration the suite contained.
+  !>
+  !> Hence the per-step refresh: as soon as mesh motion changes the spacing near
+  !> a block interface, a stale bc%Mg is a wrong interface temperature. Plan 08's
+  !> receding surface compresses exactly those cells.
+  !>
+  !> bc%dlg and bc%volg are a different matter -- they are written here and read
+  !> NOWHERE in the solver. They are left in place deliberately rather than
+  !> commented out: they are `intent(out)` dummies of BC_Connect_Metrics and
+  !> friends, so suppressing the assignments would leave them undefined, which is
+  !> the same uninitialised-read defect class already fixed three times in this
+  !> codebase. If they are ever removed, remove the arguments too.
   !>
   !> This does not affect a static mesh: Update_Mesh returns before calling it
   !> when motion is disabled.
