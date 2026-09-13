@@ -54,6 +54,16 @@ if [ ${#CASES[@]} -eq 0 ]; then
   )
 fi
 
+# Refuse to fingerprint anything from a build that was not configured the way
+# CMakePresets.json says. A mis-configured build is silent -- it compiles, runs,
+# and agrees with the baseline on all but one artefact -- so this has to be
+# checked rather than remembered. See test/check_build_config.sh.
+if ! "$ROOT/test/check_build_config.sh"; then
+  echo
+  echo "refusing to record a manifest from a build that does not match the preset"
+  exit 1
+fi
+
 [ -n "$OUTDIR" ] || OUTDIR="$ROOT/test/.regression/omp${NTHREADS}"
 mkdir -p "$OUTDIR"
 MANIFEST="$OUTDIR/manifest.txt"
