@@ -226,8 +226,22 @@ contains
 
     subroutine Check_Input()
       use FUSS_Input_Registry
+      use FUSS_Read_Ini, only: unknown_options_message
       implicit none
       character(len=hlen) :: out
+
+      ! An option in a FUSS-owned section that nothing registered is not being
+      ! applied, whatever the user believed. Reported BEFORE the registry
+      ! validation, because a misspelt key makes the validation pass -- the
+      ! parameter simply keeps its default and looks perfectly valid.
+      if ( len_trim(unknown_options_message) > 0 ) then
+        write(*,'(A,T35,A)') '   Input file', 'FAIL'
+        write(*,'(4X,A)') trim(unknown_options_message)
+        write(*,'(4X,A)') 'This part of input.ini is not being applied. A misspelt key keeps'
+        write(*,'(4X,A)') 'its default, and a repeated section header is ignored entirely --'
+        write(*,'(4X,A)') 'in both cases the run would otherwise look completely normal.'
+        error stop 1
+      endif
 
       out = Validate_Registry()
       if (index(out,'ERROR')>0) then

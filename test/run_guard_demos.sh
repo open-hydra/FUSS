@@ -38,7 +38,7 @@ fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 
-echo "FUSS moving-mesh guard demonstrations"
+echo "FUSS guard demonstrations"
 echo "  base case : test/moving-mesh/receding/N040"
 echo "  work dir  : $WORK"
 echo
@@ -129,6 +129,50 @@ demo too_fast 2 "mesh moved too far in one time step" "vel=1.0 0.0 0.0"
 demo tangled  2 "mesh update failed" \
               "law=prescribed" "amp=0.05 0.05 0.0" "kx=500.0 500.0 0.0" \
               "ky=500.0 500.0 0.0" "omega=1.0"
+
+# ---------------------------------------------------------------------------
+# Input validation: options nothing reads (plan 10 D1).
+# ---------------------------------------------------------------------------
+# Injected into an EXISTING FUSS section, not appended as a new one. Appending
+# "[FUSS-Numerics]\nvnnn = ..." does not work: a repeated section header is
+# ignored wholesale, so the key never reaches the option loop and this demo
+# silently tested nothing the first time it was written. The repeated-header
+# case is its own check below.
+demo unknown_key 1 "unknown option in input.ini" "vnnn=99.0"
+
+demo dup_section 1 "repeated section in input.ini" \
+    "RAW:[FUSS-Numerics]
+vnn = 0.123"
+
+# The OTHER direction, and the one that actually carries risk. An unknown-key
+# check that is too eager rejects working input, and a FUSS input.ini is full of
+# sections belonging to ATLAS -- [GRIB-*], [GPB-*], [ICB-*], [BCB-*] and
+# arbitrarily named per-BC blocks. Those must pass through untouched.
+demo_ok () {
+  local name=$1; shift
+  local d="$WORK/$name"
+  rm -rf "$d"; mkdir -p "$d"
+  cp -r "$BASE/INPUT" "$BASE/MESH" "$BASE/input.ini" "$BASE/FUSS.sh" "$d/"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i 's/^iter-threshold = .*/iter-threshold = 3/' "$d/input.ini"
+  mkdir -p "$d/OUTPUT" "$d/bin"
+  printf '\n%s\n' "$1" >> "$d/input.ini"
+
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    pass "$name -> accepted, as it must be (exit 0)"
+  else
+    bad "$name: a section FUSS does not own was rejected (exit $rc)"
+    grep -m2 -i "unknown option" "$d/run.log" | sed 's/^/          /'
+  fi
+}
+
+demo_ok foreign_section "[GRIB-SomethingElse]
+whatever = 1
+[Twall-made-up]
+type = wall
+q = 0.0"
 
 echo
 if [ "$fail" -eq 0 ]; then
