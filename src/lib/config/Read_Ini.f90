@@ -47,23 +47,37 @@ contains
   end subroutine Read_Inifile
 
 
-  subroutine Read_Inifile_Runtime()
+  !> Re-read input.ini while the run is in progress.
+  !>
+  !> Only runtime-mutable parameters are applied; a change to anything else is
+  !> ignored and recorded. See Reload_Runtime_Ini for the policy and why it also
+  !> closes the mid-run route around the setup-time guards.
+  subroutine Read_Inifile_Runtime( iter )
     use Finer,               only: file_ini
-    use FUSS_Backend_INI,    only: Load_Ini
+    use FUSS_Backend_INI,    only: Reload_Runtime_Ini
+    use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Input_Registry
     implicit none
+    integer, intent(in) :: iter
     ! Local
     type(file_ini) :: fini
-    character(len=1024) :: out
+    character(len=4096) :: report
+    integer :: u
 
-    ! Load input.ini
     call fini%load(filename='input.ini')
 
-    ! Registry is built, now load the values from the ini file
-    call Load_Ini(fini)
+    call Reload_Runtime_Ini(fini, iter, report)
 
-    ! Validate registry
-    out = Validate_Registry()
+    ! The file is created ONLY when something was actually ignored, so its mere
+    ! existence after a run is the signal that input.ini was edited mid-flight
+    ! and part of the edit did not take. A line in a log nobody reads would not
+    ! carry that.
+    if ( len_trim(report) > 0 ) then
+      open(newunit=u, file='OUTPUT/'//trim(FUSS_phase_prefix)//'runtime-ini-ignored.txt', &
+           status='unknown', position='append', action='write')
+      write(u,'(A)') trim(report)
+      close(u)
+    endif
 
   end subroutine Read_Inifile_Runtime
 
