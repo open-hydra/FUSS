@@ -91,6 +91,7 @@ if [[ $1 == solve ]]; then
   if [[ $NMPI == 1 ]]; then
     if [[ $BG == 0 ]]; then
       $LOCAL
+      RC=$?
     else
       $LOCAL 2>errors_file >logfile &
       echo $! > .ID
@@ -98,6 +99,7 @@ if [[ $1 == solve ]]; then
   else
     if [[ $BG == 0 ]]; then
       mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL
+      RC=$?
     else
       mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL 2>errors_file >logfile &
       echo $! > .ID
@@ -108,3 +110,15 @@ fi
 if [[ $1 == kill ]]; then
 read PID < .ID && kill $PID
 fi
+
+# Propagate the solver's exit status.
+#
+# Without this the script always exits 0, because the last thing it evaluates is
+# the `kill` test above. That silently defeated every abort code the solver
+# produces: test/run_regression.sh branches on exit status and recorded a case
+# that had refused to run as 'ok', fingerprinting whatever partial output it
+# managed to write. Codes: 1 input validation, 2 geometry/mesh, 3 numerical.
+#
+# Background runs cannot report a status here -- the solver is still running --
+# so RC stays 0 for them, by design.
+exit ${RC:-0}

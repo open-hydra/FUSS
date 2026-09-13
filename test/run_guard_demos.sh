@@ -11,10 +11,13 @@
 #               Check_Input runs too early to see -- and that was only caught by
 #               trying them. Hence this file.
 #
-#               Matching is on the ERROR TEXT, not the exit status: Fortran's
-#               bare `stop` exits 0, so a guard that fires and a run that
-#               succeeds are indistinguishable by exit code alone. That is worth
-#               knowing before trusting any "it failed, good" check here.
+#               Both the error TEXT and the EXIT CODE are checked. The codes
+#               are 1 for input validation and 2 for geometry/mesh, set by
+#               plan 10 D2; before that every abort used Fortran's bare `stop`,
+#               which exits 0, so a guard that fired and a run that succeeded
+#               were indistinguishable by status and only the text could be
+#               trusted. Checking both means a guard that stops for the WRONG
+#               reason no longer passes just because the message matches.
 #===============================================================================
 set -u
 
@@ -40,10 +43,10 @@ echo "  base case : test/moving-mesh/receding/N040"
 echo "  work dir  : $WORK"
 echo
 
-# $1 = short name, $2 = expected substring of the error, $3.. = ini edits
-# (each edit is "section-less key = value" applied by regex, or "+SECTION:line")
+# $1 = short name, $2 = expected exit code, $3 = expected substring of the
+# error, $4.. = ini edits (each "key=value", or "RAW:<text>" appended verbatim)
 demo () {
-  local name=$1 expect=$2; shift 2
+  local name=$1 expect_rc=$2 expect=$3; shift 3
   local d="$WORK/$name"
 
   rm -rf "$d"; mkdir -p "$d"
@@ -86,26 +89,32 @@ PY
   done
 
   ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
-  if grep -qF "$expect" "$d/run.log"; then
-    pass "$name -> refused with: $(grep -m1 -F "$expect" "$d/run.log" | sed 's/^ *//')"
-  else
+  local rc=$?
+
+  if ! grep -qF "$expect" "$d/run.log"; then
     bad "$name: expected \"$expect\", not found in $d/run.log"
     tail -4 "$d/run.log" | sed 's/^/          /'
+    return
   fi
+  if [ "$rc" -ne "$expect_rc" ]; then
+    bad "$name: refused correctly but exited $rc, expected $expect_rc"
+    return
+  fi
+  pass "$name -> exit $rc, $(grep -m1 -F "$expect" "$d/run.log" | sed 's/^ *//')"
 }
 
 # ---------------------------------------------------------------------------
 # Input-validation guards (fire before the first step).
 # ---------------------------------------------------------------------------
-demo irs        "not compatible with implicit residual smoothing" "irs=true"
-demo multigrid  "not compatible with multigrid" \
+demo irs        1 "not compatible with implicit residual smoothing" "irs=true"
+demo multigrid  1 "not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
 level1-iter = 3
 level2-iter = 3"
-demo primitive  "requires integration-variables = cons"           "integration-variables=prim"
-demo steady     "requires a time-accurate run"                    "time-accurate=false"
-demo restart    "cannot be restarted"                             "law=prescribed" "newrun=false"
+demo primitive  1 "requires integration-variables = cons"           "integration-variables=prim"
+demo steady     1 "requires a time-accurate run"                    "time-accurate=false"
+demo restart    1 "cannot be restarted"                             "law=prescribed" "newrun=false"
 
 # ---------------------------------------------------------------------------
 # Runtime geometry guards (fire on the first mesh update).
@@ -116,8 +125,8 @@ demo restart    "cannot be restarted"                             "law=prescribe
 # tangled:  an oscillation whose amplitude dwarfs the cell size folds cells
 #           inside out, which is a different failure and a different message.
 # ---------------------------------------------------------------------------
-demo too_fast "mesh moved too far in one time step" "vel=1.0 0.0 0.0"
-demo tangled  "mesh update failed" \
+demo too_fast 2 "mesh moved too far in one time step" "vel=1.0 0.0 0.0"
+demo tangled  2 "mesh update failed" \
               "law=prescribed" "amp=0.05 0.05 0.0" "kx=500.0 500.0 0.0" \
               "ky=500.0 500.0 0.0" "omega=1.0"
 

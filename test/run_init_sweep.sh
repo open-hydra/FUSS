@@ -99,17 +99,16 @@ restore () {
   echo
   echo "  restoring $ROOT/build (the sweep clobbers ORION/FiNeR in it) ..."
   rm -rf "$ROOT/build"
-  cmake -S "$ROOT" -B "$ROOT/build" \
-        -DCMAKE_BUILD_TYPE=RELEASE \
-        -DCMAKE_Fortran_COMPILER=/usr/bin/gfortran \
-        -DCMAKE_C_COMPILER=/usr/bin/gcc \
-        -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
-        -DORION_PATH="$ROOT/lib/ORION/" \
-        -DFINER_PATH="$ROOT/lib/third_party/FiNeR/" \
-        > "$WORK/restore.log" 2>&1 \
-    && cmake --build "$ROOT/build" -j 8 >> "$WORK/restore.log" 2>&1 \
+  # Restore via the PRESET, never by hand-writing a cmake line. CMakePresets.json
+  # records the options this tree was actually configured with -- notably
+  # USE_OPENMP=true and USE_TECIO=false -- and CMake's own defaults are the
+  # opposite on both. Rebuilding with hand-written flags silently produced a
+  # serial, TecIO-linked binary whose results differed from the baseline in one
+  # case; it cost a full regression run to notice and another to explain.
+  ( cd "$ROOT" && cmake --preset default > "$WORK/restore.log" 2>&1 \
+      && cmake --build build -j 8 >> "$WORK/restore.log" 2>&1 ) \
     && echo "  restored." \
-    || echo "  RESTORE FAILED -- see $WORK/restore.log; rebuild build/ by hand."
+    || echo "  RESTORE FAILED -- see $WORK/restore.log; run 'cmake --preset default' by hand."
 }
 trap restore EXIT
 

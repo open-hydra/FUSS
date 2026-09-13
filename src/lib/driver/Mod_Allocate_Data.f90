@@ -35,7 +35,7 @@ contains
     if ( size(IOfield%block(1)%vars, 1) < 3 ) then
       write(*,'(A)')         '[ERROR] Number of variables in IOfield does not match FUSS expectation.'
       write(*,'(A,I0,A,I0)') '        Expected: ', 3, ', Found: ', size(IOfield%block(1)%vars, 1)
-      stop
+      error stop 1
     end if
 
     do b = 1, nblocks

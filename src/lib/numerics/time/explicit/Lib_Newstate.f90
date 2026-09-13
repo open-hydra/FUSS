@@ -284,7 +284,8 @@ contains
     if ( isnan(T) .or. T < 0d0 ) then
       write(*,'(A,4I4)') "Integration failed at b, i, j, k:", b, i, j, k
       write(*,*) T
-      stop "NaN or T<0 detected"
+      write(*,'(A)') " [ERROR] NaN or T<0 detected"
+      error stop 3
     endif
 
   end subroutine Check_And_Fix_State

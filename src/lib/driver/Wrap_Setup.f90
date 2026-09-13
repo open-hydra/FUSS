@@ -205,7 +205,7 @@ contains
         write(*,'(A,T35,A)') '   Properties', 'OK'
       endif
 
-      if (has_error) stop
+      if (has_error) error stop 1
 
     end subroutine Check_Table
 
@@ -216,7 +216,7 @@ contains
       if (index(obj_io%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io%error_message)
-        stop
+        error stop 1
       else
         write(*,'(A,T35,A)') '   Initial conditions', 'OK'
       endif
@@ -233,7 +233,7 @@ contains
       if (index(out,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-        stop
+        error stop 1
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
@@ -341,7 +341,7 @@ contains
         bad = .true.
       endif
 
-      if ( bad ) stop
+      if ( bad ) error stop 1
 
     end subroutine Check_Mesh_Motion_Compatibility
 
@@ -352,7 +352,7 @@ contains
       if (index(obj_io_bc%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Boundary conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io_bc%error_message)
-        stop
+        error stop 1
       else
         write(*,'(A,T35,A)') '   Boundary conditions', 'OK'
       endif
@@ -387,7 +387,7 @@ contains
         write(*,'(A)') obj_irs%error_message;          has_error = .true.
       endif
 
-      if (has_error) stop
+      if (has_error) error stop 1
 
     end subroutine Stop_Simulation
 
