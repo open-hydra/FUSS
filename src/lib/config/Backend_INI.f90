@@ -69,7 +69,7 @@ contains
   !> re-running Check_Mesh_Motion_Compatibility.
   subroutine Reload_Runtime_Ini ( fini, iter, report )
     use Finer,               only: file_ini
-    use FUSS_Input_Registry, only: reg
+    use FUSS_Input_Registry, only: reg, Validate_Param
     implicit none
     type(file_ini),   intent(in)  :: fini
     integer,          intent(in)  :: iter
@@ -78,6 +78,11 @@ contains
     integer             :: i, error
     character(len=256)  :: now
     character(len=256)  :: entry_
+    character(len=1024) :: vout
+    integer             :: old_i
+    real(R8)            :: old_r
+    logical             :: old_l
+    character(len=1024) :: old_s
 
     report = ''
     if ( .not. allocated(ini_seen) ) return     ! Load_Ini has not run yet
@@ -88,6 +93,17 @@ contains
       if ( now == ini_seen(i) ) cycle           ! the file did not change here
 
       if ( Is_Runtime_Mutable(reg%params(i)%name) ) then
+        ! Apply, then validate the ONE parameter that changed against its own
+        ! rule -- the same rule it passed at setup. If it fails, put the old
+        ! value back and report; a bad edit never takes effect. This is
+        ! per-parameter on purpose: the whole registry cannot be re-validated
+        ! after setup, see Raw_Ini_Text below.
+        if      (associated(reg%params(i)%value%i)) then ; old_i = reg%params(i)%value%i
+        else if (associated(reg%params(i)%value%r)) then ; old_r = reg%params(i)%value%r
+        else if (associated(reg%params(i)%value%l)) then ; old_l = reg%params(i)%value%l
+        else if (associated(reg%params(i)%value%s)) then ; old_s = reg%params(i)%value%s
+        endif
+
         error = 1
         if (associated(reg%params(i)%value%i)) then
           call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%i, error=error)
@@ -97,6 +113,22 @@ contains
           call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%l, error=error)
         else if (associated(reg%params(i)%value%s)) then
           call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%s, error=error)
+        endif
+
+        vout = ''
+        call Validate_Param(i, vout)
+        if ( len_trim(vout) > 0 ) then
+          if      (associated(reg%params(i)%value%i)) then ; reg%params(i)%value%i = old_i
+          else if (associated(reg%params(i)%value%r)) then ; reg%params(i)%value%r = old_r
+          else if (associated(reg%params(i)%value%l)) then ; reg%params(i)%value%l = old_l
+          else if (associated(reg%params(i)%value%s)) then ; reg%params(i)%value%s = old_s
+          endif
+          write(entry_,'(A,I0,A)') 'iteration ', iter, ':  '//trim(vout)//      &
+            '  -- rejected "'//trim(adjustl(now))//'", kept "'//                 &
+            trim(adjustl(ini_seen(i)))//'"'
+          if ( len_trim(report) + len_trim(entry_) + 1 < len(report) ) then
+            report = trim(report)//trim(entry_)//new_line('a')
+          endif
         endif
       else
         write(entry_,'(A,I0,A)') 'iteration ', iter, ':  ['//                  &
@@ -127,10 +159,12 @@ contains
   !> the file against the live variable therefore reported a spurious change on
   !> every single re-read -- a 4.2 MB report file from a run nobody had edited.
   !>
-  !> The same fact is why this routine does NOT re-run Validate_Registry. After
-  !> setup the registry's targets no longer hold raw ini values, so
-  !> 'Conservative' fails its own 'cons , prim' allowed-list. The validation
-  !> result was historically discarded, which is exactly what hid this.
+  !> The same fact is why Reload_Runtime_Ini validates PER PARAMETER, through
+  !> Validate_Param, and never calls Validate_Registry on the whole set: after
+  !> setup the registry's targets no longer all hold raw ini values, so
+  !> 'Conservative' fails its own 'cons , prim' allowed-list. The whole-set
+  !> validation result was historically discarded, which is exactly what hid
+  !> this.
   function Raw_Ini_Text ( fini, i, error ) result ( txt )
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg

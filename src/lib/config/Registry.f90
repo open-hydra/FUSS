@@ -6,7 +6,7 @@ module FUSS_Input_Registry
 
   integer, parameter :: TYPE_INT=1, TYPE_REAL=2, TYPE_LOG=3, TYPE_STR=4
 
-  public :: registry_t, Validate_Registry
+  public :: registry_t, Validate_Registry, Validate_Param
 
   !--------------------------------------------------------
   ! Value container (typed pointers)
@@ -349,55 +349,70 @@ contains
 
     character(len=1024) :: out
     integer :: i
-    real(R8) :: val
 
     out=""
 
     do i=1,reg%size
-
-      if (reg%params(i)%required .and. .not. reg%params(i)%is_set) then
-        out = "[ERROR] Required parameter not set: "//trim(reg%params(i)%name)
-        return
-      end if
-
-      if (reg%params(i)%allowed == "") cycle
-
-      ! Arrays are parsed/validated by FiNeR, skip scalar rule checks here.
-      if (associated(reg%params(i)%value%iarr) .or. associated(reg%params(i)%value%rarr)) cycle
-
-      select case(reg%params(i)%type_id)
-
-      case(TYPE_INT)
-
-        if (.not. associated(reg%params(i)%value%i)) cycle
-
-        val = real(reg%params(i)%value%i, R8)
-        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case(TYPE_REAL)
-
-        if (.not. associated(reg%params(i)%value%r)) cycle
-
-        val = reg%params(i)%value%r
-        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case(TYPE_STR)
-
-        if (.not. associated(reg%params(i)%value%s)) cycle
-        if (trim(reg%params(i)%value%s) == "") cycle
-        call validate_string(reg%params(i)%name, reg%params(i)%value%s, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case default
-        cycle
-
-      end select
-
+      call Validate_Param(i, out)
+      if (out /= "") return
     end do
 
   end function Validate_Registry
+
+
+  !> Validate ONE registered parameter against its own rule.
+  !>
+  !> Factored out of Validate_Registry so the same rule can be applied to a
+  !> single parameter mid-run: Reload_Runtime_Ini (Backend_INI.f90) re-reads
+  !> input.ini while the solver is running, and a runtime-mutable value that
+  !> has changed must pass the same check it would have passed at setup, on its
+  !> own -- validating the WHOLE registry mid-run is not possible, because
+  !> several registered variables are overwritten after setup with display
+  !> strings that fail their own allowed-lists (integration-variables is read
+  !> as 'cons' and rewritten to 'Conservative').
+  !>
+  !> `out` is left untouched if the parameter is valid, so callers can chain.
+  subroutine Validate_Param(i, out)
+
+    implicit none
+
+    integer,          intent(in)    :: i
+    character(len=*), intent(inout) :: out
+    real(R8) :: val
+
+    if (reg%params(i)%required .and. .not. reg%params(i)%is_set) then
+      out = "[ERROR] Required parameter not set: "//trim(reg%params(i)%name)
+      return
+    end if
+
+    if (reg%params(i)%allowed == "") return
+
+    ! Arrays are parsed/validated by FiNeR, skip scalar rule checks here.
+    if (associated(reg%params(i)%value%iarr) .or. associated(reg%params(i)%value%rarr)) return
+
+    select case(reg%params(i)%type_id)
+
+    case(TYPE_INT)
+      if (.not. associated(reg%params(i)%value%i)) return
+      val = real(reg%params(i)%value%i, R8)
+      call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+
+    case(TYPE_REAL)
+      if (.not. associated(reg%params(i)%value%r)) return
+      val = reg%params(i)%value%r
+      call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+
+    case(TYPE_STR)
+      if (.not. associated(reg%params(i)%value%s)) return
+      if (trim(reg%params(i)%value%s) == "") return
+      call validate_string(reg%params(i)%name, reg%params(i)%value%s, reg%params(i)%allowed, out)
+
+    case default
+      return
+
+    end select
+
+  end subroutine Validate_Param
 
 
   subroutine validate_numeric(name,val,rule,out)

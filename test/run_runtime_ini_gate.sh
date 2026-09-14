@@ -144,6 +144,19 @@ else
   sed 's/^/          /' "$d/$REPORT"
 fi
 
+# ---------------------------------------------------------------------------
+# A mutable parameter edited to an OUT-OF-RANGE value must be rejected, the old
+# value kept, and the rejection reported. Validation is per parameter, through
+# Validate_Param -- whole-registry validation cannot be re-run after setup.
+d=$(start_case invalid_value 's/^res-threshold = .*/res-threshold = -1.0/')
+if [ -f "$d/$REPORT" ] && grep -q "res-threshold must be" "$d/$REPORT" \
+   && grep -q 'rejected "-1.0"' "$d/$REPORT"; then
+  pass "an out-of-range mutable value is rejected: $(grep -m1 'res-threshold must' "$d/$REPORT" | sed 's/^ *//')"
+else
+  bad "invalid_value: the validation result was not acted on"
+  [ -f "$d/$REPORT" ] && sed 's/^/          /' "$d/$REPORT"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "runtime ini gate passed"

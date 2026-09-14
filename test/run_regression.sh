@@ -21,6 +21,9 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
 OUTDIR=""
 ALL=0
+FRESH=0
+CHECK=0
+BASELINE="${FUSS_BASELINE:-$ROOT/test/baseline/manifest.txt}"   # env override exists so the -k path can be TESTED
 CASES=()
 
 while test $# -gt 0; do
@@ -29,16 +32,41 @@ while test $# -gt 0; do
     -o | --out)      OUTDIR=$2;   shift 2 ;;
     -c | --case)     CASES+=("$2"); shift 2 ;;
     -a | --all)      ALL=1; shift ;;
+    -B | --fresh-build)    FRESH=1; shift ;;
+    -k | --check-baseline) CHECK=1; shift ;;
     -h | --help)
-      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-a] [-c CASE]..."
+      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-a] [-B] [-k] [-c CASE]..."
       echo "  with no -c, every test/**/FUSS.sh case is run"
       echo "  -a also runs cases marked .slow (grid-convergence studies);"
       echo "     without it they are skipped, so keep -a consistent between"
       echo "     the two manifests you intend to diff"
+      echo "  -B wipes build/ and rebuilds from the preset before running."
+      echo "     REQUIRED when recording a baseline -- see the note in the script."
+      echo "  -k after the run, diff the manifest against test/baseline/manifest.txt"
+      echo "     and exit 1 on any difference (only meaningful for a full run)"
       exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# ---------------------------------------------------------------------------
+# WHY -B EXISTS. On 2026-09-14 an INCREMENTAL relink of the tree -- one changed
+# module, `cmake --build build` on an existing build dir -- produced a binary
+# whose results differed from a fresh preset build of the SAME SOURCE on 90 of
+# 290 artefacts, including static single-grid cases. The fresh build matched a
+# fresh build of the previous commit exactly, so the source change was inert;
+# the incremental binary was the odd one out. The build dir was wiped before
+# it could be examined, so the mechanism is unknown (LTO whole-program codegen
+# is one candidate). What is known: two fresh preset builds agree with each
+# other, and an incremental one may not. So a baseline is recorded only from a
+# fresh build, and this script can do that itself so nobody has to remember.
+# ---------------------------------------------------------------------------
+if [ "$FRESH" -eq 1 ]; then
+  echo "fresh build requested: wiping build/ and configuring from the preset"
+  ( cd "$ROOT" && rm -rf build && cmake --preset default > /dev/null 2>&1 \
+      && cmake --build build -j 8 > /dev/null 2>&1 ) \
+    || { echo "fresh build FAILED"; exit 1; }
+fi
 
 if [ ${#CASES[@]} -eq 0 ]; then
   # deterministic ordering matters: the manifest is diffed line by line
@@ -121,3 +149,21 @@ done
 echo
 echo "wrote $(wc -l < "$MANIFEST") manifest lines to $MANIFEST"
 [ "$fail" -eq 0 ] || { echo "$fail case(s) failed to run"; exit 1; }
+
+# Compare against the committed baseline. This is the regression GATE; the
+# manifest above is only its input. A baseline that lives in a temp directory
+# is not a baseline -- every one recorded before 2026-09-14 was lost that way.
+if [ "$CHECK" -eq 1 ]; then
+  if [ ! -f "$BASELINE" ]; then
+    echo "no committed baseline at $BASELINE"; exit 1
+  fi
+  if diff "$BASELINE" "$MANIFEST" > "$OUTDIR/baseline.diff"; then
+    echo "baseline: IDENTICAL to $BASELINE"
+  else
+    echo "baseline: DIFFERS from $BASELINE in these cases:"
+    grep '^[<>]' "$OUTDIR/baseline.diff" | cut -f1 | sed 's/^[<>] //' | sort -u | sed 's/^/    /'
+    echo "  full diff: $OUTDIR/baseline.diff"
+    echo "  If the change is intended, re-record with: $0 -B -o <dir> && cp <dir>/manifest.txt $BASELINE"
+    exit 1
+  fi
+fi
