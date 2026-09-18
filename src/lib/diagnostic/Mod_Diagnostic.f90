@@ -68,7 +68,7 @@ contains
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
     integer             :: E_IO, b, i, j, k
-    character(len=clen) :: format(2)
+    character(len=clen) :: format(2), extension
 
     ! Gather R, dtlocal, beta from all ranks to root (collective)
     call gather_diagnostic_to_root(domain)
@@ -97,7 +97,14 @@ contains
                                                             vtmpath=trim(path)//trim(file),varnames=Dvarnames,time=domain%time)
       case('tecplot')
         IOfield%tec%format = trim(format(2))
-        E_IO = tec_write_structured_multiblock(Nvars=1+1,orion=IOfield,varnames=Dvarnames,filename=trim(path)//trim(file)//'.tec')
+        ! TecIO refuses a binary stream unless the name ends in .plt/.szplt, so
+        ! the extension has to follow the format (as MOSE's writer already does).
+        if (format(2)=='binary') then
+          extension = '.szplt'
+        else
+          extension = '.tec'
+        end if
+        E_IO = tec_write_structured_multiblock(Nvars=1+1,orion=IOfield,varnames=Dvarnames,filename=trim(path)//trim(file)//trim(extension))
       end select
     end if
 

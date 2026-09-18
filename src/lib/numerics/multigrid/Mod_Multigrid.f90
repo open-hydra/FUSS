@@ -9,7 +9,7 @@ contains
 
   subroutine Setup_Multigrid ( simulation )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_sim_param, obj_multigrid
+    use FUSS_Config_Types_m, only: obj_multigrid
     use FUSS_Lib_Multigrid, only: Check_Multigrid, Coarse_Grid, Coarse_IOfield
     use FUSS_Mod_Allocate_Data, only: Allocate_Block
     implicit none

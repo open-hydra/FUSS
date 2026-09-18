@@ -25,7 +25,8 @@ module FUSS_Mod_MPI
   public :: mpi_init_env, mpi_finalize_env
   public :: is_local_block
   public :: partition_blocks
-  public :: mpi_allreduce_sum_r8, mpi_allreduce_min_r8
+  public :: mpi_allreduce_sum_r8, mpi_allreduce_min_r8, mpi_allreduce_max_r8
+  public :: mpi_gather_r8
   public :: mpi_allreduce_sum_r8_array
   public :: mpi_reduce_sum_r8, mpi_reduce_sum_r8_array
   public :: mpi_allreduce_norm2
@@ -123,8 +124,39 @@ contains
       end if
     end do
 
+    call report_partition_balance(nb, blk_ncells, rank_load)
+
     deallocate(rank_load)
   end subroutine partition_blocks
+
+
+  !> Report how evenly the blocks landed on the ranks. In a coupled run FUSS
+  !> partitions the solid independently of MOSE's fluid partition, so this is
+  !> the only place the solid's balance becomes visible.
+  subroutine report_partition_balance(nb, blk_ncells, rank_load)
+    integer, intent(in) :: nb
+    integer, intent(in) :: blk_ncells(nb)
+    integer, intent(in) :: rank_load(0:)
+    ! Local
+    real(R8) :: ideal, eff
+
+    if (mpi_rank_ /= 0) return
+    if (mpi_size_ <= 1) return
+
+    ideal = real(sum(blk_ncells), R8) / real(mpi_size_, R8)
+    eff   = ideal / real(maxval(rank_load), R8) * 100.0_R8
+
+    write(*,'(A,I0,A,I0,A,F5.1,A)') '  FUSS MPI partition: ', nb, ' blocks over ', &
+      mpi_size_, ' ranks, balance ', eff, '% of ideal'
+
+    if (mpi_size_ > nb) then
+      write(*,'(A,I0,A,I0,A)') '  WARNING: blocks are indivisible - only ', nb, &
+        ' of ', mpi_size_, ' ranks have work, the rest idle. Reduce ranks or split the mesh.'
+    else if (real(maxval(blk_ncells), R8) > ideal) then
+      write(*,'(A,I0,A)') '  NOTE: balance is capped by the largest block (', &
+        maxval(blk_ncells), ' cells); only a finer mesh split can improve it.'
+    end if
+  end subroutine report_partition_balance
 
 
   !> MPI_ALLREDUCE with MPI_SUM for a scalar real(R8).
@@ -153,6 +185,36 @@ contains
     global_val = local_val
 #endif
   end subroutine mpi_allreduce_min_r8
+
+
+  !> MPI_ALLREDUCE with MPI_MAX for a scalar real(R8).
+  subroutine mpi_allreduce_max_r8(local_val, global_val)
+    real(R8), intent(in)  :: local_val
+    real(R8), intent(out) :: global_val
+#ifdef USE_MPI
+    integer :: ierr
+    call MPI_ALLREDUCE(local_val, global_val, 1, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#else
+    global_val = local_val
+#endif
+  end subroutine mpi_allreduce_max_r8
+
+
+  !> MPI_GATHER of one real(R8) per rank onto root. `arr` must be at least
+  !> mpi_size_ long on root; off root its contents are undefined.
+  subroutine mpi_gather_r8(local_val, arr)
+    real(R8), intent(in)  :: local_val
+    real(R8), intent(out) :: arr(:)
+#ifdef USE_MPI
+    integer :: ierr
+    call MPI_GATHER(local_val, 1, MPI_DOUBLE_PRECISION, &
+                    arr, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#else
+    arr(1) = local_val
+#endif
+  end subroutine mpi_gather_r8
 
 
   !> MPI_ALLREDUCE with MPI_SUM for an array of real(R8).
