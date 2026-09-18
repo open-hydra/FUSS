@@ -23,7 +23,6 @@ module FUSS_Config_Types_m
     real(R8)        :: time_from_call
     real(R8), allocatable :: residuotot
     integer         :: nthreads         ! Number of threads for simulation
-    real(R8)        :: cputime(2)       ! Simulation time duration
     integer         :: TODO             ! Decide solve and/or postprocess
     logical         :: HYDRA_time_accurate = .false.
     logical         :: HYDRA_postprocess   = .false.
@@ -43,9 +42,10 @@ module FUSS_Config_Types_m
     integer              :: sol_diter, res_diter   ! iteration interval to save the solution
     real(R8)             :: sol_dtime              ! time interval to save the solution
     logical              :: sol_overwrite      ! switch to overwrite the solution
-    character(len=llen)  :: sol_format, ini_format   ! solution format (native,tecplot,vtk) and formatting (ascii,raw)
+    character(len=llen)  :: sol_format, ic_format   ! solution format (native,tecplot,vtk) and formatting (ascii,raw)
     integer              :: shell_diter  ! Shell update
     integer              :: ini_diter    ! input.ini update
+    integer              :: timer_diter  ! Wall-clock timing report (0 = off)
     ! Useful variables
     character(len=llen)  :: nameinit    ! Initial file name
     character(len=llen)  :: namesource  ! Source term file name
