@@ -23,6 +23,7 @@ contains
     use FUSS_IO_Wall,              only: Initialize_Wall_File
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks
+    use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -160,8 +161,8 @@ contains
     ! If errors are found, print error messages and stop the simulation.
     if (mpi_is_root) call Stop_Simulation()
 
-    ! Calculate time at beginning of simulation
-    call Cpu_Time ( obj_sim_param%cputime(1) )
+    ! Set-up is over: start the solver clock
+    call timer_run_begin()
 
   contains
 

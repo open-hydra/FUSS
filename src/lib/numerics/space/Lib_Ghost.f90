@@ -14,6 +14,7 @@ contains
                                       exchange_ghost_T_post_send, exchange_ghost_T_wait_unpack, &
                                       exchange_ghost_T_wait_send, &
                                       Ghost_Interrank, exchange_ghost_Tg, ghost_sched
+    use FUSS_Mod_Timers, only: timer_comm_begin, timer_comm_end
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -100,9 +101,13 @@ contains
       end select
     enddo
 
-    ! MPI: wait for P receives to complete
+    ! MPI: wait for T receives to complete. What is timed here is the
+    ! communication the local BC work did not hide, plus the wait on slower
+    ! neighbours.
     !$omp single
+    call timer_comm_begin()
     call exchange_ghost_T_wait_unpack(domain)
+    call timer_comm_end()
     !$omp end single
 
     ! Process INTER-RANK type-1 entries (Bm local, Bs remote)
