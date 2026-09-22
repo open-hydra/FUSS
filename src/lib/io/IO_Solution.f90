@@ -74,6 +74,9 @@ contains
         Read_IC => Read_vtk_tec
       end if
       obj_io%nameinit = 'OUTPUT/'//trim(FUSS_phase_prefix)//'field'//extension
+      ! The source-term file is read in both branches: leaving it unset here makes
+      ! Read_vtk_tec call the Tecplot reader on an undefined name.
+      obj_io%namesource = 'INPUT/'//trim(FUSS_phase_prefix)//'st'//extension
       inquire(file=obj_io%nameinit, exist=present)
 
       if (.not.present) then
