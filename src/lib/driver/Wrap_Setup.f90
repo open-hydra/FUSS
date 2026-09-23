@@ -40,6 +40,13 @@ contains
 
     ! Read input.ini
     call Read_Inifile ()
+    ! Flags DERIVED from the ini must exist before Check_Input, or a guard that
+    ! tests them is a comment for the input that sets them indirectly.
+    ! Example: `irs-beta > 0` enables IRS, but the promotion lived in
+    ! Assign_Setup, which runs after Check_Input, so `irs-beta = 0.5` with no
+    ! `irs` key passed the mesh-motion IRS guard and smoothed the remapped
+    ! residual anyway. Guard demo: run_guard_demos.sh irs_beta.
+    if (obj_irs%beta > 0d0) obj_irs%enabled = .true.
     if (mpi_is_root) call Check_Input ()
 
     ! Allocate container objects Domain and IOfield.

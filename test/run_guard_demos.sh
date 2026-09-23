@@ -65,25 +65,36 @@ s = pat.sub(r"\1 " + v, s) if pat.search(s) else s
 open(p, "w").write(s)
 PY
 
-  local kv
+  local kv sec
   for kv in "$@"; do
     if [ "${kv:0:4}" = "RAW:" ]; then
       printf '\n%s\n' "${kv:4}" >> "$d/input.ini"
       continue
     fi
-    python3 - "$d/input.ini" "${kv%%=*}" "${kv#*=}" <<'PY'
+    # SEC:<section>:key=value puts a NEW key under a named section; a bare
+    # key=value edits an existing key anywhere, or adds it to [FUSS-MeshMotion].
+    sec="FUSS-MeshMotion"
+    if [ "${kv:0:4}" = "SEC:" ]; then
+      kv=${kv:4}; sec=${kv%%:*}; kv=${kv#*:}
+    fi
+    python3 - "$d/input.ini" "${kv%%=*}" "${kv#*=}" "$sec" <<'PY'
 import re, sys
-p, k, v = sys.argv[1], sys.argv[2].strip(), sys.argv[3].strip()
+p, k, v, sec = sys.argv[1], sys.argv[2].strip(), sys.argv[3].strip(), sys.argv[4].strip()
 s = open(p).read()
 pat = re.compile(r"^(%s\s*=).*$" % re.escape(k), re.M)
 if pat.search(s):
     s = pat.sub(lambda m: m.group(1) + " " + v, s)
 else:
-    # New keys belong to the motion section. Dropping them into an unrelated
-    # section is not an error the registry reports -- it simply never reads
-    # them -- so the guard would appear not to fire when in fact it was never
-    # given the input that should trigger it. That happened while writing this.
-    s = s.replace("[FUSS-MeshMotion]", "[FUSS-MeshMotion]\n%s = %s" % (k, v), 1)
+    # New keys must land in the section that owns them. Dropping them into an
+    # unrelated section is not an error the registry reports for a FUSS- section
+    # it knows -- wait, it IS fatal ("unknown option") since d4f153c -- so the
+    # demo would exit 1 with the WRONG message and the text check would catch
+    # it; before d4f153c the key was simply never read and the guard appeared
+    # not to fire. Either way: name the section. That happened while writing this.
+    hdr = "[%s]" % sec
+    if hdr not in s:
+        sys.exit("demo input has no section %s to receive %s" % (hdr, k))
+    s = s.replace(hdr, "%s\n%s = %s" % (hdr, k, v), 1)
 open(p, "w").write(s)
 PY
   done
@@ -107,6 +118,10 @@ PY
 # Input-validation guards (fire before the first step).
 # ---------------------------------------------------------------------------
 demo irs        1 "not compatible with implicit residual smoothing" "irs=true"
+# `irs-beta > 0` alone also enables IRS (Assign_Setup promotes
+# it), but that promotion used to run AFTER Check_Input, so this exact input
+# passed the guard above and smoothed the ALE-remapped residual anyway.
+demo irs_beta   1 "not compatible with implicit residual smoothing" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo multigrid  1 "not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2

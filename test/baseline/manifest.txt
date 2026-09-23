@@ -10,6 +10,10 @@ test/moving-mesh/receding/N040	OUTPUT/wall.tec	0fe8e6c7ee3f9de5eb0e9e44a843f8a3
 test/moving-mesh/receding/N080	OUTPUT/field.tec	6c726cfe9ce756a85e0e3425294a83e3
 test/moving-mesh/receding/N080	OUTPUT/residual-history.dat	5da25638a55b2067e387ad438519afda
 test/moving-mesh/receding/N080	OUTPUT/wall.tec	ae10a399ceb13f971cada6e171fa6ed4
+test/numerics-features/bc303_qrad	OUTPUT/diagnostic.tec	8a6e433f8d6ef45823cc9a167405852f
+test/numerics-features/bc303_qrad	OUTPUT/field.tec	f9b46d3060caae40ceab74edfd7e2269
+test/numerics-features/bc303_qrad	OUTPUT/residual-history.dat	c6c844a082f71d3c11da22efd63a9bbb
+test/numerics-features/bc303_qrad	OUTPUT/wall.tec	62f3aba716b0557117be6d7df5beb91d
 test/numerics-features/chimera	OUTPUT/diagnostic.tec	8181a5548e1530b5f580ab92f3cb741f
 test/numerics-features/chimera	OUTPUT/field.tec	dcd0d8013cb7eea4f9934c3285544e03
 test/numerics-features/chimera	OUTPUT/residual-history.dat	1bd6a1c0bbc3a2624a982d81c3cc90e1

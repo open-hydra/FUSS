@@ -62,8 +62,11 @@ contains
                                          domain % bc(i) % Tw )
 
             case (303) ! wall: prescribed hconv, Tref, qrad
+              ! Read_BCfile stores the second bc.txt value in
+              ! bc%qrad; this call used to pass bc%qw, which is assigned only for
+              ! BC 301 and was otherwise whatever the allocation left there.
               call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qw )
+                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad )
 
             case (304) ! wall: prescribed epsilon, Tref
               call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &

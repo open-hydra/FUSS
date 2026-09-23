@@ -23,7 +23,8 @@ contains
     else
       obj_time_scheme%n_rk = 1
     end if
-    if (obj_irs%beta>0d0) obj_irs%enabled = .true.
+    ! obj_irs%enabled is promoted from irs-beta in FUSS_Wrap_Setup, BEFORE
+    ! Check_Input, so the guards see it. Do not move it back here.
     call Assign_Integration_Variables()
 
     ! Mesh motion. Derived here rather than registered directly, so that the

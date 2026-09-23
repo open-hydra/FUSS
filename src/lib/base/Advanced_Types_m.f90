@@ -55,7 +55,11 @@ module FUSS_Advanced_Types_m
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
-    real(R8) :: qw, Tw, hconv, qrad, Tref, eps                 ! BC viscous wall specifications
+    ! Default-initialised: each wall BC type reads only its own
+    ! subset of these, and a dispatch that names the wrong one must read 0, not
+    ! whatever the heap held. -finit-derived does not reach allocatable arrays
+    ! of this type, so the init sweep cannot catch that class without this.
+    real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0  ! BC viscous wall specifications
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------
