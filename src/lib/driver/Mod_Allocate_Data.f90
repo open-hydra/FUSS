@@ -108,12 +108,12 @@ contains
     logical, allocatable :: needs_remote_T(:)
 
     ! Build mask of remote blocks whose T (and dir) must be kept:
-    !  - chimera (102): donorID(:,1) can reference remote blocks
+    !  - chimera (102, 104): donorID(:,1) can reference remote blocks
     allocate(needs_remote_T(domain%nb))
     needs_remote_T = .false.
     do i = 1, domain%nbound
       select case (domain%bc(i)%type)
-        case (102) ! chimera
+        case (102, 104) ! chimera
           if (allocated(domain%bc(i)%donorID)) then
             do c = 1, size(domain%bc(i)%donorID, 1)
               b = domain%bc(i)%donorID(c, 1)
