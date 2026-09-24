@@ -6,3 +6,8 @@ site
 OUTPUT
 __pycache__
 .claude-context
+
+# Claude Code working files (local only)
+.claude/
+plan-bucket/
+CLAUDE.md
