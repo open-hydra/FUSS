@@ -27,6 +27,15 @@ module FUSS_Mod_GhostExchange
     integer :: count  = 0      !< Number of entries for this rank
   end type rank_group_type
 
+  !> Single chimera donor-cell exchange entry (BC type 102).
+  !> Identifies one donor cell (bs,is,js,ks) whose T must travel from the
+  !> donor's owner rank to the receiver block's owner rank.
+  type :: chim_entry_type
+    integer :: remote_rank     !< Peer rank (receiver owner on send side, donor owner on recv side)
+    integer :: bs              !< Donor block
+    integer :: is, js, ks      !< Donor cell indices
+  end type chim_entry_type
+
   !> Face group: contiguous run of entries sharing (block, face).
   !> Precomputes guide offsets; for rectangular faces enables direct coordinate sweep.
   type :: face_group_type
@@ -73,6 +82,20 @@ module FUSS_Mod_GhostExchange
     integer, allocatable  :: R_recv_req_pers(:)  !< (n_recv_ranks)
     logical :: persistent_T_init = .false.
     logical :: persistent_R_init = .false.
+
+    ! Chimera (type 102) donor-cell exchange: entries, per-rank groups, buffers
+    integer :: n_chim_send = 0, n_chim_recv = 0
+    type(chim_entry_type), allocatable :: chim_send_list(:)
+    type(chim_entry_type), allocatable :: chim_recv_list(:)
+    integer :: n_chim_send_ranks = 0
+    integer :: n_chim_recv_ranks = 0
+    type(rank_group_type), allocatable :: chim_send_groups(:)
+    type(rank_group_type), allocatable :: chim_recv_groups(:)
+    real(R8), allocatable :: chim_send_buf(:)   !< (n_chim_send)
+    real(R8), allocatable :: chim_recv_buf(:)   !< (n_chim_recv)
+    integer, allocatable  :: chim_send_req(:)   !< (n_chim_send_ranks)
+    integer, allocatable  :: chim_recv_req(:)   !< (n_chim_recv_ranks)
+    integer, allocatable  :: chim_stat(:,:)     !< (MPI_STATUS_SIZE, max ranks)
   end type ghost_schedule_type
 
   type(ghost_schedule_type), public :: ghost_sched
@@ -85,6 +108,9 @@ module FUSS_Mod_GhostExchange
   public :: exchange_ghost_T_wait_send
   public :: exchange_ghost_R
   public :: exchange_ghost_Tg
+  public :: exchange_ghost_chimera_post_recv, exchange_ghost_chimera_pack
+  public :: exchange_ghost_chimera_post_send, exchange_ghost_chimera_wait_recv
+  public :: exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send
   public :: gather_T_to_root, gather_matID_to_root, gather_qvol_to_root
   public :: gather_diagnostic_to_root
   public :: scatter_T_from_root
@@ -212,6 +238,9 @@ contains
 
     ! One-shot exchange of matID (static field) so ghost cells have correct material IDs
     call exchange_matID_once(domain)
+
+    ! Build chimera donor-cell exchange schedule (BC type 102)
+    call build_chimera_schedule(domain)
 
     if (mpi_is_root) then
       write(*,'(A,I0,A,I0,A)') ' Ghost schedule: ', ghost_sched%n_send_ranks, &
@@ -560,6 +589,209 @@ contains
       end if
     end do
   end subroutine build_face_groups_recv
+
+
+  !> Build the chimera donor-cell exchange schedule from type-102 BC entries.
+  !> Each distinct donor cell travels once per peer rank: entries are sorted by
+  !> (peer rank, donor cell) and repeats dropped. Both sides hold the same set
+  !> per rank pair, so the same full-key order keeps send and recv matched.
+  subroutine build_chimera_schedule(domain)
+    use FUSS_Advanced_Types_m
+    use mpi, only: MPI_STATUS_SIZE
+
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: i, c, ns, nr, bm, bs, max_ranks
+
+    ! Count send and recv donor references
+    ns = 0; nr = 0
+    do i = 1, domain%nbound
+      if (domain%bc(i)%type /= 102) cycle
+      if (.not. allocated(domain%bc(i)%donorID)) cycle
+      bm = domain%bc(i)%b
+      do c = 1, sum(domain%bc(i)%ni)
+        bs = domain%bc(i)%donorID(c,1)
+        if (is_local_block(bm) .and. (.not. is_local_block(bs))) nr = nr + 1
+        if (is_local_block(bs) .and. (.not. is_local_block(bm))) ns = ns + 1
+      end do
+    end do
+
+    if (allocated(ghost_sched%chim_send_list)) deallocate(ghost_sched%chim_send_list)
+    if (allocated(ghost_sched%chim_recv_list)) deallocate(ghost_sched%chim_recv_list)
+    if (allocated(ghost_sched%chim_send_groups)) deallocate(ghost_sched%chim_send_groups)
+    if (allocated(ghost_sched%chim_recv_groups)) deallocate(ghost_sched%chim_recv_groups)
+    if (allocated(ghost_sched%chim_send_buf)) deallocate(ghost_sched%chim_send_buf)
+    if (allocated(ghost_sched%chim_recv_buf)) deallocate(ghost_sched%chim_recv_buf)
+    if (allocated(ghost_sched%chim_send_req)) deallocate(ghost_sched%chim_send_req)
+    if (allocated(ghost_sched%chim_recv_req)) deallocate(ghost_sched%chim_recv_req)
+    if (allocated(ghost_sched%chim_stat)) deallocate(ghost_sched%chim_stat)
+    allocate(ghost_sched%chim_send_list(ns))
+    allocate(ghost_sched%chim_recv_list(nr))
+
+    ! Fill lists
+    ns = 0; nr = 0
+    do i = 1, domain%nbound
+      if (domain%bc(i)%type /= 102) cycle
+      if (.not. allocated(domain%bc(i)%donorID)) cycle
+      bm = domain%bc(i)%b
+      do c = 1, sum(domain%bc(i)%ni)
+        bs = domain%bc(i)%donorID(c,1)
+        if (is_local_block(bm) .and. (.not. is_local_block(bs))) then
+          nr = nr + 1
+          ghost_sched%chim_recv_list(nr)%remote_rank = block_owner(bs)
+          ghost_sched%chim_recv_list(nr)%bs = bs
+          ghost_sched%chim_recv_list(nr)%is = domain%bc(i)%donorID(c,2)
+          ghost_sched%chim_recv_list(nr)%js = domain%bc(i)%donorID(c,3)
+          ghost_sched%chim_recv_list(nr)%ks = domain%bc(i)%donorID(c,4)
+        end if
+        if (is_local_block(bs) .and. (.not. is_local_block(bm))) then
+          ns = ns + 1
+          ghost_sched%chim_send_list(ns)%remote_rank = block_owner(bm)
+          ghost_sched%chim_send_list(ns)%bs = bs
+          ghost_sched%chim_send_list(ns)%is = domain%bc(i)%donorID(c,2)
+          ghost_sched%chim_send_list(ns)%js = domain%bc(i)%donorID(c,3)
+          ghost_sched%chim_send_list(ns)%ks = domain%bc(i)%donorID(c,4)
+        end if
+      end do
+    end do
+
+    call sort_unique_chim_entries(ghost_sched%chim_send_list, ns)
+    call sort_unique_chim_entries(ghost_sched%chim_recv_list, nr)
+    ghost_sched%n_chim_send = ns
+    ghost_sched%n_chim_recv = nr
+
+    ! Build per-rank groups
+    call build_chim_rank_groups(ghost_sched%chim_send_list, ns, &
+                                ghost_sched%chim_send_groups, ghost_sched%n_chim_send_ranks)
+    call build_chim_rank_groups(ghost_sched%chim_recv_list, nr, &
+                                ghost_sched%chim_recv_groups, ghost_sched%n_chim_recv_ranks)
+
+    if (ns > 0 .or. nr > 0) then
+      max_ranks = max(ghost_sched%n_chim_send_ranks, ghost_sched%n_chim_recv_ranks, 1)
+      allocate(ghost_sched%chim_send_buf(max(ns,1)))
+      allocate(ghost_sched%chim_recv_buf(max(nr,1)))
+      allocate(ghost_sched%chim_send_req(max(ghost_sched%n_chim_send_ranks,1)))
+      allocate(ghost_sched%chim_recv_req(max(ghost_sched%n_chim_recv_ranks,1)))
+      allocate(ghost_sched%chim_stat(MPI_STATUS_SIZE, max_ranks))
+    end if
+
+    if (mpi_is_root .and. (ns > 0 .or. nr > 0)) then
+      write(*,'(A,I0,A,I0,A)') ' Chimera exchange schedule: ', ns, &
+        ' donor cells to send, ', nr, ' to receive (rank 0)'
+    end if
+  end subroutine build_chimera_schedule
+
+
+  !> Sort chimera entries by (remote_rank, bs, ks, js, is) and remove repeats.
+  !> Bottom-up merge sort (the lists hold one entry per (bc, donor) pair); on
+  !> return the list is shrunk to the n distinct entries.
+  subroutine sort_unique_chim_entries(list, n)
+    implicit none
+    type(chim_entry_type), allocatable, intent(inout) :: list(:)
+    integer, intent(inout) :: n
+    ! Local
+    type(chim_entry_type), allocatable :: tmp(:)
+    integer :: width, lo, mid, hi, i, j, k, m
+
+    if (n <= 1) return
+
+    allocate(tmp(n))
+    width = 1
+    do while (width < n)
+      do lo = 1, n, 2*width
+        mid = min(lo + width, n + 1)
+        hi  = min(lo + 2*width, n + 1)
+        i = lo; j = mid; k = lo
+        do while (i < mid .and. j < hi)
+          if (chim_key_le(list(i), list(j))) then
+            tmp(k) = list(i); i = i + 1
+          else
+            tmp(k) = list(j); j = j + 1
+          end if
+          k = k + 1
+        end do
+        do while (i < mid)
+          tmp(k) = list(i); i = i + 1; k = k + 1
+        end do
+        do while (j < hi)
+          tmp(k) = list(j); j = j + 1; k = k + 1
+        end do
+      end do
+      list(1:n) = tmp(1:n)
+      width = 2*width
+    end do
+    deallocate(tmp)
+
+    ! Keep the first of each run of equal keys
+    m = 1
+    do i = 2, n
+      if (chim_key_le(list(i), list(m)) .and. chim_key_le(list(m), list(i))) cycle
+      m = m + 1
+      list(m) = list(i)
+    end do
+    n = m
+    list = list(1:n)
+  end subroutine sort_unique_chim_entries
+
+
+  !> Lexicographic a <= b on (remote_rank, bs, ks, js, is).
+  pure logical function chim_key_le(a, b)
+    implicit none
+    type(chim_entry_type), intent(in) :: a, b
+
+    if (a%remote_rank /= b%remote_rank) then
+      chim_key_le = a%remote_rank < b%remote_rank
+    elseif (a%bs /= b%bs) then
+      chim_key_le = a%bs < b%bs
+    elseif (a%ks /= b%ks) then
+      chim_key_le = a%ks < b%ks
+    elseif (a%js /= b%js) then
+      chim_key_le = a%js < b%js
+    else
+      chim_key_le = a%is <= b%is
+    end if
+  end function chim_key_le
+
+
+  !> Build rank groups from a sorted chimera entry list.
+  subroutine build_chim_rank_groups(list, n, groups, n_groups)
+    implicit none
+    type(chim_entry_type), intent(in) :: list(:)
+    integer, intent(in) :: n
+    type(rank_group_type), allocatable, intent(out) :: groups(:)
+    integer, intent(out) :: n_groups
+    ! Local
+    integer :: i, ng
+
+    if (n == 0) then
+      n_groups = 0
+      allocate(groups(0))
+      return
+    end if
+
+    ng = 1
+    do i = 2, n
+      if (list(i)%remote_rank /= list(i-1)%remote_rank) ng = ng + 1
+    end do
+    n_groups = ng
+
+    allocate(groups(ng))
+    ng = 1
+    groups(1)%rank   = list(1)%remote_rank
+    groups(1)%offset = 1
+    groups(1)%count  = 1
+    do i = 2, n
+      if (list(i)%remote_rank /= list(i-1)%remote_rank) then
+        ng = ng + 1
+        groups(ng)%rank   = list(i)%remote_rank
+        groups(ng)%offset = i
+        groups(ng)%count  = 1
+      else
+        groups(ng)%count = groups(ng)%count + 1
+      end if
+    end do
+  end subroutine build_chim_rank_groups
 #endif
 
 
@@ -1201,6 +1433,90 @@ contains
   end subroutine exchange_ghost_Tg
 
 
+  !> Chimera donor-cell exchange, split like the T exchange so that packing
+  !> and unpacking run over the whole thread team:
+  !>   post_recv (single) -> pack (omp do) -> post_send (single)
+  !>   wait_recv (single) -> unpack (omp do) -> wait_send (single)
+  !> Unpacked cells land in the kept-alive T arrays of remote donor blocks,
+  !> where Ghost_Chimera reads them.
+
+  !> Post chimera receives. Call from !$omp single.
+  subroutine exchange_ghost_chimera_post_recv(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_post_recv()
+#endif
+  end subroutine exchange_ghost_chimera_post_recv
+
+
+  !> Pack chimera send entries i_start..i_end. Call from !$omp do over
+  !> 1..ghost_sched%n_chim_send.
+  subroutine exchange_ghost_chimera_pack(domain, i_start, i_end)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer, intent(in) :: i_start, i_end
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_pack(domain, i_start, i_end)
+#endif
+  end subroutine exchange_ghost_chimera_pack
+
+
+  !> Post chimera sends. Call from !$omp single after packing is complete.
+  subroutine exchange_ghost_chimera_post_send(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_post_send()
+#endif
+  end subroutine exchange_ghost_chimera_post_send
+
+
+  !> Wait for chimera receives. Call from !$omp single.
+  subroutine exchange_ghost_chimera_wait_recv(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_wait_recv()
+#endif
+  end subroutine exchange_ghost_chimera_wait_recv
+
+
+  !> Unpack chimera recv entries i_start..i_end into remote donor blocks' T.
+  !> Call from !$omp do over 1..ghost_sched%n_chim_recv. Entries are
+  !> distinct cells, so threads never write the same location.
+  subroutine exchange_ghost_chimera_unpack(domain, i_start, i_end)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: i_start, i_end
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_unpack(domain, i_start, i_end)
+#endif
+  end subroutine exchange_ghost_chimera_unpack
+
+
+  !> Wait for chimera sends before the send buffer is reused. Call from !$omp single.
+  subroutine exchange_ghost_chimera_wait_send(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call chimera_wait_send()
+#endif
+  end subroutine exchange_ghost_chimera_wait_send
+
+
 #ifdef USE_MPI
   !> One-shot exchange of matID into ghost cells. Called once during setup
   !> since matID is static. Reuses T_send_buf/T_recv_buf and send_req/recv_req.
@@ -1376,6 +1692,123 @@ contains
       call check_mpi_error(ierr)
     end if
   end subroutine exchange_Tg_field
+
+
+  !> Internal: post one chimera receive per donor-owner rank (aggregated).
+  subroutine chimera_post_recv()
+    use mpi
+    implicit none
+    ! Local
+    integer :: r, ierr, tag, buf_pos
+    integer, parameter :: TAG_OFFSET = 20000
+
+    if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
+
+    do r = 1, ghost_sched%n_chim_recv_ranks
+      buf_pos = ghost_sched%chim_recv_groups(r)%offset
+      tag = ghost_sched%chim_recv_groups(r)%rank + TAG_OFFSET
+      call MPI_IRECV(ghost_sched%chim_recv_buf(buf_pos), &
+                     ghost_sched%chim_recv_groups(r)%count, &
+                     MPI_DOUBLE_PRECISION, &
+                     ghost_sched%chim_recv_groups(r)%rank, tag, &
+                     MPI_COMM_WORLD, ghost_sched%chim_recv_req(r), ierr)
+      call check_mpi_error(ierr)
+    end do
+  end subroutine chimera_post_recv
+
+
+  !> Internal: pack local donor cells i_start..i_end. Safe from !$omp do.
+  subroutine chimera_pack(domain, i_start, i_end)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer, intent(in) :: i_start, i_end
+    ! Local
+    integer :: i
+
+    do i = i_start, i_end
+      ghost_sched%chim_send_buf(i) = &
+        domain%blk(ghost_sched%chim_send_list(i)%bs)%T( &
+          ghost_sched%chim_send_list(i)%is, &
+          ghost_sched%chim_send_list(i)%js, &
+          ghost_sched%chim_send_list(i)%ks)
+    end do
+  end subroutine chimera_pack
+
+
+  !> Internal: post one chimera send per receiver rank (aggregated).
+  subroutine chimera_post_send()
+    use mpi
+    implicit none
+    ! Local
+    integer :: r, ierr, tag, buf_pos
+    integer, parameter :: TAG_OFFSET = 20000
+
+    if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
+
+    do r = 1, ghost_sched%n_chim_send_ranks
+      buf_pos = ghost_sched%chim_send_groups(r)%offset
+      tag = mpi_rank_ + TAG_OFFSET
+      call MPI_ISEND(ghost_sched%chim_send_buf(buf_pos), &
+                     ghost_sched%chim_send_groups(r)%count, &
+                     MPI_DOUBLE_PRECISION, &
+                     ghost_sched%chim_send_groups(r)%rank, tag, &
+                     MPI_COMM_WORLD, ghost_sched%chim_send_req(r), ierr)
+      call check_mpi_error(ierr)
+    end do
+  end subroutine chimera_post_send
+
+
+  !> Internal: wait for all chimera receives.
+  subroutine chimera_wait_recv()
+    use mpi
+    implicit none
+    integer :: ierr
+
+    if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
+
+    if (ghost_sched%n_chim_recv_ranks > 0) then
+      call MPI_WAITALL(ghost_sched%n_chim_recv_ranks, ghost_sched%chim_recv_req, &
+                       ghost_sched%chim_stat(:,1:ghost_sched%n_chim_recv_ranks), ierr)
+      call check_mpi_error(ierr)
+    end if
+  end subroutine chimera_wait_recv
+
+
+  !> Internal: unpack donor cells i_start..i_end into the remote donor blocks'
+  !> T arrays (kept allocated by deallocate_remote_computation_data). Safe
+  !> from !$omp do.
+  subroutine chimera_unpack(domain, i_start, i_end)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: i_start, i_end
+    ! Local
+    integer :: i
+
+    do i = i_start, i_end
+      domain%blk(ghost_sched%chim_recv_list(i)%bs)%T( &
+        ghost_sched%chim_recv_list(i)%is, &
+        ghost_sched%chim_recv_list(i)%js, &
+        ghost_sched%chim_recv_list(i)%ks) = ghost_sched%chim_recv_buf(i)
+    end do
+  end subroutine chimera_unpack
+
+
+  !> Internal: wait for all chimera sends.
+  subroutine chimera_wait_send()
+    use mpi
+    implicit none
+    integer :: ierr
+
+    if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
+
+    if (ghost_sched%n_chim_send_ranks > 0) then
+      call MPI_WAITALL(ghost_sched%n_chim_send_ranks, ghost_sched%chim_send_req, &
+                       ghost_sched%chim_stat(:,1:ghost_sched%n_chim_send_ranks), ierr)
+      call check_mpi_error(ierr)
+    end if
+  end subroutine chimera_wait_send
 
 
   !> Post persistent receives for T field. Call from !$omp single.

@@ -13,6 +13,9 @@ contains
     use FUSS_Mod_GhostExchange, only: exchange_ghost_T_post_recv, exchange_ghost_T_pack, &
                                       exchange_ghost_T_post_send, exchange_ghost_T_wait_unpack, &
                                       exchange_ghost_T_wait_send, &
+                                      exchange_ghost_chimera_post_recv, exchange_ghost_chimera_pack, &
+                                      exchange_ghost_chimera_post_send, exchange_ghost_chimera_wait_recv, &
+                                      exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send, &
                                       Ghost_Interrank, exchange_ghost_Tg, ghost_sched
     use FUSS_Mod_Timers, only: timer_comm_begin, timer_comm_end
     implicit none
@@ -22,20 +25,29 @@ contains
     integer :: fg
 
 
-    ! MPI: post persistent receives, pack buffer in parallel, then post sends
+    ! MPI: post persistent receives, pack buffer in parallel, then post sends.
+    ! Chimera donor cells travel in their own non-blocking exchange, started
+    ! here so it overlaps with the local BC processing below.
     !$omp single
     call exchange_ghost_T_post_recv(domain)
+    call exchange_ghost_chimera_post_recv(domain)
     !$omp end single
 
-    ! Pack send buffer in parallel over face groups
+    ! Pack send buffers in parallel: T over face groups, chimera over donor cells
     !$omp do schedule(static) private(fg)
     do fg = 1, ghost_sched%n_send_faces
       call exchange_ghost_T_pack(domain, fg, fg)
+    end do
+    !$omp end do nowait
+    !$omp do schedule(static) private(ii)
+    do ii = 1, ghost_sched%n_chim_send
+      call exchange_ghost_chimera_pack(domain, ii, ii)
     end do
 
     ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do)
     !$omp single
     call exchange_ghost_T_post_send(domain)
+    call exchange_ghost_chimera_post_send(domain)
     !$omp end single nowait
 
     ! Process LOCAL BC entries while MPI communication is in flight
@@ -62,7 +74,8 @@ contains
         case(300)
           call Ghost_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
         case(102)
-          call Ghost_Chimera ( domain % nb, domain % blk, domain % bc(i) )
+          ! Chimera: processed after the donor-cell MPI exchange completes (below)
+          continue
         case default
           call Ghost_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
       end select
@@ -86,29 +99,44 @@ contains
                                       domain % blk(Bs), domain % bc(i) % Tg )
     enddo
 
-    ! Compute Tg for chimera (666) connections where Bm is local.
+    ! MPI: wait for T receives to complete; wait for chimera donor cells and
+    ! unpack them into the kept-alive T arrays of remote donor blocks. What is
+    ! timed here is the communication the local BC work did not hide, plus the
+    ! wait on slower neighbours.
+    !$omp single
+    call timer_comm_begin()
+    call exchange_ghost_T_wait_unpack(domain)
+    call exchange_ghost_chimera_wait_recv(domain)
+    call timer_comm_end()
+    !$omp end single
+
+    ! Chimera donor cells are distinct, so the unpack has no write conflicts
+    !$omp do schedule(static) private(ii)
+    do ii = 1, ghost_sched%n_chim_recv
+      call exchange_ghost_chimera_unpack(domain, ii, ii)
+    end do
+
+    ! Chimera ghost fill: all donor data (local and remote) is now current
+    !$omp do schedule (dynamic) private(ii, i)
+    do ii = 1, domain % n_local_bc
+      i = domain % local_bc_idx(ii)
+      if (domain % bc(i) % type /= 102) cycle
+      call Ghost_Chimera ( domain % nb, domain % blk, domain % bc(i) )
+    enddo
+
+    ! Chimera Tg(3:6): reads the ghost row written just above, so it must stay
+    ! a separate loop (implicit barrier in between)
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
     do ii = 1, domain % n_local_bc
       i = domain % local_bc_idx(ii)
+      if (domain % bc(i) % type /= 102) cycle
       Bm = domain % bc(i) % b
       Im = domain % bc(i) % i
       Jm = domain % bc(i) % j
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
-      select case (domain % bc(i) % type)
-        case(102)
-          call Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg )
-      end select
+      call Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg )
     enddo
-
-    ! MPI: wait for T receives to complete. What is timed here is the
-    ! communication the local BC work did not hide, plus the wait on slower
-    ! neighbours.
-    !$omp single
-    call timer_comm_begin()
-    call exchange_ghost_T_wait_unpack(domain)
-    call timer_comm_end()
-    !$omp end single
 
     ! Process INTER-RANK type-1 entries (Bm local, Bs remote)
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, Bs)
@@ -128,6 +156,7 @@ contains
     ! Wait for P sends to complete before reusing buffers
     !$omp single
     call exchange_ghost_T_wait_send(domain)
+    call exchange_ghost_chimera_wait_send(domain)
     call exchange_ghost_Tg(domain)
     !$omp end single
 
@@ -243,6 +272,7 @@ contains
       Ks = bc % donorID(c,4)
       call co_H ( blk(Bs) % matID (Is,Js,Ks), blk(Bs) % T (Is,Js,Ks), consi )
       consg = consg + consi * bc % volume_fraction(c)
+      blk(Bm) % matID (Ig2,Jg2,Kg2) = blk(Bs) % matID (Is,Js,Ks)  ! as for the first row: nothing else sets it
     enddo
     call co_T ( blk(Bm) % matID (Ig2,Jg2,Kg2), consg, blk(Bm) % T (Ig2,Jg2,Kg2) )
     bc % Tg (2) = blk(Bm) % T (Ig2,Jg2,Kg2)
@@ -390,44 +420,44 @@ contains
 
     select case(Fm)
       case(1:2)
-        i1 = Im
+        i1 = Ig
         j1 = Jm - 1
         k1 = Km
-        i2 = Im
+        i2 = Ig
         j2 = Jm + 1
         k2 = Km
-        i3 = Im
+        i3 = Ig
         j3 = Jm
         k3 = Km - 1
-        i4 = Im
+        i4 = Ig
         j4 = Jm
         k4 = Km + 1
       case(3:4)
         i1 = Im - 1
-        j1 = Jm
+        j1 = Jg
         k1 = Km
         i2 = Im + 1
-        j2 = Jm 
+        j2 = Jg 
         k2 = Km
         i3 = Im
-        j3 = Jm
+        j3 = Jg
         k3 = Km - 1
         i4 = Im
-        j4 = Jm 
+        j4 = Jg 
         k4 = Km + 1
       case(5:6)
         i1 = Im - 1
         j1 = Jm
-        k1 = Km
+        k1 = Kg
         i2 = Im + 1
         j2 = Jm
-        k2 = Km
+        k2 = Kg
         i3 = Im
         j3 = Jm - 1
-        k3 = Km
+        k3 = Kg
         i4 = Im
         j4 = Jm + 1
-        k4 = Km
+        k4 = Kg
     end select
 
     Tg (3) = Blk % T (i1,j1,k1)
