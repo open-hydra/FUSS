@@ -98,7 +98,13 @@ module FUSS_Mod_GhostExchange
     integer, allocatable  :: chim_stat(:,:)     !< (MPI_STATUS_SIZE, max ranks)
   end type ghost_schedule_type
 
-  type(ghost_schedule_type), public :: ghost_sched
+  !> One schedule per multigrid level: each level has its own BC file (and so
+  !> its own connections and chimera donors). ghost_sched points at the level
+  !> being worked on; every entry point that exchanges data selects it first.
+  type(ghost_schedule_type), allocatable, target :: ghost_scheds(:)
+  type(ghost_schedule_type), pointer, public :: ghost_sched => null()
+
+  public :: allocate_exchange_schedules, set_active_mg_level
 
   public :: build_ghost_schedule
   public :: build_local_bc_index
@@ -120,6 +126,26 @@ module FUSS_Mod_GhostExchange
 contains
 
 
+  subroutine allocate_exchange_schedules(nlev)
+    integer, intent(in) :: nlev
+
+    if (allocated(ghost_scheds)) deallocate(ghost_scheds)
+    allocate(ghost_scheds(max(nlev, 1)))
+    ghost_sched => ghost_scheds(1)
+  end subroutine allocate_exchange_schedules
+
+
+  subroutine set_active_mg_level(lev)
+    integer, intent(in) :: lev
+
+    if (.not. allocated(ghost_scheds)) call allocate_exchange_schedules(lev)
+    if (lev < 1 .or. lev > size(ghost_scheds)) then
+      error stop 'set_active_mg_level: level outside allocated exchange schedules'
+    end if
+    ghost_sched => ghost_scheds(lev)
+  end subroutine set_active_mg_level
+
+
   !> Build the communication schedule by scanning all BC entries of type 1 (connection).
   !> Entries are sorted by remote rank for aggregated MPI messaging.
   !> Must be called after partition_blocks and domain setup.
@@ -131,6 +157,8 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: i, ns, nr, bm, bs
+
+    call set_active_mg_level(domain%mg_level)
 
     if (mpi_size_ <= 1) then
       ghost_sched%built = .true.
@@ -302,7 +330,14 @@ contains
   subroutine cleanup_ghost_schedule()
     implicit none
 #ifdef USE_MPI
-    call cleanup_persistent_requests()
+    integer :: l
+
+    if (allocated(ghost_scheds)) then
+      do l = 1, size(ghost_scheds)
+        call set_active_mg_level(l)
+        call cleanup_persistent_requests()
+      end do
+    end if
 #endif
   end subroutine cleanup_ghost_schedule
 
@@ -868,6 +903,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
 
     if (mpi_size_ <= 1) return
+    call set_active_mg_level(domain%mg_level)
 #ifdef USE_MPI
     call exchange_R_field_begin(domain)
     call exchange_R_field_end(domain)

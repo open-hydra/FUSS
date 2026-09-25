@@ -10,7 +10,7 @@ contains
   subroutine Setup_Multigrid ( simulation )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_multigrid
-    use FUSS_Lib_Multigrid, only: Check_Multigrid, Coarse_Grid, Coarse_IOfield
+    use FUSS_Lib_Multigrid, only: Check_Multigrid, Coarse_Grid, Coarse_IOfield, Coarse_matID
     use FUSS_Mod_Allocate_Data, only: Allocate_Block
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -35,6 +35,7 @@ contains
       enddo
 
       call Coarse_Grid ( simulation%domain(m-1), simulation%domain(m) )
+      call Coarse_matID ( simulation%domain(m-1), simulation%domain(m) )
 
       call Coarse_IOfield ( simulation%IOfield(m-1), simulation%IOfield(m) )
 

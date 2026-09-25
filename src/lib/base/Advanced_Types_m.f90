@@ -61,6 +61,7 @@ module FUSS_Advanced_Types_m
     real(R8)                                         :: time             ! Solution time
     real(R8)                                         :: dtglobal         ! Global dt for time accurate simulation
     integer                                          :: iter, itermax    ! Iteration number
+    integer                                          :: mg_level = 1     ! Multigrid level of this domain (selects exchange schedules)
     integer                                          :: nb, nbound       ! Number of blocks, number of boundary faces
     integer, dimension(:,:), allocatable             :: n_bf             ! Number of bc elements per faces per block
     type(FUSS_block_type), dimension(:), allocatable :: blk              ! Allocatable block type

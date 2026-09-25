@@ -16,7 +16,8 @@ contains
                                       exchange_ghost_chimera_post_recv, exchange_ghost_chimera_pack, &
                                       exchange_ghost_chimera_post_send, exchange_ghost_chimera_wait_recv, &
                                       exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send, &
-                                      Ghost_Interrank, exchange_ghost_Tg, ghost_sched
+                                      Ghost_Interrank, exchange_ghost_Tg, ghost_sched, &
+                                      set_active_mg_level
     use FUSS_Mod_Timers, only: timer_comm_begin, timer_comm_end
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -29,6 +30,7 @@ contains
     ! Chimera donor cells travel in their own non-blocking exchange, started
     ! here so it overlaps with the local BC processing below.
     !$omp single
+    call set_active_mg_level(domain%mg_level)
     call exchange_ghost_T_post_recv(domain)
     call exchange_ghost_chimera_post_recv(domain)
     !$omp end single

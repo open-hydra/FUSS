@@ -3,7 +3,7 @@ module FUSS_Lib_Multigrid
 
   implicit none
   private
-  public :: Check_Multigrid, Coarse_Grid, Coarse_IOfield
+  public :: Check_Multigrid, Coarse_Grid, Coarse_IOfield, Coarse_matID
   public :: fine2coarse_prim, coarse2fine_prim
 
 contains
@@ -110,7 +110,7 @@ subroutine Check_Multigrid ( domain )
 
       endif
       
-      cmatID(i,j,k) = fmatID(i2,j2,k2)
+      cmatID(i,j,k) = fmatID(i2,j2,min(k2,fDim(3)))  ! 2D: k2 would be the ghost layer
 
     enddo; enddo; enddo
 
@@ -218,6 +218,28 @@ subroutine Check_Multigrid ( domain )
     enddo; enddo; enddo
       
   end subroutine coarse2fine_prim
+
+
+  !> Coarse-level material IDs for every block, by the same injection as
+  !> fine2coarse_prim. Called at setup, while every rank still holds the whole
+  !> fine field: the runtime Restriction only covers locally owned blocks, and
+  !> chimera needs matID on remote coarse donor blocks too.
+  subroutine Coarse_matID ( Fine, Coarse )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: Fine, Coarse
+    ! Local
+    integer :: b, i, j, k
+
+    do b = 1, Coarse % nb
+      do k = 1, Coarse % Blk(b) % dim(3)
+      do j = 1, Coarse % Blk(b) % dim(2)
+      do i = 1, Coarse % Blk(b) % dim(1)
+        Coarse % Blk(b) % matID(i,j,k) = Fine % Blk(b) % matID(2*i, 2*j, min(2*k, Fine % Blk(b) % dim(3)))
+      enddo; enddo; enddo
+    enddo
+
+  end subroutine Coarse_matID
 
 
   subroutine Coarse_Grid ( Fine, Coarse )
