@@ -22,7 +22,7 @@ contains
     use FUSS_IO_Probes,            only: Setup_Probes
     use FUSS_IO_Wall,              only: Initialize_Wall_File
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_abort_all
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
@@ -212,7 +212,7 @@ contains
         write(*,'(A,T35,A)') '   Properties', 'OK'
       endif
 
-      if (has_error) stop
+      if (has_error) call mpi_abort_all('material properties error (see above)')
 
     end subroutine Check_Table
 
@@ -223,7 +223,7 @@ contains
       if (index(obj_io%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io%error_message)
-        stop
+        call mpi_abort_all('initial condition error (see above)')
       else
         write(*,'(A,T35,A)') '   Initial conditions', 'OK'
       endif
@@ -240,7 +240,7 @@ contains
       if (index(out,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-        stop
+        call mpi_abort_all('input file error (see above)')
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
@@ -254,7 +254,7 @@ contains
       if (index(obj_io_bc%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Boundary conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io_bc%error_message)
-        stop
+        call mpi_abort_all('boundary condition error (see above)')
       else
         write(*,'(A,T35,A)') '   Boundary conditions', 'OK'
       endif
@@ -289,7 +289,7 @@ contains
         write(*,'(A)') obj_irs%error_message;          has_error = .true.
       endif
 
-      if (has_error) stop
+      if (has_error) call mpi_abort_all('setup error (see above)')
 
     end subroutine Stop_Simulation
 
