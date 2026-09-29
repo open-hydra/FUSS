@@ -30,7 +30,8 @@ def parse_tec(filepath):
         stripped = line.strip()
 
         if re.match(r"(?i)variables", stripped):
-            variables = re.findall(r'"([^"]+)"', stripped)
+            # names quoted ("T") or not (T): ORION writes either, depending on its version
+            variables = [a or b for a, b in re.findall(r'"([^"]*)"|([^\s,"]+)', stripped.split('=', 1)[1])]
             continue
 
         if re.match(r"(?i)zone", stripped):
