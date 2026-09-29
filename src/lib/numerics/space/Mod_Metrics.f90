@@ -10,18 +10,28 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Lib_Metrics
+    use FUSS_Lib_Diffusive, only: Inverse3
+    use FUSS_Config_Types_m, only: obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: b, i, j, k
+    logical :: inverse_metric
     integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
     type(FUSS_vector_3D_type) :: N1, N2, N3, N4, N5, N6, N7, N8
 
     call Check_Mesh_Type ( domain )
-    
+
+    ! Inverse metric of the interior cells, for the diffusive face metric (diffusive-metric =
+    ! inverse-mean): the face then needs one 3x3 inversion instead of three. Same bounds as M,
+    ! because Fluxes_blk takes either array through the same explicit-shape argument.
+    inverse_metric = obj_space_scheme % inverse_metric
+
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
+      if ( inverse_metric .and. .not. allocated(domain % blk(b) % Minv) ) &
+        allocate( domain % blk(b) % Minv, mold = domain % blk(b) % M )
       !$omp parallel
       ! Compute metric tensor and cell dimension across i,j,k. => block % M, & block % dl      
       !$omp do collapse(3) private(i, j, k, N1, N2, N3, N4, N5, N6, N7, N8)
@@ -37,6 +47,7 @@ contains
         N7 % c = domain % blk(b) % node(i  ,j  ,k-1) % c
         N8 % c = domain % blk(b) % node(i  ,j  ,k  ) % c
         call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, domain % blk(b) % M(i,j,k), domain % blk(b) % dl(i,j,k), domain % blk(b) % vol(i,j,k) )
+        if ( inverse_metric ) domain % blk(b) % Minv(i,j,k) % c = Inverse3 ( domain % blk(b) % M(i,j,k) % c )
       enddo; enddo; enddo
       !$omp end parallel
 

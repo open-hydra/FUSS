@@ -15,6 +15,7 @@ module FUSS_Advanced_Types_m
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
     type(FUSS_vector_3D_type), allocatable :: node(:,:,:)      ! Mesh grid points (including ghost)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
+    type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric; diffusive-metric = inverse-mean only
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
   end type block_type

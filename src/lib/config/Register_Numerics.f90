@@ -55,6 +55,12 @@ contains
     !! Space Scheme ------------------------------------------
     !! ------------------------------------------------------
 
+    ! Face metric of the diffusive fluxes ------------------
+    call reg%add( trim(section), 'diffusive-metric', obj_space_scheme%diffusive_metric, 'inverse-mean', &
+                  'Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, '// &
+                  'mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r', &
+                  'inverse-mean, mean', .false. )
+
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)
 

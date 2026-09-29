@@ -30,7 +30,16 @@ where $\delta$ is the distance between the two cell centres projected onto the f
 
 !!! info "Physical coordinates"
 
-    On a non-uniform mesh the distance $\delta$ and the face normal $\hat{\mathbf{n}}_f$ are computed from the cell metric tensor, which maps computational indices $(\xi, \eta, \zeta)$ to physical coordinates $(x, y, z)$.  The flux therefore remains second-order accurate on smoothly stretched grids.
+    On a non-uniform mesh the distance $\delta$ and the face normal $\hat{\mathbf{n}}_f$ come from a face metric tensor, built from the metric tensors of the two cells (see [Grid Metrics](#grid-metrics)). How it is built is selected by `diffusive-metric` in `[FUSS-Numerics]`:
+
+    | `diffusive-metric` | Face metric | |
+    |---|---|---|
+    | `inverse-mean` (default) | $M_f = \left[\tfrac12\left(A_L + A_R\right)\right]^{-T}$ | $\delta$ is the centre-to-centre distance: exact for a linear temperature field on any stretching |
+    | `mean` | $M_f = \tfrac12\left(M_L + M_R\right)$ | faster; biased on stretched meshes |
+
+    In one dimension $M = 1/h$, so `mean` divides $T_R - T_L$ by the mean of $1/h$ instead of the centre-to-centre distance. With a cell-size ratio $r = h_R/h_L$ it overstates the heat flux by $(1+r)^2/(4r)$: $+0.2\,\%$ at $r = 1.1$, $+0.8\,\%$ at $1.2$, $+4.2\,\%$ at $1.5$, $+8.9\,\%$ at $1.8$. The bias does not decrease with grid refinement at a fixed growth ratio and is present in the steady solution; `mean` is adequate where adjacent cells grow by about 1.2 or less. With `inverse-mean` FUSS stores $A^{T}$ per cell (9 values), so each face needs one $3\times 3$ inversion.
+
+    Block-connection faces are not affected by this choice: there the interface temperature follows from heat-flux continuity, each side using its own metric and conductivity over half a cell.
 
 ---
 
@@ -99,13 +108,15 @@ This approach maps naturally onto shared-memory and distributed-memory parallel 
 
 ## Grid Metrics
 
-Each cell face stores a precomputed **metric tensor** $M_{3\times 3}$ that maps computational coordinate increments $(\Delta\xi, \Delta\eta, \Delta\zeta)$ to physical increments $(\Delta x, \Delta y, \Delta z)$:
+Each cell stores a precomputed **metric tensor** $M_{3\times 3} = A^{-T}$. The rows of $A$ are the cell edge vectors $\partial\mathbf{x}/\partial\xi$, $\partial\mathbf{x}/\partial\eta$, $\partial\mathbf{x}/\partial\zeta$, so $A^{T}$ maps computational coordinate increments $(\Delta\xi, \Delta\eta, \Delta\zeta)$ to physical increments $(\Delta x, \Delta y, \Delta z)$:
 
 $$
 \begin{pmatrix}\Delta x \\ \Delta y \\ \Delta z\end{pmatrix}
-= M
+= A^{T}
 \begin{pmatrix}\Delta\xi \\ \Delta\eta \\ \Delta\zeta\end{pmatrix}
 $$
+
+and $M$ maps index differences of the temperature to its Cartesian gradient. At a face, the metrics of the two cells are combined as described in [Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces).
 
 The face area vector $A_f\,\hat{\mathbf{n}}_f$ is obtained from the cross product of two edge vectors of the face, evaluated at the face centre from the nodal coordinates.  Cell volumes are computed by the divergence theorem applied to the six face area vectors.
 

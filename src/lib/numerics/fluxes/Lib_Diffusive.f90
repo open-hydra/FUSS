@@ -3,12 +3,12 @@ module FUSS_Lib_Diffusive
 
   implicit none
   private
-  public :: Diffusive_Flux, Compute_Diffusive_Flux
+  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3
 
 contains
 
   subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc )
+                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, inverse_metric )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
@@ -17,7 +17,8 @@ contains
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
-    real(R8), intent(in), dimension(3,3) :: M1, M2
+    real(R8), intent(in), dimension(3,3) :: M1, M2   ! cell metrics, or their inverses (see inverse_metric)
+    logical, intent(in) :: inverse_metric           ! M1, M2 are the cells' inverse metrics (diffusive-metric = inverse-mean)
     real(R8), intent(inout) :: Res1, Res2
     ! Local
     real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
@@ -31,7 +32,18 @@ contains
 
     if (ndir==2) Gradient(cc) = 0.0
     
-    M = 0.5d0 * ( M1 + M2 )
+    ! Metric tensor at the face.
+    ! inverse-mean: the mean of the two inverse metrics (cell edge vectors, stored
+    ! per cell in blk%Minv), inverted, so that the one-index difference across the
+    ! face is divided by the centre-to-centre distance.
+    ! mean: averaging M itself divides it by the mean of 1/h instead, which
+    ! overstates the gradient by (1+r)^2/(4r) for a cell-size ratio r across the
+    ! face (+4% at r = 1.5, +9% at 1.8), at any mesh resolution.
+    if ( inverse_metric ) then
+      M = Inverse3 ( 0.5d0 * ( M1 + M2 ) )
+    else
+      M = 0.5d0 * ( M1 + M2 )
+    end if
     Gradient = matmul ( Gradient, M )
 
     T = 0.5d0 * ( T1 + T2 )
@@ -43,6 +55,30 @@ contains
     Res2 = Res2 + Flux
 
   end subroutine Diffusive_Flux
+
+
+  !> Inverse of a 3x3 matrix by its adjugate (transposed cofactors). Works for M
+  !> as stored by Compute_Metric_Tensor (cofactors/det = transposed inverse of the
+  !> edge vectors): transposition commutes with averaging and inversion.
+  pure function Inverse3 ( A ) result ( B )
+    implicit none
+    real(R8), intent(in) :: A(3,3)
+    real(R8)             :: B(3,3)
+    real(R8) :: det
+
+    B(1,1) =  ( A(2,2)*A(3,3) - A(2,3)*A(3,2) )
+    B(1,2) = -( A(1,2)*A(3,3) - A(1,3)*A(3,2) )
+    B(1,3) =  ( A(1,2)*A(2,3) - A(1,3)*A(2,2) )
+    B(2,1) = -( A(2,1)*A(3,3) - A(2,3)*A(3,1) )
+    B(2,2) =  ( A(1,1)*A(3,3) - A(1,3)*A(3,1) )
+    B(2,3) = -( A(1,1)*A(2,3) - A(1,3)*A(2,1) )
+    B(3,1) =  ( A(2,1)*A(3,2) - A(2,2)*A(3,1) )
+    B(3,2) = -( A(1,1)*A(3,2) - A(1,2)*A(3,1) )
+    B(3,3) =  ( A(1,1)*A(2,2) - A(1,2)*A(2,1) )
+    det = A(1,1)*B(1,1) + A(1,2)*B(2,1) + A(1,3)*B(3,1)
+    B = B / det
+
+  end function Inverse3
 
 
   subroutine Tangential_Gradient ( T1, T2, T3, T4, Gradient )

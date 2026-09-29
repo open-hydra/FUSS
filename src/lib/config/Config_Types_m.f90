@@ -104,6 +104,18 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
 
   !! ------------------------------------------------------
+  !! Space scheme -----------------------------------------
+  !! ------------------------------------------------------
+  type :: space_scheme_t
+    ! USER-DEFINED INPUTS
+    character(len=llen) :: diffusive_metric     ! Face metric of the interior diffusive fluxes (inverse-mean/mean)
+    ! Useful variables
+    logical             :: inverse_metric = .true. ! diffusive_metric == inverse-mean
+  end type space_scheme_t
+  !! ------------------------------------------------------
+  !! ------------------------------------------------------
+
+  !! ------------------------------------------------------
   !! Implicit residual smoothing --------------------------
   !! ------------------------------------------------------
   type irs_t
@@ -186,6 +198,7 @@ module FUSS_Config_Types_m
   type(io_probes_t), allocatable, public:: obj_io_probes(:)
   type(io_bc_t), public                 :: obj_io_bc
   type(time_scheme_t), public           :: obj_time_scheme
+  type(space_scheme_t), public          :: obj_space_scheme
   type(irs_t), public                   :: obj_irs
   type(multigrid_t), public             :: obj_multigrid
   type(table_t), public                 :: obj_table
