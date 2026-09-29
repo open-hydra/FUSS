@@ -1,6 +1,9 @@
 function(add_fortran_executable target source)
   
   add_executable(${target} ${source})
+  # Link with the Fortran driver: TecIO brings C++ into the link, and a C++ driver
+  # (icpx) leaves out the Fortran runtime object that provides main().
+  set_target_properties(${target} PROPERTIES LINKER_LANGUAGE Fortran)
   target_link_libraries(${target} PRIVATE FUSSL FiNeR::FiNeR)
 
   if (USE_TECIO)
