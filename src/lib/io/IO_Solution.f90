@@ -44,14 +44,12 @@ contains
     character(llen) :: try
     character(6)    :: extension
 
-    obj_io%ini_format=obj_io%sol_format
-
     if (obj_sim_param%newrun) then
-      if (index(obj_io%ini_format,'vtk')>0) then
+      if (index(obj_io%ic_format,'vtk')>0) then
         extension = '.vtm'
         Read_IC  => Read_vtk_tec
       else
-        if (index(obj_io%ini_format,'ascii')>0) then
+        if (index(obj_io%ic_format,'ascii')>0) then
           extension = '.tec'
         else
           extension = '.szplt'
@@ -75,6 +73,9 @@ contains
         Read_IC => Read_vtk_tec
       end if
       obj_io%nameinit = 'OUTPUT/'//trim(FUSS_phase_prefix)//'field'//extension
+      ! The source-term file is read in both branches: leaving it unset here makes
+      ! Read_vtk_tec call the Tecplot reader on an undefined name.
+      obj_io%namesource = 'INPUT/'//trim(FUSS_phase_prefix)//'st'//extension
       inquire(file=obj_io%nameinit, exist=present)
 
       if (.not.present) then
@@ -122,7 +123,7 @@ contains
     error_dim    = 0
 
     if ( obj_sim_param%newrun ) then
-      call parse(obj_io%ini_format,' ', format)
+      call parse(obj_io%ic_format,' ', format)
     else
       call parse(obj_io%sol_format,' ', format)
     endif
@@ -210,7 +211,7 @@ contains
     implicit none
     type(ORION_data), intent(inout) :: IOfield(obj_multigrid%MGL)
     ! Local
-    integer :: b, i, m
+    integer :: b, m
 
     ! IO Variables specification
     obj_io%Ovarnames=' "T" "matID" "qvol" "k" "rho" "cs" "h" '

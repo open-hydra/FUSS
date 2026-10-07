@@ -21,6 +21,8 @@ contains
     use FUSS_Mod_Diagnostic, only: Compute_Residual
     use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
+    use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
+                               timer_sync_begin, timer_sync_end
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     external :: External_Function
@@ -28,6 +30,8 @@ contains
     logical  :: endsim, iosim, endmg, advance_time
     integer  :: i_rk, b, level
     real(R8) :: average
+
+    call timer_iter_begin()
 
     level = obj_multigrid%MG_level
     obj_multigrid%change_MG = .false.
@@ -105,7 +109,9 @@ contains
                                 average=average, &
                                 total=obj_sim_param%residuotot )
       enddo
+      call timer_sync_begin()
       call mpi_reduce_sum_r8(obj_sim_param%residuotot)
+      call timer_sync_end()
       if (mpi_is_root) obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
     endif
     
@@ -154,8 +160,17 @@ contains
     end if
 
     ! Broadcast simulation control from root to all ranks
+    call timer_sync_begin()
     call mpi_bcast_integer(obj_sim_param%TODO)
     call mpi_bcast_logical(obj_multigrid%change_MG)
+    call timer_sync_end()
+
+    ! Wall-clock report (collective: every rank runs the same iteration counter)
+    call timer_iter_end()
+    if ( obj_io%timer_diter > 0 ) then
+      if ( mod (domain(level) % iter, obj_io%timer_diter) == 0 ) &
+        call timer_report ( level, domain(level) % iter )
+    endif
 
   end subroutine Explicit_Step
 
