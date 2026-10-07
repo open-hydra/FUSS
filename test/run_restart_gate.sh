@@ -125,7 +125,7 @@ import re, sys
 
 def read_tec(path):
     lines = open(path).read().split("\n")
-    names = re.findall(r'"([^"]+)"', lines[0])
+    names = [t.strip('"') for t in lines[0].split("=", 1)[-1].split() if t.strip('"')]  # VARIABLES names, quoted (ORION <= v1.6) or bare (ORION >= v1.7.0 writes `VARIABLES = x y z T ...`)
     m = re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", lines[1])
     ni, nj, nk = (int(x) for x in m.groups())
     vals = []
@@ -150,9 +150,11 @@ REL_TOL = 1.0e-11   # see the header: the ASCII round-trip floor is ~1e-15
 
 a, b = read_tec(sys.argv[1]), read_tec(sys.argv[2])
 worst, ok = [], True
+compared = set()
 for key in ("T", "qvol", "x", "y", "z"):
     if key not in a or key not in b:
         continue
+    compared.add(key)
     if len(a[key]) != len(b[key]):
         print("SIZE-MISMATCH %s" % key)
         sys.exit(2)
@@ -167,6 +169,9 @@ for key in ("T", "qvol", "x", "y", "z"):
 # coincidental match: two runs that BOTH lost qvol would agree perfectly.
 qmax = max((abs(v) for v in a.get("qvol", [0.0])), default=0.0)
 
+if "T" not in compared or "x" not in compared:
+    print("MISSING-NAMES: compared %s -- the VARIABLES header was not parsed" % sorted(compared))
+    sys.exit(2)
 print("  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   qvol_peak=%.3e" % qmax)
 sys.exit(0 if ok else 1)
 PY

@@ -60,7 +60,7 @@ TOL_K = 1.0e-6
 
 def read_zones(path):
     lines = open(path).read().split("\n")
-    names = re.findall(r'"([^"]+)"', lines[0])
+    names = [t.strip('"') for t in lines[0].split("=", 1)[-1].split() if t.strip('"')]  # VARIABLES names, quoted (ORION <= v1.6) or bare (ORION >= v1.7.0 writes `VARIABLES = x y z T ...`)
     starts = [i for i, l in enumerate(lines) if l.strip().startswith("ZONE")]
 
     zones = []

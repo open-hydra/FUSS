@@ -19,6 +19,7 @@ set -u
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
+export LC_ALL=C   # `find | sort` below orders the manifest rows; a shell with another collation moves rows (multimat_Plate field1/field10/field2) and -k reports a false difference
 OUTDIR=""
 ALL=0
 FRESH=0

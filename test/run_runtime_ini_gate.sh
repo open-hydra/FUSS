@@ -97,7 +97,7 @@ start_case () {
 
 # ---------------------------------------------------------------------------
 d=$(start_case mutable_applies)
-if grep -q "Time of operation" "$d/run.log"; then
+if grep -q "FUSS timing" "$d/run.log"; then   # end-of-run banner of timer_summary (Mod_Timers.f90); "Time of operation" went away with the upstream timers (2b32bbc)
   pass "a runtime-mutable change takes effect (time-threshold lowered, run stopped)"
 else
   bad "mutable_applies: run did not terminate after time-threshold was lowered"

@@ -415,7 +415,7 @@ gate_residual_convergence () {
       # Fires the budget check (measured here: 60000 iterations vs an
       # expected 37500 -- see the file header for how this differs from the
       # original recorded numbers). Input-only, no solver code touched.
-      sed -i 's/^level2-iter = .*/level2-iter = 1   # FUSS_GATE_SELFTEST: mg3 loses its coarse work/' \
+      sed -i 's/^level2-iter = .*/level2-iter = 1   ; FUSS_GATE_SELFTEST: mg3 loses its coarse work/' \
         "$dest/$sub/input.ini"
     fi
     solve "$dest/$sub" "$NTHREADS"; rc=$?

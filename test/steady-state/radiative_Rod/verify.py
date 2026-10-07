@@ -21,7 +21,7 @@ def parse_wall_tec(filepath):
         stripped = line.strip()
 
         if re.match(r"(?i)variables", stripped):
-            variables = re.findall(r'"([^"]+)"', stripped)
+            variables = [t.strip('"') for t in stripped.split("=", 1)[-1].split() if t.strip('"')]  # VARIABLES names, quoted (ORION <= v1.6) or bare (ORION >= v1.7.0 writes `VARIABLES = x y z T ...`)
             continue
 
         if re.match(r"(?i)zone", stripped):

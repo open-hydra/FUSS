@@ -23,7 +23,7 @@ def parse_wall_tec(path):
     for line in open(path):
         s = line.strip()
         if re.match(r"(?i)variables", s):
-            variables = re.findall(r'"([^"]+)"', s); continue
+            variables = [t.strip('"') for t in s.split("=", 1)[-1].split() if t.strip('"')]  # VARIABLES names, quoted (ORION <= v1.6) or bare (ORION >= v1.7.0 writes `VARIABLES = x y z T ...`); continue
         if re.match(r"(?i)zone", s):
             if hdr: zones[hdr["name"]] = (hdr, raw)
             raw = []
