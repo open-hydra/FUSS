@@ -71,7 +71,7 @@ contains
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg, Validate_Param
     implicit none
-    type(file_ini),   intent(in)  :: fini
+    type(file_ini),   intent(inout)  :: fini
     integer,          intent(in)  :: iter
     character(len=*), intent(out) :: report
     ! Local
@@ -169,7 +169,7 @@ contains
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg
     implicit none
-    type(file_ini), intent(in)  :: fini
+    type(file_ini), intent(inout)  :: fini
     integer,        intent(in)  :: i
     integer,        intent(out) :: error
     character(len=256)          :: txt
@@ -193,7 +193,7 @@ contains
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg
     implicit none
-    type(file_ini), intent(in) :: fini
+    type(file_ini), intent(inout) :: fini
     integer :: i, error
 
     if ( allocated(ini_seen) ) deallocate( ini_seen )
@@ -241,7 +241,7 @@ contains
     use FUSS_Input_Registry, only: reg
     use FUSS_Global_m,       only: codename
     implicit none
-    type(file_ini),   intent(in)  :: fini
+    type(file_ini),   intent(inout)  :: fini
     character(len=*), intent(out) :: out
     ! Local
     character(len=:), allocatable :: sections(:), pairs(:)
@@ -281,8 +281,9 @@ contains
       sec = adjustl(sections(s))
       if ( .not. Section_Is_Ours(sec) ) cycle
 
-      ! Each section's loop must be run to completion: FiNeR keeps the cursor in
-      ! saved state, so abandoning one part-way would corrupt the next.
+      ! Each section's loop must be run to completion: FiNeR keeps the loop cursor
+      ! in the section object (v2.1.0+, hence intent(inout) on fini; before, in
+      ! saved module state), so abandoning one part-way would corrupt the next.
       do while ( fini%loop( section_name=trim(sec), option_pairs=pairs ) )
         opt = adjustl(pairs(1))
 
@@ -345,7 +346,7 @@ contains
     use FUSS_Input_Registry, only: reg
     use Finer, only: file_ini
     implicit none
-    type(file_ini), intent(in) :: fini
+    type(file_ini), intent(inout) :: fini
     integer :: i, error
 
     do i = 1, reg%size
@@ -383,7 +384,7 @@ contains
     use FUSS_Global_m
     use IR_precision
     implicit none
-    type(file_ini), intent(in) :: fini
+    type(file_ini), intent(inout) :: fini
     integer, intent(out) :: nprobes, nmgl
     character(len=16), allocatable, intent(out) :: probes_name(:)
     ! Local
