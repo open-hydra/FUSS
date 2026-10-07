@@ -33,3 +33,15 @@ next change could be judged inert. A baseline that is not in the repository is n
 the converged iteration count, so a change in it is a real result change. Restart fidelity is
 capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects only
 `run_restart_gate.sh`, not this manifest — every case here starts from its initial condition.
+
+## Re-recordings (what moved, and why)
+
+- **2026-10-07, ORION v1.7.0 (`5c32b73`), binary `7fc284fe`, 294 rows.** 271 rows changed, 23 identical. Every changed
+  artefact is a Tecplot file written by ORION and differs in **line 1 only**: ORION `9ce4e12` (in v1.7.0) stopped quoting the
+  `VARIABLES` names (`VARIABLES ="x" "y" "z"  "T" …` → `VARIABLES = x y z   T …`); every other byte is written by unchanged
+  code. The 23 identical rows are the files ORION does not write (21 `residual-history.dat`, 2 probe files). Attribution
+  evidence: a merge-only build (upstream `a418a26` at ORION `a770748`) reproduced the previous manifest on 294/294 rows, and
+  the post-bump manifest equals the md5s predicted from the old artefacts with their first line rewritten
+  (`plan-bucket/records/2026-10-07-submodule-bump/orion-delta.predicted-manifest.txt`). Row order is now the `C`-locale
+  `sort` order (`run_regression.sh` exports `LC_ALL=C` since the same day; the old file was sorted under another collation,
+  which moved `multimat_Plate`'s `field1/field10/field2` rows).
