@@ -2,6 +2,7 @@ module FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
+  use FUSS_Config_Types_m, only: obj_pyrolysis
   use FUSS_Lib_BC_Fluxes, only: Face_Index, Compute_Modfm, Compute_Wall_Properties
 
   implicit none
@@ -33,7 +34,11 @@ contains
 
     ! boundary cell variables
     T = Blk % T(Im,Jm,Km)
-    call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )  
+    if ( obj_pyrolysis%enabled ) then
+      kappa = Blk % k_s(Im,Jm,Km)     ! (T, chi) cache, plan 06 section 3.2
+    else
+      call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )
+    endif
 
     ! Difference in Across-face direction: symmetry; tangential direction: null
     H = 1d0/(2d0*kappa*dot_product(M(Dir,:),Normal)) + 1d0/hconv

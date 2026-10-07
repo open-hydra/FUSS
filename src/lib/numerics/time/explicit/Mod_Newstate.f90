@@ -26,7 +26,7 @@ module FUSS_Mod_Newstate
 contains
 
   subroutine Assign_Integration_Variables ()
-    use FUSS_Config_Types_m, only: obj_time_scheme
+    use FUSS_Config_Types_m, only: obj_time_scheme, obj_pyrolysis
     use FUSS_Lib_Newstate
     implicit none
 
@@ -35,7 +35,14 @@ contains
       RK_Newstate => Newstate_Primitive 
       obj_time_scheme%integration_variables = 'Primitive'
     case ('cons')
-      RK_Newstate => Newstate_Conservative
+      ! With pyrolysis the conserved variable is the stored energy E(T, chi)
+      ! and the reaction state advances with it (plan 06 section 3.4); the
+      ! legacy routine is untouched.
+      if ( obj_pyrolysis%enabled ) then
+        RK_Newstate => Newstate_Conservative_Pyrolysis
+      else
+        RK_Newstate => Newstate_Conservative
+      endif
       obj_time_scheme%integration_variables = 'Conservative'
     end select
 

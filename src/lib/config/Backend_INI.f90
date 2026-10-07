@@ -380,7 +380,7 @@ contains
 
   subroutine Scan_Ini(fini, nprobes, probes_name, nmgl)
     use Finer, only: file_ini
-    use FUSS_Config_Types_m, only: obj_sim_param
+    use FUSS_Config_Types_m, only: obj_sim_param, obj_pyrolysis
     use FUSS_Global_m
     use IR_precision
     implicit none
@@ -398,6 +398,12 @@ contains
     else
       call fini%get(section_name='HYDRA-Multigrid', option_name='levels', val=nmgl, error=error)
     endif
+
+    ! Pyrolysis (plan 06 section 3.5): the feature switch is the PRESENCE of
+    ! its section. Decided here, before the registry exists, so that
+    ! Register_Pyrolysis and every later setup step see it; the mid-run re-read
+    ! never calls Scan_Ini, so adding or removing the section mid-run does nothing.
+    obj_pyrolysis%enabled = fini%has_section( section_name=trim(codename)//'-Pyrolysis' )
 
     ! Count the probes
     nprobes = 0

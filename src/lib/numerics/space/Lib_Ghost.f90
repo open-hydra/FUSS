@@ -134,6 +134,46 @@ contains
   end subroutine Fill_Ghost_Cell
 
 
+  !> Ghost reaction state (plan 06 section 3.1): mirrored at wall, symmetry
+  !> and null faces exactly as Ghost_Symmetry mirrors T; block connections and
+  !> chimera faces are plan 08 (refused in phase 2 by Check_Pyrolysis_BC_Topology).
+  !> No phase-2 consumer reads ghost chi; the call site exists so that plan 08
+  !> adds the connection branches without adding a call.
+  subroutine Fill_Ghost_chi ( domain )
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: ii, i, Bm, Im, Jm, Km, Fm, g
+
+    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, g)
+    do ii = 1, domain % n_local_bc
+      i  = domain % local_bc_idx(ii)
+      Bm = domain % bc(i) % b
+      Im = domain % bc(i) % i
+      Jm = domain % bc(i) % j
+      Km = domain % bc(i) % k
+      Fm = domain % bc(i) % f
+      select case ( domain % bc(i) % type )
+        case (101, 102)
+          write(*,'(A)') ' [ERROR] pyrolysis: chi ghost connection is plan 08'
+          error stop 1
+        case default
+          do g = 1, gc
+            select case (Fm)
+              case(1); domain % blk(Bm) % chi(:,Im-g,Jm,Km) = domain % blk(Bm) % chi(:,Im+g-1,Jm,Km)
+              case(2); domain % blk(Bm) % chi(:,Im+g,Jm,Km) = domain % blk(Bm) % chi(:,Im-g+1,Jm,Km)
+              case(3); domain % blk(Bm) % chi(:,Im,Jm-g,Km) = domain % blk(Bm) % chi(:,Im,Jm+g-1,Km)
+              case(4); domain % blk(Bm) % chi(:,Im,Jm+g,Km) = domain % blk(Bm) % chi(:,Im,Jm-g+1,Km)
+              case(5); domain % blk(Bm) % chi(:,Im,Jm,Km-g) = domain % blk(Bm) % chi(:,Im,Jm,Km+g-1)
+              case(6); domain % blk(Bm) % chi(:,Im,Jm,Km+g) = domain % blk(Bm) % chi(:,Im,Jm,Km-g+1)
+            end select
+          enddo
+      end select
+    enddo
+
+  end subroutine Fill_Ghost_chi
+
+
   subroutine Ghost_Connection ( Im, Jm, Km, Fm, blkm, Is, Js, Ks, Fs, blks, Tg, matIDg )
 
     implicit none

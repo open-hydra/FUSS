@@ -8,6 +8,7 @@ module FUSS_Parameters_m
   character(len=clen) :: codename = 'FUSS'
   
   real(R8), parameter :: sigma_SB = 5.67d-8
+  real(R8), parameter :: R_univ   = 8.314471469_R8   ! J/mol/K, TACOT's constantProperties value (plan 06 section 2)
   integer, dimension(6,3), parameter ::  guide  = reshape( [ 1, 0, 0, &
                                                             -1, 0, 0, &
                                                              0, 1, 0, &

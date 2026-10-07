@@ -7,8 +7,10 @@ module FUSS_Lib_Diffusive
 
 contains
 
+  !> kappa_in (optional) is the face conductivity supplied by the caller;
+  !> without it the legacy co_Kappa(matID, (T1+T2)/2) is used (plan 06 section 3.2).
   subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc )
+                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, kappa_in )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
@@ -19,6 +21,7 @@ contains
     real(R8), intent(in) :: T6, T7, T8, T9, T10
     real(R8), intent(in), dimension(3,3) :: M1, M2
     real(R8), intent(inout) :: Res1, Res2
+    real(R8), intent(in), optional :: kappa_in
     ! Local
     real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
 
@@ -34,8 +37,12 @@ contains
     M = 0.5d0 * ( M1 + M2 )
     Gradient = matmul ( Gradient, M )
 
-    T = 0.5d0 * ( T1 + T2 )
-    call co_Kappa( matID, T, kappa )
+    if ( present(kappa_in) ) then
+      kappa = kappa_in
+    else
+      T = 0.5d0 * ( T1 + T2 )
+      call co_Kappa( matID, T, kappa )
+    endif
 
     call Compute_Diffusive_Flux ( kappa, Gradient, area, normal, Flux )
 

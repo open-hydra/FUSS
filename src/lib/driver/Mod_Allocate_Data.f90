@@ -9,15 +9,16 @@ contains
 
   subroutine Setup_Data_Structure ( domain, IOfield )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io
+    use FUSS_Config_Types_m, only: obj_io, obj_pyrolysis
     use FUSS_Global_m
+    use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Init_Cells
     use Lib_ORION_data
     
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     type(ORION_data), intent(inout)       :: IOfield
     ! Local
-    integer :: b, d, nblocks
+    integer :: b, d, r, nblocks
    
     ! Domain is the FUSS-alias of IOfield
     nblocks = size ( IOfield%block )
@@ -55,9 +56,20 @@ contains
       = IOfield%block(b)%vars(2, 1:,1:,1:)
       domain%blk(b)%qvol(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
       = IOfield%block(b)%vars(3, 1:,1:,1:)
+      ! Pyrolysis state (plan 06 section 3.6): vars(4:3+nsub) as Read_vtk_tec left them
+      if ( obj_pyrolysis%enabled ) then
+        do r = 1, obj_pyrolysis%nsub
+          domain%blk(b)%chi(r,1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+          = IOfield%block(b)%vars(3+r, 1:,1:,1:)
+        enddo
+      endif
       domain%time = obj_io%IOtime
 
     enddo
+
+    ! Property caches from (T, chi), the initial-condition range check and the
+    ! field-list round-trip self-check (plan 06 section 3.1).
+    if ( obj_pyrolysis%enabled ) call Pyrolysis_Init_Cells ( domain )
 
   end subroutine Setup_Data_Structure
 
@@ -66,11 +78,13 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_irs, obj_mesh_motion
     use FUSS_Global_m
+    use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
     implicit none
     integer, intent(in)                  :: nijk(3)
     type(FUSS_block_type), intent(inout) :: blk
     ! Local
-    integer :: ni, nj, nk
+    integer :: ni, nj, nk, fl
+    type(field_entry_t) :: e
 
     ni = nijk(1) ; nj = nijk(2) ; nk = nijk(3)
 
@@ -139,16 +153,53 @@ contains
       blk % RS2 = 0.0_R8
     end if
 
+    ! Fields of the list (plan 06 section 3.1): allocated and zeroed here,
+    ! freed in deallocate_remote_computation_data, written by IO_Solution. A
+    ! managed name without a handler stops the run, so a row added without its
+    ! handler fails loudly instead of silently staying unallocated.
+    do fl = 1, Field_List_Count()
+      e = Field_List_Get( fl )
+      if ( .not. e%managed ) cycle
+      select case ( trim(e%name) )
+        case ('chi')
+          allocate( blk % chi ( e%ncomp, 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+          blk % chi = 0.0_R8
+        case ('chiO')
+          allocate( blk % chiO ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % chiO = 0.0_R8
+        case ('dchi')
+          allocate( blk % dchi ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % dchi = 0.0_R8
+        case ('rho_s')
+          allocate( blk % rho_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % rho_s = 0.0_R8
+        case ('k_s')
+          allocate( blk % k_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % k_s = 0.0_R8
+        case ('cp_s')
+          allocate( blk % cp_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % cp_s = 0.0_R8
+        case ('mdot_pg')
+          allocate( blk % mdot_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % mdot_pg = 0.0_R8
+        case default
+          write(*,'(A)') ' [ERROR] Allocate_Block: no handler for the managed field '//trim(e%name)
+          error stop 1
+      end select
+    enddo
+
   end subroutine Allocate_Block
   
 
   subroutine deallocate_remote_computation_data(domain)
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block, mpi_is_root
+    use FUSS_Field_List_m, only: Field_List_Count, Field_List_Get, field_entry_t
 
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
-    integer :: b, d, i, c
+    integer :: b, d, i, c, fl
+    type(field_entry_t) :: e
     logical, allocatable :: needs_remote_T(:)
 
     ! Build mask of remote blocks whose T (and dir) must be kept:
@@ -178,6 +229,24 @@ contains
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)
       if (allocated(domain%blk(b)%matID))        deallocate(domain%blk(b)%matID)
+
+      ! Fields of the list (plan 06 section 3.1), same policy as TO/R
+      do fl = 1, Field_List_Count()
+        e = Field_List_Get( fl )
+        if ( .not. e%managed ) cycle
+        select case ( trim(e%name) )
+          case ('chi')    ; if (allocated(domain%blk(b)%chi))     deallocate(domain%blk(b)%chi)
+          case ('chiO')   ; if (allocated(domain%blk(b)%chiO))    deallocate(domain%blk(b)%chiO)
+          case ('dchi')   ; if (allocated(domain%blk(b)%dchi))    deallocate(domain%blk(b)%dchi)
+          case ('rho_s')  ; if (allocated(domain%blk(b)%rho_s))   deallocate(domain%blk(b)%rho_s)
+          case ('k_s')    ; if (allocated(domain%blk(b)%k_s))     deallocate(domain%blk(b)%k_s)
+          case ('cp_s')   ; if (allocated(domain%blk(b)%cp_s))    deallocate(domain%blk(b)%cp_s)
+          case ('mdot_pg'); if (allocated(domain%blk(b)%mdot_pg)) deallocate(domain%blk(b)%mdot_pg)
+          case default
+            write(*,'(A)') ' [ERROR] deallocate_remote_computation_data: no handler for the managed field '//trim(e%name)
+            error stop 1
+        end select
+      enddo
 
       ! T — free unless this remote block is a chimera donor or manifold source
       if (.not. needs_remote_T(b)) then

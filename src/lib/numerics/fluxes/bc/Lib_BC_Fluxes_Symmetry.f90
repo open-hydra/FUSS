@@ -2,6 +2,7 @@ module FUSS_Lib_BC_Fluxes_Symmetry
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
+  use FUSS_Config_Types_m, only: obj_pyrolysis
   use FUSS_Lib_BC_Fluxes, only: Face_Index
 
   implicit none
@@ -58,7 +59,15 @@ contains
     if (ndir == 2) Gradient(3) = 0.0
     Gradient = matmul ( Gradient, M )
 
-    call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )
+    if ( obj_pyrolysis%enabled ) then
+
+      kappa = Blk % k_s(Im,Jm,Km)     ! (T, chi) cache, plan 06 section 3.2
+
+    else
+
+      call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )
+
+    endif
     call Compute_Diffusive_Flux ( kappa, Gradient, Area, Normal, Flux )
 
     ! Residual update

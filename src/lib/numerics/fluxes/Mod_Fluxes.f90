@@ -9,6 +9,7 @@ contains
 
   subroutine Fluxes ( domain )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -17,18 +18,30 @@ contains
 
     do b = 1, domain % nb ! Loop over blocks
       if (.not. is_local_block(b)) cycle
-      call Fluxes_blk ( domain % blk(b) % T,   &
-                        domain % blk(b) % matID, &
-                        domain % blk(b) % r,   &
-                        domain % blk(b) % dir, &
-                        domain % blk(b) % m,   &
-                        domain % blk(b) % dim  )
+      if ( obj_pyrolysis%enabled ) then
+        ! Face conductivity from the per-cell caches (plan 06 section 3.2);
+        ! passed only inside this branch, never as an unallocated actual.
+        call Fluxes_blk ( domain % blk(b) % T,   &
+                          domain % blk(b) % matID, &
+                          domain % blk(b) % r,   &
+                          domain % blk(b) % dir, &
+                          domain % blk(b) % m,   &
+                          domain % blk(b) % dim, &
+                          domain % blk(b) % k_s  )
+      else
+        call Fluxes_blk ( domain % blk(b) % T,   &
+                          domain % blk(b) % matID, &
+                          domain % blk(b) % r,   &
+                          domain % blk(b) % dir, &
+                          domain % blk(b) % m,   &
+                          domain % blk(b) % dim  )
+      endif
     enddo
 
   end subroutine Fluxes
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n, k_s )
     use FUSS_Base_Types_m
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
@@ -39,6 +52,7 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
     type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M
+    real(R8), dimension(1:n(1), 1:n(2), 1:n(3)), intent(in), optional :: k_s   ! per-cell conductivity cache (pyrolysis)
     ! Local
     integer :: i, j, k
 
@@ -50,6 +64,8 @@ contains
     do i = 1, n(1)
       Res(i,j,k) = 0d0
     enddo; enddo; enddo
+
+    if ( .not. present(k_s) ) then
 
     !$omp do collapse (2)
     do k = 1, n(3)
@@ -122,6 +138,87 @@ contains
                             Res(i,j,k+1),      &
                             3, 1, 2            )
     enddo; enddo; enddo
+
+    else
+
+    ! Pyrolysis (plan 06 section 3.2): the face conductivity is the mean of
+    ! the two cells' k_s caches instead of co_Kappa at the mean temperature.
+    !$omp do collapse (2)
+    do k = 1, n(3)
+    do j = 1, n(2)
+    do i = 1, n(1) - 1
+      call Diffusive_Flux ( matID(i,j,k), &
+                            Dir(1) % f(i,j,k) % n,  &
+                            Dir(1) % f(i,j,k) % A,  &
+                            T(i  ,j,k),        &
+                            T(i+1,j,k),        &
+                            T(i  ,j-1,k),      &
+                            T(i  ,j+1,k),      &
+                            T(i+1,j-1,k),      &
+                            T(i+1,j+1,k),      &
+                            T(i  ,j,k-1),      &
+                            T(i  ,j,k+1),      &
+                            T(i+1,j,k-1),      &
+                            T(i+1,j,k+1),      &
+                            M(i  ,j,k) % c,    &
+                            M(i+1,j,k) % c,    &
+                            Res(i  ,j,k),      &
+                            Res(i+1,j,k),      &
+                            1, 2, 3,           &
+                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i+1,j,k) ) )
+    enddo; enddo; enddo
+
+    !$omp do collapse (2)
+    do k = 1, n(3)
+    do i = 1, n(1)
+    do j = 1, n(2) - 1
+      call Diffusive_Flux ( matID(i,j,k), &
+                            Dir(2) % f(i,j,k) % n,  &
+                            Dir(2) % f(i,j,k) % A,  &
+                            T(i,j  ,k),        &
+                            T(i,j+1,k),        &
+                            T(i-1,j  ,k),      &
+                            T(i+1,j  ,k),      &
+                            T(i-1,j+1,k),      &
+                            T(i+1,j+1,k),      &
+                            T(i,j  ,k-1),      &
+                            T(i,j  ,k+1),      &
+                            T(i,j+1,k-1),      &
+                            T(i,j+1,k+1),      &
+                            M(i,j  ,k) % c,    &
+                            M(i,j+1,k) % c,    &
+                            Res(i,j  ,k),      &
+                            Res(i,j+1,k),      &
+                            2, 1, 3,           &
+                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j+1,k) ) )
+    enddo; enddo; enddo
+
+    !$omp do collapse (2)
+    do j = 1, n(2)
+    do i = 1, n(1)
+    do k = 1, n(3) - 1
+      call Diffusive_Flux ( matID(i,j,k), &
+                            Dir(3) % f(i,j,k) % n,  &
+                            Dir(3) % f(i,j,k) % A,  &
+                            T(i,j,k  ),        &
+                            T(i,j,k+1),        &
+                            T(i-1,j,k  ),      &
+                            T(i+1,j,k  ),      &
+                            T(i-1,j,k+1),      &
+                            T(i+1,j,k+1),      &
+                            T(i,j-1,k  ),      &
+                            T(i,j+1,k  ),      &
+                            T(i,j-1,k+1),      &
+                            T(i,j+1,k+1),      &
+                            M(i,j,k  ) % c,    &
+                            M(i,j,k+1) % c,    &
+                            Res(i,j,k  ),      &
+                            Res(i,j,k+1),      &
+                            3, 1, 2,           &
+                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j,k+1) ) )
+    enddo; enddo; enddo
+
+    endif
 
   end subroutine Fluxes_blk
 

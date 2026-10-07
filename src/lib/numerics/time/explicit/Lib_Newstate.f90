@@ -3,7 +3,7 @@ module FUSS_Lib_Newstate
 
   implicit none
   private
-  public :: Newstate_Conservative, Newstate_Primitive
+  public :: Newstate_Conservative, Newstate_Primitive, Newstate_Conservative_Pyrolysis
 
 contains
 
@@ -146,6 +146,61 @@ contains
       end subroutine Compute_Cons_NoIRS
 
   end subroutine Newstate_Conservative
+
+
+  ! ===========================================================================
+  !  CONSERVATIVE NEWSTATE WITH PYROLYSIS (plan 06 section 3.4)
+  !
+  !  Integrates the stored energy E(T, chi) and the reaction advancements chi
+  !  with the same RK_stage weights, from the start-of-step state (TO, chiO)
+  !  and the stage increments (R folded as the no-IRS residual, dchi from
+  !  Pyrolysis_Stage), inverts E -> T per cell and refreshes the property
+  !  caches. Pyrolysis_Stage already added the gas-advection flux to R. The
+  !  two legacy routines above and below are untouched; IRS is refused.
+  ! ===========================================================================
+  subroutine Newstate_Conservative_Pyrolysis ( domain, irk )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_time_scheme, obj_pyrolysis
+    use FUSS_Global_m
+    use FUSS_Lib_Pyrolysis,  only: Energy_Of, Temperature_Of, Solid_State
+    use FUSS_Lib_RK
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain 
+    integer, intent(in)                   :: irk
+    ! Local
+    integer  :: i, j, k, b, m, r, n_rk
+    real(R8) :: residual, E_n, E_k, E_new, T_new, tau, eps_pg, p_gas
+
+    n_rk  = obj_time_scheme%n_RK
+    p_gas = obj_pyrolysis%p_gas
+
+    do b = 1, domain%nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,residual,E_n,E_k,E_new,T_new,tau,eps_pg)
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        m = nint( domain%blk(b)%matID(i,j,k) )
+        residual = ( - domain%blk(b)%R(i,j,k) / domain%blk(b)%vol(i,j,k) + domain%blk(b)%qvol(i,j,k) ) &
+                 * domain%blk(b)%dtlocal(i,j,k)
+        E_n   = Energy_Of( m, domain%blk(b)%TO(i,j,k), domain%blk(b)%chiO(:,i,j,k), p_gas )
+        E_k   = Energy_Of( m, domain%blk(b)%T(i,j,k),  domain%blk(b)%chi(:,i,j,k),  p_gas )
+        E_new = RK_stage( irk, n_rk, E_k, E_n, residual )
+        do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+          domain%blk(b)%chi(r,i,j,k) = RK_stage( irk, n_rk, domain%blk(b)%chi(r,i,j,k), &
+                                                 domain%blk(b)%chiO(r,i,j,k), domain%blk(b)%dchi(r,i,j,k) )
+        enddo
+        call Temperature_Of( m, E_new, domain%blk(b)%chi(:,i,j,k), p_gas, domain%blk(b)%T(i,j,k), T_new, b, i, j, k )
+        domain%blk(b)%T(i,j,k) = T_new
+        call Check_And_Fix_State( T_new, b, i, j, k )
+        call Solid_State( m, T_new, domain%blk(b)%chi(:,i,j,k), domain%blk(b)%rho_s(i,j,k), &
+                          domain%blk(b)%cp_s(i,j,k), domain%blk(b)%k_s(i,j,k), tau, eps_pg )
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Newstate_Conservative_Pyrolysis
 
 
   ! ===========================================================================

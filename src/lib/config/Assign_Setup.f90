@@ -12,6 +12,8 @@ contains
     use FUSS_Config_Types_m
     use FUSS_IO_Solution,         only: Setup_Input_Solution
     use FUSS_Mod_Newstate,        only: Assign_Integration_Variables
+    use FUSS_Field_List_m,        only: Field_List_Init
+    use FUSS_Mod_Pyrolysis,       only: Pyrolysis_Assign_Setup
     implicit none
 
     ! Setting input solution
@@ -32,6 +34,13 @@ contains
     ! that could disagree with it. Must run before Setup_Data_Structure, which
     ! allocates blk%node_old only when this is true.
     obj_mesh_motion%enabled = ( trim(obj_mesh_motion%law) /= 'static' )
+
+    ! Field list (plan 06 section 3.1): the pyrolysis rows need nsub, known
+    ! once the material files are loaded (before this routine); the converters
+    ! and the derived outflow direction come with them. Must run before
+    ! Setup_Data_Structure, whose Allocate_Block walks the list.
+    call Field_List_Init( obj_pyrolysis%nsub, obj_pyrolysis%enabled )
+    if ( obj_pyrolysis%enabled ) call Pyrolysis_Assign_Setup()
 
     !! Descriptions, warnings and errors
 

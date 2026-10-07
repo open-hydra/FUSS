@@ -34,6 +34,7 @@ module FUSS_Advanced_Types_m
     type(FUSS_vector_3D_type)  :: dlg(2)                                    ! Ghost cell average cell length
     real(R8)                   :: volg(2)                                   ! Ghost cell volume
     real(R8)                   :: Tg(6), matIDg                             ! Ghost cell primitive stencil
+    real(R8), allocatable      :: chig(:)                                   ! Ghost chi stencil (nsub): allocated and zeroed with pyrolysis on, filled in plan 08
     integer                    :: ni(2)                                     ! BC chimera
     integer, allocatable       :: donorID(:,:)                              ! BC chimera
     real(R8), allocatable      :: volume_fraction(:)                        ! BC chimera
@@ -52,6 +53,15 @@ module FUSS_Advanced_Types_m
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
     real(R8), dimension(:,:,:), allocatable :: matID           ! ID of material for each cell
+    ! Pyrolysis state and caches (plan 06 section 3.1), allocated through the
+    ! field list only when [FUSS-Pyrolysis] is present: chi(1:nsub, cells) is
+    ! the component-first reaction advancement (ghost layers allocated and
+    ! mirrored at wall faces, unread in phase 2), chiO its start-of-step copy,
+    ! dchi the stage increment; rho_s/k_s/cp_s are the solid caches refreshed
+    ! after every (T, chi) update; mdot_pg is the gas mass flux through the
+    ! cell's downstream face along the outflow direction.
+    real(R8), dimension(:,:,:,:), allocatable :: chi, chiO, dchi
+    real(R8), dimension(:,:,:),   allocatable :: rho_s, k_s, cp_s, mdot_pg
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type

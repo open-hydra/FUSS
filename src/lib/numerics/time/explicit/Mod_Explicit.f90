@@ -14,7 +14,8 @@ contains
     use FUSS_Mod_dt,         only: Set_Global_dt, Compute_dt
     use FUSS_Mod_Metrics,    only: Update_Mesh
     use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE
-    use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell
+    use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell, Fill_Ghost_chi
+    use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Stage, Pyrolysis_Residual
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
@@ -88,8 +89,10 @@ contains
     rk: do i_rk = 1, obj_time_scheme%n_RK
         
       call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
+      if ( obj_pyrolysis%enabled ) call Fill_Ghost_chi ( domain(level) )   ! mirror chi at wall faces (plan 06 section 3.1)
       call Fluxes ( domain(level) )                        ! Diffusive fluxes 
       call BC_Fluxes ( domain(level) )                     ! Boundary fluxes
+      if ( obj_pyrolysis%enabled ) call Pyrolysis_Stage ( domain(level), i_rk )   ! kinetics, gas outflow, advection flux, budget
 
       call External_Function ( domain(level) )             ! External function (e.g. source terms)
 
@@ -110,6 +113,9 @@ contains
                                 average=average, &
                                 total=obj_sim_param%residuotot )
       enddo
+      ! With pyrolysis the reaction state is part of the residual (plan 06):
+      ! a constant temperature with reactions still advancing is not converged.
+      if ( obj_pyrolysis%enabled ) call Pyrolysis_Residual ( domain(level), obj_sim_param%residuotot )
       call timer_sync_begin()
       call mpi_reduce_sum_r8(obj_sim_param%residuotot)
       call timer_sync_end()
@@ -178,6 +184,7 @@ contains
 
   subroutine Copy_State ( domain )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -196,6 +203,20 @@ contains
       enddo; enddo; enddo
       !$omp end do
     enddo
+
+    ! Start-of-step reaction state, the chi analogue of TO (plan 06 section 3.1)
+    if ( obj_pyrolysis%enabled ) then
+      do b = 1, domain % nb
+        if (.not. is_local_block(b)) cycle
+        !$omp do collapse(3)
+        do k = 1, domain % blk(b) % dim(3)
+        do j = 1, domain % blk(b) % dim(2)
+        do i = 1, domain % blk(b) % dim(1)
+          domain % blk(b) % chiO (:,i,j,k) = domain % blk(b) % chi (:,i,j,k)
+        enddo; enddo; enddo
+        !$omp end do
+      enddo
+    endif
 
   end subroutine Copy_State
 

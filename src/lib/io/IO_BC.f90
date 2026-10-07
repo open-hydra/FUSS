@@ -14,11 +14,11 @@ contains
 
   subroutine Setup_BC ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_multigrid, obj_io_bc
+    use FUSS_Config_Types_m, only: obj_multigrid, obj_io_bc, obj_pyrolysis
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     ! Local
-    integer :: m, error
+    integer :: m, error, i
 
     do m = 1, obj_multigrid%MGL
 
@@ -38,6 +38,16 @@ contains
 
       !! Phase 2: Read
       call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m )
+
+      ! Pyrolysis (plan 06 section 3.1): the ghost chi stencil of every BC
+      ! entry is allocated and zeroed here; plan 08 fills it at connections.
+      if ( obj_pyrolysis%enabled ) then
+        do i = 1, domain(m) % nbound
+          if ( allocated(domain(m) % bc(i) % chig) ) deallocate( domain(m) % bc(i) % chig )
+          allocate( domain(m) % bc(i) % chig( obj_pyrolysis%nsub ) )
+          domain(m) % bc(i) % chig = 0.0d0
+        enddo
+      endif
       
     end do
 

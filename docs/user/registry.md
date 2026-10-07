@@ -72,3 +72,12 @@
 | omega | 0.0 | real |  no | Prescribed-motion angular frequency [1/s] |
 | gcl-tolerance | 1.0e-10 | > 0 |  no | Max relative discrete-GCL residual before the run is stopped |
 | taper-to-boundary | .false. | logical |  no | Taper prescribed motion to zero on the block boundary |
+
+## FUSS-Pyrolysis
+
+| Parameter | Default | Allowed | Required | Description |
+|-----------|---------|---------|----------|-------------|
+| gas-closure | type1 | type1 ,  type2 |  no | Pyrolysis-gas closure: type1 = quasi-steady 1-D outflow (type2 = Darcy, plan 07) |
+| outflow-direction | none | none ,  +i ,  -i ,  +j ,  -j ,  +k ,  -k |  no | Index direction along which the pyrolysis gas leaves the (single) block |
+| p-gas | 101325.0 | > 0 |  no | Prescribed pyrolysis-gas pressure [Pa] at which the gas table is evaluated (type1) |
+| hbar-guard-report | .false. | logical |  no | Print at setup the materials whose hbar guard fired (rho_v = rho_c, no net decomposition) |

@@ -102,8 +102,9 @@ contains
   end subroutine Setup_Input_Solution
 
   subroutine Read_vtk_tec ( IOfield )
-    use FUSS_Config_Types_m, only: obj_sim_param, obj_io
+    use FUSS_Config_Types_m, only: obj_sim_param, obj_io, obj_pyrolysis
     use FUSS_Parameters_m
+    use FUSS_Mod_MPI, only: mpi_is_root
     use Lib_ORION_data
     use Lib_VTK
     use Lib_Tecplot
@@ -112,8 +113,9 @@ contains
     type(ORION_data), intent(inout) :: IOfield
     ! Local
     type(ORION_data) :: IOinit, IOsource
-    integer          :: error_init, error_source, error_dim, b, nblocks
+    integer          :: error_init, error_source, error_dim, b, nblocks, nchi, nv, r
     character(clen)  :: format(2)
+    character(len=32) :: expected
 
     error_init   = 0
     error_source = 0
@@ -147,12 +149,14 @@ contains
       return
     endif
 
-    ! Allocate IOfield
+    ! Allocate IOfield (plus one slot per reaction when pyrolysis is on)
+    nchi = 0
+    if ( obj_pyrolysis%enabled ) nchi = obj_pyrolysis%nsub
     nblocks = size(IOinit%block)
     allocate(IOfield%block(1:nblocks))
     do b = 1, nblocks
       allocate(IOfield%block(b)%mesh(1:3,0:IOinit%block(b)%Ni,0:IOinit%block(b)%Nj,0:IOinit%block(b)%Nk))
-      allocate(IOfield%block(b)%vars(1:3,1:IOinit%block(b)%Ni,1:IOinit%block(b)%Nj,1:IOinit%block(b)%Nk))
+      allocate(IOfield%block(b)%vars(1:3+nchi,1:IOinit%block(b)%Ni,1:IOinit%block(b)%Nj,1:IOinit%block(b)%Nk))
     enddo
 
     ! Check dimensions IOinit and IOsource are compatible
@@ -192,6 +196,44 @@ contains
       else
         IOfield%block(b)%vars(3,:,:,:) = 0.0d0
       endif
+
+      ! Pyrolysis state (plan 06 section 3.6), by column POSITION. A new run's
+      ! initial field never carries it (virgin). A restart file written with
+      ! pyrolysis on carries the seven legacy columns, chi_1..chi_nsub, rho_s
+      ! and mdot_pg (nv = 9 + nsub) -- the names are checked when the reader
+      ! kept them; a legacy restart file (nv = 7) resets to virgin with a
+      ! notice; anything else is refused, because a file written with a
+      ! different pyrolysis.dat must not be read positionally.
+      if ( obj_pyrolysis%enabled ) then
+        if ( obj_sim_param%newrun ) then
+          IOfield%block(b)%vars(4:3+nchi,:,:,:) = 0.0d0
+        else
+          nv = size(IOinit%block(b)%vars, 1)
+          if ( nv == 9 + nchi ) then
+            do r = 1, nchi
+              if ( allocated(IOinit%varnames) ) then
+                if ( size(IOinit%varnames) >= 10 + r ) then
+                  write(expected,'(A,I0)') 'chi_', r
+                  if ( trim(adjustl(IOinit%varnames(10+r))) /= trim(expected) ) then
+                    write(obj_io%error_message,'(A,I0,A)') "[ERROR] pyrolysis restart: "//trim(obj_io%nameinit)// &
+                      " column ", 10+r, " is '"//trim(adjustl(IOinit%varnames(10+r)))//"', expected '"//trim(expected)//"'"
+                    return
+                  endif
+                endif
+              endif
+              IOfield%block(b)%vars(3+r,:,:,:) = IOinit%block(b)%vars(7+r,:,:,:)
+            enddo
+          elseif ( nv == 7 ) then
+            IOfield%block(b)%vars(4:3+nchi,:,:,:) = 0.0d0
+            if ( mpi_is_root .and. b == 1 ) &
+              write(*,'(A)') ' [NOTICE] restart file carries no chi_* columns: material state reset to virgin'
+          else
+            write(obj_io%error_message,'(A,I0,A,I0)') "[ERROR] pyrolysis restart: "//trim(obj_io%nameinit)//" has ", nv, &
+              " variables, expected 7 or ", 9 + nchi
+            return
+          endif
+        endif
+      endif
     enddo
 
   end subroutine Read_vtk_tec
@@ -200,19 +242,44 @@ contains
   !> Output setup
   subroutine Setup_Output_Solution ( IOfield )
     use IR_Precision
-    use FUSS_Config_Types_m, only: obj_multigrid, obj_io
+    use FUSS_Config_Types_m, only: obj_multigrid, obj_io, obj_pyrolysis
     use FUSS_Global_m
     use FUSS_Parameters_m
+    use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
     use Lib_ORION_data
     use strings, only: parse
     implicit none
     type(ORION_data), intent(inout) :: IOfield(obj_multigrid%MGL)
     ! Local
-    integer :: b, m
+    integer :: b, m, fl, c
+    type(field_entry_t) :: e
+    character(len=40)   :: colname
 
     ! IO Variables specification
     obj_io%Ovarnames=' "T" "matID" "qvol" "k" "rho" "cs" "h" '
     obj_io%Onvar = 1 + 6
+
+    ! Pyrolysis (plan 06 section 3.6): the field-list rows with output = .true.
+    ! are appended after the seven legacy columns, in list order, ncomp
+    ! columns each (chi_1..chi_nsub, rho_s, mdot_pg); "h" carries E and
+    ! "k"/"rho"/"cs" the caches. The legacy string stays byte-identical
+    ! otherwise, so every existing post-processing script keeps working.
+    if ( obj_pyrolysis%enabled ) then
+      do fl = 1, Field_List_Count()
+        e = Field_List_Get( fl )
+        if ( .not. ( e%managed .and. e%output ) ) cycle
+        if ( e%ncomp == 1 ) then
+          obj_io%Ovarnames = trim(obj_io%Ovarnames)//' "'//trim(e%name)//'" '
+          obj_io%Onvar = obj_io%Onvar + 1
+        else
+          do c = 1, e%ncomp
+            write(colname,'(A,A,I0)') trim(e%name), '_', c
+            obj_io%Ovarnames = trim(obj_io%Ovarnames)//' "'//trim(colname)//'" '
+            obj_io%Onvar = obj_io%Onvar + 1
+          enddo
+        endif
+      enddo
+    endif
 
     do m = 1, obj_multigrid%MGL
       IOfield(m)%vtk%node = .false.
@@ -257,7 +324,7 @@ contains
 
   subroutine Write_vtk_tec ( domain, IOfield, file )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion
+    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion, obj_pyrolysis
     use FUSS_Global_m
     use FUSS_Parameters_m
     use IR_Precision
@@ -265,6 +332,9 @@ contains
     use Lib_VTK
     use Lib_Tecplot
     use FUSS_Lib_Solid
+    use FUSS_Lib_Pyrolysis,  only: Solid_State, Gas_State, Energy_Of
+    use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
+    use FUSS_Mod_Pyrolysis,  only: Write_Energy_Budget
     use FUSS_Mod_MPI, only: mpi_is_root
     use FUSS_Mod_GhostExchange, only: gather_T_to_root, gather_qvol_to_root, gather_matID_to_root, mpi_io_barrier
     implicit none
@@ -274,8 +344,10 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
-    integer             :: E_IO, b, i, j, k
+    integer             :: E_IO, b, i, j, k, m, fl, c, col
     real(8)             :: kappa, rho, cp, h
+    real(8)             :: rho_s, cp_s, k_s, tau, eps_pg, W, h_pg, mu
+    type(field_entry_t) :: e
 
     ! Gather P from all ranks to root (collective — all ranks must call)
     call gather_T_to_root(domain)
@@ -309,16 +381,51 @@ contains
         IOfield%block(b)%vars(2,:,:,:) = domain%blk(b)%matID(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
         IOfield%block(b)%vars(3,:,:,:) = domain%blk(b)%qvol(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
         ! Auxiliary variables
-        do k = 1, IOfield%block(b)%Nk ; do j = 1, IOfield%block(b)%Nj ; do i = 1, IOfield%block(b)%Ni
-          call co_Kappa( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), kappa )
-          call co_Rho( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), rho )
-          call co_Cp( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), cp )
-          call co_H( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), h )
-          IOfield%block(b)%vars(4,i,j,k) = kappa
-          IOfield%block(b)%vars(5,i,j,k) = rho
-          IOfield%block(b)%vars(6,i,j,k) = cp
-          IOfield%block(b)%vars(7,i,j,k) = h
-        enddo; enddo; enddo
+        if ( obj_pyrolysis%enabled ) then
+          ! plan 06 section 3.6: k_s, total density rho_s + eps_pg rho_pg, cp_s,
+          ! the integrated energy E in the "h" slot, then the list's output rows
+          do k = 1, IOfield%block(b)%Nk ; do j = 1, IOfield%block(b)%Nj ; do i = 1, IOfield%block(b)%Ni
+            m = nint( domain%blk(b)%matID(i,j,k) )
+            call Solid_State( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), rho_s, cp_s, k_s, tau, eps_pg )
+            call Gas_State( m, obj_pyrolysis%p_gas, domain%blk(b)%T(i,j,k), W, h_pg, mu, [b, i, j, k] )
+            IOfield%block(b)%vars(4,i,j,k) = k_s
+            IOfield%block(b)%vars(5,i,j,k) = rho_s + eps_pg * obj_pyrolysis%p_gas * W / ( R_univ * domain%blk(b)%T(i,j,k) )
+            IOfield%block(b)%vars(6,i,j,k) = cp_s
+            IOfield%block(b)%vars(7,i,j,k) = Energy_Of( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), obj_pyrolysis%p_gas )
+          enddo; enddo; enddo
+          col = 7
+          do fl = 1, Field_List_Count()
+            e = Field_List_Get( fl )
+            if ( .not. ( e%managed .and. e%output ) ) cycle
+            select case ( trim(e%name) )
+              case ('chi')
+                do c = 1, e%ncomp
+                  col = col + 1
+                  IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%chi(c,1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+                enddo
+              case ('rho_s')
+                col = col + 1
+                IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%rho_s(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              case ('mdot_pg')
+                col = col + 1
+                IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%mdot_pg(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              case default
+                write(*,'(A)') ' [ERROR] Write_vtk_tec: no handler for the output field '//trim(e%name)
+                error stop 1
+            end select
+          enddo
+        else
+          do k = 1, IOfield%block(b)%Nk ; do j = 1, IOfield%block(b)%Nj ; do i = 1, IOfield%block(b)%Ni
+            call co_Kappa( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), kappa )
+            call co_Rho( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), rho )
+            call co_Cp( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), cp )
+            call co_H( domain%blk(b)%matID(i,j,k), domain%blk(b)%T(i,j,k), h )
+            IOfield%block(b)%vars(4,i,j,k) = kappa
+            IOfield%block(b)%vars(5,i,j,k) = rho
+            IOfield%block(b)%vars(6,i,j,k) = cp
+            IOfield%block(b)%vars(7,i,j,k) = h
+          enddo; enddo; enddo
+        endif
       enddo
     
       ! Write the IOfield accordingly to the solution format
@@ -330,6 +437,9 @@ contains
       else
         E_IO = tec_write_structured_multiblock(orion=IOfield,varnames=obj_io%Ovarnames,filename=trim(path)//trim(file)//trim(IOfield%tec%extension))
       end if
+
+      ! Energy budget line at every solution write (plan 06 section 3.6)
+      if ( obj_pyrolysis%enabled ) call Write_Energy_Budget( domain )
     end if
 
     ! Synchronize all ranks after I/O

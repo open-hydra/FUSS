@@ -9,6 +9,7 @@ contains
 
   subroutine Compute_dt ( domain, vnn, rampa_iter )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_min_r8
     implicit none
@@ -30,11 +31,21 @@ contains
       do i = 1, domain % blk(b) % dim(1)
         
         ! Compute local cell dt according to VNN number
-        call compute (T = domain % blk(b) % T(i,j,k), &
-                      matID = domain % blk(b) % matID(i,j,k), &
-                      dl = domain % blk(b) % dl(i,j,k) % c, &
-                      dtmin = dtcell, &
-                      vnn = vnn )
+        if ( obj_pyrolysis%enabled ) then
+          ! plan 06 section 3.2: alpha from the (T, chi) caches; the gas heat
+          ! capacity is left out, which only shortens dt (the safe side)
+          call compute_cache (alpha = domain % blk(b) % k_s(i,j,k) / &
+                                      ( domain % blk(b) % rho_s(i,j,k) * domain % blk(b) % cp_s(i,j,k) ), &
+                              dl = domain % blk(b) % dl(i,j,k) % c, &
+                              dtmin = dtcell, &
+                              vnn = vnn )
+        else
+          call compute (T = domain % blk(b) % T(i,j,k), &
+                        matID = domain % blk(b) % matID(i,j,k), &
+                        dl = domain % blk(b) % dl(i,j,k) % c, &
+                        dtmin = dtcell, &
+                        vnn = vnn )
+        endif
 
         ! Apply VNN reduction if required
         if ( domain%iter < rampa_iter ) dtcell = dtcell * domain%iter / rampa_iter
@@ -80,6 +91,27 @@ contains
         dtmin = min ( dt, dtmin )
 
       end subroutine compute
+
+      subroutine compute_cache ( alpha, dl, dtmin, vnn )
+        use FUSS_Global_m
+        implicit none
+        real(R8), intent(in)  :: alpha, dl(3), vnn
+        real(R8), intent(out) :: dtmin
+        ! Local
+        integer :: d
+        real(R8) :: invL2, dt
+
+        dtmin = 1d8
+
+        invL2 = 0.0d0
+        do d = 1, ndir
+          invL2 = invL2 + 1.0d0 / (dl(d)**2)
+        enddo
+        dt = 0.5d0 * vnn / (alpha * invL2)
+
+        dtmin = min ( dt, dtmin )
+
+      end subroutine compute_cache
 
   end subroutine Compute_dt
 

@@ -22,7 +22,9 @@ contains
     use FUSS_IO_Probes,            only: Setup_Probes
     use FUSS_IO_Wall,              only: Initialize_Wall_File
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_
+    use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
+    use FUSS_Mod_Pyrolysis,        only: Write_Energy_Budget
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
     implicit none
@@ -50,6 +52,11 @@ contains
     if (obj_irs%beta > 0d0) obj_irs%enabled = .true.
     if (mpi_is_root) call Check_Input ()
 
+    ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank
+    ! once the input is validated, value-checked and reported on root.
+    if (obj_pyrolysis%enabled) call Load_Pyrolysis_Tables ()
+    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_Tables ()
+
     ! Allocate container objects Domain and IOfield.
     allocate ( simulation%domain  ( obj_multigrid%MGL ) )
     allocate ( simulation%IOfield ( obj_multigrid%MGL ) )
@@ -73,6 +80,7 @@ contains
     ! Read Boundary Conditions file
     call Setup_BC ( simulation%domain )
     if (mpi_is_root) call Check_BC ()
+    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_BC_Topology ( simulation%domain(1) )
     
     ! MPI: partition blocks and build ghost cell communication schedule
     do m = 1, obj_multigrid%MGL
@@ -161,6 +169,10 @@ contains
         endif
 
     end select
+
+    ! Pyrolysis energy budget at t = t0, after the caches are built and the
+    ! clock is set (plan 06 section 3.6).
+    if (mpi_is_root .and. obj_pyrolysis%enabled) call Write_Energy_Budget ( simulation%domain(1) )
 
     ! Print warnings onto the logfile/shell.
     if (mpi_is_root) call Print_Warnings ()
@@ -261,6 +273,7 @@ contains
       endif
 
       call Check_Mesh_Motion_Compatibility()
+      call Check_Pyrolysis_Compatibility()
 
     end subroutine Check_Input
 
@@ -368,6 +381,137 @@ contains
     end subroutine Check_Mesh_Motion_Compatibility
 
 
+    !> Refuse the combinations pyrolysis (plan 06) has no treatment for. This
+    !> is the single, per-phase-extensible home for every pyrolysis / Darcy /
+    !> ablation setup guard: later phases add their refusals here, each with a
+    !> run_guard_demos.sh entry that shows it firing. Deliberately NOT inside
+    !> Check_Mesh_Motion_Compatibility, which returns early on a static mesh.
+    subroutine Check_Pyrolysis_Compatibility()
+      implicit none
+      logical :: bad
+
+      if ( .not. obj_pyrolysis%enabled ) return
+      bad = .false.
+
+      ! 1. IRS. The promotion of irs-beta > 0 runs before Check_Input; the
+      !    second clause is a belt against it moving back.
+      if ( obj_irs%enabled .or. obj_irs%beta > 0d0 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis is not compatible with implicit residual smoothing.'
+        write(*,'(A)') '         The smoothed residual would no longer match the kinetics increments'
+        write(*,'(A)') '         it is integrated with. Set irs = false and irs-beta = 0.'
+        bad = .true.
+      endif
+
+      ! 2. Multigrid: there is no coarse-level reaction state.
+      if ( obj_multigrid%MGL > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis is not compatible with multigrid.'
+        write(*,'(A)') '         The reaction advancements are not restricted or prolongated.'
+        write(*,'(A)') '         Use a single grid level.'
+        bad = .true.
+      endif
+
+      ! 3. The stored energy E(T, chi) is the integrated variable (plan 06 R1).
+      if ( trim(obj_time_scheme%integration_variables) /= 'cons' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis requires integration-variables = cons.'
+        write(*,'(A)') '         The primitive path integrates T with a rho*cp coefficient that'
+        write(*,'(A)') '         assumes rho = rho(T); with pyrolysis rho depends on the history.'
+        bad = .true.
+      endif
+
+      ! 4. The Darcy closure is plan 07.
+      if ( trim(obj_pyrolysis%gas_closure) == 'type2' ) then
+        write(*,'(A)') ' [ERROR] the type-2 gas closure is plan 07; use gas-closure = type1.'
+        bad = .true.
+      endif
+
+      ! 5. The kinetics integrate physical time.
+      if ( .not. obj_time_scheme%time_accurate .and. .not. obj_sim_param%HYDRA_time_accurate ) then
+        write(*,'(A)') ' [ERROR] pyrolysis requires a time-accurate run.'
+        write(*,'(A)') '         The Arrhenius kinetics integrate physical time; local time stepping'
+        write(*,'(A)') '         would advance the reactions of every cell by a different, meaningless dt.'
+        write(*,'(A)') '         Set time-accurate = true.'
+        bad = .true.
+      endif
+
+      ! 6. The reaction state is not remapped on a moving mesh yet.
+      if ( trim(obj_mesh_motion%law) /= 'static' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis on a moving mesh is plan 08.'
+        write(*,'(A)') '         The reaction state is not remapped through the swept volumes. Use law = static.'
+        bad = .true.
+      endif
+
+      ! 7. The type-1 closure needs the direction the gas leaves through.
+      if ( trim(obj_pyrolysis%outflow_direction) == 'none' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis: outflow-direction must be set (+i, -i, +j, -j, +k or -k).'
+        write(*,'(A)') '         The type-1 closure integrates the gas production along that direction.'
+        bad = .true.
+      endif
+
+      ! 8. No halo exchange or root gather exists for the new fields.
+      if ( mpi_size_ > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis is OpenMP-only until plan 11.'
+        bad = .true.
+      endif
+
+      if ( bad ) error stop 1
+
+    end subroutine Check_Pyrolysis_Compatibility
+
+
+    !> bc.txt-level rules of plan 06 sections 2.1 and 3.7 (root, after
+    !> Check_BC): one block, no 101/102/103 face (chi ghosts are plan 08) and
+    !> a wall BC (301-305) on the outflow end of the block.
+    subroutine Check_Pyrolysis_BC_Topology ( domain )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical :: bad
+      integer :: i, fo
+
+      bad = .false.
+
+      if ( domain%nb > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103 faces (chi ghosts are plan 08).'
+        write(*,'(A,I0,A)') '         The mesh has ', domain%nb, ' blocks.'
+        bad = .true.
+      endif
+      do i = 1, domain%nbound
+        select case ( domain%bc(i)%type )
+          case (101, 102, 103)
+            write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103 faces (chi ghosts are plan 08).'
+            write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, &
+              ' on face ', domain%bc(i)%f
+            bad = .true.
+            exit
+        end select
+      enddo
+
+      select case ( trim(obj_pyrolysis%outflow_direction) )
+        case ('+i') ; fo = 2
+        case ('-i') ; fo = 1
+        case ('+j') ; fo = 4
+        case ('-j') ; fo = 3
+        case ('+k') ; fo = 6
+        case ('-k') ; fo = 5
+        case default; fo = 0
+      end select
+      if ( fo > 0 ) then
+        do i = 1, domain%nbound
+          if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
+          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 305 ) then
+            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-305).'
+            write(*,'(A,I0,A,I0,A)') '         Face ', fo, ' of block 1 carries type ', domain%bc(i)%type, &
+              ': a symmetry plane or a null face cannot pass the pyrolysis gas.'
+            bad = .true.
+            exit
+          endif
+        enddo
+      endif
+
+      if ( bad ) error stop 1
+
+    end subroutine Check_Pyrolysis_BC_Topology
+
+
     subroutine Check_BC()
       implicit none
 
@@ -459,6 +603,14 @@ contains
       write(*,'(A)') ' ========================================================================================='
       write(*,'(A)') ' Solid model'
       write(*,'(A,T35,A)') ' Equation', trim(obj_sim_param%description)
+      if ( obj_pyrolysis%enabled ) then
+        write(*,'(A)') ' Pyrolysis'
+        write(*,'(A,T35,A)') '   Gas closure', trim(obj_pyrolysis%gas_closure)
+        write(*,'(A,T35,A)') '   Outflow direction', trim(obj_pyrolysis%outflow_direction)
+        write(*,'(A,T35,ES12.4)') '   Gas pressure [Pa]', obj_pyrolysis%p_gas
+        write(*,'(A,T35,I0)') '   Materials', obj_pyrolysis%nmat
+        write(*,'(A,T35,I0)') '   Reactions (all materials)', obj_pyrolysis%nsub
+      endif
       write(*,'(A)') ' ========================================================================================='
 
       ! ----- Numerical scheme -----
