@@ -70,11 +70,15 @@ contains
     !!      Explicit_Step), so use !$omp do -- never !$omp parallel do.
     !!   2. It is called once per RK stage, not once per time step.
     !!
-    !! NOTE: the solver still declares this hook `external`, i.e. with no
-    !! explicit interface, so the compiler cannot check the above. Promoting it
-    !! to a checked `procedure(...)` interface needs a coordinated change in
-    !! hydra, whose single argument-less Dummy_Function is passed to BOTH
-    !! FUSS%solve and MOSE%solve and would have to be split in two.
+    !! The solver declares this hook as procedure(external_function_if)
+    !! (src/lib/base/Hook_Interface_m.f90), so a wrong signature is a compile
+    !! error; test/run_hook_interface_check.sh demonstrates it. hydra's single
+    !! argument-less Dummy_Function, passed to both FUSS%solve and MOSE%solve,
+    !! must be split in two when hydra moves its FUSS pointer past this commit.
+    !!
+    !! When pyrolysis is enabled the stage work (Pyrolysis_Stage) has already
+    !! added the gas-advection flux to blk%R and taken the energy-budget sums
+    !! from it before this hook runs: a hook must not modify R in that case.
     subroutine Dummy_Function ( domain )
       use FUSS_Advanced_Types_m, only: FUSS_domain_type
       implicit none

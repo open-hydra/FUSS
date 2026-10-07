@@ -23,9 +23,10 @@ contains
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
                                timer_sync_begin, timer_sync_end
+    use FUSS_Hook_Interface_m, only: external_function_if
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
-    external :: External_Function
+    procedure(external_function_if) :: External_Function
     ! Local
     logical  :: endsim, iosim, endmg, advance_time
     integer  :: i_rk, b, level
