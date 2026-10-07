@@ -6,3 +6,7 @@ edits of `../edit_pato_case.py` (every `BoundaryConditions` row at `hconv = 300`
 that PATO's surface energy balance is the closed form `hconv (Tedge - T_w)` that FUSS's BC 303 evaluates. `Ta_plot`
 columns: `t` then 1, 2, 4, 8, 12, 16, 24 mm below the heated face every 0.1 s; `Ta_surfacePatch`: `t`, surface, back
 face. `verify.py` reads `$FUSS_PATO_ATC2_OUT` (a PATO `output/porousMat/scalar` directory) when set, else this copy.
+
+The oracle's surface temperature at 60 s is 2332 K (1 mm: 2190 K), below the plan's conduction-only estimate of 2420-2480 K;
+a control run with the shipped emissivity gave 1563 K, so the zero-emissivity edit took, and the shortfall is attributed
+(not verified by a separate run) to the pyrolysis heat the estimate omitted. 12 184 PATO steps, 40 s wall, no recession.

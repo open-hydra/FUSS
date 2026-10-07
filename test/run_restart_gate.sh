@@ -200,7 +200,8 @@ run_case "test/steady-state/qvol_Plate"      200
 run_case "test/moving-mesh/receding/N040"    200
 # pyrolysis (plan 06): the reaction state chi_* must travel through the restart
 # file with T; the budget accumulators restart from zero by design and are not
-# compared. 100 iterations per half (~17 s of the 60 s run).
+# compared. 100 iterations per half: the legs run to ~34 s of simulated time
+# (the case itself stops at 10 s; the time file holds 1644 K to 60 s).
 run_case "test/pyrolysis/energy_audit"       100
 
 echo
