@@ -1,0 +1,559 @@
+#!/usr/bin/env python3
+"""
+make_case.py -- write a complete FUSS pyrolysis case directory.
+
+Implements plan 06 (phase 2, pyrolysis on a static mesh) section 4: the four case kinds of
+gates 4.2 (isothermal kinetics), 4.3 (energy and mass audit), 4.4 (ATC1 against FIAT) and
+4.5 (ATC2-chemistryOff against a local PATO run), in the standard test-case layout:
+
+    <case>/FUSS.sh            copy of test/moving-mesh/freestream/FUSS.sh, MASTERDIR fixed for depth
+    <case>/input.ini          FUSS sections only (no ATLAS sections), probes by index-position
+    <case>/Tw_time.dat        BC 302 time file, at the case ROOT (resolved relative to the run dir)
+    <case>/probes.json        probe name, i, cell-centre x (atc kinds; verify.py interpolates in x)
+    <case>/MESH/mesh.tec      nodes only, zone Block1
+    <case>/INPUT/ic.tec       zone B1-SP, cell-centred T and matID (= 1.0)
+    <case>/INPUT/bc.txt       records in face order 1..6, exactly 2 nj nk + 2 ni nk + 2 nj ni of them
+    <case>/INPUT/phase.txt    `solid phase` then `<material> 1`
+    <case>/INPUT/properties.dat   the LEGACY table Load_Table still reads: T cp rho k h, T = 1..4000
+    <case>/INPUT/{pyrolysis,virgin,char,gas}.dat   copied from --tables (make_tacot_tables.py output)
+
+Geometry common to every kind: one block, cells along i; j: 2 cells of 0.1 m; k: 1 cell of 0.1 m.
+ic.tec / mesh.tec / bc.txt use the formats of test/moving-mesh/receding/generate.py.
+
+Usage:
+    make_case.py <case-dir> --kind {isothermal,energy_audit,atc1,atc2off} --tables <dir>
+                 [--T0 K] [--vnn V] [--no-kinetics] [--fuss-sh <path>] [--depth N]
+
+    isothermal    4 cells x 1 mm, both i-faces BC 302 at T0, T(0) = T0, 30 s, fields every 1 s
+                  (--T0 one of 700 / 900 / 1200; tables: the --isothermal set)
+    energy_audit  40 cells x 1 mm, face 2 BC 302 ramp 300 -> 1644 K in 1 s, face 1 adiabatic,
+                  T(0) = 300 K, 10 s, probes at i = 40, 39, 37, 33 (real TACOT tables)
+    atc1          L = 0.05 m, 100 cells graded 0.1 toward the heated face 2 (BC 302 time file),
+                  T(0) = 298 K, 60 s, bracketing probes at 1, 2, 4, 8, 16 mm plus the back face
+    atc2off       as atc1 with T(0) = 300 K and face 2 = BC 303 `300.0, 0.0, 2800.0`,
+                  bracketing probes at 1, 2, 4, 8, 12, 16, 24 mm plus the back face
+
+    --no-kinetics rewrites the copied pyrolysis.dat with nPyroReac[i] 0 for every phase and the
+                  reaction lines removed (gate 4.3 (v)).
+    --depth N     MASTERDIR depth of the case below the repo root (default: from the case path when
+                  it lies under <repo>/test/, else the kind's canonical path).
+
+Python 3.6, no third-party modules.
+"""
+
+import argparse
+import json
+import math
+import os
+import re
+import shutil
+import stat
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+DONOR_FUSS_SH = os.path.join(REPO, "test", "moving-mesh", "freestream", "FUSS.sh")
+
+# ---------------------------------------------------------------- common geometry
+NY = 2            # transverse cells (ndir = 2 like every existing case)
+DY = 0.1          # m
+NK = 1
+DZ = 0.1          # m
+
+# ---------------------------------------------------------------- virgin TACOT diffusivity for the dt estimate
+ALPHA_V = 0.4025 / (280.0 * 984.0)
+
+TABLE_FILES = ("pyrolysis.dat", "virgin.dat", "char.dat", "gas.dat")
+
+KINDS = {
+    "isothermal": {"canonical": "test/pyrolysis/kinetics_isothermal/T%04d", "T0": None,
+                   "t_end": 30.0, "sol_dtime": 1.0, "sol_overwrite": "false"},
+    "energy_audit": {"canonical": "test/pyrolysis/energy_audit", "T0": 300.0,
+                     "t_end": 10.0, "sol_dtime": 10.0, "sol_overwrite": "true"},
+    "atc1": {"canonical": "test/pyrolysis/ATC1", "T0": 298.0,
+             "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
+    "atc2off": {"canonical": "test/pyrolysis/ATC2-chemistryOff", "T0": 300.0,
+                "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
+}
+
+ATC_L = 0.05
+ATC_N = 100
+ATC_RATIO = 0.1          # last/first cell, PATO blockMeshDict simpleGrading (1 0.1 1)
+ATC1_DEPTHS_MM = [1, 2, 4, 8, 16]
+ATC2_DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
+
+TW_TIME = {
+    "energy_audit": [(0.0, 300.0), (1.0, 1644.0), (60.0, 1644.0)],   # 1 s ramp: resolved by the coarsest run (dt ~ 0.17 s); a 0.1 s ramp aliased gate 4.3 (iv), measured 2026-10-07
+    "atc1": [(0.0, 298.0), (0.1, 1644.0), (60.0, 1644.0), (60.1, 298.0), (120.0, 298.0)],
+}
+
+BC303_LINE = (300.0, 0.0, 2800.0)      # hconv, qrad, Tref
+
+
+def die(msg):
+    sys.stderr.write("[ERROR] make_case: %s\n" % msg)
+    sys.exit(1)
+
+
+def fmt(v):
+    return " %.15E" % v
+
+
+# ---------------------------------------------------------------- mesh / ic (generate.py formats)
+def write_ic(path, xs, zone_name, with_vars, T0):
+    ni, nj, nk = len(xs), NY + 1, NK + 1
+    nx = ni - 1
+    ys = [DY * j for j in range(nj)]
+    zs = [DZ * k for k in range(nk)]
+
+    lines = []
+    if with_vars:
+        lines.append(' VARIABLES ="x" "y" "z" T matID')
+        varloc = "VARLOCATION=([1-3]=NODAL,[4-5]=CELLCENTERED)"
+    else:
+        lines.append(' VARIABLES ="x" "y" "z"')
+        varloc = "VARLOCATION=([1-3]=NODAL)"
+    lines.append(
+        " ZONE  T = %s, I=%d, J=%d, K=%d, DATAPACKING=BLOCK, %s,"
+        " SOLUTIONTIME=0.000000000000000E+000, STRANDID = 0"
+        % (zone_name, ni, nj, nk, varloc)
+    )
+    for coord, axis in ((xs, 0), (ys, 1), (zs, 2)):
+        for k in range(nk):
+            for j in range(nj):
+                for i in range(ni):
+                    v = (xs[i], ys[j], zs[k])[axis]
+                    lines.append(fmt(v))
+    if with_vars:
+        ncell = NK * NY * nx
+        for _ in range(ncell):
+            lines.append(fmt(T0))
+        for _ in range(ncell):
+            lines.append(fmt(1.0))
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+# ---------------------------------------------------------------- bc.txt
+VAL_FMT = "    %13.6E,"                                  # generate.py's constant value line
+VAL3_FMT = "    %13.6E, %13.6E, %13.6E,"                 # BC 303: hconv, qrad, Tref
+TIMEFILE_LINE = " Tw_time.dat,"                          # BC 302/301 time file: the bare name
+
+
+def write_bc(path, nx, face1, face2):
+    """face1/face2: (type, value-line or None). Faces 3/4 = 300, 5/6 = 0 (no value line).
+
+    Record count = 2 nj nk + 2 ni nk + 2 nj ni (Allocate_BC); face order 1..6 as generate.py.
+    """
+    out = []
+
+    def rec(i, j, k, f, typ, line=None):
+        out.append("%8d%8d%8d%8d%8d%8d" % (1, i, j, k, f, typ))
+        if line is not None:
+            out.append(line)
+
+    for j in range(1, NY + 1):
+        for k in range(1, NK + 1):
+            rec(1, j, k, 1, face1[0], face1[1])
+    for j in range(1, NY + 1):
+        for k in range(1, NK + 1):
+            rec(nx, j, k, 2, face2[0], face2[1])
+    for i in range(1, nx + 1):
+        for k in range(1, NK + 1):
+            rec(i, 1, k, 3, 300)
+    for i in range(1, nx + 1):
+        for k in range(1, NK + 1):
+            rec(i, NY, k, 4, 300)
+    for j in range(1, NY + 1):
+        for i in range(1, nx + 1):
+            rec(i, j, 1, 5, 0)
+    for j in range(1, NY + 1):
+        for i in range(1, nx + 1):
+            rec(i, j, 1, 6, 0)
+    with open(path, "w") as fh:
+        fh.write("\n".join(out) + "\n")
+    nrec = 2 * NY * NK + 2 * nx * NK + 2 * NY * nx
+    return nrec
+
+
+# ---------------------------------------------------------------- tables
+def read_table_zone1(path, nvar):
+    """First zone of a FUSS pyrolysis table: {T: [values]}, T integer-valued."""
+    rows = {}
+    nzone = 0
+    with open(path) as fh:
+        for line in fh:
+            if "ZONE" in line or "Zone" in line:
+                nzone += 1
+                continue
+            if nzone != 1:
+                continue
+            toks = line.split()
+            try:
+                vals = [float(t) for t in toks]
+            except ValueError:
+                continue
+            if len(vals) != nvar + 1:
+                die("%s: row with %d values, expected %d" % (path, len(vals), nvar + 1))
+            rows[int(round(vals[0]))] = vals[1:]
+    if not rows:
+        die("%s: no rows in zone 1" % path)
+    return rows
+
+
+def read_pyrolysis_dat(path):
+    """material name, rho_v = sum eps_I rho_I, nPyroReac list; validates the grammar loosely."""
+    name = None
+    keys = {}
+    with open(path) as fh:
+        for ln, line in enumerate(fh, 1):
+            s = line.split("//")[0].strip()
+            if not s:
+                continue
+            toks = s.split()
+            if len(toks) != 2:
+                die("%s line %d: expected `key value`: %r" % (path, ln, line.rstrip()))
+            if toks[0] == "material":
+                if name is not None:
+                    die("%s: more than one material block (phase 2 cases carry one material)" % path)
+                name = toks[1]
+                continue
+            if toks[0] in keys:
+                die("%s line %d: key %s appears twice" % (path, ln, toks[0]))
+            keys[toks[0]] = toks[1]
+    if name is None:
+        die("%s: no `material <name>` line" % path)
+    nph = int(keys["nSolidPhases"])
+    rho_v = 0.0
+    nreac = []
+    for i in range(1, nph + 1):
+        rho_v += float(keys["epsI[%d]" % i]) * float(keys["rhoI[%d]" % i])
+        nreac.append(int(keys["nPyroReac[%d]" % i]))
+    return name, rho_v, nreac
+
+
+def strip_kinetics(path):
+    """--no-kinetics: nPyroReac[i] 0 for every phase, reaction lines removed."""
+    reac_re = re.compile(r"^\s*(F|A|E|m|n|T|h)\[\d+\]\[\d+\]\s")
+    npr_re = re.compile(r"^(\s*nPyroReac\[\d+\])\s+\S+(.*)$")
+    out = []
+    with open(path) as fh:
+        for line in fh:
+            if reac_re.match(line):
+                continue
+            m = npr_re.match(line.rstrip("\n"))
+            if m:
+                line = "%s 0%s\n" % (m.group(1), m.group(2))
+            out.append(line)
+    out.insert(0, "// --no-kinetics: every nPyroReac[i] set to 0 and the reaction lines removed by make_case.py\n")
+    with open(path, "w") as fh:
+        fh.write("".join(out))
+
+
+def write_properties_dat(path, name, virgin, rho_v):
+    """Legacy properties.dat: T cp rho k h for T = 1..4000, cp and k clamped below the table,
+    h = rho_v * int_0^T cp dT' (trapezoid on the 1 K grid; monotone, > 0 at 1 K)."""
+    Ts = sorted(virgin)
+    Tlo, Thi = Ts[0], Ts[-1]
+    TMAX = 4000
+
+    def cp_at(T):
+        return virgin[min(max(T, Tlo), Thi)][0]
+
+    def k_at(T):
+        return virgin[min(max(T, Tlo), Thi)][2]
+
+    lines = ['TITLE = "Mass Thermodynamic Properties"',
+             'VARIABLES = "Temperature", "Cp", "Density", "Conductivity", "Energy"',
+             'ZONE T="%s"' % name,
+             "I=%d, F=POINT" % TMAX]
+    h = 0.0
+    cp_prev = cp_at(0)
+    for T in range(1, TMAX + 1):
+        cp = cp_at(T)
+        h += rho_v * 0.5 * (cp_prev + cp)
+        cp_prev = cp
+        lines.append("%.1f %f %f %f %f" % (T, cp, rho_v, k_at(T), h))
+    with open(path, "w") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+# ---------------------------------------------------------------- grading / probes
+def atc_nodes():
+    r = ATC_RATIO ** (1.0 / (ATC_N - 1))
+    d1 = ATC_L * (1.0 - r) / (1.0 - r ** ATC_N)
+    xs = [d1 * (1.0 - r ** i) / (1.0 - r) for i in range(ATC_N + 1)]
+    xs[0] = 0.0
+    xs[-1] = ATC_L
+    return xs, r, d1
+
+
+def bracketing_probes(xs, depths_mm):
+    """Two probes per depth at the cells whose centres bracket x = L - d, plus `back` at i = 1."""
+    nx = len(xs) - 1
+    xc = [0.5 * (xs[i - 1] + xs[i]) for i in range(1, nx + 1)]     # xc[i-1] = centre of cell i
+    probes = []
+    pairs = {}
+    for d in depths_mm:
+        xt = ATC_L - d * 1e-3
+        lo = None
+        for i in range(1, nx + 1):
+            if xc[i - 1] <= xt:
+                lo = i
+        if lo is None or lo >= nx:
+            die("depth %g mm has no bracketing cell pair" % d)
+        hi = lo + 1
+        # Probe names at most 5 characters: FUSS builds the file name as OUTPUT/<name>.txt in a
+        # 16-character field (io_probes_t%file, clen) and silently truncates longer ones (.tx).
+        n_lo, n_hi = "d%02dlo" % d, "d%02dhi" % d
+        probes.append({"name": n_lo, "i": lo, "x": xc[lo - 1], "depth_mm": d, "role": "lo"})
+        probes.append({"name": n_hi, "i": hi, "x": xc[hi - 1], "depth_mm": d, "role": "hi"})
+        pairs[str(d)] = [n_lo, n_hi]
+    probes.append({"name": "back", "i": 1, "x": xc[0], "depth_mm": ATC_L * 1e3, "role": "back"})
+    return probes, pairs, xc
+
+
+# ---------------------------------------------------------------- input.ini
+INI_HEAD = {
+    "isothermal": [
+        "Isothermal kinetics on the --isothermal test tables  (plan 06, gate 4.2)",
+        "",
+        "4 cells x 1 mm, both i-faces held at T0 by BC 302, T(0) at T0, 30 s with a field file",
+        "every second. With cp, h and the gas h_pg all linear in T and equal, T stays at T0 and the",
+        "reaction advancements follow the closed-form propagator; verify.py compares chi and T.",
+    ],
+    "energy_audit": [
+        "Energy and mass audit on the real TACOT tables  (plan 06, gate 4.3)",
+        "",
+        "40 cells x 1 mm, face 2 ramped 300 -> 1644 K in 1 s through Tw_time.dat (BC 302), face 1",
+        "adiabatic (BC 301), 10 s. verify.py closes the energy and solid-mass balances from",
+        "energy-budget.txt and the field file, and compares the probe series across vnn.",
+    ],
+    "atc1": [
+        "Ablation Test Case 1 on the real TACOT tables  (plan 06, gate 4.4; oracle FIAT)",
+        "",
+        "L of 0.05 m, 100 cells graded 0.1 toward the heated face 2, which follows Tw_time.dat",
+        "(298 -> 1644 K in 0.1 s, held to 60 s); face 1 adiabatic; T(0) at 298 K. Two probes bracket",
+        "each FIAT thermocouple depth (see probes.json); verify.py interpolates in x and in time.",
+    ],
+    "atc2off": [
+        "Ablation Test Case 2, chemistry off  (plan 06, gate 4.5; oracle a local PATO run)",
+        "",
+        "Mesh and tables as ATC1; T(0) at 300 K; face 2 is the closed-form Robin wall BC 303 with",
+        "hconv 300 W/m2/K, qrad 0, Tref 2800 K from t equal 0 (PATO run with zero emissivity).",
+        "Two probes bracket each PATO probe depth (see probes.json).",
+    ],
+}
+
+
+def write_ini(path, kind, cfg, vnn, probes):
+    head = ["; " + "=" * 77]
+    for s in INI_HEAD[kind]:
+        head.append(";  " + s if s else ";")
+    head.append(";")
+    head.append(";  Generated by test/pyrolysis/tools/make_case.py -- edit that, not this.")
+    head.append("; " + "=" * 77)
+    body = head + [
+        "",
+        "[FUSS-Parameters]",
+        "newrun = true",
+        "res-threshold = 1e-30",
+        "time-threshold = %s" % ("%.1f" % cfg["t_end"]),
+        "iter-threshold = 100000000",
+        "",
+        "[FUSS-Numerics]",
+        "time-scheme = RK3",
+        "vnn = %s" % repr(vnn),
+        "time-accurate = true",
+        "integration-variables = cons",
+        "irs = false",
+        "",
+        "[FUSS-Pyrolysis]",
+        "gas-closure = type1",
+        "outflow-direction = +i",
+        "p-gas = 101325.0",
+        "",
+        "[FUSS-IO]",
+        "sol-dtime     = %s" % ("%.1f" % cfg["sol_dtime"]),
+        "sol-overwrite = %s" % cfg["sol_overwrite"],
+        "sol-format    = tecplot ascii",
+        "ini-diter     = 100000000",
+    ]
+    if probes:
+        body += ["", "[FUSS-Probes]"]
+        for n, p in enumerate(probes, 1):
+            body.append("probe%d = %s" % (n, p["name"]))
+        for p in probes:
+            body += ["", "[%s]" % p["name"],
+                     "index-position = 1 %d 1 1" % p["i"],
+                     "variables = T",
+                     "dtime = 0.1"]
+    with open(path, "w") as fh:
+        fh.write("\n".join(body) + "\n")
+
+
+def write_time_file(path, pairs):
+    with open(path, "w") as fh:
+        fh.write("\n".join("%g %g" % (t, T) for t, T in pairs) + "\n")
+
+
+def write_fuss_sh(dst, donor, depth):
+    with open(donor) as fh:
+        sh = fh.read()
+    old = "MASTERDIR=../../.."
+    if old not in sh:
+        die("%s has no `%s` line to rewrite" % (donor, old))
+    new = "MASTERDIR=" + "/".join([".."] * depth)
+    with open(dst, "w") as fh:
+        fh.write(sh.replace(old, new, 1))
+    os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return new
+
+
+def case_depth(case_dir, kind, T0, override):
+    if override is not None:
+        return override, "--depth"
+    real = os.path.realpath(case_dir)
+    test_root = os.path.join(os.path.realpath(REPO), "test") + os.sep
+    if real.startswith(test_root):
+        rel = os.path.relpath(real, os.path.realpath(REPO))
+        return len(rel.split(os.sep)), "path " + rel
+    canon = KINDS[kind]["canonical"]
+    if kind == "isothermal":
+        canon = canon % int(round(T0))
+    return len(canon.split("/")), "canonical path " + canon
+
+
+# ---------------------------------------------------------------- main
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("case_dir")
+    ap.add_argument("--kind", required=True, choices=sorted(KINDS))
+    ap.add_argument("--tables", required=True, help="directory holding pyrolysis.dat virgin.dat char.dat gas.dat")
+    ap.add_argument("--T0", type=float, default=None, help="initial temperature [K] (isothermal: 700/900/1200)")
+    ap.add_argument("--vnn", type=float, default=0.5)
+    ap.add_argument("--no-kinetics", action="store_true")
+    ap.add_argument("--fuss-sh", default=DONOR_FUSS_SH, help="FUSS.sh to copy (default test/moving-mesh/freestream/FUSS.sh)")
+    ap.add_argument("--depth", type=int, default=None, help="MASTERDIR depth below the repo root")
+    args = ap.parse_args()
+
+    kind = args.kind
+    cfg = KINDS[kind]
+    T0 = args.T0 if args.T0 is not None else cfg["T0"]
+    if T0 is None:
+        die("--T0 is required for --kind isothermal (700, 900 or 1200)")
+    if kind == "isothermal" and int(round(T0)) not in (700, 900, 1200):
+        print("[NOTE] --T0 %g is not one of the gate-4.2 values 700/900/1200" % T0)
+    if args.vnn <= 0:
+        die("--vnn must be > 0")
+    for f in TABLE_FILES:
+        if not os.path.isfile(os.path.join(args.tables, f)):
+            die("%s not found in --tables %s" % (f, args.tables))
+    if not os.path.isfile(args.fuss_sh):
+        die("FUSS.sh donor not found: %s" % args.fuss_sh)
+
+    case = os.path.abspath(args.case_dir)
+    os.makedirs(os.path.join(case, "INPUT"), exist_ok=True)
+    os.makedirs(os.path.join(case, "MESH"), exist_ok=True)
+
+    # tables
+    for f in TABLE_FILES:
+        shutil.copy(os.path.join(args.tables, f), os.path.join(case, "INPUT", f))
+    pyro = os.path.join(case, "INPUT", "pyrolysis.dat")
+    if args.no_kinetics:
+        strip_kinetics(pyro)
+    name, rho_v, nreac = read_pyrolysis_dat(pyro)
+    if len(name) > 16:
+        die("material name %r longer than 16 characters" % name)
+    virgin = read_table_zone1(os.path.join(case, "INPUT", "virgin.dat"), 7)
+    if kind == "isothermal":
+        if any(abs(v[0] - 1000.0) > 0 or abs(v[2] - 0.4) > 0 for v in virgin.values()):
+            die("kind isothermal needs the --isothermal tables (virgin cp 1000, k 0.4); %s is not that set" % args.tables)
+    elif all(abs(v[0] - 1000.0) == 0 for v in virgin.values()):
+        print("[WARNING] kind %s on tables whose virgin cp is constant 1000: is %s the real TACOT set?" % (kind, args.tables))
+
+    # mesh
+    if kind == "isothermal":
+        nx = 4
+        xs = [1e-3 * i for i in range(nx + 1)]
+    elif kind == "energy_audit":
+        nx = 40
+        xs = [1e-3 * i for i in range(nx + 1)]
+    else:
+        xs, ratio, d1 = atc_nodes()
+        nx = ATC_N
+    write_ic(os.path.join(case, "INPUT", "ic.tec"), xs, "B1-SP", True, T0)
+    write_ic(os.path.join(case, "MESH", "mesh.tec"), xs, "Block1", False, T0)
+
+    # boundary conditions
+    if kind == "isothermal":
+        face1 = (302, VAL_FMT % T0)
+        face2 = (302, VAL_FMT % T0)
+    elif kind in ("energy_audit", "atc1"):
+        face1 = (301, VAL_FMT % 0.0)
+        face2 = (302, TIMEFILE_LINE)
+        write_time_file(os.path.join(case, "Tw_time.dat"), TW_TIME[kind])
+    else:
+        face1 = (301, VAL_FMT % 0.0)
+        face2 = (303, VAL3_FMT % BC303_LINE)
+    nrec = write_bc(os.path.join(case, "INPUT", "bc.txt"), nx, face1, face2)
+
+    # phase.txt, legacy properties.dat
+    with open(os.path.join(case, "INPUT", "phase.txt"), "w") as fh:
+        fh.write("solid phase\n%s 1\n" % name)
+    write_properties_dat(os.path.join(case, "INPUT", "properties.dat"), name, virgin, rho_v)
+
+    # probes
+    probes = []
+    pairs = {}
+    if kind == "energy_audit":
+        probes = [{"name": "p05mm", "i": 40}, {"name": "p15mm", "i": 39},
+                  {"name": "p35mm", "i": 37}, {"name": "p75mm", "i": 33}]
+        for p in probes:
+            p["x"] = 0.5 * (xs[p["i"] - 1] + xs[p["i"]])
+    elif kind in ("atc1", "atc2off"):
+        depths = ATC1_DEPTHS_MM if kind == "atc1" else ATC2_DEPTHS_MM
+        probes, pairs, xc = bracketing_probes(xs, depths)
+        with open(os.path.join(case, "probes.json"), "w") as fh:
+            json.dump({"kind": kind, "L": ATC_L, "n_cells": ATC_N, "ratio_last_first": ATC_RATIO,
+                       "r": ratio, "delta_1": d1, "delta_n": xs[-1] - xs[-2],
+                       "depths_mm": depths, "pairs": pairs,
+                       "note": "x is the cell-centre coordinate of cell i (nodes in MESH/mesh.tec); "
+                               "depth below the heated face 2 is L - x",
+                       "probes": probes}, fh, indent=1, sort_keys=True)
+            fh.write("\n")
+    for p in probes:
+        if len(p["name"]) > 16:
+            die("probe name %r longer than 16 characters" % p["name"])
+
+    write_ini(os.path.join(case, "input.ini"), kind, cfg, args.vnn, probes)
+
+    depth, how = case_depth(case, kind, T0, args.depth)
+    masterdir = write_fuss_sh(os.path.join(case, "FUSS.sh"), args.fuss_sh, depth)
+
+    # summary
+    dxs = [xs[i + 1] - xs[i] for i in range(nx)]
+    dx_min = min(dxs)
+    inv_l2 = 1.0 / dx_min ** 2 + 1.0 / DY ** 2
+    dt = 0.5 * args.vnn / (ALPHA_V * inv_l2)
+    print("make_case.py: %s -> %s" % (kind, case))
+    print("  material %s (rho_v = %g), tables from %s%s" % (name, rho_v, args.tables,
+          ", kinetics stripped" if args.no_kinetics else ", nPyroReac = %s" % nreac))
+    print("  cells %d x %d x %d, dx = %.6g .. %.6g m, dy = %g, dz = %g; bc.txt records = %d"
+          % (nx, NY, NK, dx_min, max(dxs), DY, DZ, nrec))
+    if kind in ("atc1", "atc2off"):
+        print("  grading r = %.6f, delta_1 = %.6f mm (back face), delta_%d = %.6f mm (heated face)"
+              % (ratio, d1 * 1e3, ATC_N, dxs[-1] * 1e3))
+    print("  T0 = %g K, t_end = %g s, vnn = %g, dt estimate (VNN, virgin alpha %.4e) = %.4e s -> ~%d steps"
+          % (T0, cfg["t_end"], args.vnn, ALPHA_V, dt, int(cfg["t_end"] / dt)))
+    print("  faces: 1 = %d, 2 = %d, 3/4 = 300, 5/6 = 0%s" % (face1[0], face2[0],
+          "; Tw_time.dat at the case root" if kind in TW_TIME else ""))
+    if probes:
+        print("  probes (name, i, x [m], depth below face 2 [mm]):")
+        for p in probes:
+            print("    %-8s i=%3d  x=%.6e  d=%.4f" % (p["name"], p["i"], p["x"], (xs[-1] - p["x"]) * 1e3))
+    print("  FUSS.sh: %s (depth %d from %s)" % (masterdir, depth, how))
+
+
+if __name__ == "__main__":
+    main()

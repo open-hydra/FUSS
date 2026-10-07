@@ -9,7 +9,7 @@
 #               iterations followed by a restart for another N, and compares the
 #               two solutions field by field.
 #
-#               Two cases, because they fail for unrelated reasons:
+#               Three cases, because they fail for unrelated reasons:
 #
 #                 qvol_Plate         static mesh WITH a volumetric source. The
 #                                    source file name used to be assigned only
@@ -30,6 +30,11 @@
 #                                    anchors to a cached reference mesh and is
 #                                    refused on restart by input validation --
 #                                    see Check_Mesh_Motion_Compatibility.
+#
+#                 pyrolysis/energy_audit  static mesh with the reaction state
+#                                    chi_* written to and read back from the
+#                                    solution file (plan 06 section 3.6); the
+#                                    gate compares every chi_* column too.
 #
 #               WHY THE TOLERANCE IS NOT ZERO
 #               ----------------------------
@@ -80,6 +85,8 @@ run_case () {
     mkdir -p "$d"
     cp -r "$src/INPUT" "$src/input.ini" "$src/FUSS.sh" "$d/" 2>/dev/null
     [ -d "$src/MESH" ] && cp -r "$src/MESH" "$d/"
+    # the BC 302 time file of a pyrolysis case lives at the case root
+    cp "$src"/*.dat "$d/" 2>/dev/null || true
     # The copies sit one level deeper than any real case, so point FUSS.sh at
     # the master binary by absolute path instead of counting ../ levels.
     sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
@@ -151,7 +158,11 @@ REL_TOL = 1.0e-11   # see the header: the ASCII round-trip floor is ~1e-15
 a, b = read_tec(sys.argv[1]), read_tec(sys.argv[2])
 worst, ok = [], True
 compared = set()
-for key in ("T", "qvol", "x", "y", "z"):
+# Keys from the header itself, not a literal list: a misspelt literal would pass
+# silently. The pyrolysis state (chi_*) and the gas flux travel through the same
+# file (plan 06 section 3.6) and are compared whenever they are present.
+keys = [k for k in a if k in ("T", "qvol", "x", "y", "z") or k.startswith("chi_") or k == "mdot_pg"]
+for key in keys:
     if key not in a or key not in b:
         continue
     compared.add(key)
@@ -187,6 +198,10 @@ PY
 
 run_case "test/steady-state/qvol_Plate"      200
 run_case "test/moving-mesh/receding/N040"    200
+# pyrolysis (plan 06): the reaction state chi_* must travel through the restart
+# file with T; the budget accumulators restart from zero by design and are not
+# compared. 100 iterations per half (~17 s of the 60 s run).
+run_case "test/pyrolysis/energy_audit"       100
 
 echo
 if [ "$fail" -eq 0 ]; then

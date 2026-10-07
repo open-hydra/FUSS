@@ -1,0 +1,6 @@
+{
+ "budget_K": 24.7483856120341,
+ "measured_K": 22.7483856120341,
+ "note": "regression budget = measured + 2 K (plan 06 section 4.5)",
+ "oracle": "ref/Ta_plot (PATO 3.1 AblationTestCase_2.x_chemistryOff, emissivity 0, hconv 300, Tedge 2800, endTime 60; run 2026-10-07)"
+}

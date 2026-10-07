@@ -76,7 +76,14 @@
 #                                        qrad on all 160 face cells to 1e-9 rel.
 #                                        Red on 6cad426 (residual = qrad), green
 #                                        after the two-site fix. 200 iterations.
-#                 pyrolysis   -- add gate_pyrolysis()  + list it
+#                 pyrolysis   -- plan 06 phase 2, six sub-checks: kinetics_isothermal
+#                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
+#                                energy_audit (energy and solid-mass balances 1e-10,
+#                                independent state sum, vnn 0.5/0.25/0.125 first-order
+#                                refinement, the no-kinetics variant exact zeros, 1 vs 8
+#                                threads byte-identical), ATC1 vs FIAT, and
+#                                ATC2-chemistryOff vs the bundled PATO zero-emissivity
+#                                run (or $FUSS_PATO_ATC2_OUT). ~3 min at -p 1.
 #                 darcy       -- add gate_darcy()      + list it
 #                 ablation    -- add gate_ablation()   + list it
 #
@@ -177,7 +184,7 @@ while test $# -gt 0; do
     -h | --help)
       echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]"
       echo "  -c CASE   run only this case (freestream, conservation, bc303_qrad,"
-      echo "            conjugate_two_layer, receding, residual_convergence)"
+      echo "            conjugate_two_layer, receding, residual_convergence, pyrolysis)"
       echo "  -a        also run receding's .slow N160/N320 grids"
       echo "  -w WORKDIR  scratch dir for the copied cases (default: a fresh"
       echo "              dir under \$TMPDIR/fuss-physics-gates.\$\$)"
@@ -249,6 +256,9 @@ stage () {
   rm -rf "$dest"
   mkdir -p "$dest"
   cp -r "$src/INPUT" "$src/MESH" "$src/input.ini" "$src/FUSS.sh" "$dest/"
+  # Case-root files some cases need at run time: the BC 302 time file
+  # (Tw_time.dat, resolved relative to the run directory) and probes.json.
+  cp "$src"/*.dat "$src"/*.json "$dest/" 2>/dev/null || true
   sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$dest/FUSS.sh"
   mkdir -p "$dest/OUTPUT" "$dest/bin"
   cp "$BINSNAP/FUSS" "$dest/bin/FUSS"
@@ -328,6 +338,89 @@ gate_bc303_qrad () {
   KEYNUM=$(grep -F -m1 'worst residual' "$dest/verify.log" | sed 's/^ *//')
   [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
   return $rc
+}
+
+# ---------------------------------------------------------------------------
+# pyrolysis (plan 06 phase 2). One PASS/FAIL line for the group; the per-case
+# verify logs sit under $WORK/pyrolysis/. The energy_audit variants are made
+# from the STAGED copy (vnn sedded, the reaction lines dropped from
+# pyrolysis.dat), so the gate never needs PATO or the table generator.
+# ---------------------------------------------------------------------------
+gate_pyrolysis () {
+  local base="$ROOT/test/pyrolysis" dest="$WORK/pyrolysis" rc sub v
+  rm -rf "$dest"; mkdir -p "$dest"
+  KEYNUM=""
+
+  # 4.2 isothermal kinetics against the closed-form propagator
+  for sub in T0700 T0900 T1200; do
+    stage "$base/kinetics_isothermal/$sub" "$dest/$sub"
+    solve "$dest/$sub" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$sub/run.log)"; return 1; fi
+    if ! python3 "$base/kinetics_isothermal/verify.py" "$dest/$sub" > "$dest/$sub/verify.log" 2>&1; then
+      KEYNUM="$sub: $(grep -F -m1 'max |chi' "$dest/$sub/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  local chi_err; chi_err=$(grep -F -m1 'max |chi' "$dest/T1200/verify.log" | awk '{print $6}')
+
+  # 4.3 energy audit: the case, two vnn refinements, the no-kinetics variant, 8 threads
+  stage "$base/energy_audit" "$dest/energy_audit"
+  solve "$dest/energy_audit" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit: solver exit $rc  (see $dest/energy_audit/run.log)"; return 1; fi
+  for v in 0.25 0.125; do
+    stage "$base/energy_audit" "$dest/energy_audit_vnn$v"
+    sed -i "s/^vnn = .*/vnn = $v/" "$dest/energy_audit_vnn$v/input.ini"
+    solve "$dest/energy_audit_vnn$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit vnn=$v: solver exit $rc"; return 1; fi
+  done
+  stage "$base/energy_audit" "$dest/energy_audit_nokin"
+  python3 - "$dest/energy_audit_nokin/INPUT/pyrolysis.dat" <<'PYNOKIN'
+import re, sys
+p = sys.argv[1]
+out = []
+for line in open(p):
+    key = line.split("//", 1)[0].split()
+    k = key[0] if key else ""
+    if re.match(r"^nPyroReac\[\d+\]$", k):
+        out.append(k + " 0\n")
+    elif re.match(r"^[FAEmnTh]\[\d+\]\[\d+\]$", k):
+        continue
+    else:
+        out.append(line)
+open(p, "w").write("".join(out))
+PYNOKIN
+  solve "$dest/energy_audit_nokin" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit no-kinetics: solver exit $rc"; return 1; fi
+  stage "$base/energy_audit" "$dest/energy_audit_p8"
+  solve "$dest/energy_audit_p8" 8; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p 8: solver exit $rc"; return 1; fi
+  if ! python3 "$base/energy_audit/verify.py" "$dest/energy_audit" \
+         --vnn025 "$dest/energy_audit_vnn0.25" --vnn0125 "$dest/energy_audit_vnn0.125" \
+         --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" > "$dest/energy_audit/verify.log" 2>&1; then
+    KEYNUM="energy_audit: $(grep -E -m1 'FAIL' "$dest/energy_audit/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local ebal; ebal=$(grep -F -m1 '(i)' "$dest/energy_audit/verify.log" | awk '{print $5}')
+
+  # 4.4 ATC1 against FIAT (bundled)
+  stage "$base/ATC1" "$dest/ATC1"
+  solve "$dest/ATC1" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="ATC1: solver exit $rc  (see $dest/ATC1/run.log)"; return 1; fi
+  if ! python3 "$base/ATC1/verify.py" "$dest/ATC1" > "$dest/ATC1/verify.log" 2>&1; then
+    KEYNUM="ATC1: $(grep -F -m1 'max over' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local atc1; atc1=$(grep -F -m1 'max over' "$dest/ATC1/verify.log" | awk '{print $6}')
+
+  # 4.5 ATC2-chemistryOff against PATO ($FUSS_PATO_ATC2_OUT, else the bundled ref/)
+  stage "$base/ATC2-chemistryOff" "$dest/ATC2-chemistryOff"
+  solve "$dest/ATC2-chemistryOff" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="ATC2-chemistryOff: solver exit $rc  (see $dest/ATC2-chemistryOff/run.log)"; return 1; fi
+  if ! python3 "$base/ATC2-chemistryOff/verify.py" "$dest/ATC2-chemistryOff" > "$dest/ATC2-chemistryOff/verify.log" 2>&1; then
+    KEYNUM="ATC2-chemistryOff: $(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
+  grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
+
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  ATC1 max|dT| ${atc1:-?} K  ATC2off max|dT| ${atc2:-?} K"
+  return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -434,7 +527,7 @@ gate_residual_convergence () {
 }
 
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence)
+CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in
