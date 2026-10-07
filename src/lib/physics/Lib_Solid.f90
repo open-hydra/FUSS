@@ -84,6 +84,13 @@ contains
     integer   :: Tm, Tp, i
     real(R8)  :: hm, hp
     
+    ! Range guard. The scan below leaves Tm/Tp undefined when h is at or above
+    ! the last table row, and selects row Ti1-1 when h is below the first one;
+    ! either way the interpolation that follows reads outside the table. Stop
+    ! with the cell's enthalpy and the table range instead (exit code 3 =
+    ! numerical). In-range values never take the branch, so the arithmetic of
+    ! the legacy path is untouched.
+    Tm = -huge(Tm)
     do i = 1,size(obj_table%h(matID,:)) 
       if (obj_table%h(matID,i) > h) then
         Tm = i - 1
@@ -91,6 +98,11 @@ contains
         exit
       endif
     enddo
+    if ( Tm == -huge(Tm) .or. Tm < lbound(obj_table%h, 2) ) then
+      write(*,'(A,F6.1,ES24.15,2I8)') ' [ERROR] enthalpy outside table range: matID, h, T_lo, T_hi = ', &
+        matID, h, lbound(obj_table%h, 2), ubound(obj_table%h, 2)
+      error stop 3
+    endif
     hm = obj_table%h(matID, Tm)
     hp = obj_table%h(matID, Tp)
     T = Tm + (h-hm)/(hp-hm)*(Tp-Tm)
