@@ -45,3 +45,9 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
   (`plan-bucket/records/2026-10-07-submodule-bump/orion-delta.predicted-manifest.txt`). Row order is now the `C`-locale
   `sort` order (`run_regression.sh` exports `LC_ALL=C` since the same day; the old file was sorted under another collation,
   which moved `multimat_Plate`'s `field1/field10/field2` rows).
+- **2026-10-07 (evening), plan 06 — new cases added; no pre-existing result changed. 480 rows.** The 294 rows of the previous
+  record are byte-identical (fresh preset build of the final plan-06 source, binary `1c5d2934`, `run_regression.sh -B -o` on a
+  scratch snapshot of the tree, `diff | grep '^<'` empty); the 186 added rows are `test/pyrolysis/kinetics_isothermal/T0700` (60),
+  `T0900` (60), `T1200` (58) and `test/pyrolysis/energy_audit` (8). `ATC1` and `ATC2-chemistryOff` carry `.slow` and are not in the
+  default sweep. The feature-off identity was also recorded after each of the three legacy-path edits separately (gates A/B/C in
+  `plan-bucket/records/2026-10-07-plan06/`).
