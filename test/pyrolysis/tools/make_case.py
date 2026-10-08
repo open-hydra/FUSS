@@ -4,12 +4,16 @@ make_case.py -- write a complete FUSS pyrolysis case directory.
 
 Implements plan 06 (phase 2, pyrolysis on a static mesh) section 4: the four case kinds of
 gates 4.2 (isothermal kinetics), 4.3 (energy and mass audit), 4.4 (ATC1 against FIAT) and
-4.5 (ATC2-chemistryOff against a local PATO run), in the standard test-case layout:
+4.5 (ATC2-chemistryOff against a local PATO run), plus two verification kinds with exact
+oracles (conduction: the slab series; adiabatic0d: the zero-dimensional decomposition ODE),
+in the standard test-case layout:
 
     <case>/FUSS.sh            copy of test/moving-mesh/freestream/FUSS.sh, MASTERDIR fixed for depth
     <case>/input.ini          FUSS sections only (no ATLAS sections), probes by index-position
     <case>/Tw_time.dat        BC 302 time file, at the case ROOT (resolved relative to the run dir)
-    <case>/probes.json        probe name, i, cell-centre x (atc kinds; verify.py interpolates in x)
+    <case>/probes.json        probe name, i, cell-centre x (atc kinds and conduction; verify.py
+                              interpolates in x), n_cells, the grading r and delta_1 (r = 1 when
+                              --uniform)
     <case>/MESH/mesh.tec      nodes only, zone Block1
     <case>/INPUT/ic.tec       zone B1-SP, cell-centred T and matID (= 1.0)
     <case>/INPUT/bc.txt       records in face order 1..6, exactly 2 nj nk + 2 ni nk + 2 nj ni of them
@@ -21,20 +25,40 @@ Geometry common to every kind: one block, cells along i; j: 2 cells of 0.1 m; k:
 ic.tec / mesh.tec / bc.txt use the formats of test/moving-mesh/receding/generate.py.
 
 Usage:
-    make_case.py <case-dir> --kind {isothermal,energy_audit,atc1,atc2off} --tables <dir>
-                 [--T0 K] [--vnn V] [--no-kinetics] [--fuss-sh <path>] [--depth N]
+    make_case.py <case-dir> --kind {isothermal,energy_audit,atc1,atc2off,conduction,adiabatic0d}
+                 --tables <dir> [--T0 K] [--vnn V] [--no-kinetics] [--ncells N] [--uniform]
+                 [--fuss-sh <path>] [--depth N]
 
     isothermal    4 cells x 1 mm, both i-faces BC 302 at T0, T(0) = T0, 30 s, fields every 1 s
                   (--T0 one of 700 / 900 / 1200; tables: the --isothermal set)
     energy_audit  40 cells x 1 mm, face 2 BC 302 ramp 300 -> 1644 K in 1 s, face 1 adiabatic,
                   T(0) = 300 K, 10 s, probes at i = 40, 39, 37, 33 (real TACOT tables)
-    atc1          L = 0.05 m, 100 cells graded 0.1 toward the heated face 2 (BC 302 time file),
+    atc1          L = 0.05 m, N cells graded 0.1 toward the heated face 2 (BC 302 time file),
                   T(0) = 298 K, 60 s, bracketing probes at 1, 2, 4, 8, 16 mm plus the back face
     atc2off       as atc1 with T(0) = 300 K and face 2 = BC 303 `300.0, 0.0, 2800.0`,
                   bracketing probes at 1, 2, 4, 8, 12, 16, 24 mm plus the back face
+    conduction    pure conduction on the pyrolysis path: mesh as atc1 (or N equal cells with
+                  --uniform), the kinetics ALWAYS stripped from the copied pyrolysis.dat, face 2
+                  stepped to 1644 K at t = 0 (BC 302 time file `0 1644` / `60 1644`), face 1
+                  adiabatic, T(0) = 298 K, 60 s, the probes of atc1; oracle = the exact slab
+                  series (use the --isothermal tables: constant cp and k)
+    adiabatic0d   4 cells x 1 mm, both i-faces adiabatic (BC 301, q = 0), T(0) = T0 (--T0
+                  required), 20 s with a field file every 0.5 s, no probes, tables unchanged
+                  (real TACOT); the uniform state follows the type-1 decomposition ODE. With
+                  --qvol Q, INPUT/st.tec carries the uniform volumetric source Q [W/m3] and the
+                  run is 3 s with a field file every 0.05 s (--tend / --sol-dtime override)
 
     --no-kinetics rewrites the copied pyrolysis.dat with nPyroReac[i] 0 for every phase and the
-                  reaction lines removed (gate 4.3 (v)).
+                  reaction lines removed (gate 4.3 (v)); implied by --kind conduction.
+    --ncells N    cells along i for atc1, atc2off and conduction (default 100): graded with the
+                  same last/first ratio 0.1, r = 0.1^(1/(N-1)), delta_1 = L (1-r)/(1-r^N), the
+                  last node exactly L; the bracketing probes are recomputed from the cell centres.
+    --uniform     conduction only: N equal cells instead of the grading.
+    --qvol Q      adiabatic0d only, Q > 0: INPUT/st.tec = `VARIABLES ="x" "y" "z" qvol`, the ic.tec
+                  ZONE line with [4]=CELLCENTERED, the three nodal blocks of ic.tec, one %.15E
+                  value of Q per cell (3 nn + nc + 2 lines; Read_vtk_tec reads it beside ic.tec).
+    --tend T      override the kind's time-threshold [s].
+    --sol-dtime D override the kind's sol-dtime [s].
     --depth N     MASTERDIR depth of the case below the repo root (default: from the case path when
                   it lies under <repo>/test/, else the kind's canonical path).
 
@@ -74,17 +98,23 @@ KINDS = {
              "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
     "atc2off": {"canonical": "test/pyrolysis/ATC2-chemistryOff", "T0": 300.0,
                 "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
+    "conduction": {"canonical": "test/pyrolysis/conduction", "T0": 298.0,
+                   "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
+    "adiabatic0d": {"canonical": "test/pyrolysis/adiabatic0d/T%04d", "T0": None,
+                    "t_end": 20.0, "sol_dtime": 0.5, "sol_overwrite": "false"},
 }
 
 ATC_L = 0.05
-ATC_N = 100
+ATC_N = 100              # default --ncells
 ATC_RATIO = 0.1          # last/first cell, PATO blockMeshDict simpleGrading (1 0.1 1)
 ATC1_DEPTHS_MM = [1, 2, 4, 8, 16]
 ATC2_DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
+GRADED_KINDS = ("atc1", "atc2off", "conduction")     # L = ATC_L, --ncells, bracketing probes, probes.json
 
 TW_TIME = {
     "energy_audit": [(0.0, 300.0), (1.0, 1644.0), (60.0, 1644.0)],   # 1 s ramp: resolved by the coarsest run (dt ~ 0.17 s); a 0.1 s ramp aliased gate 4.3 (iv), measured 2026-10-07
     "atc1": [(0.0, 298.0), (0.1, 1644.0), (60.0, 1644.0), (60.1, 298.0), (120.0, 298.0)],
+    "conduction": [(0.0, 1644.0), (60.0, 1644.0)],   # a step at t = 0: update() returns var(1) at t = time(1) and clamps beyond the last pair
 }
 
 BC303_LINE = (300.0, 0.0, 2800.0)      # hconv, qrad, Tref
@@ -100,14 +130,21 @@ def fmt(v):
 
 
 # ---------------------------------------------------------------- mesh / ic (generate.py formats)
-def write_ic(path, xs, zone_name, with_vars, T0):
+def write_ic(path, xs, zone_name, with_vars, T0, qvol=None):
+    """ic.tec (with_vars: T and matID per cell), mesh.tec (nodes only) or, with qvol, the volumetric
+    source file st.tec: the same nodal blocks and ZONE line with [4]=CELLCENTERED, one qvol per cell
+    (Read_vtk_tec reads INPUT/st.tec beside ic.tec and takes its first cell-centred variable as qvol).
+    Returns the number of lines written."""
     ni, nj, nk = len(xs), NY + 1, NK + 1
     nx = ni - 1
     ys = [DY * j for j in range(nj)]
     zs = [DZ * k for k in range(nk)]
 
     lines = []
-    if with_vars:
+    if qvol is not None:
+        lines.append(' VARIABLES ="x" "y" "z" qvol')
+        varloc = "VARLOCATION=([1-3]=NODAL,[4]=CELLCENTERED)"
+    elif with_vars:
         lines.append(' VARIABLES ="x" "y" "z" T matID')
         varloc = "VARLOCATION=([1-3]=NODAL,[4-5]=CELLCENTERED)"
     else:
@@ -124,14 +161,18 @@ def write_ic(path, xs, zone_name, with_vars, T0):
                 for i in range(ni):
                     v = (xs[i], ys[j], zs[k])[axis]
                     lines.append(fmt(v))
-    if with_vars:
-        ncell = NK * NY * nx
+    ncell = NK * NY * nx
+    if qvol is not None:
+        for _ in range(ncell):
+            lines.append(fmt(qvol))
+    elif with_vars:
         for _ in range(ncell):
             lines.append(fmt(T0))
         for _ in range(ncell):
             lines.append(fmt(1.0))
     with open(path, "w") as fh:
         fh.write("\n".join(lines) + "\n")
+    return len(lines)
 
 
 # ---------------------------------------------------------------- bc.txt
@@ -279,13 +320,22 @@ def write_properties_dat(path, name, virgin, rho_v):
 
 
 # ---------------------------------------------------------------- grading / probes
-def atc_nodes():
-    r = ATC_RATIO ** (1.0 / (ATC_N - 1))
-    d1 = ATC_L * (1.0 - r) / (1.0 - r ** ATC_N)
-    xs = [d1 * (1.0 - r ** i) / (1.0 - r) for i in range(ATC_N + 1)]
+def atc_nodes(n):
+    """n cells on [0, ATC_L] with last/first = ATC_RATIO (geometric), the last node exactly ATC_L."""
+    r = ATC_RATIO ** (1.0 / (n - 1))
+    d1 = ATC_L * (1.0 - r) / (1.0 - r ** n)
+    xs = [d1 * (1.0 - r ** i) / (1.0 - r) for i in range(n + 1)]
     xs[0] = 0.0
     xs[-1] = ATC_L
     return xs, r, d1
+
+
+def uniform_nodes(n):
+    """n equal cells on [0, ATC_L]; returns (xs, r = 1, delta_1 = L / n) like atc_nodes."""
+    xs = [ATC_L * i / n for i in range(n + 1)]
+    xs[0] = 0.0
+    xs[-1] = ATC_L
+    return xs, 1.0, ATC_L / n
 
 
 def bracketing_probes(xs, depths_mm):
@@ -332,7 +382,7 @@ INI_HEAD = {
     "atc1": [
         "Ablation Test Case 1 on the real TACOT tables  (plan 06, gate 4.4; oracle FIAT)",
         "",
-        "L of 0.05 m, 100 cells graded 0.1 toward the heated face 2, which follows Tw_time.dat",
+        "L of 0.05 m, %(ncells)d cells graded 0.1 toward the heated face 2, which follows Tw_time.dat",
         "(298 -> 1644 K in 0.1 s, held to 60 s); face 1 adiabatic; T(0) at 298 K. Two probes bracket",
         "each FIAT thermocouple depth (see probes.json); verify.py interpolates in x and in time.",
     ],
@@ -343,12 +393,48 @@ INI_HEAD = {
         "hconv 300 W/m2/K, qrad 0, Tref 2800 K from t equal 0 (PATO run with zero emissivity).",
         "Two probes bracket each PATO probe depth (see probes.json).",
     ],
+    # No `=` inside a comment line (hydra INI rule: ATLAS's FiNeR reads such a line as an option).
+    "conduction": [
+        "Pure conduction on the pyrolysis path, constant properties, step-heated face 2 and insulated",
+        "face 1; oracle: the exact slab series (verify.py)",
+        "",
+        "L of 0.05 m, %(ncells)d cells %(grading)s.",
+        "Face 2 held at 1644 K from t equal 0 through Tw_time.dat (BC 302, a step); face 1 adiabatic",
+        "(BC 301); T(0) at %(T0)g K; the kinetics stripped from pyrolysis.dat (every nPyroReac 0).",
+        "Two probes bracket each depth of ATC1 (see probes.json); verify.py interpolates in x and",
+        "in time.",
+    ],
+    "adiabatic0d": [
+        "Uniform adiabatic slab: the state follows the exact type-1 ODE, the gas leaving at h_pg(T)",
+        "(verify.py)",
+        "",
+        "4 cells x 1 mm, both i-faces adiabatic (BC 301, q 0), T(0) at %(T0)g K, tables unchanged,",
+        "20 s with a field file every 0.5 s, no probes. Nothing varies along i, so every cell",
+        "follows the zero-dimensional decomposition ODE that verify.py integrates.",
+    ],
+    "adiabatic0d-qvol": [
+        "Uniform slab heated by a volumetric source q: the state follows the exact type-1 ODE",
+        "(verify.py)",
+        "",
+        "4 cells x 1 mm, both i-faces adiabatic (BC 301, zero flux), T(0) at %(T0)g K, tables",
+        "unchanged, qvol %(qvol)g W/m3 in every cell from INPUT/st.tec, %(tend)g s with a field file",
+        "every %(sol_dtime)g s, no probes. Nothing varies along i, so every cell follows the",
+        "zero-dimensional decomposition ODE with the source that verify.py integrates.",
+    ],
 }
 
 
-def write_ini(path, kind, cfg, vnn, probes):
+def fmt_time(v):
+    """`%.1f` as the first cases were written (30.0, 10.0, 0.5); the exact repr when that would round (0.05)."""
+    s = "%.1f" % v
+    return s if float(s) == v else repr(v)
+
+
+def write_ini(path, head_key, cfg, vnn, probes, subst):
     head = ["; " + "=" * 77]
-    for s in INI_HEAD[kind]:
+    for s in INI_HEAD[head_key]:
+        if "%(" in s:
+            s = s % subst
         head.append(";  " + s if s else ";")
     head.append(";")
     head.append(";  Generated by test/pyrolysis/tools/make_case.py -- edit that, not this.")
@@ -358,7 +444,7 @@ def write_ini(path, kind, cfg, vnn, probes):
         "[FUSS-Parameters]",
         "newrun = true",
         "res-threshold = 1e-30",
-        "time-threshold = %s" % ("%.1f" % cfg["t_end"]),
+        "time-threshold = %s" % fmt_time(cfg["t_end"]),
         "iter-threshold = 100000000",
         "",
         "[FUSS-Numerics]",
@@ -374,7 +460,7 @@ def write_ini(path, kind, cfg, vnn, probes):
         "p-gas = 101325.0",
         "",
         "[FUSS-IO]",
-        "sol-dtime     = %s" % ("%.1f" % cfg["sol_dtime"]),
+        "sol-dtime     = %s" % fmt_time(cfg["sol_dtime"]),
         "sol-overwrite = %s" % cfg["sol_overwrite"],
         "sol-format    = tecplot ascii",
         "ini-diter     = 100000000",
@@ -419,7 +505,7 @@ def case_depth(case_dir, kind, T0, override):
         rel = os.path.relpath(real, os.path.realpath(REPO))
         return len(rel.split(os.sep)), "path " + rel
     canon = KINDS[kind]["canonical"]
-    if kind == "isothermal":
+    if "%" in canon:
         canon = canon % int(round(T0))
     return len(canon.split("/")), "canonical path " + canon
 
@@ -430,22 +516,50 @@ def main():
     ap.add_argument("case_dir")
     ap.add_argument("--kind", required=True, choices=sorted(KINDS))
     ap.add_argument("--tables", required=True, help="directory holding pyrolysis.dat virgin.dat char.dat gas.dat")
-    ap.add_argument("--T0", type=float, default=None, help="initial temperature [K] (isothermal: 700/900/1200)")
+    ap.add_argument("--T0", type=float, default=None, help="initial temperature [K] (isothermal: 700/900/1200; adiabatic0d: required)")
     ap.add_argument("--vnn", type=float, default=0.5)
     ap.add_argument("--no-kinetics", action="store_true")
+    ap.add_argument("--ncells", type=int, default=None, help="cells along i for atc1, atc2off and conduction (default %d)" % ATC_N)
+    ap.add_argument("--uniform", action="store_true", help="conduction only: equal cells instead of the 0.1 grading")
+    ap.add_argument("--qvol", type=float, default=None,
+                    help="adiabatic0d only: uniform volumetric source Q > 0 [W/m3] written to INPUT/st.tec (then 3 s, a field file every 0.05 s)")
+    ap.add_argument("--tend", type=float, default=None, help="override the kind's time-threshold [s]")
+    ap.add_argument("--sol-dtime", type=float, default=None, help="override the kind's sol-dtime [s]")
     ap.add_argument("--fuss-sh", default=DONOR_FUSS_SH, help="FUSS.sh to copy (default test/moving-mesh/freestream/FUSS.sh)")
     ap.add_argument("--depth", type=int, default=None, help="MASTERDIR depth below the repo root")
     args = ap.parse_args()
 
     kind = args.kind
-    cfg = KINDS[kind]
+    cfg = dict(KINDS[kind])                    # the kind's defaults; --qvol / --tend / --sol-dtime adjust the copy
     T0 = args.T0 if args.T0 is not None else cfg["T0"]
     if T0 is None:
-        die("--T0 is required for --kind isothermal (700, 900 or 1200)")
+        die("--T0 is required for --kind %s%s" % (kind, " (700, 900 or 1200)" if kind == "isothermal" else ""))
     if kind == "isothermal" and int(round(T0)) not in (700, 900, 1200):
         print("[NOTE] --T0 %g is not one of the gate-4.2 values 700/900/1200" % T0)
     if args.vnn <= 0:
         die("--vnn must be > 0")
+    if args.ncells is not None and kind not in GRADED_KINDS:
+        die("--ncells applies to the kinds %s only" % ", ".join(GRADED_KINDS))
+    ncells = args.ncells if args.ncells is not None else ATC_N
+    if ncells < 2:
+        die("--ncells must be at least 2")
+    if args.uniform and kind != "conduction":
+        die("--uniform applies to --kind conduction only")
+    if args.qvol is not None:
+        if kind != "adiabatic0d":
+            die("--qvol applies to --kind adiabatic0d only")
+        if args.qvol <= 0:
+            die("--qvol must be > 0 (omit it for the adiabatic case)")
+        cfg["t_end"], cfg["sol_dtime"] = 3.0, 0.05
+    if args.tend is not None:
+        if args.tend <= 0:
+            die("--tend must be > 0")
+        cfg["t_end"] = args.tend
+    if args.sol_dtime is not None:
+        if args.sol_dtime <= 0:
+            die("--sol-dtime must be > 0")
+        cfg["sol_dtime"] = args.sol_dtime
+    strip = args.no_kinetics or kind == "conduction"
     for f in TABLE_FILES:
         if not os.path.isfile(os.path.join(args.tables, f)):
             die("%s not found in --tables %s" % (f, args.tables))
@@ -460,7 +574,7 @@ def main():
     for f in TABLE_FILES:
         shutil.copy(os.path.join(args.tables, f), os.path.join(case, "INPUT", f))
     pyro = os.path.join(case, "INPUT", "pyrolysis.dat")
-    if args.no_kinetics:
+    if strip:
         strip_kinetics(pyro)
     name, rho_v, nreac = read_pyrolysis_dat(pyro)
     if len(name) > 16:
@@ -469,31 +583,45 @@ def main():
     if kind == "isothermal":
         if any(abs(v[0] - 1000.0) > 0 or abs(v[2] - 0.4) > 0 for v in virgin.values()):
             die("kind isothermal needs the --isothermal tables (virgin cp 1000, k 0.4); %s is not that set" % args.tables)
+    elif kind == "conduction":
+        if len(set(v[0] for v in virgin.values())) > 1 or len(set(v[2] for v in virgin.values())) > 1:
+            print("[WARNING] kind conduction on tables whose virgin cp or k_i varies with T: the exact slab"
+                  " series assumes constant properties (use the --isothermal set, not %s)" % args.tables)
     elif all(abs(v[0] - 1000.0) == 0 for v in virgin.values()):
         print("[WARNING] kind %s on tables whose virgin cp is constant 1000: is %s the real TACOT set?" % (kind, args.tables))
 
     # mesh
-    if kind == "isothermal":
+    ratio, d1 = None, None
+    if kind in ("isothermal", "adiabatic0d"):
         nx = 4
         xs = [1e-3 * i for i in range(nx + 1)]
     elif kind == "energy_audit":
         nx = 40
         xs = [1e-3 * i for i in range(nx + 1)]
+    elif args.uniform:
+        nx = ncells
+        xs, ratio, d1 = uniform_nodes(nx)
     else:
-        xs, ratio, d1 = atc_nodes()
-        nx = ATC_N
+        nx = ncells
+        xs, ratio, d1 = atc_nodes(nx)
     write_ic(os.path.join(case, "INPUT", "ic.tec"), xs, "B1-SP", True, T0)
     write_ic(os.path.join(case, "MESH", "mesh.tec"), xs, "Block1", False, T0)
+    nst = None
+    if args.qvol is not None:
+        nst = write_ic(os.path.join(case, "INPUT", "st.tec"), xs, "B1-SP", False, T0, qvol=args.qvol)
 
     # boundary conditions
     if kind == "isothermal":
         face1 = (302, VAL_FMT % T0)
         face2 = (302, VAL_FMT % T0)
-    elif kind in ("energy_audit", "atc1"):
+    elif kind == "adiabatic0d":
+        face1 = (301, VAL_FMT % 0.0)
+        face2 = (301, VAL_FMT % 0.0)
+    elif kind in TW_TIME:                      # energy_audit, atc1, conduction
         face1 = (301, VAL_FMT % 0.0)
         face2 = (302, TIMEFILE_LINE)
         write_time_file(os.path.join(case, "Tw_time.dat"), TW_TIME[kind])
-    else:
+    else:                                      # atc2off
         face1 = (301, VAL_FMT % 0.0)
         face2 = (303, VAL3_FMT % BC303_LINE)
     nrec = write_bc(os.path.join(case, "INPUT", "bc.txt"), nx, face1, face2)
@@ -511,11 +639,11 @@ def main():
                   {"name": "p35mm", "i": 37}, {"name": "p75mm", "i": 33}]
         for p in probes:
             p["x"] = 0.5 * (xs[p["i"] - 1] + xs[p["i"]])
-    elif kind in ("atc1", "atc2off"):
-        depths = ATC1_DEPTHS_MM if kind == "atc1" else ATC2_DEPTHS_MM
+    elif kind in GRADED_KINDS:
+        depths = ATC2_DEPTHS_MM if kind == "atc2off" else ATC1_DEPTHS_MM
         probes, pairs, xc = bracketing_probes(xs, depths)
         with open(os.path.join(case, "probes.json"), "w") as fh:
-            json.dump({"kind": kind, "L": ATC_L, "n_cells": ATC_N, "ratio_last_first": ATC_RATIO,
+            json.dump({"kind": kind, "L": ATC_L, "n_cells": nx, "ratio_last_first": 1.0 if args.uniform else ATC_RATIO,
                        "r": ratio, "delta_1": d1, "delta_n": xs[-1] - xs[-2],
                        "depths_mm": depths, "pairs": pairs,
                        "note": "x is the cell-centre coordinate of cell i (nodes in MESH/mesh.tec); "
@@ -526,7 +654,10 @@ def main():
         if len(p["name"]) > 16:
             die("probe name %r longer than 16 characters" % p["name"])
 
-    write_ini(os.path.join(case, "input.ini"), kind, cfg, args.vnn, probes)
+    subst = {"ncells": nx, "T0": T0, "qvol": args.qvol, "tend": cfg["t_end"], "sol_dtime": cfg["sol_dtime"],
+             "grading": "of equal size" if args.uniform else "graded 0.1 toward the heated face 2"}
+    head_key = "adiabatic0d-qvol" if args.qvol is not None else kind
+    write_ini(os.path.join(case, "input.ini"), head_key, cfg, args.vnn, probes, subst)
 
     depth, how = case_depth(case, kind, T0, args.depth)
     masterdir = write_fuss_sh(os.path.join(case, "FUSS.sh"), args.fuss_sh, depth)
@@ -538,16 +669,21 @@ def main():
     dt = 0.5 * args.vnn / (ALPHA_V * inv_l2)
     print("make_case.py: %s -> %s" % (kind, case))
     print("  material %s (rho_v = %g), tables from %s%s" % (name, rho_v, args.tables,
-          ", kinetics stripped" if args.no_kinetics else ", nPyroReac = %s" % nreac))
+          ", kinetics stripped" if strip else ", nPyroReac = %s" % nreac))
     print("  cells %d x %d x %d, dx = %.6g .. %.6g m, dy = %g, dz = %g; bc.txt records = %d"
           % (nx, NY, NK, dx_min, max(dxs), DY, DZ, nrec))
-    if kind in ("atc1", "atc2off"):
+    if kind in GRADED_KINDS and args.uniform:
+        print("  uniform cells, dx = %.6f mm" % (d1 * 1e3))
+    elif kind in GRADED_KINDS:
         print("  grading r = %.6f, delta_1 = %.6f mm (back face), delta_%d = %.6f mm (heated face)"
-              % (ratio, d1 * 1e3, ATC_N, dxs[-1] * 1e3))
+              % (ratio, d1 * 1e3, nx, dxs[-1] * 1e3))
     print("  T0 = %g K, t_end = %g s, vnn = %g, dt estimate (VNN, virgin alpha %.4e) = %.4e s -> ~%d steps"
           % (T0, cfg["t_end"], args.vnn, ALPHA_V, dt, int(cfg["t_end"] / dt)))
     print("  faces: 1 = %d, 2 = %d, 3/4 = 300, 5/6 = 0%s" % (face1[0], face2[0],
           "; Tw_time.dat at the case root" if kind in TW_TIME else ""))
+    if nst is not None:
+        print("  volumetric source qvol = %g W/m3 in every cell -> INPUT/st.tec (%d lines: 2 + 3 x %d nodes + %d cells)"
+              % (args.qvol, nst, (nx + 1) * (NY + 1) * (NK + 1), nx * NY * NK))
     if probes:
         print("  probes (name, i, x [m], depth below face 2 [mm]):")
         for p in probes:

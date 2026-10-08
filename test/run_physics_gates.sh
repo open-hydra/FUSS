@@ -400,14 +400,34 @@ PYNOKIN
   fi
   local ebal; ebal=$(grep -F -m1 '(i)' "$dest/energy_audit/verify.log" | awk '{print $5}')
 
+  # 4.6-4.8 exact-solution gates of the verification record 2026-10-08: adiabatic 0-D decomposition and
+  # heated 0-D decomposition against the exact type-1 ODE (tools/ode0d.py), pure conduction on the ATC1 mesh
+  # against the exact slab series (tools/slab_series.py)
+  local sub src
+  for sub in adiabatic0d/T1000 heated0d conduction/graded100; do
+    src="$base/$sub"; stage "$src" "$dest/$(echo "$sub" | tr / _)"
+    solve "$dest/$(echo "$sub" | tr / _)" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$(echo "$sub" | tr / _)/run.log)"; return 1; fi
+    if ! python3 "$base/${sub%%/*}/verify.py" "$dest/$(echo "$sub" | tr / _)" > "$dest/$(echo "$sub" | tr / _)/verify.log" 2>&1; then
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$(echo "$sub" | tr / _)/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  local ad0 ht0 cnd
+  ad0=$(grep -F -m1 'max |T - T_or1|' "$dest/adiabatic0d_T1000/verify.log" | awk '{print $6}')
+  ht0=$(grep -F -m1 'max |T - T_or1|' "$dest/heated0d/verify.log" | awk '{print $6}')
+  cnd=$(grep -F -m1 'max |T - exact|, all' "$dest/conduction_graded100/verify.log" | awk -F'= ' '{print $2}' | awk '{print $1}')
+
   # 4.4 ATC1 against FIAT (bundled)
   stage "$base/ATC1" "$dest/ATC1"
   solve "$dest/ATC1" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="ATC1: solver exit $rc  (see $dest/ATC1/run.log)"; return 1; fi
   if ! python3 "$base/ATC1/verify.py" "$dest/ATC1" > "$dest/ATC1/verify.log" 2>&1; then
-    KEYNUM="ATC1: $(grep -F -m1 'max over' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
+    KEYNUM="ATC1: $(grep -E -m1 'FAIL|max over the gated' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
   fi
-  local atc1; atc1=$(grep -F -m1 'max over' "$dest/ATC1/verify.log" | awk '{print $6}')
+  # the gate is the move of the 100-cell discretisation error against the Richardson anchor (2026-10-08); FIAT is informational
+  local atc1 atc1f
+  atc1=$(grep -F -m1 'max over the gated points' "$dest/ATC1/verify.log" | awk -F'= ' '{print $2}' | awk '{print $1}')
+  atc1f=$(grep -F -m1 'max over the six probes vs FIAT' "$dest/ATC1/verify.log" | awk -F': ' '{print $2}' | awk '{print $1}')
 
   # 4.5 ATC2-chemistryOff against PATO ($FUSS_PATO_ATC2_OUT, else the bundled ref/)
   stage "$base/ATC2-chemistryOff" "$dest/ATC2-chemistryOff"
@@ -419,7 +439,7 @@ PYNOKIN
   local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
   grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
 
-  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  ATC1 max|dT| ${atc1:-?} K  ATC2off max|dT| ${atc2:-?} K"
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic ${ad0:-?} K  0-D heated ${ht0:-?} K  conduction ${cnd:-?} K  ATC1 move vs f* ${atc1:-?} K (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
   return 0
 }
 

@@ -51,3 +51,8 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
   `T0900` (60), `T1200` (58) and `test/pyrolysis/energy_audit` (8). `ATC1` and `ATC2-chemistryOff` carry `.slow` and are not in the
   default sweep. The feature-off identity was also recorded after each of the three legacy-path edits separately (gates A/B/C in
   `plan-bucket/records/2026-10-07-plan06/`).
+- **2026-10-08, verification gates — three cases added; no pre-existing result changed. 691 rows.** The 480 rows of the 2026-10-07
+  record are byte-identical (`run_regression.sh -B -o` on a scratch snapshot of the tree, fresh preset build, `diff | grep '^<'` empty);
+  the 211 added rows are `test/pyrolysis/adiabatic0d/T1000` (66), `test/pyrolysis/heated0d` (120) and
+  `test/pyrolysis/conduction/graded100` (25), the exact-solution gates of `plan-bucket/records/2026-10-08-verification/` (no Fortran
+  change; the binary is the 2026-10-07 source).
