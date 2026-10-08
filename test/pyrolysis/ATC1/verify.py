@@ -33,7 +33,6 @@ import json, os, re, sys
 
 DEPTHS_MM = [1, 2, 4, 8, 16]            # bracketed by probe pairs
 FIAT_COL = {1: 2, 2: 3, 4: 4, 8: 5, 16: 6, 50: 7}
-BUDGET_DEFAULT = 21.0
 
 
 def read_series(path):
@@ -155,7 +154,7 @@ def main():
         if v is None:
             print("FAIL: no FUSS sample at t = %g s for depth %d mm" % (t, d)); return 1
         err = v - q["f_star"]
-        move = err - q["f_100_minus_fstar"] if "f_100_minus_fstar" in q else err - q["f100_minus_fstar"]
+        move = err - q["f100_minus_fstar"]
         flag = "" if abs(move) <= band else "  <-- FAIL"
         if abs(move) > abs(worst_move):
             worst_move, worst_pt = move, (d, t)
