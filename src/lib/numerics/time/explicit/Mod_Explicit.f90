@@ -83,8 +83,11 @@ contains
       if (mpi_is_root) obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
     endif
     
-    ! Determine simulation control flags on root, then broadcast to all ranks
+    ! Determine simulation control flags on root, then broadcast to all ranks.
+    ! Only one of endsim (finest level) and endmg (coarse levels) is evaluated below.
     if (mpi_is_root) then
+      endsim = .false.
+      endmg  = .false.
       if (level == 1) then
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
             .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
