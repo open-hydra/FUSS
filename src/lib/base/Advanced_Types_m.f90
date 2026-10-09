@@ -42,6 +42,7 @@ module FUSS_Advanced_Types_m
   type, extends(block_type) :: FUSS_block_type
     real(R8), dimension(:,:,:), allocatable :: T, TO           ! Primitive variables at time n and n-1
     real(R8), dimension(:,:,:), allocatable :: R               ! Residuals
+    real(R8), dimension(:,:,:), allocatable :: RS0             ! IRS: the cell's own (unsmoothed) update
     real(R8), dimension(:,:,:), allocatable :: RS1, RS2        ! Implicit smoothing residuals (temporary storage)
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term

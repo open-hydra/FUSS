@@ -61,6 +61,8 @@ contains
     else
       Ti1 = nint(orion%block(1)%mesh(1,1,1,1))
       Ti2 = Ti1 + orion%block(1)%Ni - 1
+      obj_table%Tmin = Ti1
+      obj_table%Tmax = Ti2
       allocate(obj_table%cp(1:obj_table%n,Ti1:Ti2))
       allocate(obj_table%rho(1:obj_table%n,Ti1:Ti2))
       allocate(obj_table%kappa(1:obj_table%n,Ti1:Ti2))

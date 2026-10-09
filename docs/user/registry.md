@@ -8,7 +8,7 @@
 | newrun | true | true , false |  no | Start a new simulation (false = restart) |
 | res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold |
 | time-threshold | 1e30 | > 0 |  no | Maximum simulation time |
-| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations |
+| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations (re-read at runtime) |
 
 ## FUSS-IO
 
@@ -49,7 +49,7 @@
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
-| irs | .false. | logical |  no | Implicit Residual Smoothing |
+| irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |
 | irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
 | diffusive-metric | inverse-mean | inverse-mean, mean |  no | Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r |
 
@@ -57,5 +57,5 @@
 
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
-| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 |
-| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 |
+| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
+| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |

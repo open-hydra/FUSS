@@ -126,6 +126,7 @@ module FUSS_Config_Types_m
     real(R8)  :: beta
     ! Useful variables
     logical   :: enabled
+    logical   :: at_setup = .false.   ! IRS on at setup: only then are its arrays allocated
   end type irs_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -181,6 +182,7 @@ module FUSS_Config_Types_m
     ! ...
     ! Useful variables
     integer                               :: n
+    integer                               :: Tmin, Tmax   ! First and last temperature of the tables [K]
     character(len=clen), allocatable      :: name(:)
     real(R8), dimension(:,:), allocatable :: cp, rho, kappa, h
   end type table_t

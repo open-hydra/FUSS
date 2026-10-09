@@ -5,6 +5,12 @@ module FUSS_Lib_Newstate
   private
   public :: Newstate_Conservative, Newstate_Primitive
 
+  !> IRS fallbacks of this rank (cell updates that took their own residual), reported and reset by
+  !> FUSS_postprocess every shell-diter iterations.
+  integer, public :: irs_fallbacks = 0
+
+  integer, parameter :: IRS_HALVINGS = 10   ! own update halved down to 2**-10, then not applied
+
 contains
 
   ! ===========================================================================
@@ -47,6 +53,7 @@ contains
                                     domain%blk(b)%dtlocal(i,j,k), &
                                     domain%blk(b)%vol(i,j,k),     &
                                     domain%blk(b)%qvol(i,j,k)      )
+          domain%blk(b)%RS0(i,j,k) = domain%blk(b)%R(i,j,k)      ! the cell's own update, kept
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -65,6 +72,7 @@ contains
                                       domain%blk(b)%TO(i,j,k),    &
                                       domain%blk(b)%matID(i,j,k), &
                                       domain%blk(b)%R(i,j,k),     &
+                                      domain%blk(b)%RS0(i,j,k),   &
                                       irk, n_rk, b, i, j, k       )
         enddo; enddo; enddo
         !$omp end do
@@ -103,22 +111,40 @@ contains
         residual = ( - residual/volume + qvol) * dt
       end subroutine Scale_Residual_Cons
 
-      ! Apply RK stage + cons2prim after IRS smoothing
-      subroutine Update_State_Cons_IRS( T, TO, matID, residual, irk, n_rk, b, i, j, k )
+      ! Apply RK stage + cons2prim after IRS smoothing.
+      ! The smoothed update of a cell mixes its neighbours' updates: above the explicit limit it can
+      ! overshoot, beyond the temperatures of the boundaries and out of the properties table. If the
+      ! new state is not admissible (Admissible_T), the cell takes its own update (residual_own, the
+      ! scaled residual before smoothing), halved until it is; with no update at all the stage is a
+      ! convex combination of admissible states, which is admissible. An admissible smoothed update
+      ! is used as before.
+      subroutine Update_State_Cons_IRS( T, TO, matID, residual, residual_own, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T, residual
-        real(R8), intent(in)    :: TO, matID
+        real(R8), intent(in)    :: TO, matID, residual_own
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
         ! Local
-        real(R8) :: hO, h
+        real(R8) :: hO, h, Tnew, theta
+        integer  :: n
 
         call co_H( matID, TO, hO )
         call co_H( matID, T, h )
 
-        h = RK_stage ( irk, n_rk, h, hO, residual )
+        call co_T( matID, RK_stage ( irk, n_rk, h, hO, residual ), Tnew )
 
-        call co_T( matID, h, T )
+        if ( .not. Admissible_T( Tnew ) ) then
+          !$omp atomic
+          irs_fallbacks = irs_fallbacks + 1
+          theta = 1d0
+          do n = 0, IRS_HALVINGS
+            call co_T( matID, RK_stage ( irk, n_rk, h, hO, theta * residual_own ), Tnew )
+            if ( Admissible_T( Tnew ) ) exit
+            theta = 0.5d0 * theta
+          enddo
+          if ( .not. Admissible_T( Tnew ) ) call co_T( matID, RK_stage ( irk, n_rk, h, hO, 0d0 ), Tnew )
+        endif
 
+        T = Tnew
         call Check_And_Fix_State( T, b, i, j, k )
 
       end subroutine Update_State_Cons_IRS
@@ -190,6 +216,7 @@ contains
                                       domain%blk(b)%R(i,j,k),       &
                                       domain%blk(b)%dtlocal(i,j,k), &
                                       domain%blk(b)%vol(i,j,k)      )
+          domain%blk(b)%RS0(i,j,k) = domain%blk(b)%R(i,j,k)      ! the cell's own update, kept
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -203,11 +230,11 @@ contains
         do k = 1, domain%blk(b)%dim(3)
         do j = 1, domain%blk(b)%dim(2)
         do i = 1, domain%blk(b)%dim(1)
-          domain%blk(b)%T(i,j,k) = RK_stage( irk, n_rk,               &
-                                             domain%blk(b)%T(i,j,k),  &
-                                             domain%blk(b)%TO(i,j,k), &
-                                             domain%blk(b)%R(i,j,k)   )
-          call Check_And_Fix_State( domain%blk(b)%T(i,j,k), b, i, j, k )
+          call Update_State_Prim_IRS( domain%blk(b)%T(i,j,k),   &
+                                      domain%blk(b)%TO(i,j,k),  &
+                                      domain%blk(b)%R(i,j,k),   &
+                                      domain%blk(b)%RS0(i,j,k), &
+                                      irk, n_rk, b, i, j, k     )
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -255,6 +282,35 @@ contains
 
       end subroutine Compute_Prim_Residual
 
+      ! Apply the RK stage after IRS smoothing, with the fallback of Update_State_Cons_IRS
+      subroutine Update_State_Prim_IRS ( T, TO, residual, residual_own, irk, n_rk, b, i, j, k )
+        implicit none
+        real(R8), intent(inout) :: T
+        real(R8), intent(in)    :: TO, residual, residual_own
+        integer,  intent(in)    :: irk, n_rk, b, i, j, k
+        ! Local
+        real(R8) :: Tnew, theta
+        integer  :: n
+
+        Tnew = RK_stage ( irk, n_rk, T, TO, residual )
+
+        if ( .not. Admissible_T( Tnew ) ) then
+          !$omp atomic
+          irs_fallbacks = irs_fallbacks + 1
+          theta = 1d0
+          do n = 0, IRS_HALVINGS
+            Tnew = RK_stage ( irk, n_rk, T, TO, theta * residual_own )
+            if ( Admissible_T( Tnew ) ) exit
+            theta = 0.5d0 * theta
+          enddo
+          if ( .not. Admissible_T( Tnew ) ) Tnew = RK_stage ( irk, n_rk, T, TO, 0d0 )
+        endif
+
+        T = Tnew
+        call Check_And_Fix_State( T, b, i, j, k )
+
+      end subroutine Update_State_Prim_IRS
+
       ! Full primitive residual + RK update in one shot (no IRS)
       subroutine Compute_And_Update_Prim ( T, TO, matID, qvol, residual, dt, volume, irk, n_rk, b, i, j, k )
 
@@ -273,18 +329,37 @@ contains
 
 
   ! ===========================================================================
-  !  STATE SANITY CHECK AND FLOOR ENFORCEMENT
+  !  STATE SANITY CHECK
   ! ===========================================================================
+  ! A temperature the properties tables can evaluate: co_Kappa, co_Rho, co_Cp and co_H interpolate
+  ! between the entries at int(T) and int(T)+1, so T must lie in [Tmin, Tmax) of the tables.
+  logical function Admissible_T ( T )
+    use FUSS_Config_Types_m, only: obj_table
+    implicit none
+    real(R8), intent(in) :: T
+
+    Admissible_T = .false.
+    if ( isnan(T) ) return
+    if ( T < real(obj_table%Tmin, R8) .or. T >= real(obj_table%Tmax, R8) ) return
+    Admissible_T = .true.
+
+  end function Admissible_T
+
+
   subroutine Check_And_Fix_State ( T, b, i, j, k )
+    use FUSS_Config_Types_m, only: obj_table
     implicit none
     real(R8), intent(in) :: T
     integer, intent(in)  :: b, i, j, k
 
-    ! Bail out on NaN or negative temperature
-    if ( isnan(T) .or. T < 0d0 ) then
-      write(*,'(A,4I4)') "Integration failed at b, i, j, k:", b, i, j, k
-      write(*,*) T
-      stop "NaN or T<0 detected"
+    ! Stop on NaN or on a temperature outside the properties table, where the lookups would read
+    ! past its ends. error stop, not mpi_abort_all: this runs inside OpenMP threads (MPI is
+    ! FUNNELED); unlike stop, it also ends the run with a non-zero exit status.
+    if ( .not. Admissible_T( T ) ) then
+      write(*,'(A,4I5)') ' [ERROR] Integration failed at b, i, j, k:', b, i, j, k
+      write(*,'(A,ES14.6,A,I0,A,I0,A)') ' [ERROR] T = ', T, ' K, outside the properties table [', &
+        obj_table%Tmin, ', ', obj_table%Tmax, ') K'
+      error stop 'NaN or T outside the properties table'
     endif
 
   end subroutine Check_And_Fix_State

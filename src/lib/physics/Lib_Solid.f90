@@ -76,6 +76,9 @@ contains
   end subroutine co_H
 
 
+  !> T(h), interpolated in the Energy column. Outside the table the end interval is extrapolated, so
+  !> the T returned is outside [Tmin, Tmax) as well and the update rejects it (Lib_Newstate): the
+  !> other lookups read the entries at int(T) and int(T)+1.
   subroutine co_T( matID, h, T )
     implicit none
     real(R8), intent(in)  :: h, matID
@@ -83,18 +86,21 @@ contains
     ! Local
     integer   :: Tm, Tp, i
     real(R8)  :: hm, hp
-    
-    do i = 1,size(obj_table%h(matID,:)) 
+
+    ! First entry above h (h grows with T); none: the last interval, h below the table: the first
+    Tp = obj_table%Tmax
+    do i = obj_table%Tmin, obj_table%Tmax
       if (obj_table%h(matID,i) > h) then
-        Tm = i - 1
         Tp = i
         exit
       endif
     enddo
+    Tp = max ( Tp, obj_table%Tmin + 1 )
+    Tm = Tp - 1
     hm = obj_table%h(matID, Tm)
     hp = obj_table%h(matID, Tp)
     T = Tm + (h-hm)/(hp-hm)*(Tp-Tm)
-  
+
   end subroutine co_T
 
 end module FUSS_Lib_Solid
