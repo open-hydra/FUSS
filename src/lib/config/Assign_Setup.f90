@@ -14,6 +14,7 @@ contains
     use FUSS_Mod_Newstate,        only: Assign_Integration_Variables
     use FUSS_Field_List_m,        only: Field_List_Init
     use FUSS_Mod_Pyrolysis,       only: Pyrolysis_Assign_Setup
+    use FUSS_Mod_Darcy,           only: Darcy_Assign_Setup
     implicit none
 
     ! Setting input solution
@@ -39,8 +40,12 @@ contains
     ! once the material files are loaded (before this routine); the converters
     ! and the derived outflow direction come with them. Must run before
     ! Setup_Data_Structure, whose Allocate_Block walks the list.
-    call Field_List_Init( obj_pyrolysis%nsub, obj_pyrolysis%enabled )
+    ! obj_darcy%enabled (gas-closure = type2) is derived in FUSS_Wrap_Setup
+    ! right after Read_Inifile, before Check_Input, for the same reason as
+    ! obj_irs%enabled: the guards must see it.
+    call Field_List_Init( obj_pyrolysis%nsub, obj_pyrolysis%enabled, obj_darcy%enabled )
     if ( obj_pyrolysis%enabled ) call Pyrolysis_Assign_Setup()
+    if ( obj_darcy%enabled )     call Darcy_Assign_Setup()
 
     !! Descriptions, warnings and errors
 

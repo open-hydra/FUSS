@@ -380,7 +380,7 @@ contains
 
   subroutine Scan_Ini(fini, nprobes, probes_name, nmgl)
     use Finer, only: file_ini
-    use FUSS_Config_Types_m, only: obj_sim_param, obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_sim_param, obj_pyrolysis, obj_darcy
     use FUSS_Global_m
     use IR_precision
     implicit none
@@ -404,6 +404,10 @@ contains
     ! Register_Pyrolysis and every later setup step see it; the mid-run re-read
     ! never calls Scan_Ini, so adding or removing the section mid-run does nothing.
     obj_pyrolysis%enabled = fini%has_section( section_name=trim(codename)//'-Pyrolysis' )
+    ! Plan 07: the Darcy section is only READ under gas-closure = type2; its
+    ! presence is recorded so that Check_Pyrolysis_Compatibility can refuse a
+    ! section nothing would apply.
+    obj_darcy%section_present = fini%has_section( section_name=trim(codename)//'-Darcy' )
 
     ! Count the probes
     nprobes = 0

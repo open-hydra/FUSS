@@ -6,7 +6,7 @@ module FUSS_Input_Registry
 
   integer, parameter :: TYPE_INT=1, TYPE_REAL=2, TYPE_LOG=3, TYPE_STR=4
 
-  public :: registry_t, Validate_Registry, Validate_Param
+  public :: registry_t, Validate_Registry, Validate_Param, Registry_Is_Set
 
   !--------------------------------------------------------
   ! Value container (typed pointers)
@@ -342,6 +342,24 @@ contains
   !========================================================
   ! Validation
   !========================================================
+
+  !> .true. when input.ini set the key `name` of `section` explicitly (the
+  !> registry's is_set flag). Lets a guard refuse a key whose default is
+  !> harmless but whose explicit presence contradicts another choice (plan 07:
+  !> p-gas under gas-closure = type2). Unknown key -> .false.
+  logical function Registry_Is_Set(section, name) result(set)
+    implicit none
+    character(*), intent(in) :: section, name
+    integer :: i
+    set = .false.
+    do i = 1, reg%size
+      if ( trim(reg%params(i)%section) == trim(section) .and. trim(reg%params(i)%name) == trim(name) ) then
+        set = reg%params(i)%is_set
+        return
+      end if
+    end do
+  end function Registry_Is_Set
+
 
   function Validate_Registry() result(out)
 

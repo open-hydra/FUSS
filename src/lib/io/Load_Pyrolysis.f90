@@ -77,13 +77,14 @@ contains
     character(len=*), intent(in) :: file
     ! Local
     integer, parameter :: MAXENT = 8192
-    character(len=64), allocatable :: keys(:), vals(:)
+    character(len=200), allocatable :: keys(:), vals(:)
     integer, allocatable :: lines(:)
     logical, allocatable :: used(:)
     integer, allocatable :: bstart(:)
     character(len=llen) :: line
     integer :: nent, nb, u, ios, ln, p, m, i, j, r, b0, b1, nsub, nreac, k
     real(R8) :: sumF
+    logical  :: found2
     type(pyro_reaction_t) :: rc
 
     allocate( keys(MAXENT), vals(MAXENT), lines(MAXENT), used(MAXENT) )
@@ -204,6 +205,16 @@ contains
             obj_pyrolysis%reac(k)%w = obj_pyrolysis%reac(k)%eps_rho_F / ( mt%rho_v - mt%rho_c )
           enddo
         endif
+        ! Darcy closure (plan 07 section 3.1): permeability tensors K_v, K_c
+        ! (9 components, PATO's constantProperties layout written out) and the
+        ! Klinkenberg tensors B_v, B_c; all optional here (type 1 never reads
+        ! them), required under type 2 by Check_Pyrolysis_Tables.
+        call Rd_Tensor_Opt( 'K_v', b0, b1, mt%Kp_v, mt%has_K )
+        call Rd_Tensor_Opt( 'K_c', b0, b1, mt%Kp_c, found2 )
+        if ( found2 .neqv. mt%has_K ) call Fail( 'K_v and K_c must be given together in material block '//Itoa(m), 0 )
+        call Rd_Tensor_Opt( 'B_v', b0, b1, mt%Bp_v, mt%has_B )
+        call Rd_Tensor_Opt( 'B_c', b0, b1, mt%Bp_c, found2 )
+        if ( found2 .neqv. mt%has_B ) call Fail( 'B_v and B_c must be given together in material block '//Itoa(m), 0 )
       end associate
       do i = b0 + 1, b1 - 1
         if ( .not. used(i) ) call Fail( 'unknown key "'//trim(keys(i))//'" in material block '//Itoa(m), lines(i) )
@@ -261,6 +272,39 @@ contains
       read( vals(idx), *, iostat=ios ) v
       if ( ios /= 0 ) call Fail( 'non-integer value "'//trim(vals(idx))//'" for key "'//trim(key)//'"', lines(idx) )
     end function Rd_Int
+
+    !> Optional 3x3 tensor key: nine reals in row-major order (xx xy xz yx ...).
+    !> Absent -> T = 0, found = .false.
+    subroutine Rd_Tensor_Opt ( key, b0, b1, T, found )
+      implicit none
+      character(len=*), intent(in)  :: key
+      integer,          intent(in)  :: b0, b1
+      real(R8),         intent(out) :: T(3,3)
+      logical,          intent(out) :: found
+      integer  :: idx, e, ios, a, c
+      real(R8) :: v(9)
+      T = 0.0d0
+      idx = 0
+      do e = b0 + 1, b1 - 1
+        if ( trim(keys(e)) == trim(key) ) then
+          if ( idx /= 0 ) call Fail( 'key "'//trim(key)//'" given twice (first at line '//Itoa(lines(idx))//')', lines(e) )
+          idx = e
+        endif
+      enddo
+      found = ( idx /= 0 )
+      if ( idx == 0 ) return
+      used(idx) = .true.
+      read( vals(idx), *, iostat=ios ) v
+      if ( ios /= 0 ) call Fail( 'key "'//trim(key)//'" needs nine reals (row-major 3x3), found "'//trim(vals(idx))//'"', lines(idx) )
+      do a = 1, 9
+        if ( v(a) /= v(a) ) call Fail( 'value of "'//trim(key)//'" is not finite', lines(idx) )
+      enddo
+      do a = 1, 3
+        do c = 1, 3
+          T(a,c) = v( 3*(a-1) + c )
+        enddo
+      enddo
+    end subroutine Rd_Tensor_Opt
 
   end subroutine Read_Pyrolysis_Dat
 
@@ -425,18 +469,38 @@ contains
 
   !> Value checks of pyrolysis.dat (root, after the loader) and the banner.
   subroutine Check_Pyrolysis_Tables ()
-    use FUSS_Config_Types_m, only: obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
     use FUSS_Lib_Pyrolysis,  only: Gas_State, Tab_Lookup
     implicit none
     ! Local
-    integer  :: m, i, j, r
-    real(R8) :: sumF, sumeps, hv, hc, hg, W, mu
+    integer  :: m, i, j, r, a, c
+    real(R8) :: sumF, sumeps, hv, hc, hg, W, mu, p_ban, kmax
     logical  :: bad, has_hg
     character(len=256) :: msg
 
     bad = .false.
     do m = 1, obj_pyrolysis%nmat
       associate ( mt => obj_pyrolysis%mat(m) )
+        ! Darcy closure (plan 07 section 3.1): the permeability tensors exist,
+        ! are symmetric and have positive diagonals; the Klinkenberg tensors
+        ! exist when the key asks for them. Only under gas-closure = type2.
+        if ( obj_darcy%enabled ) then
+          if ( .not. mt%has_K ) then
+            call Flag( mt%name, 'K_v, K_c', 'required by gas-closure = type2 (nine reals each, row-major, m2)' )
+          else
+            kmax = max( maxval(abs(mt%Kp_v)), maxval(abs(mt%Kp_c)) )
+            do a = 1, 3
+              if ( mt%Kp_v(a,a) <= 0.0d0 ) call Flag( mt%name, 'K_v', 'diagonal components must be > 0' )
+              if ( mt%Kp_c(a,a) <= 0.0d0 ) call Flag( mt%name, 'K_c', 'diagonal components must be > 0' )
+              do c = a + 1, 3
+                if ( abs(mt%Kp_v(a,c) - mt%Kp_v(c,a)) > 1.0d-12 * kmax ) call Flag( mt%name, 'K_v', 'must be symmetric' )
+                if ( abs(mt%Kp_c(a,c) - mt%Kp_c(c,a)) > 1.0d-12 * kmax ) call Flag( mt%name, 'K_c', 'must be symmetric' )
+              enddo
+            enddo
+          endif
+          if ( obj_darcy%klinkenberg .and. .not. mt%has_B ) &
+            call Flag( mt%name, 'B_v, B_c', 'required by [FUSS-Darcy] klinkenberg = true' )
+        endif
         if ( mt%nphase < 1 ) call Flag( mt%name, 'nSolidPhases', 'must be >= 1' )
         sumeps = 0.0d0
         do i = 1, mt%nphase
@@ -481,10 +545,12 @@ contains
           hv = Tab_Lookup( mt%h_v, mt%Tlo_s, 298.0d0 )
           hc = Tab_Lookup( mt%h_c, mt%Tlo_s, 298.0d0 )
         endif
-        has_hg = ( mt%Tlo_g <= 298 .and. mt%Thi_g > 298 .and. obj_pyrolysis%p_gas >= mt%p_lev(1) .and. &
-                   obj_pyrolysis%p_gas <= mt%p_lev(mt%Np) )
+        ! The banner's gas enthalpy is quoted at p-gas (type 1) or p-init (type 2)
+        p_ban = obj_pyrolysis%p_gas
+        if ( obj_darcy%enabled ) p_ban = obj_darcy%p_init
+        has_hg = ( mt%Tlo_g <= 298 .and. mt%Thi_g > 298 .and. p_ban >= mt%p_lev(1) .and. p_ban <= mt%p_lev(mt%Np) )
         if ( has_hg ) then
-          call Gas_State( m, obj_pyrolysis%p_gas, 298.0d0, W, hg, mu )
+          call Gas_State( m, p_ban, 298.0d0, W, hg, mu )
           write(msg,'(A,ES12.4,A,ES12.4,A,ES12.4,A)') '       h_v(298) = ', hv, '  h_c(298) = ', hc, &
             '  h_g(298, p_gas) = ', hg, ' J/kg'
         else
@@ -493,6 +559,9 @@ contains
         write(*,'(A)') trim(msg)
         write(*,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') '       tables: solid ', mt%Tlo_s, '-', mt%Thi_s, ' K, gas ', &
           mt%Tlo_g, '-', mt%Thi_g, ' K x ', mt%Np, ' p-level(s), Newton bracket [', mt%T_brk_lo, ', ', mt%T_brk_hi, '] K'
+        if ( obj_darcy%enabled ) &
+          write(*,'(A,ES10.3,A,ES10.3,A,ES10.3,A,ES10.3,A)') '       permeability: K_v diag ', mt%Kp_v(1,1), ' ', mt%Kp_v(2,2), &
+            ' ', mt%Kp_v(3,3), ' m2, K_c(1,1) ', mt%Kp_c(1,1), ' m2'
         if ( mt%nsub > 0 ) write(*,'(A)') '       h[i][j] (heat of pyrolysis per reaction) parsed and ignored: the decomposition heat is in h_v, h_c'
         if ( obj_pyrolysis%hbar_guard_report .and. mt%hbar_guard ) &
           write(*,'(A)') '       hbar guard fired: rho_v = rho_c, tau = 1 (no net decomposition)'

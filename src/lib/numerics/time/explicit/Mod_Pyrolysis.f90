@@ -22,6 +22,7 @@ module FUSS_Mod_Pyrolysis
   implicit none
   private
   public :: Pyrolysis_Assign_Setup, Pyrolysis_Init_Cells, Pyrolysis_Stage, Write_Energy_Budget, Pyrolysis_Residual
+  public :: Pyrolysis_Budget_Rewind
 
   ! Energy-budget accumulators (plan 06 §4.3): Q_out = int sum_cells R dt (net
   ! outgoing flux, conduction + BC + gas advection), Q_gas_out = int sum_lines
@@ -41,7 +42,7 @@ contains
   !> Derived settings and the field-list converters. Called from Assign_Setup
   !> after Field_List_Init, when the feature is on.
   subroutine Pyrolysis_Assign_Setup ()
-    use FUSS_Config_Types_m, only: obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
     use FUSS_Field_List_m,   only: Field_List_Set_Converters
     implicit none
 
@@ -56,6 +57,7 @@ contains
     end select
 
     obj_pyrolysis%description = 'type-1 gas closure, outflow '//trim(obj_pyrolysis%outflow_direction)
+    if ( obj_darcy%enabled ) obj_pyrolysis%description = 'type-2 gas closure (Darcy pressure equation, [FUSS-Darcy])'
 
     call Field_List_Set_Converters( 'T',   Convert_T_To,   Convert_T_From )
     call Field_List_Set_Converters( 'chi', Convert_Chi_To, Convert_Chi_From )
@@ -129,27 +131,39 @@ contains
 
   ! --- field-list converters (plan 06 §3.1): conserved quantity per unit volume --
 
-  !> T -> E(T, chi) (reads the cell's chi: remap chi before T).
+  !> T -> E(T, chi) (reads the cell's chi: remap chi before T). Type 2 (plan 07):
+  !> the cell's pressure and stored gas mass G = eta_st p_pg enter E.
   subroutine Convert_T_To ( blk, i, j, k, q )
     use FUSS_Advanced_Types_m, only: FUSS_block_type
-    use FUSS_Config_Types_m,   only: obj_pyrolysis
-    use FUSS_Lib_Pyrolysis,    only: Energy_Of
+    use FUSS_Config_Types_m,   only: obj_pyrolysis, obj_darcy
+    use FUSS_Lib_Pyrolysis,    only: Energy_Of, Energy_Of2
     implicit none
     type(FUSS_block_type), intent(inout) :: blk
     integer,  intent(in)    :: i, j, k
     real(R8), intent(inout) :: q(:)
+    if ( obj_darcy%enabled ) then
+      q(1) = Energy_Of2( nint(blk%matID(i,j,k)), blk%T(i,j,k), blk%chi(:,i,j,k), blk%p_pg(i,j,k), &
+                         blk%eta_st(i,j,k) * blk%p_pg(i,j,k) )
+      return
+    endif
     q(1) = Energy_Of( nint(blk%matID(i,j,k)), blk%T(i,j,k), blk%chi(:,i,j,k), obj_pyrolysis%p_gas )
   end subroutine Convert_T_To
 
   subroutine Convert_T_From ( blk, i, j, k, q )
     use FUSS_Advanced_Types_m, only: FUSS_block_type
-    use FUSS_Config_Types_m,   only: obj_pyrolysis
-    use FUSS_Lib_Pyrolysis,    only: Temperature_Of
+    use FUSS_Config_Types_m,   only: obj_pyrolysis, obj_darcy
+    use FUSS_Lib_Pyrolysis,    only: Temperature_Of, Temperature_Of2
     implicit none
     type(FUSS_block_type), intent(inout) :: blk
     integer,  intent(in)    :: i, j, k
     real(R8), intent(inout) :: q(:)
     real(R8) :: T
+    if ( obj_darcy%enabled ) then
+      call Temperature_Of2( nint(blk%matID(i,j,k)), q(1), blk%chi(:,i,j,k), blk%p_pg(i,j,k), &
+                            blk%eta_st(i,j,k) * blk%p_pg(i,j,k), blk%T(i,j,k), T, 0, i, j, k )
+      blk%T(i,j,k) = T
+      return
+    endif
     call Temperature_Of( nint(blk%matID(i,j,k)), q(1), blk%chi(:,i,j,k), obj_pyrolysis%p_gas, blk%T(i,j,k), T, 0, i, j, k )
     blk%T(i,j,k) = T
   end subroutine Convert_T_From
@@ -202,7 +216,7 @@ contains
   !> The per-stage work (a)-(d) described in the module header.
   subroutine Pyrolysis_Stage ( domain, i_rk )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_time_scheme
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_time_scheme, obj_darcy
     use FUSS_Lib_Pyrolysis,  only: Reaction_Rate, Advance_Reaction, Gas_State
     use FUSS_Lib_RK,         only: RK_stage
     use FUSS_Mod_MPI,        only: is_local_block
@@ -213,6 +227,12 @@ contains
     integer  :: b, i, j, k, r, m, d, sg, t1, t2, nd, n1, n2, s, c, b1, b2, ic(3), id(3), n_rk
     real(R8) :: dt, kap, T, pi_tot, Mdot, Mdot_new, h_prev, W, h_pg, mu, A, p_gas
     real(R8) :: sumR, sumS, sumQg, sumMg
+
+    ! Type 2 (plan 07): its own routine, so that this one stays plan 06's text
+    if ( obj_darcy%enabled ) then
+      call Pyrolysis_Stage2( domain, i_rk )
+      return
+    endif
 
     n_rk  = obj_time_scheme%n_RK
     p_gas = obj_pyrolysis%p_gas
@@ -331,6 +351,95 @@ contains
   end subroutine Pyrolysis_Stage
 
 
+  !> Type-2 stage work (plan 07 section 3.5): (a) the kinetics increments as
+  !> Pyrolysis_Stage, then the gas-enthalpy flux div(h_g Gamma grad p) of the
+  !> solved pressure into R (FUSS_Mod_Darcy) in place of the type-1 line
+  !> integral, then (d) the budget sums with the gas leaving through the open
+  !> faces (bc%mdot_pg, bc%edot_pg; bc order is the fixed order of bc.txt).
+  subroutine Pyrolysis_Stage2 ( domain, i_rk )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_time_scheme
+    use FUSS_Lib_Pyrolysis,  only: Reaction_Rate, Advance_Reaction
+    use FUSS_Lib_RK,         only: RK_stage
+    use FUSS_Lib_BC_Fluxes,  only: Face_Index
+    use FUSS_Mod_Darcy,      only: Darcy_Energy_Flux, Darcy_Is_Open
+    use FUSS_Mod_MPI,        only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: i_rk
+    ! Local
+    integer  :: b, i, j, k, r, m, n_rk, ii, Dir, Fi, Fj, Fk
+    real(R8) :: dt, kap, T, A
+    real(R8) :: sumR, sumS, sumQg, sumMg
+
+    n_rk = obj_time_scheme%n_RK
+
+    do b = 1, domain%nb
+      if ( .not. is_local_block(b) ) cycle
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,dt,T,kap)
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        m  = nint( domain%blk(b)%matID(i,j,k) )
+        dt = domain%blk(b)%dtlocal(i,j,k)
+        T  = domain%blk(b)%T(i,j,k)
+        do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+          kap = Reaction_Rate( m, r, T )
+          domain%blk(b)%dchi(r,i,j,k) = Advance_Reaction( domain%blk(b)%chiO(r,i,j,k), kap, obj_pyrolysis%reac(r)%m, dt ) &
+                                      - domain%blk(b)%chiO(r,i,j,k)
+        enddo
+      enddo ; enddo ; enddo
+      !$omp end do
+    enddo
+
+    call Darcy_Energy_Flux( domain )
+
+    !$omp single
+    sumR = 0.0d0 ; sumS = 0.0d0 ; sumQg = 0.0d0 ; sumMg = 0.0d0
+    do b = 1, domain%nb
+      if ( .not. is_local_block(b) ) cycle
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        dt   = domain%blk(b)%dtlocal(i,j,k)
+        sumR = sumR + domain%blk(b)%R(i,j,k) * dt
+        sumS = sumS + domain%blk(b)%qvol(i,j,k) * domain%blk(b)%vol(i,j,k) * dt
+      enddo ; enddo ; enddo
+    enddo
+    do ii = 1, domain%nbound
+      if ( .not. Darcy_Is_Open( domain%bc(ii)%type ) ) cycle
+      b = domain%bc(ii)%b
+      if ( .not. is_local_block(b) ) cycle
+      i = domain%bc(ii)%i ; j = domain%bc(ii)%j ; k = domain%bc(ii)%k
+      call Face_Index( domain%bc(ii)%f, Dir, i, j, k, Fi, Fj, Fk )
+      A  = domain%blk(b)%dir(Dir)%f(Fi,Fj,Fk)%A
+      dt = domain%blk(b)%dtlocal(i,j,k)
+      sumQg = sumQg + domain%bc(ii)%edot_pg * A * dt
+      sumMg = sumMg + domain%bc(ii)%mdot_pg * A * dt
+    enddo
+    if ( i_rk == 1 ) then
+      Q_out_n = Q_out ; Q_gas_out_n = Q_gas_out ; M_gas_out_n = M_gas_out ; Q_src_n = Q_src
+    endif
+    Q_out     = RK_stage( i_rk, n_rk, Q_out,     Q_out_n,     sumR  )
+    Q_gas_out = RK_stage( i_rk, n_rk, Q_gas_out, Q_gas_out_n, sumQg )
+    M_gas_out = RK_stage( i_rk, n_rk, M_gas_out, M_gas_out_n, sumMg )
+    Q_src     = RK_stage( i_rk, n_rk, Q_src,     Q_src_n,     sumS  )
+    !$omp end single
+
+  end subroutine Pyrolysis_Stage2
+
+
+  !> Budget accumulators back to their start-of-step values (saved at stage
+  !> 1), for the second pass of a redone step (plan 07: a new run's first
+  !> step). Inside the parallel region.
+  subroutine Pyrolysis_Budget_Rewind ()
+    implicit none
+    !$omp single
+    Q_out = Q_out_n ; Q_gas_out = Q_gas_out_n ; M_gas_out = M_gas_out_n ; Q_src = Q_src_n
+    !$omp end single
+  end subroutine Pyrolysis_Budget_Rewind
+
+
   !> Convergence-residual contribution of the reaction state: the sum over
   !> cells and reactions of (chi - chiO)^2, added to the solver's total
   !> (Compute_Residual's sum of (T - TO)^2). Without it a run whose
@@ -370,16 +479,55 @@ contains
   !> every solution write.
   subroutine Write_Energy_Budget ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_sim_param
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_sim_param, obj_darcy
     use FUSS_Global_m,       only: FUSS_phase_prefix
-    use FUSS_Lib_Pyrolysis,  only: Energy_Of
+    use FUSS_Lib_Pyrolysis,  only: Energy_Of, Energy_Of2
     use FUSS_Mod_MPI,        only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
     integer  :: b, i, j, k, m, u, ios
-    real(R8) :: E_tot, M_s, V
+    real(R8) :: E_tot, M_s, V, M_g, G
     character(len=256) :: file
+
+    ! Type 2 (plan 07): E with the stored gas, and an eighth column M_g = sum
+    ! V G (the stored gas mass), so that the type-2 mass balance
+    ! M_s + M_g + M_gas_out = const can be checked.
+    if ( obj_darcy%enabled ) then
+      E_tot = 0.0d0 ; M_s = 0.0d0 ; M_g = 0.0d0
+      do b = 1, domain%nb
+        if ( .not. is_local_block(b) ) cycle
+        do k = 1, domain%blk(b)%dim(3)
+        do j = 1, domain%blk(b)%dim(2)
+        do i = 1, domain%blk(b)%dim(1)
+          m = nint( domain%blk(b)%matID(i,j,k) )
+          V = domain%blk(b)%vol(i,j,k)
+          G = domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k)
+          E_tot = E_tot + V * Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), domain%blk(b)%p_pg(i,j,k), G )
+          M_s   = M_s   + V * domain%blk(b)%rho_s(i,j,k)
+          M_g   = M_g   + V * G
+        enddo ; enddo ; enddo
+      enddo
+      file = 'OUTPUT/'//trim(FUSS_phase_prefix)//'energy-budget.txt'
+      if ( .not. budget_file_started ) then
+        if ( obj_sim_param%newrun ) then
+          open( newunit=u, file=trim(file), status='replace', action='write', iostat=ios )
+          if ( ios == 0 ) write(u,'(A)') '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src  M_g   (SI; Q_* count from the start of this run)'
+        else
+          open( newunit=u, file=trim(file), status='unknown', position='append', action='write', iostat=ios )
+        endif
+        budget_file_started = .true.
+      else
+        open( newunit=u, file=trim(file), status='old', position='append', action='write', iostat=ios )
+      endif
+      if ( ios /= 0 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis: cannot open '//trim(file)
+        error stop 1
+      endif
+      write(u,'(8ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g
+      close(u)
+      return
+    endif
 
     E_tot = 0.0d0 ; M_s = 0.0d0
     do b = 1, domain%nb

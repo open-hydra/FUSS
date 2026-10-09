@@ -1,4 +1,13 @@
-!> Pyrolysis property model and kinetics closures (plan 06 §2, §3.2, §3.3).
+!> Pyrolysis property model and kinetics closures (plan 06 §2, §3.2, §3.3), and
+!> the type-2 (Darcy) closures of plan 07 in their own section at the end.
+!>
+!> BIT-IDENTITY NOTE (plan 07): every routine above the type-2 section is plan
+!> 06's text verbatim. The build contracts floating-point expressions into
+!> fused multiply-adds across inlined calls, so restructuring a shared routine
+!> (an added branch between a product and the subtraction that followed it)
+!> moved type-1 results by 1 ulp (seen 2026-10-08); the type-2 closures are
+!> separate routines (Energy_Of2, Temperature_Of2, ...) and the call sites
+!> select them with obj_darcy%enabled.
 !>
 !> Everything here is cell-local and thread-safe: the only module state read
 !> is obj_pyrolysis (materials, tables, the flattened reaction list), which is
@@ -8,13 +17,14 @@
 !> the loader), so no lookup can read outside its table.
 module FUSS_Lib_Pyrolysis
   use iso_fortran_env, only: I4 => int32, R8 => real64
-  use FUSS_Config_Types_m, only: obj_pyrolysis
+  use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
   use FUSS_Parameters_m,   only: R_univ
 
   implicit none
   private
   public :: Tab_Lookup, Tau_Of, Solid_State, Gas_State, Energy_Of, Energy_Tau, Temperature_Of
   public :: Reaction_Rate, Advance_Reaction
+  public :: Gas_Lookup, Energy_Of2, Temperature_Of2, Perm_Tensor, Darcy_Cell_Coeffs
 
   real(R8), parameter :: NEWTON_DT_TOL = 1.0d-10   ! [K] a Newton step at most this long terminates
   real(R8), parameter :: NEWTON_REL_F  = 1.0d-13   ! |f(T)| <= NEWTON_REL_F*|E| terminates too
@@ -311,5 +321,225 @@ contains
     chi = max( chi, chi0 )
 
   end function Advance_Reaction
+
+
+  ! ===========================================================================
+  !  TYPE-2 (DARCY) CLOSURES, plan 07
+  !
+  !  The stored energy under gas-closure = type2 (plan 07 section 3.5; PATO
+  !  PyrolysisEnergyModel.C:56) is
+  !      E = H_s(T, tau) + G h_g(p, T) - eps_pg(tau) p,
+  !  with G [kg/m3] the stored gas mass per unit volume. G is a STATE of the
+  !  scheme, not eps_pg rho_g(p, T) re-evaluated from the equation of state:
+  !  the pressure solve fixes it (G = eta* p^(n+1), FUSS_Mod_Darcy), so the gas
+  !  mass in E is exactly the mass the mass equation accounted for. With G from
+  !  the equation of state, any mismatch between the stored mass and the outflow
+  !  of the solve is multiplied by the ABSOLUTE gas enthalpy (TACOT: -7e6 J/kg)
+  !  and the scheme is datum-dependent at first order in dt (measured on the
+  !  exact 0-D gates, 2026-10-08). Under [FUSS-Darcy] quasi-steady = true the
+  !  gas storage is dropped from the mass equation and, for the same
+  !  consistency, from E: E = H_s.
+  ! ===========================================================================
+
+  !> The interpolation of Gas_State without its range check, plus the 1 K
+  !> segment slopes dW/dT, dh/dT at (p, T). Callers stay inside the table: the
+  !> Newton bracket does so in T, and every p reaches here after a checked
+  !> Gas_State call on the same cell in the same step.
+  pure subroutine Gas_Lookup ( m, p, T, W, h_pg, mu, dW, dh )
+    implicit none
+    integer,  intent(in)  :: m
+    real(R8), intent(in)  :: p, T
+    real(R8), intent(out) :: W, h_pg, mu, dW, dh
+    ! Local
+    integer  :: ip, ipp, Tm
+    real(R8) :: wp
+
+    associate ( mt => obj_pyrolysis%mat(m) )
+      if ( mt%Np == 1 ) then
+        ip = 1 ; ipp = 1 ; wp = 0.0d0
+      else
+        ip = mt%Np - 1
+        do while ( ip > 1 .and. p < mt%p_lev(ip) )
+          ip = ip - 1
+        enddo
+        ipp = ip + 1
+        wp  = ( p - mt%p_lev(ip) ) / ( mt%p_lev(ipp) - mt%p_lev(ip) )
+      endif
+      W    = ( 1.0d0 - wp ) * Tab_Lookup( mt%W_g(:,ip),  mt%Tlo_g, T ) + wp * Tab_Lookup( mt%W_g(:,ipp),  mt%Tlo_g, T )
+      h_pg = ( 1.0d0 - wp ) * Tab_Lookup( mt%h_g(:,ip),  mt%Tlo_g, T ) + wp * Tab_Lookup( mt%h_g(:,ipp),  mt%Tlo_g, T )
+      mu   = ( 1.0d0 - wp ) * Tab_Lookup( mt%mu_g(:,ip), mt%Tlo_g, T ) + wp * Tab_Lookup( mt%mu_g(:,ipp), mt%Tlo_g, T )
+      Tm = int(T)
+      dW = ( 1.0d0 - wp ) * ( mt%W_g(Tm+1,ip) - mt%W_g(Tm,ip) ) + wp * ( mt%W_g(Tm+1,ipp) - mt%W_g(Tm,ipp) )
+      dh = ( 1.0d0 - wp ) * ( mt%h_g(Tm+1,ip) - mt%h_g(Tm,ip) ) + wp * ( mt%h_g(Tm+1,ipp) - mt%h_g(Tm,ipp) )
+    end associate
+
+  end subroutine Gas_Lookup
+
+
+  !> E(T; tau, p, G) = H_s + G h_g(p, T) - eps_pg(tau) p (H_s alone under quasi-steady).
+  pure function Energy_Full2 ( m, T, tau, p, G ) result ( E )
+    implicit none
+    integer,  intent(in) :: m
+    real(R8), intent(in) :: T, tau, p, G
+    real(R8) :: E
+    ! Local
+    real(R8) :: W, h, mu, dW, dh, eps
+
+    E = Energy_Tau( m, T, tau )
+    if ( obj_darcy%quasi_steady ) return
+    call Gas_Lookup( m, p, T, W, h, mu, dW, dh )
+    associate ( mt => obj_pyrolysis%mat(m) )
+      eps = mt%eps_g_c + ( mt%eps_g_v - mt%eps_g_c ) * tau
+    end associate
+    E = E + ( G * h - eps * p )
+
+  end function Energy_Full2
+
+
+  !> dE/dT at fixed (tau, p, G): the solid segment slope plus G dh_g/dT.
+  pure function Energy_Slope2 ( m, T, tau, p, G ) result ( fp )
+    implicit none
+    integer,  intent(in) :: m
+    real(R8), intent(in) :: T, tau, p, G
+    real(R8) :: fp
+    ! Local
+    integer  :: Tm
+    real(R8) :: W, h, mu, dW, dh
+
+    Tm = int(T)
+    associate ( mt => obj_pyrolysis%mat(m) )
+      fp = tau * mt%rho_v * ( mt%h_v(Tm+1) - mt%h_v(Tm) ) + ( 1.0d0 - tau ) * mt%rho_c * ( mt%h_c(Tm+1) - mt%h_c(Tm) )
+    end associate
+    if ( obj_darcy%quasi_steady ) return
+    call Gas_Lookup( m, p, T, W, h, mu, dW, dh )
+    fp = fp + G * dh
+
+  end function Energy_Slope2
+
+
+  !> Type-2 stored energy of a cell state (T, chi, p, G).
+  function Energy_Of2 ( m, T, chi, p, G ) result ( E )
+    implicit none
+    integer,  intent(in) :: m
+    real(R8), intent(in) :: T, chi(:), p, G
+    real(R8) :: E
+
+    E = Energy_Full2( m, T, Tau_Of( m, chi ), p, G )
+
+  end function Energy_Of2
+
+
+  !> Type-2 inversion E -> T at fixed (chi, p, G): the bracketed Newton of
+  !> Temperature_Of on Energy_Full2 (E is no longer piecewise linear in T, a
+  !> few more Newton steps).
+  subroutine Temperature_Of2 ( m, E, chi, p, G, T_guess, T, b, i, j, k )
+    implicit none
+    integer,  intent(in)  :: m, b, i, j, k
+    real(R8), intent(in)  :: E, chi(:), p, G, T_guess
+    real(R8), intent(out) :: T
+    ! Local
+    real(R8) :: Ta, Tb, Ea, Eb, fT, fp, Tnew, tau, dT
+    integer  :: it
+    logical  :: converged
+
+    tau = Tau_Of( m, chi )
+    Ta  = real( obj_pyrolysis%mat(m)%T_brk_lo, R8 )
+    Tb  = real( obj_pyrolysis%mat(m)%T_brk_hi, R8 )
+    Ea  = Energy_Full2( m, Ta, tau, p, G )
+    Eb  = Energy_Full2( m, Tb, tau, p, G )
+    if ( E < Ea .or. E > Eb ) then
+      call Report( 'energy outside table range' )
+      error stop 3
+    endif
+
+    T = min( max( T_guess, Ta ), Tb )
+    converged = .false.
+    do it = 1, NEWTON_CAP
+      fT = Energy_Full2( m, T, tau, p, G ) - E
+      if ( abs(fT) <= NEWTON_REL_F * abs(E) ) then
+        converged = .true.
+        exit
+      endif
+      if ( fT > 0.0d0 ) then
+        Tb = T
+      else
+        Ta = T
+      endif
+      fp = Energy_Slope2( m, T, tau, p, G )
+      if ( fp > 0.0d0 ) then
+        Tnew = T - fT / fp
+        dT   = abs( Tnew - T )
+        if ( dT <= NEWTON_DT_TOL ) then
+          if ( Tnew >= Ta .and. Tnew <= Tb ) T = Tnew
+          converged = .true.
+          exit
+        endif
+      else
+        Tnew = Ta - 1.0d0
+      endif
+      if ( Tnew > Ta .and. Tnew < Tb ) then
+        T = Tnew
+      else
+        T = 0.5d0 * ( Ta + Tb )
+      endif
+    enddo
+
+    if ( .not. converged ) then
+      call Report( 'Newton did not converge' )
+      error stop 3
+    endif
+
+  contains
+
+    subroutine Report ( what )
+      implicit none
+      character(len=*), intent(in) :: what
+      write(*,'(A)') ' [ERROR] pyrolysis (type 2): '//what
+      write(*,'(A,4I6)') '         b, i, j, k =', b, i, j, k
+      write(*,'(A,ES24.16,A,F10.3,A,ES14.6,A,ES14.6)') '         E = ', E, '  T_guess = ', T_guess, '  p = ', p, '  G = ', G
+      write(*,'(A,*(ES14.6))') '         chi = ', chi( obj_pyrolysis%mat_sub_offset(m-1)+1 : obj_pyrolysis%mat_sub_offset(m) )
+      write(*,'(A,I0,A,I0,A)') '         bracket [', obj_pyrolysis%mat(m)%T_brk_lo, ', ', obj_pyrolysis%mat(m)%T_brk_hi, '] K'
+    end subroutine Report
+
+  end subroutine Temperature_Of2
+
+
+  !> Permeability tensor of material m at virgin fraction tau (thesis eqs
+  !> 3.33/3.34; plan 07 section 3.1): K = K_c + (K_v - K_c) tau, plus the
+  !> Klinkenberg term (mu/p) B when [FUSS-Darcy] klinkenberg = true.
+  pure function Perm_Tensor ( m, tau, p, mu ) result ( K )
+    implicit none
+    integer,  intent(in) :: m
+    real(R8), intent(in) :: tau, p, mu
+    real(R8) :: K(3,3)
+
+    associate ( mt => obj_pyrolysis%mat(m) )
+      K = mt%Kp_c + ( mt%Kp_v - mt%Kp_c ) * tau
+      if ( obj_darcy%klinkenberg ) K = K + ( mu / p ) * ( mt%Bp_c + ( mt%Bp_v - mt%Bp_c ) * tau )
+    end associate
+
+  end function Perm_Tensor
+
+
+  !> Lagged coefficients of the pressure equation for one cell (plan 07
+  !> section 3.3; PATO DarcyLawMassModel.C:113-119): eta = eps_pg W/(R T)
+  !> (eta p = eps_pg rho_g, the stored gas mass of the equation of state) and
+  !> Gamma = rho_g K/mu, with the gas state range-checked (error stop 3 names
+  !> the cell). Also returns eps_pg, rho_g and the gas enthalpy.
+  subroutine Darcy_Cell_Coeffs ( m, p, T, chi, cell, eta, Gam, eps, rho_g, h_pg )
+    implicit none
+    integer,  intent(in)  :: m, cell(4)
+    real(R8), intent(in)  :: p, T, chi(:)
+    real(R8), intent(out) :: eta, Gam(3,3), eps, rho_g, h_pg
+    ! Local
+    real(R8) :: rho_s, cp_s, k_s, tau, W, mu
+
+    call Solid_State( m, T, chi, rho_s, cp_s, k_s, tau, eps )
+    call Gas_State( m, p, T, W, h_pg, mu, cell )
+    rho_g = p * W / ( R_univ * T )
+    eta   = eps * W / ( R_univ * T )
+    Gam   = ( rho_g / mu ) * Perm_Tensor( m, tau, p, mu )
+
+  end subroutine Darcy_Cell_Coeffs
 
 end module FUSS_Lib_Pyrolysis

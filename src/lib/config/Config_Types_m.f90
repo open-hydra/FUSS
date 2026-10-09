@@ -245,6 +245,13 @@ module FUSS_Config_Types_m
     real(R8), allocatable :: p_lev(:)                ! ascending
     real(R8), allocatable :: W_g(:,:), h_g(:,:), mu_g(:,:)   ! (T, p-level)
     integer  :: T_brk_lo = 0, T_brk_hi = 0           ! Newton bracket [K]
+    ! Darcy closure (plan 07 section 3.1): permeability tensors in the mesh
+    ! frame [m2], virgin and char, blended per cell by tau; optional keys of
+    ! pyrolysis.dat (K_v, K_c: 9 components each), required under type 2.
+    ! B_v, B_c: Klinkenberg tensors [m2/s] of thesis eq. 3.15, optional, 0.
+    logical  :: has_K = .false., has_B = .false.
+    real(R8) :: Kp_v(3,3) = 0.0d0, Kp_c(3,3) = 0.0d0
+    real(R8) :: Bp_v(3,3) = 0.0d0, Bp_c(3,3) = 0.0d0
   end type pyro_material_t
 
   type, public :: pyrolysis_t
@@ -268,6 +275,39 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 
+  !! ------------------------------------------------------
+  !! Darcy pressure equation (plan 07) -------------------
+  !! ------------------------------------------------------
+  !> [FUSS-Darcy]: the gas momentum closure of gas-closure = type2 (plan 07
+  !> section 3.8). Every key is immutable mid-run. The section is read only
+  !> under type 2; its presence with another closure is refused at setup.
+  type, public :: darcy_t
+    character(len=llen) :: warning_message = 'none'
+    character(len=llen) :: error_message = 'none'
+    character(len=llen) :: description = 'none'
+    ! USER-DEFINED INPUTS
+    character(len=llen) :: solver = 'tridiag'        ! tridiag | pseudo
+    real(R8) :: tol = 1.0d-8                         ! mass-residual stop test, relative to R_ref
+    integer  :: max_iter = 100000                    ! sweep cap per material step -> error stop 3
+    real(R8) :: p_ref = 101325.0d0                   ! scale of the reported per-sweep change
+    real(R8) :: p_init = 101325.0d0                  ! uniform p_pg on newrun [Pa]
+    real(R8) :: p_wall = 101325.0d0                  ! Dirichlet value on open faces without their own p_w [Pa]
+    character(len=llen) :: open_bc_types = '303 305 306'   ! BC codes whose faces are open to the gas
+    logical  :: quasi_steady = .false.               ! drop the storage term d(eta p)/dt
+    logical  :: klinkenberg = .false.                ! K_eff = K + (mu/p) B
+    real(R8) :: pseudo_vnn = 0.5d0                   ! damping of the Jacobi (pseudo) sweep, (0, 1]
+    logical  :: axes_follow_grid = .false.           ! placeholder: false only
+    real(R8) :: pi_source = 0.0d0                    ! TEST ONLY: constant pi_tot [kg/m3/s]
+    ! Useful variables
+    logical  :: enabled = .false.                    ! gas-closure = type2 (Assign_Setup)
+    logical  :: section_present = .false.            ! [FUSS-Darcy] in input.ini (Scan_Ini)
+    integer  :: n_open = 0                           ! parsed open-bc-types
+    integer  :: open_codes(8) = 0
+    integer, allocatable :: blk_dir(:)               ! per block: sweep direction 1..3 (tridiag), 0 = pseudo
+  end type darcy_t
+  !! ------------------------------------------------------
+  !! ------------------------------------------------------
+
 
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -284,6 +324,7 @@ module FUSS_Config_Types_m
   type(mesh_motion_t), public           :: obj_mesh_motion
   type(table_t), public                 :: obj_table
   type(pyrolysis_t), public             :: obj_pyrolysis
+  type(darcy_t), public                 :: obj_darcy
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 

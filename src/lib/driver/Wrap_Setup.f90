@@ -25,6 +25,8 @@ contains
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_
     use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
     use FUSS_Mod_Pyrolysis,        only: Write_Energy_Budget
+    use FUSS_Mod_Darcy,            only: Darcy_Setup_Blocks, Fill_Ghost_p, Darcy_Update_Velocity, Darcy_Print_Setup, &
+                                         Darcy_Is_Open
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
     implicit none
@@ -50,6 +52,9 @@ contains
     ! `irs` key passed the mesh-motion IRS guard and smoothed the remapped
     ! residual anyway. Guard demo: run_guard_demos.sh irs_beta.
     if (obj_irs%beta > 0d0) obj_irs%enabled = .true.
+    ! Same reason, plan 07: the Darcy closure is selected by a [FUSS-Pyrolysis]
+    ! key; every guard, the table checks and Assign_Setup read this flag.
+    obj_darcy%enabled = obj_pyrolysis%enabled .and. ( trim(obj_pyrolysis%gas_closure) == 'type2' )
     if (mpi_is_root) call Check_Input ()
 
     ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank
@@ -90,6 +95,10 @@ contains
       call build_local_bc_index(simulation%domain(m))
       call fill_matIDg (simulation%domain(m))
     end do
+
+    ! Darcy closure (plan 07 section 3.3): the per-block sweep direction and
+    ! the sweep work arrays, once the BC types and the block ownership are known.
+    if (obj_darcy%enabled) call Darcy_Setup_Blocks ( simulation%domain(1) )
 
     ! Read grid file and setup metrics in each grid level.
     do m = 1, obj_multigrid%MGL
@@ -159,6 +168,12 @@ contains
           obj_sim_param%iter_from_call = 0
         enddo
         call Fill_Ghost_Cell ( simulation%domain(1) )
+        ! Gas-pressure ghosts and the t = 0 cell velocity (plan 07): serial
+        ! here, inside the parallel region of every later step.
+        if (obj_darcy%enabled) then
+          call Fill_Ghost_p ( simulation%domain(1) )
+          call Darcy_Update_Velocity ( simulation%domain(1) )
+        endif
 
         ! Interpolate initial solution on coarser domains
         if ( obj_multigrid%MGL > 1 ) then
@@ -387,11 +402,28 @@ contains
     !> run_guard_demos.sh entry that shows it firing. Deliberately NOT inside
     !> Check_Mesh_Motion_Compatibility, which returns early on a static mesh.
     subroutine Check_Pyrolysis_Compatibility()
+      use FUSS_Input_Registry, only: Registry_Is_Set
+      use FUSS_Register_Darcy, only: Parse_Open_Codes
       implicit none
-      logical :: bad
+      logical :: bad, ok
+      integer :: codes(8), ncodes
+      character(len=64) :: badtok
 
-      if ( .not. obj_pyrolysis%enabled ) return
       bad = .false.
+
+      ! 12. [FUSS-Darcy] is read only under gas-closure = type2 (plan 07 §3.8);
+      !     present with another closure, or without [FUSS-Pyrolysis], nothing
+      !     would apply it -- the silent-non-application the input layer refuses.
+      if ( obj_darcy%section_present .and. .not. obj_darcy%enabled ) then
+        write(*,'(A)') ' [ERROR] [FUSS-Darcy] is read only with [FUSS-Pyrolysis] gas-closure = type2.'
+        write(*,'(A)') '         Remove the section, or select the type-2 gas closure.'
+        bad = .true.
+      endif
+
+      if ( .not. obj_pyrolysis%enabled ) then
+        if ( bad ) error stop 1
+        return
+      endif
 
       ! 1. IRS. The promotion of irs-beta > 0 runs before Check_Input; the
       !    second clause is a belt against it moving back.
@@ -418,11 +450,7 @@ contains
         bad = .true.
       endif
 
-      ! 4. The Darcy closure is plan 07.
-      if ( trim(obj_pyrolysis%gas_closure) == 'type2' ) then
-        write(*,'(A)') ' [ERROR] the type-2 gas closure is plan 07; use gas-closure = type1.'
-        bad = .true.
-      endif
+      ! 4. (the type-2 refusal of phase 2 was lifted by plan 07)
 
       ! 5. The kinetics integrate physical time.
       if ( .not. obj_time_scheme%time_accurate .and. .not. obj_sim_param%HYDRA_time_accurate ) then
@@ -440,8 +468,9 @@ contains
         bad = .true.
       endif
 
-      ! 7. The type-1 closure needs the direction the gas leaves through.
-      if ( trim(obj_pyrolysis%outflow_direction) == 'none' ) then
+      ! 7. The type-1 closure needs the direction the gas leaves through
+      !    (type 2 takes the direction from the pressure field).
+      if ( .not. obj_darcy%enabled .and. trim(obj_pyrolysis%outflow_direction) == 'none' ) then
         write(*,'(A)') ' [ERROR] pyrolysis: outflow-direction must be set (+i, -i, +j, -j, +k or -k).'
         write(*,'(A)') '         The type-1 closure integrates the gas production along that direction.'
         bad = .true.
@@ -451,6 +480,34 @@ contains
       if ( mpi_size_ > 1 ) then
         write(*,'(A)') ' [ERROR] pyrolysis is OpenMP-only until plan 11.'
         bad = .true.
+      endif
+
+      ! Darcy closure, ini-level rules (plan 07 §3.8).
+      if ( obj_darcy%enabled ) then
+        ! 13. p-gas prescribes the gas pressure of type 1; under type 2 the
+        !     pressure is solved, so an explicit p-gas contradicts the choice.
+        if ( Registry_Is_Set( trim(codename)//'-Pyrolysis', 'p-gas' ) ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Pyrolysis] p-gas is refused with gas-closure = type2: the gas pressure is solved.'
+          write(*,'(A)') '         Remove p-gas (use [FUSS-Darcy] p-init / p-wall).'
+          bad = .true.
+        endif
+        ! 14. The Jacobi damping must not exceed 1 (the registry checks one-sided rules only).
+        if ( obj_darcy%pseudo_vnn > 1.0d0 ) then
+          write(*,'(A,ES10.3)') ' [ERROR] [FUSS-Darcy] pseudo-vnn must be in (0, 1]; given ', obj_darcy%pseudo_vnn
+          bad = .true.
+        endif
+        ! 15. Every open-bc-types token is an openable wall code.
+        call Parse_Open_Codes( obj_darcy%open_bc_types, codes, ncodes, ok, badtok )
+        if ( .not. ok ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Darcy] open-bc-types: bad token "'//trim(badtok)//'"'
+          write(*,'(A)') '         Allowed: blank-separated codes from {301, 302, 303, 304, 305, 306, 103}.'
+          bad = .true.
+        endif
+        ! 16. The grid-following material frame is a placeholder key.
+        if ( obj_darcy%axes_follow_grid ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Darcy] axes-follow-grid = true is not built: the permeability tensor is given in the mesh frame.'
+          bad = .true.
+        endif
       endif
 
       if ( bad ) error stop 1
@@ -464,10 +521,41 @@ contains
     subroutine Check_Pyrolysis_BC_Topology ( domain )
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
-      logical :: bad
-      integer :: i, fo
+      logical :: bad, kinetics_on
+      integer :: i, fo, r, nopen
 
       bad = .false.
+
+      ! Darcy closure, bc-level rules (plan 07 §3.4, §3.8). The chimera
+      ! refusal must outlive plan 08's lifting of the single-block rule below.
+      if ( obj_darcy%enabled ) then
+        do i = 1, domain%nbound
+          if ( domain%bc(i)%type == 102 ) then
+            write(*,'(A)') ' [ERROR] Darcy: a chimera (102) face has no pressure condition under gas-closure = type2.'
+            write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is of type 102 on face ', domain%bc(i)%f
+            bad = .true.
+            exit
+          endif
+        enddo
+        nopen = 0
+        do i = 1, domain%nbound
+          if ( Darcy_Is_Open( domain%bc(i)%type ) ) nopen = nopen + 1
+        enddo
+        kinetics_on = ( obj_darcy%pi_source > 0.0d0 )
+        do r = 1, obj_pyrolysis%nsub
+          if ( obj_pyrolysis%reac(r)%A > 0.0d0 ) kinetics_on = .true.
+        enddo
+        if ( nopen == 0 .and. kinetics_on ) then
+          write(*,'(A)') ' [ERROR] Darcy: no face is open to the gas while the pyrolysis gas is produced.'
+          write(*,'(A)') '         The gas has nowhere to go: open a wall face through [FUSS-Darcy] open-bc-types.'
+          bad = .true.
+        endif
+        if ( nopen == 0 .and. obj_darcy%quasi_steady ) then
+          write(*,'(A)') ' [ERROR] Darcy: a sealed domain has no unique quasi-steady pressure (singular line systems).'
+          write(*,'(A)') '         Open a face through [FUSS-Darcy] open-bc-types, or set quasi-steady = false.'
+          bad = .true.
+        endif
+      endif
 
       if ( domain%nb > 1 ) then
         write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103 faces (chi ghosts are plan 08).'
@@ -494,6 +582,7 @@ contains
         case ('-k') ; fo = 5
         case default; fo = 0
       end select
+      if ( obj_darcy%enabled ) fo = 0     ! guard 10 is the type-1 line integral's
       if ( fo > 0 ) then
         do i = 1, domain%nbound
           if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
@@ -606,10 +695,13 @@ contains
       if ( obj_pyrolysis%enabled ) then
         write(*,'(A)') ' Pyrolysis'
         write(*,'(A,T35,A)') '   Gas closure', trim(obj_pyrolysis%gas_closure)
-        write(*,'(A,T35,A)') '   Outflow direction', trim(obj_pyrolysis%outflow_direction)
-        write(*,'(A,T35,ES12.4)') '   Gas pressure [Pa]', obj_pyrolysis%p_gas
+        if ( .not. obj_darcy%enabled ) then
+          write(*,'(A,T35,A)') '   Outflow direction', trim(obj_pyrolysis%outflow_direction)
+          write(*,'(A,T35,ES12.4)') '   Gas pressure [Pa]', obj_pyrolysis%p_gas
+        endif
         write(*,'(A,T35,I0)') '   Materials', obj_pyrolysis%nmat
         write(*,'(A,T35,I0)') '   Reactions (all materials)', obj_pyrolysis%nsub
+        if ( obj_darcy%enabled ) call Darcy_Print_Setup ( simulation%domain(1) )
       endif
       write(*,'(A)') ' ========================================================================================='
 

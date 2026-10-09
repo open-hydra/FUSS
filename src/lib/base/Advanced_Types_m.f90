@@ -35,6 +35,7 @@ module FUSS_Advanced_Types_m
     real(R8)                   :: volg(2)                                   ! Ghost cell volume
     real(R8)                   :: Tg(6), matIDg                             ! Ghost cell primitive stencil
     real(R8), allocatable      :: chig(:)                                   ! Ghost chi stencil (nsub): allocated and zeroed with pyrolysis on, filled in plan 08
+    real(R8)                   :: pg(6) = 0d0                               ! Ghost gas-pressure stencil (plan 07): filled by Fill_Ghost_p as Tg is
     integer                    :: ni(2)                                     ! BC chimera
     integer, allocatable       :: donorID(:,:)                              ! BC chimera
     real(R8), allocatable      :: volume_fraction(:)                        ! BC chimera
@@ -62,6 +63,20 @@ module FUSS_Advanced_Types_m
     ! cell's downstream face along the outflow direction.
     real(R8), dimension(:,:,:,:), allocatable :: chi, chiO, dchi
     real(R8), dimension(:,:,:),   allocatable :: rho_s, k_s, cp_s, mdot_pg
+    ! Darcy closure (plan 07 section 3.1), field-list rows allocated only
+    ! under gas-closure = type2: p_pg the gas pressure (ghost layers, the
+    ! restart/output field), p_pgO its start-of-step copy, p_new the sweep
+    ! scratch, eta_pg / eta_prev the lagged equation-of-state storage
+    ! coefficient eps_pg W/(R T) of this and the previous step, eta_st /
+    ! eta_stO the coefficient of the STORED gas at the end / start of the step
+    ! (G = eta_st p_pg, a state of the scheme), gam_pg the lagged
+    ! face-coefficient tensor Gamma = rho_g K / mu (9 components), pi_pg the
+    ! gas production used by the solve, u_pg the cell gas velocity written for
+    ! output, T_prev the temperature at step n-1 from which the solve
+    ! extrapolates its production rate to mid-step. eta_prev, eta_st and
+    ! T_prev are restarted.
+    real(R8), dimension(:,:,:),   allocatable :: p_pg, p_pgO, p_new, eta_pg, eta_prev, eta_st, eta_stO, pi_pg, T_prev
+    real(R8), dimension(:,:,:,:), allocatable :: u_pg, gam_pg
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
@@ -70,6 +85,11 @@ module FUSS_Advanced_Types_m
     ! whatever the heap held. -finit-derived does not reach allocatable arrays
     ! of this type, so the init sweep cannot catch that class without this.
     real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0  ! BC viscous wall specifications
+    ! Darcy closure (plan 07 sections 3.1, 3.4): pw the Dirichlet gas pressure
+    ! of an open face (the optional 4th real of a 303/305 line, else p-wall),
+    ! mdot_pg / edot_pg the gas mass [kg/m2/s] and enthalpy [W/m2] fluxes
+    ! leaving through the face (outward positive), set by the solver.
+    real(R8) :: pw = 0d0, mdot_pg = 0d0, edot_pg = 0d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

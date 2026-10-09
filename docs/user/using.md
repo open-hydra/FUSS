@@ -205,7 +205,7 @@ dtime = 1.0e-1
 | Parameter | Description |
 |-----------|-------------|
 | `index-position` | `block i j k` — cell index of the probe location |
-| `variables` | Variables to record (currently `T`) |
+| `variables` | Variables to record: `T`, and `p_pg` (the gas pressure) under the type-2 gas closure; any other name is refused at setup |
 | `dtime` | Output time interval (s) |
 | `diter` | Output iteration interval |
 

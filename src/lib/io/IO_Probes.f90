@@ -143,7 +143,20 @@ contains
     allocate(probe%variables(1:probe%nvar))
 
     do v = 1, probe%nvar
-      if (probe%names(v)=='T') probe%variables(v)%p => probe%P
+      select case ( trim(probe%names(v)) )
+        case ('T')
+          probe%variables(v)%p => probe%P
+        case ('p_pg')
+          ! the gas pressure of the type-2 closure (plan 07)
+          if ( .not. allocated(domain%blk(b)%p_pg) ) then
+            write(*,'(A)') ' [ERROR] probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2'
+            error stop 1
+          endif
+          probe%variables(v)%p => domain%blk(b)%p_pg(i,j,k)
+        case default
+          write(*,'(A)') ' [ERROR] unknown probe variable "'//trim(probe%names(v))//'" (known: T, p_pg)'
+          error stop 1
+      end select
     enddo
 
   end subroutine Assign_Variables

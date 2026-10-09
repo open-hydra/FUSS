@@ -102,7 +102,7 @@ contains
   end subroutine Setup_Input_Solution
 
   subroutine Read_vtk_tec ( IOfield )
-    use FUSS_Config_Types_m, only: obj_sim_param, obj_io, obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_sim_param, obj_io, obj_pyrolysis, obj_darcy
     use FUSS_Parameters_m
     use FUSS_Mod_MPI, only: mpi_is_root
     use Lib_ORION_data
@@ -113,7 +113,7 @@ contains
     type(ORION_data), intent(inout) :: IOfield
     ! Local
     type(ORION_data) :: IOinit, IOsource
-    integer          :: error_init, error_source, error_dim, b, nblocks, nchi, nv, r
+    integer          :: error_init, error_source, error_dim, b, nblocks, nchi, nv, r, ndar
     character(clen)  :: format(2)
     character(len=32) :: expected
 
@@ -149,14 +149,17 @@ contains
       return
     endif
 
-    ! Allocate IOfield (plus one slot per reaction when pyrolysis is on)
+    ! Allocate IOfield (plus one slot per reaction when pyrolysis is on, plus
+    ! the four Darcy state slots under type 2: p_pg, T_prev, eta_prev, eta_st)
     nchi = 0
     if ( obj_pyrolysis%enabled ) nchi = obj_pyrolysis%nsub
+    ndar = 0
+    if ( obj_darcy%enabled ) ndar = 4
     nblocks = size(IOinit%block)
     allocate(IOfield%block(1:nblocks))
     do b = 1, nblocks
       allocate(IOfield%block(b)%mesh(1:3,0:IOinit%block(b)%Ni,0:IOinit%block(b)%Nj,0:IOinit%block(b)%Nk))
-      allocate(IOfield%block(b)%vars(1:3+nchi,1:IOinit%block(b)%Ni,1:IOinit%block(b)%Nj,1:IOinit%block(b)%Nk))
+      allocate(IOfield%block(b)%vars(1:3+nchi+ndar,1:IOinit%block(b)%Ni,1:IOinit%block(b)%Nj,1:IOinit%block(b)%Nk))
     enddo
 
     ! Check dimensions IOinit and IOsource are compatible
@@ -203,13 +206,15 @@ contains
       ! and mdot_pg (nv = 9 + nsub) -- the names are checked when the reader
       ! kept them; a legacy restart file (nv = 7) resets to virgin with a
       ! notice; anything else is refused, because a file written with a
-      ! different pyrolysis.dat must not be read positionally.
+      ! different pyrolysis.dat must not be read positionally. A type-2 file
+      ! (plan 07 section 3.8) adds p_pg, u_pg_1..3, eta_prev, eta_st and T_prev
+      ! (nv = 16 + nsub).
       if ( obj_pyrolysis%enabled ) then
         if ( obj_sim_param%newrun ) then
           IOfield%block(b)%vars(4:3+nchi,:,:,:) = 0.0d0
         else
           nv = size(IOinit%block(b)%vars, 1)
-          if ( nv == 9 + nchi ) then
+          if ( nv == 9 + nchi .or. nv == 16 + nchi ) then
             do r = 1, nchi
               if ( allocated(IOinit%varnames) ) then
                 if ( size(IOinit%varnames) >= 10 + r ) then
@@ -228,10 +233,44 @@ contains
             if ( mpi_is_root .and. b == 1 ) &
               write(*,'(A)') ' [NOTICE] restart file carries no chi_* columns: material state reset to virgin'
           else
-            write(obj_io%error_message,'(A,I0,A,I0)') "[ERROR] pyrolysis restart: "//trim(obj_io%nameinit)//" has ", nv, &
-              " variables, expected 7 or ", 9 + nchi
+            write(obj_io%error_message,'(A,I0,A,I0,A,I0)') "[ERROR] pyrolysis restart: "//trim(obj_io%nameinit)//" has ", nv, &
+              " variables, expected 7, ", 9 + nchi, " or ", 16 + nchi
             return
           endif
+        endif
+      endif
+
+      ! Darcy state (plan 07 section 3.8): on a restart from a type-2 file the
+      ! columns p_pg (10 + nsub), eta_prev (14 + nsub), eta_st (15 + nsub) and
+      ! T_prev (16 + nsub), names checked; a new run, or a type-1 / legacy
+      ! file, starts from p-init, T_prev = T and the equation of state
+      ! (negative eta sentinels, resolved by Darcy_Init_Cells).
+      if ( obj_darcy%enabled ) then
+        nv = size(IOinit%block(b)%vars, 1)
+        if ( .not. obj_sim_param%newrun .and. nv == 16 + nchi ) then
+          if ( allocated(IOinit%varnames) ) then
+            if ( size(IOinit%varnames) >= 19 + nchi ) then
+              if ( trim(adjustl(IOinit%varnames(13+nchi))) /= 'p_pg'     .or. &
+                   trim(adjustl(IOinit%varnames(17+nchi))) /= 'eta_prev' .or. &
+                   trim(adjustl(IOinit%varnames(18+nchi))) /= 'eta_st'   .or. &
+                   trim(adjustl(IOinit%varnames(19+nchi))) /= 'T_prev' ) then
+                write(obj_io%error_message,'(A)') "[ERROR] Darcy restart: "//trim(obj_io%nameinit)// &
+                  " does not carry p_pg, eta_prev, eta_st, T_prev at the type-2 column positions"
+                return
+              endif
+            endif
+          endif
+          IOfield%block(b)%vars(4+nchi,:,:,:) = IOinit%block(b)%vars(10+nchi,:,:,:)
+          IOfield%block(b)%vars(5+nchi,:,:,:) = IOinit%block(b)%vars(16+nchi,:,:,:)
+          IOfield%block(b)%vars(6+nchi,:,:,:) = IOinit%block(b)%vars(14+nchi,:,:,:)
+          IOfield%block(b)%vars(7+nchi,:,:,:) = IOinit%block(b)%vars(15+nchi,:,:,:)
+        else
+          IOfield%block(b)%vars(4+nchi,:,:,:) = obj_darcy%p_init
+          IOfield%block(b)%vars(5+nchi,:,:,:) = IOfield%block(b)%vars(1,:,:,:)
+          IOfield%block(b)%vars(6+nchi,:,:,:) = -1.0d0
+          IOfield%block(b)%vars(7+nchi,:,:,:) = -1.0d0
+          if ( .not. obj_sim_param%newrun .and. mpi_is_root .and. b == 1 ) &
+            write(*,'(A)') ' [NOTICE] restart file carries no Darcy state: gas pressure reset to p-init, gas storage to the equation of state'
         endif
       endif
     enddo
@@ -324,7 +363,7 @@ contains
 
   subroutine Write_vtk_tec ( domain, IOfield, file )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion, obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion, obj_pyrolysis, obj_darcy
     use FUSS_Global_m
     use FUSS_Parameters_m
     use IR_Precision
@@ -332,7 +371,7 @@ contains
     use Lib_VTK
     use Lib_Tecplot
     use FUSS_Lib_Solid
-    use FUSS_Lib_Pyrolysis,  only: Solid_State, Gas_State, Energy_Of
+    use FUSS_Lib_Pyrolysis,  only: Solid_State, Gas_State, Energy_Of, Energy_Of2
     use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
     use FUSS_Mod_Pyrolysis,  only: Write_Energy_Budget
     use FUSS_Mod_MPI, only: mpi_is_root
@@ -346,7 +385,7 @@ contains
     character(len=llen) :: localpath_vtk
     integer             :: E_IO, b, i, j, k, m, fl, c, col
     real(8)             :: kappa, rho, cp, h
-    real(8)             :: rho_s, cp_s, k_s, tau, eps_pg, W, h_pg, mu
+    real(8)             :: rho_s, cp_s, k_s, tau, eps_pg, W, h_pg, mu, G
     type(field_entry_t) :: e
 
     ! Gather P from all ranks to root (collective — all ranks must call)
@@ -384,6 +423,20 @@ contains
         if ( obj_pyrolysis%enabled ) then
           ! plan 06 section 3.6: k_s, total density rho_s + eps_pg rho_pg, cp_s,
           ! the integrated energy E in the "h" slot, then the list's output rows
+          ! type 2 (plan 07): the "rho" slot carries rho_s + G (the stored gas)
+          ! and "h" the type-2 E with the cell's p_pg and G = eta_st p_pg
+          if ( obj_darcy%enabled ) then
+            do k = 1, IOfield%block(b)%Nk ; do j = 1, IOfield%block(b)%Nj ; do i = 1, IOfield%block(b)%Ni
+              m = nint( domain%blk(b)%matID(i,j,k) )
+              G = domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k)
+              call Solid_State( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), rho_s, cp_s, k_s, tau, eps_pg )
+              IOfield%block(b)%vars(4,i,j,k) = k_s
+              IOfield%block(b)%vars(5,i,j,k) = rho_s + G
+              IOfield%block(b)%vars(6,i,j,k) = cp_s
+              IOfield%block(b)%vars(7,i,j,k) = Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), &
+                                                           domain%blk(b)%p_pg(i,j,k), G )
+            enddo; enddo; enddo
+          else
           do k = 1, IOfield%block(b)%Nk ; do j = 1, IOfield%block(b)%Nj ; do i = 1, IOfield%block(b)%Ni
             m = nint( domain%blk(b)%matID(i,j,k) )
             call Solid_State( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), rho_s, cp_s, k_s, tau, eps_pg )
@@ -393,6 +446,7 @@ contains
             IOfield%block(b)%vars(6,i,j,k) = cp_s
             IOfield%block(b)%vars(7,i,j,k) = Energy_Of( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), obj_pyrolysis%p_gas )
           enddo; enddo; enddo
+          endif
           col = 7
           do fl = 1, Field_List_Count()
             e = Field_List_Get( fl )
@@ -409,6 +463,33 @@ contains
               case ('mdot_pg')
                 col = col + 1
                 IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%mdot_pg(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              ! Darcy closure (plan 07 section 3.8)
+              case ('p_pg')
+                col = col + 1
+                IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%p_pg(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              case ('u_pg')
+                do c = 1, e%ncomp
+                  col = col + 1
+                  IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%u_pg(c,1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+                enddo
+              case ('eta_prev')
+                col = col + 1
+                IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%eta_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              case ('eta_st')
+                col = col + 1
+                IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%eta_st(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+              case ('T_prev')
+                ! The temperature one step before this file's T: TO at the end of a
+                ! step. The in-memory T_prev is one level older there (the T^(n-1) of
+                ! the step just taken), and a restart's first step keeps the file's
+                ! value as its T^(n-1) (Copy_State skips iter 1), so the file carries
+                ! TO. Before the first step TO is unset: the setup value is written.
+                col = col + 1
+                if ( domain%iter >= 1 ) then
+                  IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%TO(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+                else
+                  IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%T_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
+                endif
               case default
                 write(*,'(A)') ' [ERROR] Write_vtk_tec: no handler for the output field '//trim(e%name)
                 error stop 1

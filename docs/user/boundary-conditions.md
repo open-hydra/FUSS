@@ -188,9 +188,9 @@ The format and presence of the data line depend on the numeric `type` code. Inte
 | `300` | Symmetry plane | — *(no data line)* |
 | `301` | Prescribed heat flux | `qw` or filename for time-varying $q_w(t)$ |
 | `302` | Prescribed temperature | `Tw` or filename for time-varying $T_w(t)$ |
-| `303` | Convection (+ radiative pre-load) | `hconv, qrad, Tref` |
+| `303` | Convection (+ radiative pre-load) | `hconv, qrad, Tref` — optionally a fourth value `p_w` [Pa], the gas pressure of the face under the type-2 gas closure ([Input File](input.md#type-2-gas-closure-darcy)); ignored otherwise, must be > 0 when given |
 | `304` | Pure radiation | `eps, Tref` |
-| `305` | Convection + radiation | `hconv, eps, Tref` |
+| `305` | Convection + radiation | `hconv, eps, Tref` — optionally a fourth value `p_w` [Pa], as for `303` |
 
 ---
 

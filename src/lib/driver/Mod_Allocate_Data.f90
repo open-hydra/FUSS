@@ -9,9 +9,10 @@ contains
 
   subroutine Setup_Data_Structure ( domain, IOfield )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_io, obj_pyrolysis, obj_darcy
     use FUSS_Global_m
     use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Init_Cells
+    use FUSS_Mod_Darcy,      only: Darcy_Init_Cells
     use Lib_ORION_data
     
     implicit none
@@ -63,10 +64,28 @@ contains
           = IOfield%block(b)%vars(3+r, 1:,1:,1:)
         enddo
       endif
+      ! Darcy state (plan 07 section 3.8), as Read_vtk_tec left it: vars(4+nsub)
+      ! p_pg (p-init on a new run), vars(5+nsub) T_prev (T when the file
+      ! carries none), vars(6+nsub) eta_prev and vars(7+nsub) eta_st (negative
+      ! sentinels when absent: Darcy_Init_Cells takes the equation of state).
+      if ( obj_darcy%enabled ) then
+        domain%blk(b)%p_pg(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(4+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%T_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(5+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%eta_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(6+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%eta_st(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(7+obj_pyrolysis%nsub, 1:,1:,1:)
+      endif
       domain%time = obj_io%IOtime
 
     enddo
 
+    ! Darcy state of the initial field (plan 07 section 3.3): the equation-of-
+    ! state coefficient, the stored gas and the history. BEFORE the pyrolysis
+    ! caches, whose field-list round trip (T -> E -> T) reads the stored gas.
+    if ( obj_darcy%enabled ) call Darcy_Init_Cells ( domain )
     ! Property caches from (T, chi), the initial-condition range check and the
     ! field-list round-trip self-check (plan 06 section 3.1).
     if ( obj_pyrolysis%enabled ) call Pyrolysis_Init_Cells ( domain )
@@ -182,6 +201,40 @@ contains
         case ('mdot_pg')
           allocate( blk % mdot_pg ( 1:ni, 1:nj, 1:nk ) )
           blk % mdot_pg = 0.0_R8
+        ! Darcy closure (plan 07 section 3.1)
+        case ('p_pg')
+          allocate( blk % p_pg ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+          blk % p_pg = 0.0_R8
+        case ('p_pgO')
+          allocate( blk % p_pgO ( 1:ni, 1:nj, 1:nk ) )
+          blk % p_pgO = 0.0_R8
+        case ('u_pg')
+          allocate( blk % u_pg ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % u_pg = 0.0_R8
+        case ('p_new')
+          allocate( blk % p_new ( 1:ni, 1:nj, 1:nk ) )
+          blk % p_new = 0.0_R8
+        case ('eta_pg')
+          allocate( blk % eta_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_pg = 0.0_R8
+        case ('eta_prev')
+          allocate( blk % eta_prev ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_prev = 0.0_R8
+        case ('eta_st')
+          allocate( blk % eta_st ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_st = 0.0_R8
+        case ('eta_stO')
+          allocate( blk % eta_stO ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_stO = 0.0_R8
+        case ('gam_pg')
+          allocate( blk % gam_pg ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % gam_pg = 0.0_R8
+        case ('pi_pg')
+          allocate( blk % pi_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % pi_pg = 0.0_R8
+        case ('T_prev')
+          allocate( blk % T_prev ( 1:ni, 1:nj, 1:nk ) )
+          blk % T_prev = 0.0_R8
         case default
           write(*,'(A)') ' [ERROR] Allocate_Block: no handler for the managed field '//trim(e%name)
           error stop 1
@@ -242,6 +295,17 @@ contains
           case ('k_s')    ; if (allocated(domain%blk(b)%k_s))     deallocate(domain%blk(b)%k_s)
           case ('cp_s')   ; if (allocated(domain%blk(b)%cp_s))    deallocate(domain%blk(b)%cp_s)
           case ('mdot_pg'); if (allocated(domain%blk(b)%mdot_pg)) deallocate(domain%blk(b)%mdot_pg)
+          case ('p_pg')   ; if (allocated(domain%blk(b)%p_pg))    deallocate(domain%blk(b)%p_pg)
+          case ('p_pgO')  ; if (allocated(domain%blk(b)%p_pgO))   deallocate(domain%blk(b)%p_pgO)
+          case ('u_pg')   ; if (allocated(domain%blk(b)%u_pg))    deallocate(domain%blk(b)%u_pg)
+          case ('p_new')  ; if (allocated(domain%blk(b)%p_new))   deallocate(domain%blk(b)%p_new)
+          case ('eta_pg') ; if (allocated(domain%blk(b)%eta_pg))  deallocate(domain%blk(b)%eta_pg)
+          case ('eta_prev'); if (allocated(domain%blk(b)%eta_prev)) deallocate(domain%blk(b)%eta_prev)
+          case ('eta_st') ; if (allocated(domain%blk(b)%eta_st))  deallocate(domain%blk(b)%eta_st)
+          case ('eta_stO'); if (allocated(domain%blk(b)%eta_stO)) deallocate(domain%blk(b)%eta_stO)
+          case ('gam_pg') ; if (allocated(domain%blk(b)%gam_pg))  deallocate(domain%blk(b)%gam_pg)
+          case ('pi_pg')  ; if (allocated(domain%blk(b)%pi_pg))   deallocate(domain%blk(b)%pi_pg)
+          case ('T_prev') ; if (allocated(domain%blk(b)%T_prev))  deallocate(domain%blk(b)%T_prev)
           case default
             write(*,'(A)') ' [ERROR] deallocate_remote_computation_data: no handler for the managed field '//trim(e%name)
             error stop 1

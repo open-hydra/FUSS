@@ -130,7 +130,7 @@ contains
 
   subroutine Read_BCfile ( bc, n_bf, level )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_io_bc
+    use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_darcy
     use FUSS_Global_m
     use IR_Precision
     implicit none
@@ -141,6 +141,7 @@ contains
     integer :: cc, i, s
     integer :: unitfile, ios, cios
     character(len=32) :: BCfile
+    character(len=256) :: rec
 
     cios = 0
 
@@ -178,6 +179,10 @@ contains
       ! n_bf update
       n_bf( bc(i) % b, bc(i) % f ) = n_bf( bc(i) % b, bc(i) % f ) + 1
 
+      ! Open-face gas pressure of plan 07 (read only under type 2): p-wall
+      ! unless a 303/305 value line carries its own fourth real below.
+      bc(i)%pw = obj_darcy%p_wall
+
       ! Second line is BC type-dependent
       select case( bc(i)%type )
         case(101)
@@ -213,8 +218,23 @@ contains
         case(303)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios)  bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
-        
+          ! `hconv, qrad, Tref[, p_w]` (plan 07 section 4.3): the record is
+          ! read into a buffer and parsed for four values first; a three-value
+          ! line fails that read (end of the internal record) and is parsed
+          ! again for three, exactly as before, so no existing case moves.
+          ! A null fourth item (a trailing comma) leaves the -huge sentinel (a
+          ! sentinel a user could type, such as -1, would be read as "not given").
+          read(unitfile,'(A)',iostat=ios) rec
+          bc(i)%pw = -huge(1.0d0)
+          read(rec,*,iostat=cios) bc(i)%hconv, bc(i)%qrad, bc(i)%Tref, bc(i)%pw
+          if ( cios /= 0 .or. bc(i)%pw == -huge(1.0d0) ) then
+            read(rec,*,iostat=ios) bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
+            bc(i)%pw = obj_darcy%p_wall
+          elseif ( bc(i)%pw <= 0.0d0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 303 line (p_w) must be > 0'
+            error stop 1
+          endif
+
         case(304)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
@@ -223,7 +243,16 @@ contains
         case(305)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios)  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+          read(unitfile,'(A)',iostat=ios) rec
+          bc(i)%pw = -huge(1.0d0)
+          read(rec,*,iostat=cios) bc(i)%hconv, bc(i)%eps, bc(i)%Tref, bc(i)%pw
+          if ( cios /= 0 .or. bc(i)%pw == -huge(1.0d0) ) then
+            read(rec,*,iostat=ios) bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+            bc(i)%pw = obj_darcy%p_wall
+          elseif ( bc(i)%pw <= 0.0d0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 305 line (p_w) must be > 0'
+            error stop 1
+          endif
 
         case(102)
           if (level == 1) nchimera = nchimera + 1

@@ -15,7 +15,9 @@ contains
     use FUSS_Mod_Metrics,    only: Update_Mesh
     use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE
     use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell, Fill_Ghost_chi
-    use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Stage, Pyrolysis_Residual
+    use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Stage, Pyrolysis_Residual, Pyrolysis_Budget_Rewind
+    use FUSS_Mod_Darcy,      only: Solve_Pressure, Darcy_Residual, Darcy_First_Step_Pending, &
+                                   Darcy_First_Step_History, Darcy_Restore_State, Darcy_Mass_Correction
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
@@ -86,6 +88,33 @@ contains
 
     call Copy_State ( domain(level) )
 
+    ! Darcy pressure of this step (plan 07 section 3.3): solved ONCE from the
+    ! start-of-step state, before the RK loop; every stage then reads
+    ! p^(n+1) as frozen data (PATO solves its mass model once per step and
+    ! feeds the energy model explicitly). A new run's first step is run
+    ! twice: its mid-step extrapolations (production rate, storage
+    ! coefficient) have no history on the first pass; the second pass takes
+    ! it from the first pass's end state. The stage loop below is plan 06's,
+    ! untouched; the first pass repeats it here.
+    if ( obj_darcy%enabled ) then
+      if ( Darcy_First_Step_Pending() ) then
+        call Solve_Pressure ( domain(level) )
+        do i_rk = 1, obj_time_scheme%n_RK
+          call Fill_Ghost_Cell ( domain(level) )
+          call Fill_Ghost_chi ( domain(level) )
+          call Fluxes ( domain(level) )
+          call BC_Fluxes ( domain(level) )
+          call Pyrolysis_Stage ( domain(level), i_rk )
+          call External_Function ( domain(level) )
+          call RK_Newstate ( domain(level), i_rk )
+        enddo
+        call Darcy_First_Step_History ( domain(level) )
+        call Darcy_Restore_State ( domain(level) )
+        call Pyrolysis_Budget_Rewind ()
+      endif
+      call Solve_Pressure ( domain(level) )
+    endif
+
     rk: do i_rk = 1, obj_time_scheme%n_RK
         
       call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
@@ -99,6 +128,10 @@ contains
       call RK_Newstate ( domain(level), i_rk )             ! State update
 
     enddo rk
+
+    ! Gas-mass closure of the type-2 step (plan 07): the realised minus the
+    ! predicted production goes into the stored gas, T re-inverted at constant E
+    if ( obj_darcy%enabled ) call Darcy_Mass_Correction ( domain(level) )
     !$omp end parallel
 
     ! Save residuals
@@ -116,6 +149,10 @@ contains
       ! With pyrolysis the reaction state is part of the residual (plan 06):
       ! a constant temperature with reactions still advancing is not converged.
       if ( obj_pyrolysis%enabled ) call Pyrolysis_Residual ( domain(level), obj_sim_param%residuotot )
+      ! ... and so is the gas pressure under type 2 (plan 07): a stationary
+      ! temperature with p still relaxing (the quasi-steady Picard steps of
+      ! gates 4.2/4.3) is not converged either.
+      if ( obj_darcy%enabled ) call Darcy_Residual ( domain(level), obj_sim_param%residuotot )
       call timer_sync_begin()
       call mpi_reduce_sum_r8(obj_sim_param%residuotot)
       call timer_sync_end()
@@ -184,12 +221,28 @@ contains
 
   subroutine Copy_State ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: i, j, k, b
+
+    ! T^(n-1) of the Darcy closure (plan 07), taken from TO before it is
+    ! overwritten -- not on the first step of a run, where TO is unset and
+    ! T_prev keeps what setup gave it (T on a new run, the file's on a restart)
+    if ( obj_darcy%enabled .and. domain % iter > 1 ) then
+      do b = 1, domain % nb
+        if (.not. is_local_block(b)) cycle
+        !$omp do collapse(3)
+        do k = 1, domain % blk(b) % dim(3)
+        do j = 1, domain % blk(b) % dim(2)
+        do i = 1, domain % blk(b) % dim(1)
+          domain % blk(b) % T_prev (i,j,k) = domain % blk(b) % TO (i,j,k)
+        enddo; enddo; enddo
+        !$omp end do
+      enddo
+    endif
 
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
@@ -213,6 +266,21 @@ contains
         do j = 1, domain % blk(b) % dim(2)
         do i = 1, domain % blk(b) % dim(1)
           domain % blk(b) % chiO (:,i,j,k) = domain % blk(b) % chi (:,i,j,k)
+        enddo; enddo; enddo
+        !$omp end do
+      enddo
+    endif
+
+    ! Start-of-step gas pressure p^n and stored-gas coefficient (plan 07 section 3.3)
+    if ( obj_darcy%enabled ) then
+      do b = 1, domain % nb
+        if (.not. is_local_block(b)) cycle
+        !$omp do collapse(3)
+        do k = 1, domain % blk(b) % dim(3)
+        do j = 1, domain % blk(b) % dim(2)
+        do i = 1, domain % blk(b) % dim(1)
+          domain % blk(b) % p_pgO (i,j,k)   = domain % blk(b) % p_pg (i,j,k)
+          domain % blk(b) % eta_stO (i,j,k) = domain % blk(b) % eta_st (i,j,k)
         enddo; enddo; enddo
         !$omp end do
       enddo

@@ -35,7 +35,7 @@ module FUSS_Field_List_m
   end interface
 
   type :: field_entry_t
-    character(len=32) :: name      = ''      ! 'chi', 'chiO', 'dchi', 'rho_s', 'k_s', 'cp_s', 'mdot_pg', (07) 'p_pg'
+    character(len=32) :: name      = ''      ! 'chi', 'chiO', 'dchi', 'rho_s', 'k_s', 'cp_s', 'mdot_pg'; (07) 'p_pg', 'p_pgO', 'u_pg', 'p_new', 'eta_pg', 'eta_prev', 'eta_st', 'eta_stO', 'gam_pg', 'pi_pg', 'T_prev'
     character(len=4)  :: kind      = 'cell'  ! 'cell' | 'node'
     integer           :: ncomp     = 1       ! 1, or nsub for chi/chiO/dchi
     logical           :: has_ghost = .false. ! bounds 1-gc:n+gc when .true., 1:n otherwise
@@ -54,14 +54,15 @@ module FUSS_Field_List_m
 contains
 
   !> Build the list. Legacy rows always; the pyrolysis rows only when the
-  !> feature is on (nsub = number of reactions over all materials).
-  subroutine Field_List_Init ( nsub, with_pyrolysis )
+  !> feature is on (nsub = number of reactions over all materials); the Darcy
+  !> rows (plan 07 section 3.1) only under gas-closure = type2.
+  subroutine Field_List_Init ( nsub, with_pyrolysis, with_darcy )
     implicit none
     integer, intent(in) :: nsub
-    logical, intent(in) :: with_pyrolysis
+    logical, intent(in) :: with_pyrolysis, with_darcy
 
     if ( allocated(list) ) deallocate(list)
-    allocate( list(16) )
+    allocate( list(32) )
     nlist = 0
 
     ! Legacy rows: explicit code paths, documented here (managed = .false.).
@@ -83,6 +84,21 @@ contains
       call add( 'k_s',     1,    .false., 'none',      .false., .false., .false., .true. )  ! written into the legacy "k" slot
       call add( 'cp_s',    1,    .false., 'none',      .false., .false., .false., .true. )  ! written into the legacy "cs" slot
       call add( 'mdot_pg', 1,    .false., 'none',      .false., .true.,  .false., .true. )
+    endif
+
+    if ( with_darcy ) then
+      ! name     ncomp  ghost    remap        restart  output   exchange managed
+      call add( 'p_pg',    1,    .true.,  'conserved', .true.,  .true.,  .true.,  .true. )   ! gas pressure [Pa]
+      call add( 'p_pgO',   1,    .false., 'none',      .false., .false., .false., .true. )   ! p at step n (restart: p^n = p_pg)
+      call add( 'u_pg',    3,    .false., 'none',      .false., .true.,  .false., .true. )   ! cell gas velocity [m/s]
+      call add( 'p_new',   1,    .false., 'none',      .false., .false., .false., .true. )   ! sweep scratch
+      call add( 'eta_pg',  1,    .false., 'none',      .false., .false., .false., .true. )   ! eta^n = eps_pg W/(R T) [kg/m3/Pa]
+      call add( 'eta_prev',1,    .false., 'none',      .true.,  .true.,  .false., .true. )   ! eta^(n-1): the extrapolation's history
+      call add( 'eta_st',  1,    .false., 'conserved', .true.,  .true.,  .true.,  .true. )   ! stored gas G = eta_st p_pg (a state)
+      call add( 'eta_stO', 1,    .false., 'none',      .false., .false., .false., .true. )   ! eta_st at step n
+      call add( 'gam_pg',  9,    .false., 'none',      .false., .false., .false., .true. )   ! Gamma^n = rho_g K/mu, row-major 3x3
+      call add( 'pi_pg',   1,    .false., 'none',      .false., .false., .false., .true. )   ! pi_tot^n of the solve [kg/m3/s]
+      call add( 'T_prev',  1,    .false., 'none',      .true.,  .true.,  .false., .true. )   ! T^(n-1) of the solve's mid-step extrapolation; the file column is T one step before T (TO)
     endif
 
   contains
