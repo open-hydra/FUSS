@@ -268,6 +268,8 @@ contains
 
       ! IO warnings
       if (index(obj_io%warning_message,'WARNING')>0) write(*,'(A)') obj_io%warning_message
+      ! Material table warnings
+      if (index(obj_table%warning_message,'WARNING')>0) write(*,'(A)') trim(obj_table%warning_message)
       ! Numerical scheme warnings
       if (index(obj_time_scheme%warning_message,'WARNING')>0) write(*,'(A)') obj_time_scheme%warning_message
       if (index(obj_irs%warning_message,'WARNING')>0) write(*,'(A)') obj_irs%warning_message

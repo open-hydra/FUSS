@@ -4,7 +4,7 @@ module FUSS_Lib_Solid
 
   implicit none
   private
-  public :: co_Kappa, co_Rho, co_Cp, co_H, co_T, co_DrhoDT, co_DcpDT
+  public :: co_Kappa, co_Rho, co_Cp, co_H, co_T
 
 contains
 
@@ -96,39 +96,5 @@ contains
     T = Tm + (h-hm)/(hp-hm)*(Tp-Tm)
   
   end subroutine co_T
-
-
-  subroutine co_DrhoDT( matID, T, drhodT )
-    implicit none
-    real(R8), intent(in)  :: T, matID
-    real(R8), intent(out) :: drhodT
-    ! Local
-    integer  :: Tm, Tp
-    real(R8) :: rhom, rhop
-    
-    Tm = int(T)
-    Tp = Tm + 1
-    rhom = obj_table%rho(matID, Tm)
-    rhop = obj_table%rho(matID, Tp)
-    drhodT = (rhop-rhom)/(Tp-Tm)
-  
-  end subroutine co_DrhoDT
-
-
-  subroutine co_DcpDT( matID, T, dcpdT )
-    implicit none
-    real(R8), intent(in)  :: T, matID
-    real(R8), intent(out) :: dcpdT
-    ! Local
-    integer  :: Tm, Tp
-    real(R8) :: cpm, cpp
-    
-    Tm = int(T)
-    Tp = Tm + 1
-    cpm = obj_table%cp(matID, Tm)
-    cpp = obj_table%cp(matID, Tp)
-    dcpdT = (cpp - cpm)/(Tp-Tm)
-
-  end subroutine co_DcpDT
 
 end module FUSS_Lib_Solid

@@ -28,6 +28,8 @@ $$
 \right]
 $$
 
+This is the `prim` form.  With `integration-variables = cons` (the default) the stages advance the volumetric enthalpy $h_i$ with the bracket alone, and $T_i$ is recovered from the $h(T)$ table after each stage; since $\mathrm{d}h/\mathrm{d}T = \rho\,c_p$ the two forms integrate the same equation (see [Governing Equations](governing-equations.md#state-vector)).
+
 The scheme is:
 
 - **Third-order accurate** in time for smooth problems

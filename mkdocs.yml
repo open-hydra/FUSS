@@ -112,6 +112,7 @@ nav:
     - 2D Steady-State Volumetric Heat Plate: vv/2D-steady-state-qvol-plate.md
     - 2D Steady-State Convective Plate: vv/2D-steady-state-convective-plate.md
     - 2D Transient Multi-Material Plate: vv/2D-transient-multimat-plate.md
+    - 2D Transient Variable-cp Plate: vv/2D-transient-variable-cp-plate.md
     - Residual Convergence Analysis: vv/residual-convergence.md
     - Parallel Scaling Analysis: vv/time-convergence.md
 

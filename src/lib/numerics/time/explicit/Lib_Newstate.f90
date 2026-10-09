@@ -243,15 +243,15 @@ contains
         real(R8), intent(inout) :: T, residual
         real(R8), intent(in)    :: matID, dt, qvol, volume
         ! Local
-        real(R8) :: rho, cp, drhodT, dcpdT
-        
+        real(R8) :: rho, cp
+
         call co_Rho(matID, T, rho)
         call co_Cp(matID, T, cp)
-        call co_DrhoDT(matID, T, drhodT)
-        call co_DcpDT(matID, T, dcpdT)
 
-        ! Residuo sulle primitive (proprietà variabili)
-        residual = ( - residual/volume + qvol) *dt / (T*cp*drhodT + rho*cp + T*rho*dcpdT)
+        ! dT = dh / (dh/dT), with h(T) = int rho cp dT the volumetric enthalpy of the conservative path
+        ! (the Energy column of properties.dat): dh/dT = rho cp, also with temperature-dependent properties.
+        ! Dividing by d(rho cp T)/dT instead, as before 2026-10-09, added T d(rho cp)/dT to the heat capacity.
+        residual = ( - residual/volume + qvol) * dt / ( rho * cp )
 
       end subroutine Compute_Prim_Residual
 

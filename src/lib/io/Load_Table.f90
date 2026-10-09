@@ -17,7 +17,8 @@ contains
     implicit none
     ! Local
     character(len=llen)  :: wmfile, propertiesfile
-    integer              :: ios, i, unitFile, n, Ti1, Ti2
+    integer              :: ios, i, unitFile, n, Ti1, Ti2, Tn, Tdev
+    real(R8)             :: cap, dev, devmax
     character(llen)      :: wholestring, args(2)
     type(ORION_data)     :: orion
 
@@ -69,6 +70,26 @@ contains
         obj_table%rho(i,Ti1:Ti2)   = orion%block(i)%vars(2,:,1,1)
         obj_table%kappa(i,Ti1:Ti2) = orion%block(i)%vars(3,:,1,1)
         obj_table%h(i,Ti1:Ti2)     = orion%block(i)%vars(4,:,1,1)
+      enddo
+
+      ! The Energy column is the volumetric enthalpy h(T) = int rho cp dT: integration-variables = cons advances
+      ! it and prim divides by its derivative rho cp, so the two integrate the same equation only if the column
+      ! is that integral (ATLAS GPB writes it so). A table with, e.g., rho*cp*T and temperature-dependent
+      ! properties is reported: its heat capacity on the cons path would be d(rho cp T)/dT, not rho cp.
+      do i = 1, obj_table%n
+        devmax = 0d0; Tdev = Ti1
+        do Tn = Ti1, Ti2 - 1
+          cap = 0.5d0 * ( obj_table%rho(i,Tn)*obj_table%cp(i,Tn) + obj_table%rho(i,Tn+1)*obj_table%cp(i,Tn+1) )
+          dev = abs( obj_table%h(i,Tn+1) - obj_table%h(i,Tn) - cap ) / cap
+          if ( dev > devmax ) then
+            devmax = dev; Tdev = Tn
+          endif
+        enddo
+        if ( devmax > 1d-2 ) then
+          write(obj_table%warning_message,'(A,A,A,F0.1,A,I0,A)') '[WARNING] properties.dat, material ', &
+            trim(obj_table%name(i)), ': the Energy column differs from int rho cp dT (dh/dT off rho*cp by ', &
+            100d0*devmax, ' % at ', Tdev, ' K); integration-variables = cons uses it as given'
+        endif
       enddo
     endif
 

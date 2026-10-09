@@ -43,13 +43,21 @@ Convergence is monitored through the residual of this equation.  The run termina
 
 ## Finite Volume Integral Form
 
-Integrating the transient heat equation over a cell $\Omega_i$ and applying the divergence theorem gives
+In conservative form the stored quantity is the volumetric enthalpy
 
 $$
-\frac{\mathrm{d}}{\mathrm{d}t}\!\int_{\Omega_i}\!\rho(T)\,c_p(T)\,T\,\mathrm{d}V
+h(T) = \int^{T}\!\rho(T')\,c_p(T')\,\mathrm{d}T', \qquad \frac{\mathrm{d}h}{\mathrm{d}T} = \rho(T)\,c_p(T),
+$$
+
+the **Energy** column of `properties.dat` (see [Material Properties](thermo.md)), so that $\partial h/\partial t = \rho\,c_p\,\partial T/\partial t$ also with temperature-dependent properties.  Integrating over a cell $\Omega_i$ and applying the divergence theorem gives
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\!\int_{\Omega_i}\!h(T)\,\mathrm{d}V
 = \oint_{\partial\Omega_i}\! k(T)\,\nabla T\!\cdot\!\hat{\mathbf{n}}\,\mathrm{d}A
 \;+\;\dot{q}_\text{vol}\,V_i
 $$
+
+Note that $h$ is not $\rho\,c_p\,T$ unless the properties are constant: with $\rho\,c_p$ varying, $\mathrm{d}(\rho\,c_p\,T)/\mathrm{d}T = \rho\,c_p + T\,\mathrm{d}(\rho\,c_p)/\mathrm{d}T$ would add a spurious term to the heat capacity.
 
 Approximating all integrals with midpoint quadrature, and evaluating material properties at the cell-centre temperature $T_i$, yields the **semi-discrete update**
 
@@ -71,7 +79,14 @@ $$
 \mathbf{P} = [T]
 $$
 
-Unlike CFD solvers, there is no velocity, pressure, or species field.  The integration variable is always temperature (selected via `integration-variables = prim` in the input file).
+Unlike CFD solvers, there is no velocity, pressure, or species field.  The key `integration-variables` selects what the Runge–Kutta stages advance; both options integrate the same equation:
+
+| `integration-variables` | Advanced quantity | Update of a stage |
+|---|---|---|
+| `cons` (default) | volumetric enthalpy $h_i = h(T_i)$ | $h_i$ by $\Delta t\,[\tfrac{1}{V_i}\sum_f (k_f\nabla T\cdot\hat{\mathbf n})_f A_f + \dot q_{\text{vol},i}]$, then $T_i$ by inverting the $h(T)$ table |
+| `prim` | temperature $T_i$ | the same increment divided by $\mathrm{d}h/\mathrm{d}T = \rho(T_i)\,c_p(T_i)$ |
+
+The two agree as long as the Energy column is the integral of $\rho\,c_p$, as ATLAS GPB writes it; FUSS checks the table when it loads it and warns when $\mathrm{d}h/\mathrm{d}T$ differs from $\rho\,c_p$ by more than 1 %.  Before 2026-10-09 the `prim` update divided by $\mathrm{d}(\rho\,c_p\,T)/\mathrm{d}T$, which added $T\,\mathrm{d}(\rho\,c_p)/\mathrm{d}T$ to the heat capacity of temperature-dependent materials (constant properties were not affected; see the [variable-$c_p$ plate](../vv/2D-transient-variable-cp-plate.md)).
 
 ---
 

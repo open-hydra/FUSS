@@ -101,7 +101,7 @@ $$
 
 which is the discrete approximation of $\int_{T_\text{start}}^{T} \rho\,c_p\,\mathrm{d}T'$.
 
-This column is used by the `co_H` and `co_T` routines to convert between temperature and stored energy — a path that arises when the integration variable is switched to conservative (energy) form.  For constant properties the formula reduces to $h(T) = \rho\,c_p\,T$, as seen in the single-material test cases:
+This column is used by the `co_H` and `co_T` routines to convert between temperature and stored energy: with `integration-variables = cons` (the default) every Runge–Kutta stage advances $h$ and recovers $T$ by inverting the table; with `prim` the stage advances $T$ dividing by $\mathrm{d}h/\mathrm{d}T = \rho\,c_p$, the same equation (see [Governing Equations](governing-equations.md#state-vector)).  When it loads the table FUSS compares the increments of the column with $\rho\,c_p$ (the mean of two consecutive rows) and warns if they differ by more than 1 % anywhere: a column holding $\rho\,c_p\,T$ for a temperature-dependent material would give the conservative path the heat capacity $\rho\,c_p + T\,\mathrm{d}(\rho\,c_p)/\mathrm{d}T$.  For constant properties the formula reduces to $h(T) = \rho\,c_p\,T$, as seen in the single-material test cases:
 
 $$
 h = 7850\;\text{kg/m}^3 \times 460\;\text{J/(kg·K)} \times 1\;\text{K} = 3\,611\,000\;\text{J/m}^3
@@ -131,7 +131,7 @@ k_arr   = k_func(T_arr)
 rho_arr = rho_func(T_arr)
 cp_arr  = cp_func(T_arr)
 
-# Cumulative volumetric enthalpy (trapezoid rule, ΔT = 1 K)
+# Cumulative volumetric enthalpy (sum of rho*cp over 1 K steps)
 h_arr = np.cumsum(rho_arr * cp_arr * 1.0)
 
 with open("INPUT/properties.dat", "w") as f:
