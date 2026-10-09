@@ -252,7 +252,8 @@ def main():
     print(sep)
     print()
 
-    if error_pct < 1.0:
+    passed = error_pct < 1.0
+    if passed:
         print("  Result: PASS  (relative error < 1 %)")
     else:
         print("  Result: FAIL  (relative error >= 1 %)")
@@ -260,6 +261,7 @@ def main():
     print()
     save_colormap(x_cc, y_cc, T_2d, (TARGET_X, TARGET_Y), SVG_OUT)
     print()
+    sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":

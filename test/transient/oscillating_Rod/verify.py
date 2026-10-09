@@ -143,7 +143,8 @@ def main():
     print(sep)
     print()
 
-    if error_pct < 1.0:
+    passed = error_pct < 1.0
+    if passed:
         print("  Result: PASS  (relative error < 1 %)")
     else:
         print("  Result: FAIL  (relative error >= 1 %)")
@@ -153,6 +154,7 @@ def main():
     save_bc_plot(t_tw, T_tw, SVG_BC)
     save_probe_plot(t_common, T_mean, T1, T2, REFERENCE_DT, SVG_PROBE)
     print()
+    sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":

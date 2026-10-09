@@ -191,12 +191,13 @@ def main():
     # Check all target files exist
     missing = []
     for fname, _ in TARGET_FILES:
-        fp = os.path.join(BASE_DIR, "SOLUTION", fname)
+        fp = os.path.join(BASE_DIR, "OUTPUT", fname)
         if not os.path.isfile(fp):
             missing.append(fp)
     if missing:
         for p in missing:
             print(f"ERROR: file not found – {p}")
+        print("Run ./FUSS.sh solve first.")
         sys.exit(1)
 
     sep = "-" * 72
@@ -215,7 +216,7 @@ def main():
     l2_errors     = []
 
     for fname, t_nominal in TARGET_FILES:
-        fp = os.path.join(BASE_DIR, "SOLUTION", fname)
+        fp = os.path.join(BASE_DIR, "OUTPUT", fname)
         sol_time, y_cc, T_fuss = parse_block2_profile(fp)
 
         # Evaluate analytical solution at the same y positions
@@ -240,7 +241,8 @@ def main():
     print(sep)
     print()
 
-    if max_linf < 0.02:
+    passed = max_linf < 0.02
+    if passed:
         print(f"  Result: PASS  (max L-inf error < 2 %)")
     else:
         print(f"  Result: FAIL  (max L-inf error >= 2 % )")
@@ -249,6 +251,7 @@ def main():
 
     save_comparison_plot(results, SVG_OUT)
     print()
+    sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":

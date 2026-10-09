@@ -126,6 +126,7 @@ def main():
     fig.tight_layout()
     fig.savefig(SVG_OUT)
     print(f"  plot: {SVG_OUT}")
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
