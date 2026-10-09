@@ -50,7 +50,9 @@ module FUSS_Advanced_Types_m
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
-    real(R8) :: qw, Tw, hconv, qrad, Tref, eps                 ! BC viscous wall specifications
+    ! Wall BC specifications. Each wall type reads only its own subset: the default 0 makes a
+    ! component a type does not set read as 0, not as whatever the allocation left there
+    real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

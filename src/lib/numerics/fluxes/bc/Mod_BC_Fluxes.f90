@@ -63,7 +63,7 @@ contains
 
             case (303) ! wall: prescribed hconv, Tref, qrad
               call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qw )
+                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad )
 
             case (304) ! wall: prescribed epsilon, Tref
               call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &

@@ -9,12 +9,12 @@ module FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
 
 contains
 
-  subroutine BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, Blk, hconv, Tref, qw, Ovar )
+  subroutine BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, Blk, hconv, Tref, qrad, Ovar )
     use FUSS_Lib_Solid
     use FUSS_Lib_Diffusive
     implicit none
     integer, intent(in)  :: Im, Jm, Km, Fm
-    real(R8), intent(in) :: hconv, Tref, qw
+    real(R8), intent(in) :: hconv, Tref, qrad   ! qrad: imposed (radiative) flux into the wall [W/m2]
     type(FUSS_block_type), intent(inout) :: Blk
     real(R8), optional, dimension(2), intent(out)  :: Ovar
     ! Local
@@ -39,10 +39,10 @@ contains
     H = 1d0/(2d0*kappa*dot_product(M(Dir,:),Normal)) + 1d0/hconv
     Hrad = hconv/(2d0*kappa*dot_product(M(Dir,:),Normal)) + 1
     ! Fluxes
-    Flux = Area * ( 1/H*(Tref - T) + 1/Hrad*qw )
+    Flux = Area * ( 1/H*(Tref - T) + 1/Hrad*qrad )
     ! Wall variables
-    T_wall = (hconv*Tref + T*2d0*kappa*dot_product(M(Dir,:),Normal) + qw) / ( hconv + 2d0*kappa*dot_product(M(Dir,:),Normal) )
-    q_wall = hconv * ( Tref - T_wall ) + qw
+    T_wall = (hconv*Tref + T*2d0*kappa*dot_product(M(Dir,:),Normal) + qrad) / ( hconv + 2d0*kappa*dot_product(M(Dir,:),Normal) )
+    q_wall = hconv * ( Tref - T_wall ) + qrad
 
     ! Residual update
     Blk % r (Im,Jm,Km) = Blk % r (Im,Jm,Km) - Flux
