@@ -163,6 +163,10 @@ After a run completes, the `OUTPUT/` directory contains:
 | `residual-history.dat` | Iteration-by-iteration residual norm |
 | `wall.tec` | Wall heat-flux and surface-temperature data |
 | `<probe>.txt` | Time-history data at probe locations |
+| `field-level<n>.*`, `wall-level<n>.*` | Multigrid runs: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
+| `field-prolongated.*`, `wall-prolongated.*` | Multigrid runs: the coarse solution prolongated to the finest level, written with every coarse-level output |
+
+The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII file (`.tec`) continues from it; ORION's binary reader (`.szplt`) does not read it back, so a restart from `tecplot binary` output counts the iterations, or the time, from 0 again.
 
 ### Input/Output Formats
 

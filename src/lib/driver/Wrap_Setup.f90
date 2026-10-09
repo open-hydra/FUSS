@@ -20,7 +20,7 @@ contains
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
     use FUSS_IO_Probes,            only: Setup_Probes
-    use FUSS_IO_Wall,              only: Initialize_Wall_File
+    use FUSS_IO_Wall,              only: Initialize_Wall_File, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_abort_all
     use FUSS_Mod_Timers,           only: timer_run_begin
@@ -98,9 +98,13 @@ contains
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
 
-    ! Initialize Wall file
-    if (mpi_is_root .and. obj_io % write_wall) &
-      call Initialize_Wall_File ( simulation%domain(1), simulation%IOfield(1)%tec%extension)
+    ! Initialize the wall files, one per multigrid level (wall, wall-level<n>)
+    allocate ( IOwall(obj_multigrid%MGL) )
+    if (mpi_is_root .and. obj_io % write_wall) then
+      do m = 1, obj_multigrid%MGL
+        call Initialize_Wall_File ( simulation%domain(m), simulation%IOfield(1)%tec%extension)
+      enddo
+    endif
 
     ! Print simulation onto the logfile/shell.
     if (mpi_is_root) call Print_Shell_Info ()
@@ -138,11 +142,12 @@ contains
             endif
             obj_sim_param%iter_general = 0
           else
+            ! The restart file is the finest level's (IOfield(1)): the coarse IOfield carry no time
             if (obj_time_scheme%time_accurate) then
-              simulation%domain(m)%time = simulation%IOfield(m)%solutiontime
+              simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
               obj_sim_param%iter_general = 0
             else
-              obj_sim_param%iter_general = int(simulation%IOfield(m)%solutiontime)
+              obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
               simulation%domain(m)%time = -1.d0
             endif
           endif
