@@ -94,28 +94,6 @@ contains
     call timer_comm_end()
     !$omp end single
 
-    ! Compute Tg(3:6) for type-1 connections where source block is local.
-    ! The four tangential neighbours of a source cell on the edge of its face are
-    ! ghost cells of Bs, and those can be filled from another rank: this loop must
-    ! follow the T unpack above, or it reads them one stage old (an MPI-only
-    ! difference at block edges and junctions of non-orthogonal meshes; on an
-    ! orthogonal mesh BC_Connection multiplies them by zero metric terms).
-    !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
-    do ii = 1, domain % n_local_bs
-      i  = domain % local_bs_idx(ii)
-      Bs = domain % bc(i) % bs
-      Is = domain % bc(i) % is
-      Js = domain % bc(i) % js
-      Ks = domain % bc(i) % ks
-      Fs = domain % bc(i) % fs
-      d11s = domain % bc(i) % d11
-      d12s = domain % bc(i) % d12
-      d21s = domain % bc(i) % d21
-      d22s = domain % bc(i) % d22
-      call Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, &
-                                      domain % blk(Bs), domain % bc(i) % Tg )
-    enddo
-
     ! Chimera donor cells are distinct, so the unpack has no write conflicts
     !$omp do schedule(static) private(ii)
     do ii = 1, ghost_sched%n_chim_recv
@@ -142,6 +120,29 @@ contains
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
       call Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg )
+    enddo
+
+    ! Compute Tg(3:6) for type-1 connections where source block is local.
+    ! The four tangential neighbours of a source cell on the edge of its face are
+    ! ghost cells of Bs, filled by the BC of the adjacent face: from another rank
+    ! (T unpack) or by a chimera BC (fill above). The loop follows both, so it
+    ! reads them at the current stage; before the unpack it read them one stage
+    ! old with MPI only, before the chimera fill one stage old in any run (on an
+    ! orthogonal mesh BC_Connection multiplies them by zero metric terms).
+    !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
+    do ii = 1, domain % n_local_bs
+      i  = domain % local_bs_idx(ii)
+      Bs = domain % bc(i) % bs
+      Is = domain % bc(i) % is
+      Js = domain % bc(i) % js
+      Ks = domain % bc(i) % ks
+      Fs = domain % bc(i) % fs
+      d11s = domain % bc(i) % d11
+      d12s = domain % bc(i) % d12
+      d21s = domain % bc(i) % d21
+      d22s = domain % bc(i) % d22
+      call Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, &
+                                      domain % blk(Bs), domain % bc(i) % Tg )
     enddo
 
     ! Process INTER-RANK type-1 entries (Bm local, Bs remote)
