@@ -32,7 +32,7 @@ contains
         ! Compute local cell dt according to VNN number
         call compute (T = domain % blk(b) % T(i,j,k), &
                       matID = domain % blk(b) % matID(i,j,k), &
-                      dl = domain % blk(b) % dl(i,j,k) % c, &
+                      M = domain % blk(b) % M(i,j,k) % c, &
                       dtmin = dtcell, &
                       vnn = vnn )
 
@@ -53,17 +53,23 @@ contains
 
     contains
       
-      subroutine compute ( T, matID, dl, dtmin, vnn )
+      ! Explicit limit of the diffusion operator: alpha dt sum_d |grad xi_d|^2 <= vnn / 2, with grad xi_d
+      ! (xi_d the cell index along d) the row d of the cell metric M. The largest eigenvalue of the
+      ! discrete operator on a uniform mesh is 4 alpha sum_d |grad xi_d|^2, also on a skewed one: the
+      ! mixed-derivative terms vanish in that mode. On an orthogonal cell |grad xi_d| = 1/dl_d; on a cell
+      ! skewed by an angle phi it is larger (1/(dl_d sin phi) for a parallelogram), and the edge lengths
+      ! dl used before overstated the stable step by 1/sin^2(phi), 2 at 45 degrees.
+      subroutine compute ( T, matID, M, dtmin, vnn )
         use FUSS_Global_m
         use FUSS_Lib_Solid
         implicit none
-        real(R8), intent(in)  :: T, matID, dl(3), vnn
+        real(R8), intent(in)  :: T, matID, M(3,3), vnn
         real(R8), intent(out) :: dtmin
         ! Local
         integer :: d
-        real(R8) :: kappa, rho, cp, alpha, invL2, dt
+        real(R8) :: kappa, rho, cp, alpha, G, dt
 
-        ! Diffusività termica
+        ! Thermal diffusivity
         call co_Kappa( matID, T, kappa )
         call co_Rho( matID, T, rho )
         call co_Cp( matID, T, cp )
@@ -71,11 +77,11 @@ contains
 
         dtmin = 1d8
 
-        invL2 = 0.0d0
+        G = 0.0d0
         do d = 1, ndir
-          invL2 = invL2 + 1.0d0 / (dl(d)**2)
+          G = G + M(d,1)**2 + M(d,2)**2 + M(d,3)**2
         enddo
-        dt = 0.5d0 * vnn / (alpha * invL2)
+        dt = 0.5d0 * vnn / (alpha * G)
 
         dtmin = min ( dt, dtmin )
 

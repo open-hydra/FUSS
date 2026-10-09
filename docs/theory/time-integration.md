@@ -40,25 +40,24 @@ The scheme is:
 
 ## Diffusive Stability Condition (VNN)
 
-Pure diffusion is governed by the **von Neumann number** (VNN) condition.  For cell $i$ in coordinate direction $d$, the stable time-step limit is
+The explicit update is stable while the diffusion number of every cell stays below the limit of the scheme. The time step of cell $i$ is
 
 $$
-\Delta t_{\text{VNN},i}^{(d)} =
-\text{VNN} \times \frac{\rho(T_i)\,c_p(T_i)\,(\Delta x_{i}^{(d)})^2}{k(T_i)}
-= \text{VNN} \times \frac{(\Delta x_{i}^{(d)})^2}{\alpha(T_i)}
+\Delta t_i = \frac{\text{VNN}}{2\,\alpha(T_i)\,\sum_{d}\lvert\nabla\xi_d\rvert_i^{2}},
+\qquad \alpha = \frac{k}{\rho\,c_p}
 $$
 
-where $\alpha(T_i) = k(T_i) / [\rho(T_i)\,c_p(T_i)]$ is the **local** thermal diffusivity evaluated at the current cell temperature, and $\Delta x_{i}^{(d)}$ is the cell width in direction $d$.  When material properties vary with temperature, each cell computes its own diffusivity from the property table at every time step, so the global limit tightens automatically in regions where $\alpha$ is large.
+where $\xi_d$ is the cell index along direction $d$ (the sum runs over the two or three directions of the mesh) and $\nabla\xi_d$ is row $d$ of the cell metric tensor $M$ (see [Grid Metrics](numerics.md#grid-metrics)). On an orthogonal cell $\lvert\nabla\xi_d\rvert = 1/\Delta x_d$ and the condition is the familiar $\alpha\,\Delta t \sum_d 1/\Delta x_d^2 \le \text{VNN}/2$; on a skewed cell $\lvert\nabla\xi_d\rvert$ is larger, $1/(\Delta x_d \sin\varphi)$ for a parallelogram whose edges meet at the angle $\varphi$. The diffusivity is taken at the current cell temperature, so with temperature-dependent properties the step follows the local $\alpha$.
 
-The global time step is the minimum over all cells and all three coordinate directions:
+On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete diffusion operator is $4\,\alpha \sum_d \lvert\nabla\xi_d\rvert^2$ (the mixed-derivative terms vanish in that mode). VNN is therefore the fraction of the stability limit of forward Euler and RK2, whose stability interval on the negative real axis is $[-2, 0]$: they are stable for $\text{VNN} \le 1$. RK3 reaches $-2.51$, i.e. $\text{VNN} \le 1.25$.
 
-$$
-\Delta t = \min_{i,\,d}\;\Delta t_{\text{VNN},i}^{(d)}
-$$
+Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.5$, and now above 1.
+
+With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ iterations $n$.
 
 !!! tip "Choosing VNN"
 
-    For the 3-stage SSP RK3 scheme the stability limit for the 1-D diffusion equation is $\text{VNN} \leq 1$.  In practice, values between 0.5 and 0.8 are used to maintain a safety margin on non-uniform grids.  For steady-state runs with IRS enabled, VNN can be raised to 2 or higher without loss of stability (the smoothing effectively extends the stable region).
+    The default is 0.3. Without IRS stay below the limit of the scheme (1 for euler and RK2, 1.25 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 2 with `irs-beta = 0.5` (3 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
 
 ---
 
