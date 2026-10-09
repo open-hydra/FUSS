@@ -19,3 +19,22 @@ case's own tables, three variants: type 1, type 2, type 1 with PATO's table hbar
 step-heated slab) are imported by the verify scripts; a Richardson re-anchor of ATC1 is
 `make_case.py --ncells 200/400` + `plan-bucket/records/2026-10-08-verification/tools/probes_atc1.py richardson`. The BC 302 time file `Tw_time.dat` lives at the case root (resolved relative to the run
 directory): every harness that copies a case copies `*.dat` too.
+
+## Darcy cases (plan 07, phase 2b: the type-2 gas closure, `darcy/`)
+
+| case | gate | what it proves | run by |
+|------|------|----------------|--------|
+| `darcy/sealed_nosource` | 4.1(a) | all faces impermeable, no source: `p` stays at `p-init` and every flux and velocity is exactly 0 (the run ends after its first step: nothing moves, the convergence residual is exactly zero) | default sweep; `run_physics_gates.sh -c darcy_sealed_nosource` |
+| `darcy/mass_balance_1d` | 4.1(b) | the steady gas mass balance `mdot(x_f) = pi x_f` at every face: (b2, the case) time-accurate to 2 s within 1e-6 pi L (measured 1.2e-8); (b1, the gate's sedded copy) quasi-steady within 1e-9 (2.4e-11); the energy identity of the budget; 1 tridiag sweep per step | default sweep; physics gate; `run_restart_gate.sh`; `run_determinism_gate.sh -x` |
+| `darcy/sealed_profile/N020` … `N160` | 4.2 | the closed-form steady profile `p^2 = p_w^2 + (pi R T mu/(W K))(L^2 - x^2)` (factor-2 pressure rise), observed order 1.942, 1.969, 1.984 (`sealed_profile/verify.py` on the parent) | default sweep; physics gate |
+| `darcy/tensor_linear_2d` | 4.3 | a 45-degree rotated orthotropic `K` on the exact field `p^2 = p0^2 + a x`: `|u_y|/|u_x| = K_yx/K_xx` to 8e-13 in every cell; the diagonal-K red control (written by the gate into its copy) gives `max|u_y|/max|u_x|` 3e-13 (20 x 20 cells, damped Jacobi at pseudo-vnn 0.25) | default sweep; physics gate; `run_determinism_gate.sh -x` |
+| `darcy/adiabatic0d_type2`, `darcy/heated0d_type2` | 4.1(d) | the 0-D cases of plan 06 under type 2 (both faces open at `p-wall`, `K` 1e-7 m2) against the exact type-2 ODE: 0.017 K and 0.0011 K (tolerances 0.1 and 0.02 K); their `verify.py` call `../../adiabatic0d/verify.py` / `../../heated0d/verify.py`, which detect the closure | default sweep; physics gate; heated0d_type2 in `run_restart_gate.sh` |
+| `darcy/ATC2-chemistryOff-type2` (`.slow`) | 4.4 | Ablation Test Case 2 chemistry-off under type 2 against the same local PATO run with `p` probed (`ref/Ta_plot`, `ref/p_plot`): max `|T - T_PATO|` 15.8 K (type 1: 22.75 K, the budget), `dp` within 1.2 % of PATO's 2048 Pa peak (tolerance 15 %), type 2 cooler than type 1 at every hot probe (by 1.3 to 9.8 K) | physics gate (`darcy_atc2_chemistry_off`, which also runs the type-1 case for the sign check) |
+
+The 1-D/2-D cases are written by `tools/make_darcy_case.py` (kinds `sealed_nosource`, `mass_balance_1d`, `sealed_profile`,
+`tensor_linear_2d`; kinetics always stripped, the gas source is `[FUSS-Darcy] pi-source`) from the table set
+`make_tacot_tables.py --solid-isothermal --constant-gas 0.022 4e-5 0` (`--cp-override 1e12` for `sealed_profile`, which freezes
+`T`); the 0-D and ATC2 copies by `make_case.py --type2 --permeability K` (`--permeability 1e-7` for the 0-D pair; ATC2 takes
+TACOT's `K_v`, `K_c`, which `make_tacot_tables.py` now writes into `pyrolysis.dat`). `tools/darcy_tools.py` holds the readers
+the verify scripts share. Each verify script honours `FUSS_GATE_SELFTEST=1`. The solver-health record of plan 07 section 4.5
+(tridiag vs pseudo on the ATC2 case) is in `darcy/ATC2-chemistryOff-type2/README.md`.

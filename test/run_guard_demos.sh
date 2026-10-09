@@ -198,6 +198,8 @@ q = 0.0"
 #   PYRO:<key> <value>              edit a key of INPUT/pyrolysis.dat
 #   BCFACE:<face>:<type>:<line2>    retype every bc.txt record of that face and
 #                                   replace its value line (`-` = no value line)
+#   DELKEY:<key>                    delete every `key = ...` line of input.ini
+#   PYROADD:<line>                  append a line to INPUT/pyrolysis.dat
 # A bare key=value that is not already in the ini goes to [FUSS-Pyrolysis].
 # Guard 8 (MPI, `mpi_size_ > 1`) has no demo: it needs -m 2 (documented).
 # ---------------------------------------------------------------------------
@@ -217,6 +219,8 @@ demo_pyro () {
     case "${kv%%:*}" in
       RAW)  printf '\n%s\n' "${kv#RAW:}" >> "$d/input.ini"; continue ;;
       RM)   rm -f "$d/${kv#RM:}"; continue ;;
+      DELKEY) sed -i "/^${kv#DELKEY:}[[:space:]]*=/d" "$d/input.ini"; continue ;;
+      PYROADD) printf '%s\n' "${kv#PYROADD:}" >> "$d/INPUT/pyrolysis.dat"; continue ;;
       PYRO) python3 - "$d/INPUT/pyrolysis.dat" "${kv#PYRO:}" <<'PYEDIT'
 import re, sys
 p, edit = sys.argv[1], sys.argv[2]
@@ -295,7 +299,6 @@ levels = 2
 level1-iter = 3
 level2-iter = 3"
 demo_pyro pyro_prim         1 "pyrolysis requires integration-variables = cons"  "integration-variables=prim"
-demo_pyro pyro_type2        1 "type-2 gas closure is plan 07"                    "gas-closure=type2"
 demo_pyro pyro_steady       1 "pyrolysis requires a time-accurate run"           "time-accurate=false"
 demo_pyro pyro_moving       1 "pyrolysis on a moving mesh is plan 08" \
     "RAW:[FUSS-MeshMotion]
@@ -309,6 +312,56 @@ demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-305)"        
 demo_pyro pyro_missing_virgin 1 "[ERROR] pyrolysis tables"                       "RM:INPUT/virgin.dat"
 # F[2][1] = 0.9 makes the phase's sum of F 1.15 > 1
 demo_pyro pyro_bad_F        1 "[ERROR] pyrolysis tables"                         "PYRO:F[2][1] 0.9"
+
+# ---------------------------------------------------------------------------
+# Darcy closure guards (plan 07 section 3.8), on the same pyrolysis base with
+# gas-closure = type2. The base sets p-gas, which type 2 refuses (guard 13), so
+# every other type-2 demo deletes it first; the bc-level demos also add the
+# permeability tensors the table check requires, so that each demo stops for
+# its own reason. darcy_open_no_gas is deferred to the first two-material case
+# (plan 07 section 3.8: one material cannot have a cell without gas zones).
+# ---------------------------------------------------------------------------
+DARCY_T2="gas-closure=type2"
+DARCY_K1="PYROADD:K_v 1e-11 0 0 0 1e-11 0 0 0 1e-11"
+DARCY_K2="PYROADD:K_c 2e-11 0 0 0 2e-11 0 0 0 2e-11"
+# guard 12: a [FUSS-Darcy] section that nothing would read -- without pyrolysis, and under type 1
+demo darcy_no_pyro 1 "[FUSS-Darcy] is read only with [FUSS-Pyrolysis] gas-closure = type2" \
+    "RAW:[FUSS-Darcy]
+solver = tridiag"
+demo_pyro darcy_type1        1 "[FUSS-Darcy] is read only with [FUSS-Pyrolysis] gas-closure = type2" \
+    "RAW:[FUSS-Darcy]
+solver = tridiag"
+# guard 13: the type-1 pressure key under type 2
+demo_pyro darcy_p_gas_key    1 "p-gas is refused with gas-closure = type2" "$DARCY_T2"
+# guards 14-16: the hand-checked [FUSS-Darcy] ranges and lists
+demo_pyro darcy_bad_vnn      1 "pseudo-vnn must be in (0, 1]" "$DARCY_T2" "DELKEY:p-gas" \
+    "RAW:[FUSS-Darcy]
+pseudo-vnn = 1.5"
+demo_pyro darcy_bad_open_type 1 "open-bc-types: bad token \"300\"" "$DARCY_T2" "DELKEY:p-gas" \
+    "RAW:[FUSS-Darcy]
+open-bc-types = 300"
+demo_pyro darcy_axes_follow_grid 1 "axes-follow-grid = true is not built" "$DARCY_T2" "DELKEY:p-gas" \
+    "RAW:[FUSS-Darcy]
+axes-follow-grid = true"
+# the table check: type 2 needs the permeability tensors
+demo_pyro darcy_missing_K    1 "key K_v, K_c: required by gas-closure = type2" "$DARCY_T2" "DELKEY:p-gas"
+# bc-level (Check_Pyrolysis_BC_Topology): the base's faces are 301/302/300/0, none open by default
+demo_pyro darcy_sealed_with_source 1 "no face is open to the gas while the pyrolysis gas is produced" \
+    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2"
+demo_pyro darcy_sealed_quasi_steady 1 "a sealed domain has no unique quasi-steady pressure" \
+    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" \
+    "RAW:[FUSS-Darcy]
+quasi-steady = true"
+# face 5 (type 0) becomes a 102 chimera face; its two donor counts are zero. The Darcy text
+# precedes plan 06 guard 9's (which refuses 101/102/103 on every pyrolysis run until plan 08)
+demo_pyro darcy_chimera      1 "a chimera (102) face has no pressure condition" \
+    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:5:102:0 0"
+# the per-face p_w of a 303 line (plan 07 section 4.3) must be positive
+demo_pyro darcy_bad_pw       1 "the fourth value of a 303 line (p_w) must be > 0" \
+    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:1:303:0.0, 0.0, 300.0, -1.0"
+# probe variables: p_pg exists only under type 2, and an unknown name is refused (it used to be ignored)
+demo_pyro probe_p_pg_type1   1 "probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2" "variables=T p_pg"
+demo_pyro probe_unknown_var  1 "unknown probe variable \"q\"" "variables=T q"
 
 echo
 if [ "$fail" -eq 0 ]; then

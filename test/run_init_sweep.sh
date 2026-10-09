@@ -71,7 +71,16 @@ FLAGS_B="-finit-logical=true -finit-integer=-999999 -finit-real=nan -finit-deriv
 # Base flags copied from the normal RELEASE build. gcc-ar / gcc-ranlib are not
 # optional: with -flto and plain ar the FUSSL archive gets an empty symbol index
 # and the link fails with undefined references that look like missing sources.
-BASE="-fno-underscoring -march=native -cpp -ffree-line-length-none"
+#
+# -ffp-contract=off in BOTH passes (2026-10-09, plan 07). The -finit-* code
+# changes the shape of the compiled procedures, and with it which a*b+c the
+# compiler fuses into one FMA: the type-2 Darcy cases (darcy/adiabatic0d_type2,
+# darcy/heated0d_type2) then differed between the passes in the last bit, made
+# visible by the temperature inversion's stop band, with every local
+# initialised (a signalling-NaN -O0 build trapped nothing). With contraction
+# off both passes agreed byte for byte on those cases; a local read before
+# assignment still differs between the passes, since its two values do.
+BASE="-fno-underscoring -march=native -cpp -ffree-line-length-none -ffp-contract=off"
 
 echo "FUSS uninitialised-read sweep"
 echo "  work    : $WORK"

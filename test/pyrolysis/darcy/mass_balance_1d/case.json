@@ -1,0 +1,13 @@
+{
+ "K": 1e-11,
+ "L": 0.05,
+ "T0": 1000.0,
+ "kind": "mass_balance_1d",
+ "ncells": 100,
+ "ny": 2,
+ "p0": 101325.0,
+ "pi": 0.1,
+ "quasi_steady": false,
+ "solver": "tridiag",
+ "tol": 1e-08
+}

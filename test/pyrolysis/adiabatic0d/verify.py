@@ -13,7 +13,14 @@ Checks over every OUTPUT/field<i>.tec:
   Reported, not gated: the exact type-2 (gas storage) minus type-1 difference (0.07 K here) and the FUSS error
   at the last file.
 
+Under gas-closure = type2 (plan 07 gate 4.1(d), test/pyrolysis/darcy/adiabatic0d_type2: both 301 faces open
+at p-wall through open-bc-types, K = 1e-7 m2 so that the pressure excursion stays below 0.1 Pa and the
+fixed-p oracle applies) the oracle is the type2 variant, with the same TOL_T; the exact type-2 minus
+type-1 shift (+0.070 K) is printed as the quantity the type-2 run must reproduce. TOL_UNIF is 1e-5 K
+there: the gas storage -eps p inside E makes T follow the sub-pascal pressure excursion (measured 1e-7 K).
+
 Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. Python 3.6, no numpy (imports ../tools/ode0d.py).
+FUSS_GATE_SELFTEST=1 sets every tolerance to 0 (the proven-red hook).
 """
 import os, sys
 
@@ -22,28 +29,44 @@ sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 import ode0d  # noqa: E402
 
 TOL_T, TOL_CHI, TOL_UNIF = 0.10, 2.0e-3, 1.0e-6
+TOL_UNIF_TYPE2 = 1.0e-5
+
+
+def gas_closure(case):
+    for line in open(os.path.join(case, "input.ini")):
+        s = line.split(";")[0].strip()
+        if s.startswith("gas-closure") and "=" in s:
+            return s.split("=", 1)[1].strip()
+    return "type1"
 
 
 def main():
     case = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "T1000")
+    closure = gas_closure(case)
+    variant = "type2" if closure == "type2" else "type1"
+    tol_T, tol_chi, tol_unif = TOL_T, TOL_CHI, (TOL_UNIF_TYPE2 if variant == "type2" else TOL_UNIF)
+    if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1":
+        tol_T, tol_chi, tol_unif = 0.0, 0.0, 0.0
     c = ode0d.Case(case, pato_tables=None)
     s = c.fuss_series()
     ts = [x[0] for x in s]
     T1, chi1 = c.integrate("type1", ts[-1], 2.0e-4, ts)
-    T2, _ = c.integrate("type2", ts[-1], 2.0e-4, ts)
-    eT = [s[i][1] - T1[i] for i in range(len(s))]
-    ech = [max(abs(s[i][2][k] - chi1[i][k]) for k in range(c.nsub)) for i in range(len(s))]
+    T2, chi2 = c.integrate("type2", ts[-1], 2.0e-4, ts)
+    To, chio = (T2, chi2) if variant == "type2" else (T1, chi1)
+    eT = [s[i][1] - To[i] for i in range(len(s))]
+    ech = [max(abs(s[i][2][k] - chio[i][k]) for k in range(c.nsub)) for i in range(len(s))]
     unif = max(x[3] for x in s)
     d2 = max((T2[i] - T1[i] for i in range(len(s))), key=abs)
     ok = True
-    print("adiabatic0d: T0 = %g K, q = %g, %d files to %.3f s" % (c.T0, c.q, len(s), ts[-1]))
-    print("  max |T - T_or1|   = %.4f K  (tol %g)  %s" % (max(abs(e) for e in eT), TOL_T, "PASS" if max(abs(e) for e in eT) <= TOL_T else "FAIL"))
-    ok &= max(abs(e) for e in eT) <= TOL_T
-    print("  max |chi - or1|   = %.2e    (tol %g)  %s" % (max(ech), TOL_CHI, "PASS" if max(ech) <= TOL_CHI else "FAIL"))
-    ok &= max(ech) <= TOL_CHI
-    print("  non-uniformity    = %.1e    (tol %g)  %s" % (unif, TOL_UNIF, "PASS" if unif <= TOL_UNIF else "FAIL"))
-    ok &= unif <= TOL_UNIF
-    print("  info: FUSS - or1 at t = %.2f s: %.4f K; type2 - type1 (exact): %.4f K; T_end FUSS %.3f or1 %.3f" % (ts[-1], eT[-1], d2, s[-1][1], T1[-1]))
+    print("adiabatic0d (%s, oracle %s): T0 = %g K, q = %g, %d files to %.3f s" % (closure, variant, c.T0, c.q, len(s), ts[-1]))
+    print("  max |T - T_or%s|   = %.4f K  (tol %g)  %s" % (variant[-1], max(abs(e) for e in eT), tol_T, "PASS" if max(abs(e) for e in eT) <= tol_T else "FAIL"))
+    ok &= max(abs(e) for e in eT) <= tol_T
+    print("  max |chi - or%s|   = %.2e    (tol %g)  %s" % (variant[-1], max(ech), tol_chi, "PASS" if max(ech) <= tol_chi else "FAIL"))
+    ok &= max(ech) <= tol_chi
+    print("  non-uniformity    = %.1e    (tol %g)  %s" % (unif, tol_unif, "PASS" if unif <= tol_unif else "FAIL"))
+    ok &= unif <= tol_unif
+    print("  info: FUSS - or%s at t = %.2f s: %.4f K; type2 - type1 (exact): %.4f K; T_end FUSS %.3f or1 %.3f or2 %.3f"
+          % (variant[-1], ts[-1], eT[-1], d2, s[-1][1], T1[-1], T2[-1]))
     print("adiabatic0d: %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

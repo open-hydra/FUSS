@@ -84,7 +84,17 @@
 #                                threads byte-identical), ATC1 vs FIAT, and
 #                                ATC2-chemistryOff vs the bundled PATO zero-emissivity
 #                                run (or $FUSS_PATO_ATC2_OUT). ~3 min at -p 1.
-#                 darcy       -- add gate_darcy()      + list it
+#                 darcy_*     -- plan 07 phase 2b (gas-closure = type2), cases under
+#                                test/pyrolysis/darcy/: sealed_nosource (p stays p-init
+#                                exactly, zero flux), mass_balance_1d (steady face fluxes
+#                                pi x: b2 time-accurate 1e-6, b1 quasi-steady sedded copy
+#                                1e-9), sealed_profile (closed-form p^2 profile, observed
+#                                order >= 1.9 on N020..N160), tensor_linear_2d (rotated K:
+#                                |u_y|/|u_x| = K_yx/K_xx to 1e-10; the diagonal-K red control
+#                                written into a staged copy), 0d (adiabatic0d/heated0d under
+#                                type 2 vs the exact type-2 ODE), atc2_chemistry_off (type 2
+#                                vs the bundled PATO run, T and p, plus the type-1 case on
+#                                the same mesh for the sign check). ~2 min at -p 1.
 #                 ablation    -- add gate_ablation()   + list it
 #
 #               NOTE ON -a (receding). verify.py's order/decay/pointwise-error
@@ -184,7 +194,9 @@ while test $# -gt 0; do
     -h | --help)
       echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]"
       echo "  -c CASE   run only this case (freestream, conservation, bc303_qrad,"
-      echo "            conjugate_two_layer, receding, residual_convergence, pyrolysis)"
+      echo "            conjugate_two_layer, receding, residual_convergence, pyrolysis,"
+      echo "            darcy_sealed_nosource, darcy_mass_balance_1d, darcy_sealed_profile,"
+      echo "            darcy_tensor_linear_2d, darcy_0d, darcy_atc2_chemistry_off)"
       echo "  -a        also run receding's .slow N160/N320 grids"
       echo "  -w WORKDIR  scratch dir for the copied cases (default: a fresh"
       echo "              dir under \$TMPDIR/fuss-physics-gates.\$\$)"
@@ -444,6 +456,143 @@ PYNOKIN
 }
 
 # ---------------------------------------------------------------------------
+# darcy (plan 07 phase 2b, gas-closure = type2): one gate per verification
+# group of plan 07 section 4, cases under test/pyrolysis/darcy/. Every
+# verify.py there honours FUSS_GATE_SELFTEST=1 (tolerances to 0 or below).
+# ---------------------------------------------------------------------------
+DARCY="$ROOT/test/pyrolysis/darcy"
+
+# darcy_verify NAME SRCVERIFY DEST [ARGS...] -- run a verify.py on DEST, log to
+# DEST/verify.log (or DEST/verify-NAME.log), return its exit code
+darcy_verify () {
+  local name=$1 vpy=$2 dest=$3; shift 3
+  python3 "$vpy" "$dest" "$@" > "$dest/verify$name.log" 2>&1
+}
+
+# 4.1 (a) sealed, no source: p stays p-init exactly, zero flux and velocity
+gate_darcy_sealed_nosource () {
+  local src="$DARCY/sealed_nosource" dest="$WORK/darcy_sealed_nosource" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  darcy_verify "" "$src/verify.py" "$dest"; rc=$?
+  KEYNUM="max|p-p0|/p0 $(grep -F -m1 '(a) max |p - p0|' "$dest/verify.log" | awk '{print $(NF-3)}')  max|mdot| $(grep -F -m1 '(c) max |mdot_pg|' "$dest/verify.log" | awk '{print $(NF-3)}')"
+  return $rc
+}
+
+# 4.1 (b) steady gas mass balance on a 1-D line: (b2) the case as committed,
+# time-accurate; (b1) its staged copy with quasi-steady = true
+gate_darcy_mass_balance_1d () {
+  local src="$DARCY/mass_balance_1d" dest="$WORK/darcy_mass_balance_1d" rc v b1 b2
+  for v in b2 b1; do
+    stage "$src" "$dest/$v"
+    [ "$v" = "b1" ] && sed -i 's/^quasi-steady = .*/quasi-steady = true/' "$dest/$v/input.ini"
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+    if ! darcy_verify "" "$src/verify.py" "$dest/$v"; then
+      KEYNUM="$v: $(grep -E -m1 'FAIL' "$dest/$v/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  b2=$(grep -F -m1 '(i)   max_f' "$dest/b2/verify.log" | awk '{print $(NF-3)}')
+  b1=$(grep -F -m1 '(i)   max_f' "$dest/b1/verify.log" | awk '{print $(NF-3)}')
+  KEYNUM="max_f|mdot-pi x|/(pi L): b2 ${b2:-?} (tol 1e-6)  b1 ${b1:-?} (tol 1e-9)"
+  return 0
+}
+
+# 4.2 analytic steady pressure profile on four grids, observed order >= 1.9
+gate_darcy_sealed_profile () {
+  local src="$DARCY/sealed_profile" dest="$WORK/darcy_sealed_profile" rc g
+  rm -rf "$dest"; mkdir -p "$dest"
+  for g in N020 N040 N080 N160; do
+    stage "$src/$g" "$dest/$g"
+    solve "$dest/$g" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$g: solver exit $rc  (see $dest/$g/run.log)"; return 1; fi
+  done
+  darcy_verify "" "$src/verify.py" "$dest"; rc=$?
+  KEYNUM=$(grep -F -m1 'order on the finest pair' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# 4.3 orthotropic permeability: |u_y|/|u_x| = K_yx/K_xx in every cell; the red
+# control (K diagonal, written into the staged copy) must give u_y = 0 to the
+# solver tolerance
+gate_darcy_tensor_linear_2d () {
+  local src="$DARCY/tensor_linear_2d" dest="$WORK/darcy_tensor_linear_2d" rc
+  stage "$src" "$dest/rotated"
+  solve "$dest/rotated" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="rotated: solver exit $rc  (see $dest/rotated/run.log)"; return 1; fi
+  if ! darcy_verify "" "$src/verify.py" "$dest/rotated"; then
+    KEYNUM="rotated: $(grep -E -m1 'FAIL' "$dest/rotated/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  stage "$src" "$dest/control"
+  python3 - "$dest/control" <<'PYCTRL'
+import json, os, sys
+case = sys.argv[1]
+meta = json.load(open(os.path.join(case, "case.json")))
+k1, k2 = meta["K1"], meta["K2"]
+K = [k1, 0.0, 0.0, 0.0, k2, 0.0, 0.0, 0.0, k2]
+p = os.path.join(case, "INPUT", "pyrolysis.dat")
+out, seen = [], set()
+for s in open(p):
+    key = s.split("//", 1)[0].split()
+    k = key[0] if key else ""
+    if k in ("K_v", "K_c"):
+        out.append("%s %s\n" % (k, " ".join("%.15g" % v for v in K)))
+        seen.add(k)
+    else:
+        out.append(s)
+if seen != {"K_v", "K_c"}:
+    sys.exit("control: K_v/K_c lines not found in %s" % p)
+open(p, "w").write("".join(out))
+meta["identity"], meta["K"] = True, K
+json.dump(meta, open(os.path.join(case, "case.json"), "w"), indent=1, sort_keys=True)
+PYCTRL
+  solve "$dest/control" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="control: solver exit $rc  (see $dest/control/run.log)"; return 1; fi
+  if ! darcy_verify "" "$src/verify.py" "$dest/control" --control; then
+    KEYNUM="control: $(grep -E -m1 'FAIL' "$dest/control/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  KEYNUM="ratio err $(grep -F -m1 '(a) max | |u_y|/|u_x|' "$dest/rotated/verify.log" | awk '{print $(NF-3)}') (tol 1e-10)  control max|u_y|/max|u_x| $(grep -F -m1 '(a) max |u_y| / max |u_x|' "$dest/control/verify.log" | awk '{print $(NF-3)}')"
+  return 0
+}
+
+# 4.1 (d) the two 0-D decompositions under type 2 against the exact type-2 ODE
+gate_darcy_0d () {
+  local dest="$WORK/darcy_0d" rc sub ad ht
+  rm -rf "$dest"; mkdir -p "$dest"
+  for sub in adiabatic0d_type2 heated0d_type2; do
+    stage "$DARCY/$sub" "$dest/$sub"
+    solve "$dest/$sub" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$sub/run.log)"; return 1; fi
+    if ! darcy_verify "" "$DARCY/$sub/verify.py" "$dest/$sub"; then
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$sub/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  ad=$(grep -F -m1 'max |T - T_or2|' "$dest/adiabatic0d_type2/verify.log" | awk '{print $6}')
+  ht=$(grep -F -m1 'max |T - T_or2|' "$dest/heated0d_type2/verify.log" | awk '{print $6}')
+  KEYNUM="0-D adiabatic ${ad:-?} K (tol 0.1)  0-D heated ${ht:-?} K (tol 0.02) vs the exact type-2 ODE"
+  return 0
+}
+
+# 4.4 ATC2-chemistryOff under type 2 against the bundled PATO run (T and p
+# probed), and against the type-1 case on the same mesh (the sign check)
+gate_darcy_atc2_chemistry_off () {
+  local dest="$WORK/darcy_atc2_chemistry_off" rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  stage "$ROOT/test/pyrolysis/ATC2-chemistryOff" "$dest/type1"
+  solve "$dest/type1" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="type1: solver exit $rc  (see $dest/type1/run.log)"; return 1; fi
+  stage "$DARCY/ATC2-chemistryOff-type2" "$dest/type2"
+  solve "$dest/type2" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="type2: solver exit $rc  (see $dest/type2/run.log)"; return 1; fi
+  darcy_verify "" "$DARCY/ATC2-chemistryOff-type2/verify.py" "$dest/type2" --type1 "$dest/type1"; rc=$?
+  if grep -q '^SKIP' "$dest/type2/verify.log"; then KEYNUM="SKIP (no PATO probe files)"; return 0; fi
+  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | awk '{print $7}') K (B_T 24.75)  dp ratio $(grep -F -m1 '        ratio' "$dest/type2/verify.log" | awk '{print $2}') (tol 0.15)  type2-type1 hot max $(grep -F -m1 '(sign) max' "$dest/type2/verify.log" | awk '{print $10}') K"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 # conjugate_two_layer (needs generate.py alongside verify.py:
 # verify.py imports the analytic profile and geometry constants from it)
 # ---------------------------------------------------------------------------
@@ -547,7 +696,9 @@ gate_residual_convergence () {
 }
 
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis)
+CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis
+       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_tensor_linear_2d darcy_0d
+       darcy_atc2_chemistry_off)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

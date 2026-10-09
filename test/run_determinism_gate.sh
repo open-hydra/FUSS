@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_determinism_gate.sh
-#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-a] [-x]
+#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-a] [-x] [-X] [-c CASE]...
 #  DESCRIPTION: Run the whole suite TWICE with identical settings and require
 #               the two manifests to be identical.
 #
@@ -43,6 +43,18 @@
 #               unaffected, so routing this through run_regression.sh's
 #               manifest diff would risk a false FAIL that this gate did not
 #               intend to make. Absent -x, behaviour is exactly as before.
+#
+#               Since plan 07 the -x section runs a LIST of cases, each at
+#               -p 1 and -p 8 with field.tec compared byte for byte:
+#               moving-mesh/freestream (above), and the Darcy gates 4.1(b)
+#               pyrolysis/darcy/mass_balance_1d (the line-implicit tridiag
+#               solve, lines distributed over threads) and 4.3
+#               pyrolysis/darcy/tensor_linear_2d (the damped Jacobi sweep,
+#               cells distributed over threads, and a run that stops on its
+#               convergence residual). -c CASE (path under test/, repeatable)
+#               replaces the list and implies -x; -X runs the cross-thread
+#               section alone, without the two full passes (development use:
+#               the two passes are the gate).
 #===============================================================================
 set -u
 
@@ -50,16 +62,21 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
 EXTRA=""
 XTHREAD=0
+XONLY=0
+XCASES=()
 
 while test $# -gt 0; do
   case $1 in
     -p | --parallel) NTHREADS=$2; shift 2 ;;
     -a | --all)      EXTRA="-a"; shift ;;
     -x | --cross-thread) XTHREAD=1; shift ;;
-    -h | --help) echo "usage: $0 [-p NTHREADS] [-a] [-x]"; exit 1 ;;
+    -X | --cross-thread-only) XTHREAD=1; XONLY=1; shift ;;
+    -c | --case) XTHREAD=1; XCASES+=("$2"); shift 2 ;;
+    -h | --help) echo "usage: $0 [-p NTHREADS] [-a] [-x] [-X] [-c CASE]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
+[ "${#XCASES[@]}" -gt 0 ] || XCASES=(moving-mesh/freestream pyrolysis/darcy/mass_balance_1d pyrolysis/darcy/tensor_linear_2d)
 
 WORK="${TMPDIR:-/tmp}/fuss-determinism.$$"
 mkdir -p "$WORK"
@@ -70,6 +87,7 @@ echo "  work    : $WORK"
 echo
 
 for pass in A B; do
+  [ "$XONLY" -eq 1 ] && break
   printf '  pass %s ... ' "$pass"
   if "$ROOT/test/run_regression.sh" -p "$NTHREADS" $EXTRA -o "$WORK/$pass" \
        > "$WORK/$pass.log" 2>&1; then
@@ -81,7 +99,9 @@ for pass in A B; do
 done
 
 echo
-if diff -q "$WORK/A/manifest.txt" "$WORK/B/manifest.txt" > /dev/null; then
+if [ "$XONLY" -eq 1 ]; then
+  echo "  (-X: the two full passes skipped)"
+elif diff -q "$WORK/A/manifest.txt" "$WORK/B/manifest.txt" > /dev/null; then
   echo "  PASS  two identical runs produced identical manifests"
 else
   echo "  FAIL  the same binary produced different artefacts on two runs"
@@ -97,8 +117,6 @@ fi
 # ---------------------------------------------------------------------------
 if [ "$XTHREAD" -eq 1 ]; then
   echo
-  echo "  cross-thread check: moving-mesh/freestream, -p 1 vs -p 8"
-  SRC="$ROOT/test/moving-mesh/freestream"
   XWORK="$WORK/xthread"
   mkdir -p "$XWORK"
 
@@ -110,36 +128,48 @@ if [ "$XTHREAD" -eq 1 ]; then
   # was written to avoid).
   cp "$ROOT/bin/FUSS" "$XWORK/FUSS.snapshot"
 
-  for nt in 1 8; do
-    d="$XWORK/p$nt"
-    rm -rf "$d"; mkdir -p "$d"
-    cp -r "$SRC/INPUT" "$SRC/MESH" "$SRC/input.ini" "$SRC/FUSS.sh" "$d/"
-    sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
-    mkdir -p "$d/OUTPUT" "$d/bin"
-    # Work copy's mtime is pushed into the future so FUSS.sh's own runtime
-    # `-nt` copy check (which still points at the LIVE $ROOT/bin/FUSS via the
-    # sedded MASTERDIR) is a guaranteed no-op and cannot overwrite the
-    # snapshot with a possibly-different, possibly-mid-write binary.
-    cp "$XWORK/FUSS.snapshot" "$d/bin/FUSS"
-    touch -d '+1 hour' "$d/bin/FUSS"
+  xfail=0
+  for xc in "${XCASES[@]}"; do
+    echo "  cross-thread check: $xc, -p 1 vs -p 8"
+    SRC="$ROOT/test/$xc"
+    xname=$(echo "$xc" | tr '/' '_')
+    if [ ! -f "$SRC/FUSS.sh" ]; then
+      echo "  FAIL  no case at test/$xc"
+      xfail=$((xfail+1)); continue
+    fi
+    for nt in 1 8; do
+      d="$XWORK/$xname/p$nt"
+      rm -rf "$d"; mkdir -p "$d"
+      cp -r "$SRC/INPUT" "$SRC/MESH" "$SRC/input.ini" "$SRC/FUSS.sh" "$d/"
+      cp "$SRC"/*.dat "$d/" 2>/dev/null || true
+      sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+      mkdir -p "$d/OUTPUT" "$d/bin"
+      # Work copy's mtime is pushed into the future so FUSS.sh's own runtime
+      # `-nt` copy check (which still points at the LIVE $ROOT/bin/FUSS via the
+      # sedded MASTERDIR) is a guaranteed no-op and cannot overwrite the
+      # snapshot with a possibly-different, possibly-mid-write binary.
+      cp "$XWORK/FUSS.snapshot" "$d/bin/FUSS"
+      touch -d '+1 hour' "$d/bin/FUSS"
 
-    printf '    -p %d ... ' "$nt"
-    if ( cd "$d" && ./FUSS.sh -p "$nt" solve ) > "$d/run.log" 2>&1; then
-      echo "done"
+      printf '    -p %d ... ' "$nt"
+      if ( cd "$d" && ./FUSS.sh -p "$nt" solve ) > "$d/run.log" 2>&1; then
+        echo "done"
+      else
+        echo "FAILED -- see $d/run.log"
+        exit 1
+      fi
+    done
+
+    m1=$(md5sum "$XWORK/$xname/p1/OUTPUT/field.tec" | cut -d' ' -f1)
+    m8=$(md5sum "$XWORK/$xname/p8/OUTPUT/field.tec" | cut -d' ' -f1)
+    echo "    field.tec md5  -p 1: $m1"
+    echo "    field.tec md5  -p 8: $m8"
+    if [ "$m1" = "$m8" ]; then
+      echo "  PASS  $xc field.tec is bit-identical at 1 and 8 threads"
     else
-      echo "FAILED -- see $d/run.log"
-      exit 1
+      echo "  FAIL  $xc field.tec differs between 1 and 8 threads -- see $XWORK/$xname"
+      xfail=$((xfail+1))
     fi
   done
-
-  m1=$(md5sum "$XWORK/p1/OUTPUT/field.tec" | cut -d' ' -f1)
-  m8=$(md5sum "$XWORK/p8/OUTPUT/field.tec" | cut -d' ' -f1)
-  echo "    field.tec md5  -p 1: $m1"
-  echo "    field.tec md5  -p 8: $m8"
-  if [ "$m1" = "$m8" ]; then
-    echo "  PASS  freestream field.tec is bit-identical at 1 and 8 threads"
-  else
-    echo "  FAIL  freestream field.tec differs between 1 and 8 threads -- see $XWORK"
-    exit 1
-  fi
+  [ "$xfail" -eq 0 ] || exit 1
 fi

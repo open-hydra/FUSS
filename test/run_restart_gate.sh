@@ -9,7 +9,7 @@
 #               iterations followed by a restart for another N, and compares the
 #               two solutions field by field.
 #
-#               Three cases, because they fail for unrelated reasons:
+#               Five cases, because they fail for unrelated reasons:
 #
 #                 qvol_Plate         static mesh WITH a volumetric source. The
 #                                    source file name used to be assigned only
@@ -35,6 +35,31 @@
 #                                    chi_* written to and read back from the
 #                                    solution file (plan 06 section 3.6); the
 #                                    gate compares every chi_* column too.
+#                 pyrolysis/darcy/mass_balance_1d  the type-2 gas closure (plan 07,
+#                                    gate 4.1(b2), time-accurate): the gas
+#                                    pressure p_pg, the stored-gas state
+#                                    eta_st and the two history fields of the
+#                                    extrapolated coefficients (eta_prev,
+#                                    T_prev) cross the restart; the gate
+#                                    compares them and the gas velocity. T
+#                                    is uniform and constant there and pi is a
+#                                    constant source, so the two history
+#                                    fields cannot matter in this case:
+#                 pyrolysis/darcy/heated0d_type2  heated, decomposing, type 2:
+#                                    the production of each step is evaluated
+#                                    at T* = T^n + (T^n - T^(n-1))/2 and the
+#                                    storage coefficient extrapolated from
+#                                    eta^(n-1), so a restart that loses or
+#                                    shifts T_prev or eta_prev moves the
+#                                    answer. A T_prev column holding the
+#                                    in-memory value (two steps old at the end
+#                                    of a step) instead of TO failed it
+#                                    (2026-10-09: rel|dT| 2.7e-8). Fixed, the
+#                                    case sits at ~1e-12 (T) to ~6e-12 (chi),
+#                                    above the ~1e-15 of the others: the type-2
+#                                    inversion stops at |f| <= 1e-13 |E|, and
+#                                    the restart's rounded guess can stop one
+#                                    Newton iterate apart.
 #
 #               WHY THE TOLERANCE IS NOT ZERO
 #               ----------------------------
@@ -160,9 +185,20 @@ worst, ok = [], True
 compared = set()
 # Keys from the header itself, not a literal list: a misspelt literal would pass
 # silently. The pyrolysis state (chi_*) and the gas flux travel through the same
-# file (plan 06 section 3.6) and are compared whenever they are present.
-keys = [k for k in a if k in ("T", "qvol", "x", "y", "z") or k.startswith("chi_") or k == "mdot_pg"]
-for key in keys:
+# file (plan 06 section 3.6) and are compared whenever they are present; so
+# is the type-2 state (p_pg, eta_st, eta_prev, T_prev; plan 07). Under type 2
+# the gas flux mdot_pg and the velocity u_pg_* are DERIVED from differences of
+# p (Darcy), and their round-trip floor is the 15-digit quantum of p over the
+# cell-to-cell difference: ~5e-12 on mass_balance_1d (dp_cell/p ~ 2e-4), ~1e-8
+# on heated0d_type2 (dp_cell/p ~ 1e-7, measured 1.4e-10). They are printed as
+# info there, not gated; type 1's mdot_pg (an integral of the production) stays
+# gated.
+type2 = "p_pg" in a
+derived = [k for k in a if type2 and (k == "mdot_pg" or k.startswith("u_pg_"))]
+keys = [k for k in a if k not in derived and (k in ("T", "qvol", "x", "y", "z") or k.startswith("chi_")
+        or k == "mdot_pg" or k in ("p_pg", "eta_st", "eta_prev", "T_prev"))]
+info = []
+for key in keys + derived:
     if key not in a or key not in b:
         continue
     compared.add(key)
@@ -170,8 +206,17 @@ for key in keys:
         print("SIZE-MISMATCH %s" % key)
         sys.exit(2)
     d = max((abs(u - v) for u, v in zip(a[key], b[key])), default=0.0)
-    scale = max((abs(v) for v in a[key]), default=0.0)
+    if key.startswith("u_pg_"):
+        # a velocity component is scaled by the whole vector: the y and z
+        # components of a 1-D case are round-off, and scaled by themselves
+        # their round-trip difference reads as O(1)
+        scale = max((abs(v) for k2 in a if k2.startswith("u_pg_") for v in a[k2]), default=0.0)
+    else:
+        scale = max((abs(v) for v in a[key]), default=0.0)
     rel = d / scale if scale > 0.0 else d
+    if key in derived:
+        info.append((key, rel))
+        continue
     worst.append((key, rel))
     if rel > REL_TOL:
         ok = False
@@ -183,7 +228,8 @@ qmax = max((abs(v) for v in a.get("qvol", [0.0])), default=0.0)
 if "T" not in compared or "x" not in compared:
     print("MISSING-NAMES: compared %s -- the VARIABLES header was not parsed" % sorted(compared))
     sys.exit(2)
-print("  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   qvol_peak=%.3e" % qmax)
+print("  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   qvol_peak=%.3e" % qmax
+      + ("   info (derived from p, not gated): " + "  ".join("rel|d%s|=%.2e" % kv for kv in info) if info else ""))
 sys.exit(0 if ok else 1)
 PY
 )
@@ -203,6 +249,13 @@ run_case "test/moving-mesh/receding/N040"    200
 # compared. 100 iterations per half: the legs run to ~34 s of simulated time
 # (the case itself stops at 10 s; the time file holds 1644 K to 60 s).
 run_case "test/pyrolysis/energy_audit"       100
+# Darcy (plan 07 section 3.8): 4.1(b2) is time-accurate (quasi-steady = false),
+# so the gas pressure carries history across the restart; 200 steps per half
+# run to ~17 s, far past the case's own 2 s.
+run_case "test/pyrolysis/darcy/mass_balance_1d" 200
+# the history fields of the type-2 step (T_prev, eta_prev) under heating and
+# kinetics: 200 steps per half (~0.4 s each, 300 K to ~560 K, reacting)
+run_case "test/pyrolysis/darcy/heated0d_type2"  200
 
 echo
 if [ "$fail" -eq 0 ]; then

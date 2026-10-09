@@ -1,0 +1,40 @@
+{
+ "budget_K": 24.7483856120341,
+ "dp_tol_rel": 0.15,
+ "fuss_dp_peak_Pa": 2052.5881132898794,
+ "measured_K": 15.791697791770162,
+ "measured_at": [
+  1,
+  2.1
+ ],
+ "measured_dT_at_type1_peak_K": 15.648630687614968,
+ "measured_dp_rel": 0.011793624026807947,
+ "note": "budget_K = B_T = the type-1 regression budget recorded by plan 06 (test/pyrolysis/ATC2-chemistryOff/expected.json: measured 22.75 K + 2 K), plan 07 decision 2026-10-08; dp_tol_rel from plan 07 section 4.4; measured_* written by verify.py --type1 DIR --record",
+ "oracle": "ref/Ta_plot and ref/p_plot (PATO 3.1 AblationTestCase_2.x_chemistryOff, emissivity 0, hconv 300, Tedge 2800, endTime 60, p probed; run 2026-10-08, Ta_plot identical to the 2026-10-07 run)",
+ "pato_dp_peak_Pa": 2048.0,
+ "type1_peak_K": 22.7483856120341,
+ "type1_peak_depth_mm": 1,
+ "type1_peak_t": 2.6,
+ "type2_minus_type1_K": {
+  "1": [
+   -7.314860496552228,
+   -1.2532986595665534
+  ],
+  "12": [
+   -9.707479463176583,
+   -9.122925653196944
+  ],
+  "2": [
+   -8.819090784475975,
+   -2.0376644885250244
+  ],
+  "4": [
+   -9.427548871975887,
+   -4.447911420272703
+  ],
+  "8": [
+   -9.756267404570167,
+   -8.865421947584764
+  ]
+ }
+}

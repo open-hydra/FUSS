@@ -38,6 +38,12 @@ Usage:
     --zero-emissivity  a full copy of PATO's TACOT directory into <dir> with column 8 (emissivity)
                        of `virgin` and `char` set to 0.0, every other byte unchanged (PATO cross-run
                        of plan 06 section 4.5). Writes no FUSS table.
+    --solid-isothermal with --constant-gas: the --isothermal SOLID tables beside the constant gas
+                       (plan 07 gates 4.1(b), 4.2, 4.3); --cp-override CP replaces the isothermal
+                       cp of 1000 (and the isothermal gas h follows the same cp); --permeability K
+                       writes isotropic K_v = K_c = K [m2] in place of TACOT's tensors. Every
+                       pyrolysis.dat now carries K_v and K_c (nine components each, from
+                       constantProperties), read only under gas-closure = type2.
 
 Self-checks (TACOT datum checks of the plan) are printed as PASS/FAIL lines; exit 1 on any FAIL.
 Python 3.6, no third-party modules.
@@ -67,11 +73,14 @@ ISO_K = 0.4
 ISO_M = 0.022
 ISO_MU = 3.0e-5
 ISO_EPS_G = "0.8"
+# --cp-override (plan 07 section 4.2: cp = 1e12 freezes T while p relaxes); the solid cp and the
+# isothermal gas h use the SAME value, so the --isothermal identity of the two h columns survives
+ISO_CP_VAL = [ISO_CP]
 
 
 def h_iso(T):
     """The ONE isothermal enthalpy function, shared by the solid and the gas writers."""
-    return 1000.0 * (T - 298.15)
+    return ISO_CP_VAL[0] * (T - 298.15)
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -242,6 +251,37 @@ STMT_RE = re.compile(r"^\s*(\S+)\s+(?:\S+\s+\[[^\]]*\]\s+)?([-+0-9.eE]+)\s*;")
 KEY_SCALAR = ("nSolidPhases", "eps_g_v", "eps_g_c")
 KEY_PHASE_RE = re.compile(r"^(rhoI|epsI|nPyroReac)\[(\d+)\]$")
 KEY_REAC_RE = re.compile(r"^(F|A|E|m|n|T|h)\[(\d+)\]\[(\d+)\]$")
+# plan 07 section 3.1: the permeability tensors, `K_v K_v [0 2 0 0 0 0 0] (xx xy xz yx yy yz zx zy zz);`
+TENSOR_RE = re.compile(r"^\s*(K_v|K_c)\s+\S+\s+\[[^\]]*\]\s+\(([^)]*)\)\s*;")
+
+
+def parse_permeability(path):
+    """{'K_v': [9 floats], 'K_c': [9 floats]} from constantProperties (row-major, m2); both required."""
+    with open(path) as fh:
+        text = fh.read()
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    text = re.sub(r"//[^\n]*", "", text)
+    perm = {}
+    for line in text.split("\n"):
+        m = TENSOR_RE.match(line)
+        if not m:
+            continue
+        key = m.group(1)
+        if key in perm:
+            die("%s: key %s appears twice" % (path, key))
+        vals = [float(v) for v in m.group(2).split()]
+        if len(vals) != 9:
+            die("%s: %s needs nine components, found %d" % (path, key, len(vals)))
+        perm[key] = vals
+    for key in ("K_v", "K_c"):
+        if key not in perm:
+            die("%s: %s not found" % (path, key))
+    return perm
+
+
+def isotropic_permeability(K):
+    v = [K, 0.0, 0.0, 0.0, K, 0.0, 0.0, 0.0, K]
+    return {"K_v": list(v), "K_c": list(v)}
 
 
 def parse_constant_properties(path):
@@ -310,7 +350,7 @@ def build_constants(found, path):
             "phases": phases}
 
 
-def write_pyrolysis_dat(path, name, const, provenance, eps_override=None):
+def write_pyrolysis_dat(path, name, const, provenance, eps_override=None, perm=None):
     lines = ["// FUSS pyrolysis constants (plan 06 section 3.2 grammar): one `key value` per line,",
              "// `//` comments allowed. Written by make_tacot_tables.py from",
              "// %s" % provenance,
@@ -331,6 +371,11 @@ def write_pyrolysis_dat(path, name, const, provenance, eps_override=None):
         for j, rc in enumerate(ph["reactions"], 1):
             for k in ("F", "A", "E", "m", "n", "T", "h"):
                 lines.append("%s[%d][%d] %s" % (k, i, j, rc[k]))
+    if perm is not None:
+        # plan 07 section 3.1: permeability tensors in the mesh frame, nine components row-major [m2];
+        # read only under gas-closure = type2, required there
+        for key in ("K_v", "K_c"):
+            lines.append("%s %s" % (key, " ".join("%g" % v for v in perm[key])))
     with open(path, "w") as fh:
         fh.write("\n".join(lines) + "\n")
 
@@ -374,7 +419,7 @@ def resample_solid(Tn, cols, isothermal):
     for k in range(Tlo, Thi + 1):
         T = float(k)
         if isothermal:
-            vals = [ISO_CP, h_iso(T), ISO_K, ISO_K, ISO_K,
+            vals = [ISO_CP_VAL[0], h_iso(T), ISO_K, ISO_K, ISO_K,
                     lerp(Tn, cols["emissivity"], T), lerp(Tn, cols["absorptivity"], T)]
         else:
             vals = [lerp(Tn, cols["cp"], T),
@@ -500,6 +545,14 @@ def main():
     g.add_argument("--constant-gas-set", action="store_true", help=argparse.SUPPRESS)
     g.add_argument("--zero-emissivity", action="store_true",
                    help="copy PATO's TACOT directory with emissivity = 0 in virgin and char")
+    # plan 07 (section 4.1(b), 4.2, 4.3): the --isothermal SOLID tables beside a --constant-gas gas.dat,
+    # a solid cp override (1e12 freezes T while p relaxes) and an isotropic permeability override
+    ap.add_argument("--solid-isothermal", action="store_true",
+                    help="with --constant-gas: write the --isothermal solid tables (cp, k constant) beside the constant gas")
+    ap.add_argument("--cp-override", type=float, default=None,
+                    help="isothermal solid cp [J/kg/K] in place of 1000 (h = cp (T - 298.15); the isothermal gas h follows)")
+    ap.add_argument("--permeability", type=float, default=None,
+                    help="isotropic K_v = K_c [m2] written to pyrolysis.dat in place of TACOT's tensors")
     # `--constant-gas M MU H`: pulled out of argv by hand so that a negative H such as -7.09e6
     # (which argparse would take for an option flag) is accepted.
     argv = list(sys.argv[1:])
@@ -544,31 +597,48 @@ def main():
         sys.exit(1 if chk.fails else 0)
 
     mode = "isothermal" if args.isothermal else ("constant" if args.constant_gas else "tacot")
+    if args.solid_isothermal and mode != "constant":
+        die("--solid-isothermal goes with --constant-gas (use --isothermal alone for the plan 06 set)")
+    solid_iso = args.isothermal or args.solid_isothermal
+    if args.cp_override is not None:
+        if not solid_iso:
+            die("--cp-override applies to the isothermal solid tables (--isothermal or --solid-isothermal)")
+        if args.cp_override <= 0:
+            die("--cp-override must be > 0")
+        ISO_CP_VAL[0] = args.cp_override
     prov = os.path.join(tacot, "constantProperties")
     found = parse_constant_properties(prov)
     const = build_constants(found, prov)
     rho_v, rho_c = derived_densities(const)
+    perm = parse_permeability(prov)
+    if args.permeability is not None:
+        if args.permeability <= 0:
+            die("--permeability must be > 0")
+        perm = isotropic_permeability(args.permeability)
 
     Tv, cv, pv = load_solid(os.path.join(tacot, "virgin"))
     Tc, cc, pc = load_solid(os.path.join(tacot, "char"))
     gas_levels = load_gas(os.path.join(tacot, "gasProperties"))
 
-    virgin_rows = resample_solid(Tv, cv, args.isothermal)
-    char_rows = resample_solid(Tc, cc, args.isothermal)
+    virgin_rows = resample_solid(Tv, cv, solid_iso)
+    char_rows = resample_solid(Tc, cc, solid_iso)
     gas_zones = resample_gas(gas_levels, mode, args.constant_gas)
 
     name = args.material
     out = args.out
     write_pyrolysis_dat(os.path.join(out, "pyrolysis.dat"), name, const, prov,
-                        eps_override=ISO_EPS_G if args.isothermal else None)
+                        eps_override=ISO_EPS_G if args.isothermal else None, perm=perm)
     write_table(os.path.join(out, "virgin.dat"), SOLID_VARS, [(name, virgin_rows)])
     write_table(os.path.join(out, "char.dat"), SOLID_VARS, [(name, char_rows)])
     write_table(os.path.join(out, "gas.dat"), GAS_VARS,
                 [("%s p=%s" % (name, FMT % p), rows) for p, rows in gas_zones])
 
-    print("make_tacot_tables.py: mode = %s, material = %s, PATO = %s" % (mode, name, tacot))
+    print("make_tacot_tables.py: mode = %s%s, material = %s, PATO = %s"
+          % (mode, " (isothermal solid, cp %g)" % ISO_CP_VAL[0] if solid_iso and mode != "isothermal" else "", name, tacot))
     print("  virgin p-levels %s, char p-levels %s, gas p-levels (ascending) %s"
           % (pv, pc, [p for p, _ in gas_zones]))
+    print("  permeability K_v = %s, K_c = %s%s" % (perm["K_v"], perm["K_c"],
+          " (--permeability override)" if args.permeability is not None else " (TACOT constantProperties)"))
     print("  wrote %s" % ", ".join(os.path.join(out, f) for f in ("pyrolysis.dat", "virgin.dat", "char.dat", "gas.dat")))
     rs_v = residual_slopes(Tv, cv["cp"], cv["h"])
     rs_c = residual_slopes(Tc, cc["cp"], cc["h"])
@@ -668,8 +738,8 @@ def main():
             ident = all(hv[k] == hg_s[k] and hc[k] == hg_s[k] for k in common)
             chk.check(ident and len(common) > 0, "isothermal: solid h and gas h byte-identical at equal T",
                       "%d common T rows (%s..%s)" % (len(common), common[0] if common else "-", common[-1] if common else "-"))
-            cp_const = all(vals[0] == ISO_CP and vals[2] == ISO_K for _, vals in virgin_rows + char_rows)
-            chk.check(cp_const, "isothermal: cp = 1000, k = 0.4 on every solid row", "")
+            cp_const = all(vals[0] == ISO_CP_VAL[0] and vals[2] == ISO_K for _, vals in virgin_rows + char_rows)
+            chk.check(cp_const, "isothermal: cp = %g, k = 0.4 on every solid row" % ISO_CP_VAL[0], "")
             with open(os.path.join(out, "pyrolysis.dat")) as fh:
                 txt = fh.read()
             chk.check("eps_g_v 0.8\n" in txt and "eps_g_c 0.8\n" in txt, "isothermal: eps_g_v = eps_g_c = 0.8", "")
@@ -677,6 +747,12 @@ def main():
             M, MU, H = args.constant_gas
             ok = all(all(r[2] == M and r[3] == H and r[4] == MU for r in z["rows"]) for z in gz)
             chk.check(ok, "constant-gas: every row carries M, h, mu = %r %r %r" % (M, H, MU), "")
+            if solid_iso:
+                cp_const = all(vals[0] == ISO_CP_VAL[0] and vals[2] == ISO_K for _, vals in virgin_rows + char_rows)
+                chk.check(cp_const, "solid-isothermal: cp = %g, k = 0.4 on every solid row" % ISO_CP_VAL[0], "")
+    with open(os.path.join(out, "pyrolysis.dat")) as fh:
+        txt = fh.read()
+    chk.check(("\nK_v " in txt) and ("\nK_c " in txt), "pyrolysis.dat carries K_v and K_c (plan 07)", "")
 
     sys.exit(1 if chk.fails else 0)
 
