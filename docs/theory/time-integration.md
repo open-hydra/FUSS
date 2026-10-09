@@ -127,6 +127,8 @@ With `levels = n` (n > 1) in `[FUSS-Multigrid]`, FUSS builds n grids, each coars
 
 `level<m>-iter`, and `iter-threshold` without multigrid, are re-read with `input.ini` every `ini-diter` iterations: lowering the value of the level being computed below the iterations already done ends that level at the next re-read.
 
+Every field write of a coarse level also prolongates its solution to the finest level and writes it (`field-prolongated`, `wall-prolongated`). On a large mesh that write can cost more than the coarse iterations between two writes: `prolongated-diter` (re-read at runtime) spaces it to at least that many iterations of the level. The end of a level always writes it, so the one written at the end of level 2 is the exact start of level 1.
+
 ---
 
 ## Solution Output

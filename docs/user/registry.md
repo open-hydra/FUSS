@@ -59,3 +59,4 @@
 |-----------|---------|---------|----------|-------------|
 | level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
 | level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |
+| prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime) |
