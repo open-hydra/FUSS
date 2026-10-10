@@ -119,7 +119,6 @@ module FUSS_Mod_GhostExchange
   public :: exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send
   public :: gather_T_to_root, gather_matID_to_root, gather_qvol_to_root
   public :: gather_diagnostic_to_root
-  public :: scatter_T_from_root
   public :: mpi_io_barrier
   public :: Ghost_Interrank
 
@@ -1355,103 +1354,6 @@ contains
     end block
 #endif
   end subroutine gather_diagnostic_to_root
-
-
-  !> Scatter blocks' T data from rank 0 to owning ranks after reading.
-  !> Uses non-blocking MPI_ISEND/IRECV + WAITALL for overlap.
-  subroutine scatter_T_from_root(domain)
-    use FUSS_Advanced_Types_m
-
-    implicit none
-    type(FUSS_domain_type), intent(inout) :: domain
-    ! Local
-    integer :: b, n1, n2, n3, ncells
-
-    if (mpi_size_ <= 1) return
-#ifdef USE_MPI
-    block
-      use mpi
-      integer :: ierr, nreq, r, total_buf_size, offset
-      integer, allocatable :: reqs(:), blk_offset(:), blk_ncells(:)
-      integer, allocatable :: stats(:,:)
-      real(R8), allocatable :: buf(:)
-
-      ! Compute per-block sizes and total buffer size
-      allocate(blk_offset(domain%nb), blk_ncells(domain%nb))
-      total_buf_size = 0
-      do b = 1, domain%nb
-        n1 = domain%blk(b)%dim(1)
-        n2 = domain%blk(b)%dim(2)
-        n3 = domain%blk(b)%dim(3)
-        blk_ncells(b) = n1 * n2 * n3
-      end do
-
-      ! Compute contiguous buffer offsets
-      offset = 0
-      do b = 1, domain%nb
-        blk_offset(b) = offset
-        if (mpi_is_root) then
-          if (.not. is_local_block(b)) offset = offset + blk_ncells(b)
-        else
-          if (is_local_block(b)) offset = offset + blk_ncells(b)
-        end if
-      end do
-      total_buf_size = offset
-      allocate(buf(max(total_buf_size, 1)))
-      allocate(reqs(domain%nb))
-      allocate(stats(MPI_STATUS_SIZE, domain%nb))
-
-      nreq = 0
-      if (mpi_is_root) then
-        ! Root: pack remote blocks and post all sends
-        do b = 1, domain%nb
-          if (.not. is_local_block(b)) then
-            n1 = domain%blk(b)%dim(1)
-            n2 = domain%blk(b)%dim(2)
-            n3 = domain%blk(b)%dim(3)
-            buf(blk_offset(b)+1 : blk_offset(b)+blk_ncells(b)) = &
-              reshape(domain%blk(b)%T(1:n1, 1:n2, 1:n3), [blk_ncells(b)])
-            nreq = nreq + 1
-            call MPI_ISEND(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           block_owner(b), b, MPI_COMM_WORLD, reqs(nreq), ierr)
-            call check_mpi_error(ierr)
-          end if
-        end do
-      else
-        ! Non-root: post all receives for local blocks
-        do b = 1, domain%nb
-          if (is_local_block(b)) then
-            nreq = nreq + 1
-            call MPI_IRECV(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           0, b, MPI_COMM_WORLD, reqs(nreq), ierr)
-            call check_mpi_error(ierr)
-          end if
-        end do
-      end if
-
-      ! Wait for all
-      if (nreq > 0) then
-        call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
-        call check_mpi_error(ierr)
-      end if
-
-      ! Non-root: unpack received data
-      if (.not. mpi_is_root) then
-        do b = 1, domain%nb
-          if (is_local_block(b)) then
-            n1 = domain%blk(b)%dim(1)
-            n2 = domain%blk(b)%dim(2)
-            n3 = domain%blk(b)%dim(3)
-            domain%blk(b)%T(1:n1, 1:n2, 1:n3) = &
-              reshape(buf(blk_offset(b)+1 : blk_offset(b)+blk_ncells(b)), [n1, n2, n3])
-          end if
-        end do
-      end if
-
-      deallocate(buf, reqs, stats, blk_offset, blk_ncells)
-    end block
-#endif
-  end subroutine scatter_T_from_root
 
 
   !> Exchange Tg(3:6) stencil data for inter-rank viscous connection BCs.

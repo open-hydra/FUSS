@@ -122,13 +122,8 @@ contains
       call Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg )
     enddo
 
-    ! Compute Tg(3:6) for type-1 connections where source block is local.
-    ! The four tangential neighbours of a source cell on the edge of its face are
-    ! ghost cells of Bs, filled by the BC of the adjacent face: from another rank
-    ! (T unpack) or by a chimera BC (fill above). The loop follows both, so it
-    ! reads them at the current stage; before the unpack it read them one stage
-    ! old with MPI only, before the chimera fill one stage old in any run (on an
-    ! orthogonal mesh BC_Connection multiplies them by zero metric terms).
+    ! Tg(3:6) of connections whose source block is local. On a face edge they are ghost
+    ! cells of Bs, set by the MPI unpack or the chimera fill: so this loop comes after both.
     !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do ii = 1, domain % n_local_bs
       i  = domain % local_bs_idx(ii)
@@ -254,8 +249,7 @@ contains
     Jg2 = Jm - guide(Fm,2)*2
     Kg2 = Km - guide(Fm,3)*2
           
-    ! RIEMPIMPENTO GHOST CON VARIABILI CONSERVATE
-    ! First row of ghost cell coordinates
+    ! Ghost T from the volume-weighted enthalpy of the donors. First ghost row:
     consg = 0.d0
     do c = 1, bc % ni(1)
       Bs = bc % donorID(c,1)
@@ -264,7 +258,7 @@ contains
       Ks = bc % donorID(c,4)
       call co_H ( blk(Bs) % matID (Is,Js,Ks), blk(Bs) % T (Is,Js,Ks), consi )
       consg = consg + consi * bc % volume_fraction(c)
-      blk(Bm) % matID (Ig,Jg,Kg) = blk(Bs) % matID (Is,Js,Ks)  ! WARNING: non possono essere connessi contemporaneamente due blocchi di materiali diversi!
+      blk(Bm) % matID (Ig,Jg,Kg) = blk(Bs) % matID (Is,Js,Ks)  ! the donors of a ghost must share one material
     enddo
     call co_T ( blk(Bm) % matID (Ig,Jg,Kg), consg, blk(Bm) % T (Ig,Jg,Kg) )
     bc % Tg (1) = blk(Bm) % T (Ig,Jg,Kg)
@@ -286,53 +280,6 @@ contains
           
   end subroutine Ghost_Chimera
 
-
-  subroutine Ghost_Extrapolate ( Im, Jm, Km, Fm, blk )
-    implicit none
-    integer, intent(in) :: Im, Jm, Km, Fm
-    type(FUSS_block_type), intent(inout) :: blk
-    ! Local
-    integer :: g
-
-    ! Extrapolation with 2nd order accuracy. Theory: suppose we have a stencil x1,x2,x3,x4 with x4 unknown.
-    ! Taylor 2nd order: x4 = x3 + f1(x3) + 1/2 f2(x3) with f1 and f2 1st and 2nd derivative. Approximate 
-    ! f1(x3) = (x4 - x2)/2 central and f2(x3) = x3 - 2x2 + x1 left sided => x4 = 3*x3 - 3*x2 + x1
-    do g = 1, gc
-      select case (Fm)
-        case(1)
-          blk % T(Im-g,Jm,Km) = 3d0 * blk % T (Im-g+1,Jm,Km) - &
-                                3d0 * blk % T (Im-g+2,Jm,Km) + &
-                                      blk % T (Im-g+3,Jm,Km)
-          blk % matID(Im-g,Jm,Km) = blk % matID (Im,Jm,Km)
-        case(2)
-          blk % T(Im+g,Jm,Km) = 3d0 * blk % T (Im+g-1,Jm,Km) - &
-                                3d0 * blk % T (Im+g-2,Jm,Km) + &
-                                      blk % T (Im+g-3,Jm,Km)
-          blk % matID(Im+g,Jm,Km) = blk % matID (Im,Jm,Km)
-        case(3)
-          blk % T(Im,Jm-g,Km) = 3d0 * blk % T (Im,Jm-g+1,Km) - &
-                                3d0 * blk % T (Im,Jm-g+2,Km) + &
-                                      blk % T (Im,Jm-g+3,Km)
-          blk % matID(Im,Jm-g,Km) = blk % matID (Im,Jm,Km)
-        case(4)
-          blk % T(Im,Jm+g,Km) = 3d0 * blk % T (Im,Jm+g-1,Km) - &
-                                3d0 * blk % T (Im,Jm+g-2,Km) + &
-                                      blk % T (Im,Jm+g-3,Km)
-          blk % matID(Im,Jm+g,Km) = blk % matID (Im,Jm,Km)
-        case(5)
-          blk % T(Im,Jm,Km-g) = 3d0 * blk % T (Im,Jm,Km-g+1) - &
-                                3d0 * blk % T (Im,Jm,Km-g+2) + &
-                                      blk % T (Im,Jm,Km-g+3)
-          blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,Km)
-        case(6)
-          blk % T(Im,Jm,Km+g) = 3d0 * blk % T (Im,Jm,Km+g-1) - &
-                                3d0 * blk % T (Im,Jm,Km+g-2) + &
-                                      blk % T (Im,Jm,Km+g-3)
-          blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,Km)
-      end select
-    enddo
-      
-  end subroutine Ghost_Extrapolate
 
 
   subroutine Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, blks, Tg )

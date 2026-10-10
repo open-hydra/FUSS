@@ -13,10 +13,10 @@ module FUSS_Config_Types_m
     character(len=llen) :: error_message
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
-    logical   :: newrun           ! Flag di restart
-    real(R8)  :: res_threshold    ! Residuo min. per arresto esecuzione
-    real(R8)  :: time_threshold   ! Tempo max per arresto esecuzione 
-    integer   :: iter_threshold            ! Numero max iterate per arresto esecuzione
+    logical   :: newrun           ! New run (false = restart)
+    real(R8)  :: res_threshold    ! Stop below this residual
+    real(R8)  :: time_threshold   ! Stop at this time
+    integer   :: iter_threshold   ! Stop after this many iterations
     ! Useful variables
     integer         :: iter_general     ! Number of iteration - including all MG levels
     integer         :: iter_from_call
@@ -92,9 +92,9 @@ module FUSS_Config_Types_m
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
     character(len=llen) :: solver_type      ! Solver type (explicit/implicit)
-    real(R8)            :: vnn              ! Parametro di stabilita' diffusiva
-    integer             :: rampa_vnn_iter   ! Numero di iterazioni per rampa di vnn
-    logical             :: time_accurate    ! Flag per integrazione time-accurate
+    real(R8)            :: vnn              ! Diffusion number (von Neumann)
+    integer             :: rampa_vnn_iter   ! Iterations of the vnn ramp
+    logical             :: time_accurate    ! Time-accurate (global dt) run
     integer             :: n_RK
     character(len=llen) :: integration_variables ! Integration variables (cons/prim)
     ! Useful variables

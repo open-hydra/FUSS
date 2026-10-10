@@ -53,12 +53,8 @@ contains
 
     contains
       
-      ! Explicit limit of the diffusion operator: alpha dt sum_d |grad xi_d|^2 <= vnn / 2, with grad xi_d
-      ! (xi_d the cell index along d) the row d of the cell metric M. The largest eigenvalue of the
-      ! discrete operator on a uniform mesh is 4 alpha sum_d |grad xi_d|^2, also on a skewed one: the
-      ! mixed-derivative terms vanish in that mode. On an orthogonal cell |grad xi_d| = 1/dl_d; on a cell
-      ! skewed by an angle phi it is larger (1/(dl_d sin phi) for a parallelogram), and the edge lengths
-      ! dl used before overstated the stable step by 1/sin^2(phi), 2 at 45 degrees.
+      ! Explicit diffusion limit alpha dt sum_d |grad xi_d|^2 <= vnn/2, grad xi_d = row d of M:
+      ! exact on skewed cells too, where the edge lengths overstate the stable step by 1/sin^2(phi)
       subroutine compute ( T, matID, M, dtmin, vnn )
         use FUSS_Global_m
         use FUSS_Lib_Solid

@@ -38,8 +38,7 @@ contains
 
     level = obj_multigrid%MG_level
 
-    ! Solution time of the outputs: level 1 (its files and the prolongated ones) and the level
-    ! being computed, so that field-level<n> and wall-level<n> carry it too
+    ! Solution time of level 1 (also the prolongated files) and of the level being computed
     if ( obj_time_scheme%time_accurate ) then
       simulation%IOfield(1)%solutiontime = simulation%domain(1)%time
       IOwall(1)%solutiontime = simulation%domain(1)%time
@@ -92,8 +91,7 @@ contains
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
 
-      ! Write output solution (collective — all ranks participate in gather). The level being
-      ! computed: a run that ends on a coarse level writes field-level<n> and wall-level<n>.
+      ! Write the level being computed (collective)
       call Write_Solution ( simulation%domain(level), simulation%IOfield(level), solfile )
       if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(level), wallfile )
       if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
@@ -242,8 +240,7 @@ contains
     ! Update input data
     if ( mod (simulation%domain(level) % iter, obj_io%ini_diter) == 0d0 ) then
       call Read_Inifile_Runtime()
-      ! level<n>-iter (multigrid) and iter-threshold (one level) take effect at runtime: the stop
-      ! test (Mod_Explicit) uses each level's itermax, set from them at setup.
+      ! level<n>-iter / iter-threshold take effect at runtime
       if ( obj_multigrid%MGL > 1 ) then
         do m = 1, obj_multigrid%MGL
           simulation%domain(m)%itermax = obj_multigrid%iter_threshold(m)
@@ -251,8 +248,7 @@ contains
       else
         simulation%domain(1)%itermax = obj_sim_param%iter_threshold
       endif
-      ! IRS can only be switched on at setup, where its arrays are allocated: irs = true added to a
-      ! run started without it is ignored (irs = false and irs-beta do act at runtime).
+      ! IRS arrays exist only if IRS was on at setup
       if ( obj_irs%enabled .and. .not. obj_irs%at_setup ) then
         if ( mpi_is_root .and. .not. irs_runtime_warned ) write(*,'(A)') &
           ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
@@ -279,9 +275,7 @@ contains
 
   contains
 
-    ! A coarse level writes its prolongated solution (field-prolongated, wall-prolongated) with every field
-    ! write when prolongated-diter is 0, else only once prolongated-diter of its iterations have passed since
-    ! the last one. The end of a level (change_MG) always writes it.
+    ! Periodic prolongated writes: every field write, or prolongated-diter level iterations apart
     logical function prolongated_due ()
       prolongated_due = obj_multigrid%prolongated_diter == 0 .or. &
         simulation%domain(level) % iter - obj_multigrid%prolongated_last >= obj_multigrid%prolongated_diter

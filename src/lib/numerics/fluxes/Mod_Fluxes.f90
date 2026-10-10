@@ -57,7 +57,7 @@ contains
     integer :: i, j, k
 
     ! -----------------------------------------------------------------
-    ! Reset residuals to zero and inizialize shock sensor arrays
+    ! Reset residuals
     !$omp do collapse (3)
     do k = 1, n(3)
     do j = 1, n(2)

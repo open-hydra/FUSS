@@ -89,7 +89,7 @@ contains
       return
     endif
 
-    ! Cheak BC file consistency
+    ! Check BC file consistency
     ios = 0; n_proof = -1
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
