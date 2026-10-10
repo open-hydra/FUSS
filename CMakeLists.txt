@@ -53,7 +53,9 @@ endif()
 # Build library
 add_subdirectory(src/lib)
 
-# Build application (only if this file has not been called by another CMakeLists)
+# Build application and tests (only if this file has not been called by another CMakeLists)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_subdirectory(src/app)
+  enable_testing()
+  add_subdirectory(test)
 endif()
