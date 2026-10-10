@@ -187,7 +187,7 @@ contains
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%qw
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
           endif
         
@@ -198,7 +198,7 @@ contains
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%Tw
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
           endif
 

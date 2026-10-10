@@ -17,11 +17,10 @@ module FUSS_Series_Data_m
 
 contains
 
-  subroutine initialize(self,file,bar)
+  subroutine initialize(self,file)
     implicit none
     class(time_series_type), intent(inout) :: self
     character(len=*), intent(in)     :: file
-    logical, intent(in)              :: bar
     character(len=256)               :: line
     integer :: ios, i
     integer :: UnitFree
@@ -46,8 +45,6 @@ contains
       read(UnitFree,*) self%time(i), self%var(i)
     enddo
     close(UnitFree)
-    
-    if (bar) self%var = self%var
 
   end subroutine initialize
 
@@ -67,7 +64,7 @@ contains
       if (period > 0d0) t_ = time_(1) + modulo(t_ - time_(1), period)
     endif
 
-    if (t_ == time_(1)) then
+    if (t_ <= time_(1)) then
         varout = var_(1)
         return
     endif

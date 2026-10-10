@@ -21,7 +21,7 @@ module FUSS_IO_Probes
     type(real_ptr), allocatable      :: variables(:)
     real(R8), pointer                :: P
     real(R8)                         :: dtime
-    integer                          :: ntime
+    real(R8)                         :: tnext = -huge(1d0)   ! next time-based output
     integer                          :: diter
     integer                          :: unit
   contains
@@ -160,9 +160,9 @@ contains
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
       if (mod(iter,probe(i)%diter)==0) then
         write(probe(i)%unit,*) iter, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
-      elseif (time >= probe(i)%dtime*probe(i)%ntime) then
+      elseif (time >= probe(i)%tnext) then
         write(probe(i)%unit,*) time, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
-        probe(i)%ntime = probe(i)%ntime+1
+        probe(i)%tnext = max(probe(i)%tnext, aint(time/probe(i)%dtime)*probe(i)%dtime) + probe(i)%dtime
       endif
     enddo
 
