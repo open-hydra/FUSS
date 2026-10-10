@@ -96,7 +96,7 @@ contains
       select case(ti)
       case(101,301,302,303,304,305,103)
         read( unitfile,*,iostat=ios )
-      case(102)
+      case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
         do c = 1, ci+cii
           read( unitfile,*,iostat=ios )
@@ -217,8 +217,8 @@ contains
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
           read(unitfile,*,iostat=ios)  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
 
-        case(102)
-          if (level == 1) nchimera = nchimera + 1
+        case(102,104)
+          if (level == 1 .and. bc(i)%type == 102) nchimera = nchimera + 1
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
           allocate(bc(i)%donorID(1:sum(bc(i)%ni),1:4))
           allocate(bc(i)%volume_fraction(1:sum(bc(i)%ni)))
@@ -228,6 +228,12 @@ contains
           do s = bc(i)%ni(1)+1, bc(i)%ni(1)+bc(i)%ni(2)
             read( unitfile,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
           enddo
+          if (bc(i)%type == 104) then
+            ! Coupled wall as 103 (coupling flux, wall output); the donors are cells of the other solver
+            if (level == 1) ncoupled = ncoupled + 1
+            obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
+            bc(i)%ext_flux = 0.0
+          endif
           if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
               sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
             nzero_chim = nzero_chim + 1
@@ -252,8 +258,8 @@ contains
       block
         use FUSS_Mod_MPI, only: mpi_abort_all
         character(len=256) :: msg
-        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera entries in the level-', level, &
-          ' BC file have donor volume fractions summing to ~0 (no donors found by the BC '// &
+        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera (102/104) entries in the level-', level, &
+          ' BC file have donor volume fractions summing below 0.5 (no donors found by the BC '// &
           'builder). Their ghost states would be garbage; fix the BC file before running.'
         call mpi_abort_all(trim(msg))
       end block

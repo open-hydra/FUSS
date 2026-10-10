@@ -111,6 +111,7 @@ contains
     !  - chimera (102): remote donors of a receiver block this rank owns.
     !    Ghost_Chimera reads both: T (refreshed by the chimera exchange) and
     !    matID (static, as loaded from the initial condition).
+    !    Not 104: its donors are cells of the other solver.
     allocate(needs_remote_T(domain%nb))
     needs_remote_T = .false.
     do i = 1, domain%nbound
