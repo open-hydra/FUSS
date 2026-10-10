@@ -67,12 +67,12 @@ def main():
     err_T = max(abs(T[j * nx + i] - (T0 + (TR - T0) * 0.5 * (x_nodes[i] + x_nodes[i + 1]) / L))
                 for j in range(2) for i in range(nx))
 
-    # Wall: B1F2 is the BC 303 face (wall temperature and flux into the rod), B1F1 the 300 K wall
+    # Wall: B1F2 is the BC 303 face, B1F1 the 300 K wall; qw is the flux into the rod, so -q on B1F1
     walls = read_tec(wall)
     Tw, qw = walls['B1F2']['Tw'], walls['B1F2']['qw']
     err_Tw = max(abs(t - TR) for t in Tw)
     err_qw = max(abs(v - q) for v in qw) / abs(q)
-    err_q1 = max(abs(abs(v) - q) for v in walls['B1F1']['qw']) / abs(q)
+    err_q1 = max(abs(v + q) for v in walls['B1F1']['qw']) / abs(q)
 
     print('-' * 72)
     print(' 1-D rod, convective wall with a prescribed flux (BC 303)')
@@ -81,7 +81,7 @@ def main():
     print(f'  field   max |T - T_exact|          {err_T:.3e} K    (tol {TOL_T:g} K)')
     print(f'  B1F2    max |Tw - TR|              {err_Tw:.3e} K    (tol {TOL_T:g} K)')
     print(f'  B1F2    max |qw - q| / q           {err_qw:.3e}      (tol {TOL_Q:g})')
-    print(f'  B1F1    max ||qw| - q| / q         {err_q1:.3e}      (tol {TOL_Q:g})')
+    print(f'  B1F1    max |qw + q| / q           {err_q1:.3e}      (tol {TOL_Q:g})')
     ok = err_T < TOL_T and err_Tw < TOL_T and err_qw < TOL_Q and err_q1 < TOL_Q
     print('  Result:', 'PASS' if ok else 'FAIL')
     print('-' * 72)

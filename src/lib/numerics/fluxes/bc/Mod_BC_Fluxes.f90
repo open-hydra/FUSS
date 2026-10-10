@@ -11,12 +11,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block
     use FUSS_Lib_BC_Fluxes_Connection
-    use FUSS_Lib_BC_Fluxes_Symmetry
-    use FUSS_Lib_BC_Fluxes_Wall_Heat
-    use FUSS_Lib_BC_Fluxes_Wall_Temperature
-    use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
-    use FUSS_Lib_BC_Fluxes_Wall_Radiation
-    use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+    use FUSS_Lib_BC_Fluxes_Wall
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -46,33 +41,11 @@ contains
               call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
                                    domain % bc(i) % Tg , domain % bc(i) % matIDg )
 
-            case (300) ! symmetry
-              call BC_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
+            ! 300 (symmetry) and 0 (null): no flux across the face
 
-            case (301) ! wall: prescribed heat flux
-              if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                  domain % bc(i) % qw )
+            case (301:305) ! walls: heat flux (301), temperature (302), convection (303), radiation (304, 305)
+              call BC_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) )
 
-            case (302) ! wall: prescribed temperature
-              if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
-                                         domain % bc(i) % Tw )
-
-            case (303) ! wall: prescribed hconv, Tref, qrad
-              call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad )
-
-            case (304) ! wall: prescribed epsilon, Tref
-              call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                       domain % bc(i) % eps, domain % bc(i) % Tref )
-              
-            case (305) ! wall: prescribed hconv, epsilon, Tref
-              call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref )
-            
             case(103,104) ! Multi-Solver Coupling (104 = with chimera)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % ext_flux
           

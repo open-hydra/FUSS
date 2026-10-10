@@ -73,8 +73,8 @@ contains
           call Ghost_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                   Is, Js, Ks, Fs, domain % blk(Bs), &
                                   domain % bc(i) % Tg, domain % bc(i) % matIDg )
-        case(300)
-          call Ghost_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
+        case(301:305)
+          call Ghost_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), domain % time )
         case(102)
           ! Chimera: processed after the donor-cell MPI exchange completes (below)
           continue
@@ -223,6 +223,46 @@ contains
     enddo
 
   end subroutine Ghost_Symmetry
+
+
+  !> Wall ghosts: the cells mirrored through the wall temperature, 2 Tw - T, exact for a linear field.
+  !> Time tables of 301/302 are evaluated here, before the fluxes of the stage.
+  subroutine Ghost_Wall ( Im, Jm, Km, Fm, blk, bc, time )
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
+    implicit none
+    integer, intent(in) :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(inout) :: blk
+    type(FUSS_bc_type), intent(inout) :: bc
+    real(R8), intent(in) :: time
+    ! Local
+    integer :: g
+    real(R8) :: Tw, q_in
+
+    if (bc % BCtime % exists) then
+      if (bc % type == 301) bc % qw = bc % BCtime % update(time)
+      if (bc % type == 302) bc % Tw = bc % BCtime % update(time)
+    endif
+    call Wall_Temperature ( Im, Jm, Km, Fm, blk, bc, .false., Tw, q_in )
+
+    call Ghost_Symmetry ( Im, Jm, Km, Fm, blk )
+    do g = 1, gc
+      select case (Fm)
+        case(1)
+          blk % T(Im-g,Jm,Km) = 2d0*Tw - blk % T(Im-g,Jm,Km)
+        case(2)
+          blk % T(Im+g,Jm,Km) = 2d0*Tw - blk % T(Im+g,Jm,Km)
+        case(3)
+          blk % T(Im,Jm-g,Km) = 2d0*Tw - blk % T(Im,Jm-g,Km)
+        case(4)
+          blk % T(Im,Jm+g,Km) = 2d0*Tw - blk % T(Im,Jm+g,Km)
+        case(5)
+          blk % T(Im,Jm,Km-g) = 2d0*Tw - blk % T(Im,Jm,Km-g)
+        case(6)
+          blk % T(Im,Jm,Km+g) = 2d0*Tw - blk % T(Im,Jm,Km+g)
+      end select
+    enddo
+
+  end subroutine Ghost_Wall
 
 
   subroutine Ghost_Chimera ( nb, Blk, bc )

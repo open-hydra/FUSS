@@ -137,11 +137,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: mpi_is_root, is_local_block, mpi_reduce_sum_r8_array
-    use FUSS_Lib_BC_Fluxes_Wall_Heat
-    use FUSS_Lib_BC_Fluxes_Wall_Temperature
-    use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
-    use FUSS_Lib_BC_Fluxes_Wall_Radiation
-    use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -181,29 +177,8 @@ contains
           Km = domain % bc(i) % k
           Fm = domain % bc(i) % f
           Ovar = 0d0
-          select case ( domain % bc(i) % type )
-
-            case (301) ! wall: prescribed heat flux
-              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                  domain % bc(i) % qw, Ovar )
-
-            case (302) ! wall: prescribed temperature
-              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
-                                         domain % bc(i) % Tw, Ovar )
-
-            case (303) ! wall: prescribed hconv, Tref, qrad
-              call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad, Ovar )
-
-            case (304) ! wall: prescribed epsilon, Tref
-              call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                       domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
-              
-            case (305) ! wall: prescribed hconv, epsilon, Tref
-              call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
-
-          end select
+          if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) &
+            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .true., Ovar(1), Ovar(2) )
           wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
         enddo
 
