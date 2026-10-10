@@ -88,29 +88,45 @@ contains
   end function is_local_block
 
 
-  !> Partition nb blocks across MPI ranks using greedy load balancing.
+  !> Partition nb blocks across MPI ranks: largest block first, each to the least loaded rank (LPT).
   !> blk_ncells(b) = total number of cells in block b.
   subroutine partition_blocks(nb, blk_ncells)
     integer, intent(in) :: nb
     integer, intent(in) :: blk_ncells(nb)
     ! Local
-    integer :: b, r, nloc
-    integer, allocatable :: rank_load(:)
+    integer :: b, i, j, r, nloc, tmp
+    integer, allocatable :: rank_load(:), order(:)
 
     if (allocated(block_owner)) deallocate(block_owner)
     if (allocated(rank_load)) deallocate(rank_load)
     allocate(block_owner(nb))
     allocate(rank_load(0:mpi_size_-1))
+    allocate(order(nb))
     rank_load = 0
 
-    ! Greedy: assign each block to the rank with the least load
-    r = 0
+    ! Blocks by descending cell count (insertion sort; ties keep mesh order)
     do b = 1, nb
+      order(b) = b
+    end do
+    do i = 2, nb
+      tmp = order(i)
+      j = i - 1
+      do while (j >= 1)
+        if (blk_ncells(order(j)) >= blk_ncells(tmp)) exit
+        order(j+1) = order(j)
+        j = j - 1
+      end do
+      order(j+1) = tmp
+    end do
+
+    do i = 1, nb
+      b = order(i)
       r = minloc(rank_load, dim=1) - 1   ! rank with minimum load (0-indexed)
       block_owner(b) = r
       rank_load(r) = rank_load(r) + blk_ncells(b)
     end do
-    
+    deallocate(order)
+
     ! Build local block list
     nloc = count(block_owner == mpi_rank_)
     n_local_blocks = nloc
