@@ -17,9 +17,9 @@ FUSS is an open-source solid heat-conduction solver for the energy equation on m
 
 - **Solid heat conduction** — steady-state and time-accurate computations on multi-block structured grids.
 - **Multi-material support** — multiple solid regions with temperature-dependent material properties (density, specific heat, thermal conductivity) read from tabulated data.
-- **Explicit time integration** — Runge–Kutta schemes with optional Implicit Residual Smoothing (IRS) for stability enhancement.
-- **Convergence acceleration** — multigrid cycling and local time stepping for efficient steady-state solutions.
-- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer, surface radiation, symmetry, and multi-block connection. Supports volumetric heat sources.
+- **Explicit time integration** — forward Euler, RK2 and RK3, with optional Implicit Residual Smoothing (IRS).
+- **Convergence acceleration** — local time stepping and grid sequencing (multigrid levels) for steady-state solutions.
+- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation, symmetry, multi-block connection, chimera (overset) blocks, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
 - **Parallel execution** — shared-memory parallelism via OpenMP; MPI support for distributed-memory runs.
 - **Flexible I/O** — solution output in Tecplot (ASCII and binary) and VTK formats. Point probes for time-history recording. Restart capability.
 
@@ -59,6 +59,13 @@ cd test/steady-state/temperature_Plate
 
 See the [Quick Start](https://open-hydra.github.io/FUSS/getting-started/quick-start/) for a full walkthrough.
 
+### Run the Test Suite
+
+```bash
+ctest --test-dir build -L fast     # 7 verification cases, about a minute
+ctest --test-dir build             # all: verification, smoke runs, MPI checks
+```
+
 
 ## Dependencies
 
@@ -69,7 +76,7 @@ FUSS is built on top of companion libraries, included as Git submodules:
 | [ORION](https://github.com/MarcoGrossi92/ORION) | Multi-format I/O (Tecplot, VTK, Plot3D) |
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
 
-Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own dependencies (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by `install.sh build` and `install.sh update`. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 
@@ -84,9 +91,10 @@ FUSS/
 │       ├── driver/    #   Solver procedures (setup/solve/postprocess)
 │       ├── io/        #   I/O routines (solution, probes, wall, BCs)
 │       ├── numerics/  #   Numerical methods
-│       │   ├── fluxes/#     Diffusive flux computation and BCs
-│       │   ├── space/ #     Spatial discretization and metrics
-│       │   └── time/  #     Time integration (explicit RK, IRS, multigrid)
+│       │   ├── fluxes/    #   Diffusive fluxes and BC fluxes
+│       │   ├── multigrid/ #   Grid sequencing (restriction, prolongation)
+│       │   ├── space/     #   Ghost cells and metrics
+│       │   └── time/      #   Time step, explicit RK, IRS
 │       ├── parallel/  #   MPI ghost-cell exchange
 │       └── physics/   #   Material property evaluations
 ├── lib/               # Git submodule dependencies
@@ -95,13 +103,18 @@ FUSS/
 │   │   ├── temperature_Plate/        #   Fixed-temperature boundary
 │   │   ├── convective_Plate/         #   Convective boundary condition
 │   │   ├── radiative_Rod/            #   Radiation boundary condition
+│   │   ├── convective_qrad_Rod/      #   Convective wall with a prescribed flux
 │   │   └── qvol_Plate/               #   Volumetric heat source
 │   ├── transient/                    # Time-accurate V&V problems
 │   │   ├── oscillating_Rod/          #   1-D oscillating temperature (NAFEMS Test 5)
-│   │   └── multimat_Plate/           #   2-D multi-material transient plate
-│   └── numerics-features/            # Numerical feature verification
-│       ├── residual_convergence/     #   Convergence strategy comparison
-│       └── time_convergence/         #   Parallel scaling performance
+│   │   ├── multimat_Plate/           #   2-D multi-material transient plate
+│   │   └── variable_cp_Plate/        #   Temperature-dependent heat capacity
+│   ├── numerics-features/            # Numerical feature checks
+│   │   ├── chimera/                  #   Chimera (overset) blocks
+│   │   ├── residual_convergence/     #   Convergence strategy comparison
+│   │   └── time_convergence/         #   Parallel scaling performance
+│   ├── CMakeLists.txt                # CTest definitions
+│   └── run_case.sh                   # Runs one case for CTest
 ├── cmake/             # CMake modules
 ├── install.sh         # Build helper script
 └── CMakeLists.txt
