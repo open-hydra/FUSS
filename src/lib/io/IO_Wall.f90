@@ -177,8 +177,14 @@ contains
           Km = domain % bc(i) % k
           Fm = domain % bc(i) % f
           Ovar = 0d0
-          if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) &
+          if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) then
+            ! Time tables at the output time (the ghost fill leaves the last stage time)
+            if (domain % bc(i) % BCtime % exists) then
+              if (domain % bc(i) % type == 301) domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
+              if (domain % bc(i) % type == 302) domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
+            endif
             call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .true., Ovar(1), Ovar(2) )
+          endif
           wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
         enddo
 

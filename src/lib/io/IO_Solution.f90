@@ -110,6 +110,8 @@ contains
     type(ORION_data) :: IOinit, IOsource
     integer          :: error_init, error_source, error_dim, b, nblocks
     character(clen)  :: format(2)
+    character(len=len(obj_io%nameinit)) :: vtkdir
+    logical          :: file_found
 
     error_init   = 0
     error_source = 0
@@ -134,8 +136,24 @@ contains
       IOfield%vtk%format  = trim(format(2))
       IOinit%vtk%format   = trim(format(2))
       IOsource%vtk%format = trim(format(2))
-      error_init   = vtk_read_structured_multiblock(orion=IOinit,  vtmpath=obj_io%nameinit(1:len(trim(obj_io%nameinit))-4),vtspath='INPUT/vtk/field',time=obj_io%IOtime)
-      error_source = vtk_read_structured_multiblock(orion=IOsource,vtmpath=obj_io%namesource(1:len(trim(obj_io%namesource))-4),vtspath='INPUT/vtk/field',time=obj_io%IOtime)
+      ! The .vts names inside the .vtm are relative to its vtk/ subfolder; ORION's reader
+      ! prepends vtspath and crashes on a missing file, so the existence is checked here
+      inquire(file=trim(obj_io%nameinit), exist=file_found)
+      if (file_found) then
+        vtkdir = obj_io%nameinit(1:index(obj_io%nameinit,'/',back=.true.))//'vtk/'
+        error_init = vtk_read_structured_multiblock(orion=IOinit, &
+                     vtmpath=obj_io%nameinit(1:len(trim(obj_io%nameinit))-4),vtspath=trim(vtkdir),time=obj_io%IOtime)
+      else
+        error_init = 1
+      endif
+      inquire(file=trim(obj_io%namesource), exist=file_found)
+      if (file_found) then
+        vtkdir = obj_io%namesource(1:index(obj_io%namesource,'/',back=.true.))//'vtk/'
+        error_source = vtk_read_structured_multiblock(orion=IOsource, &
+                       vtmpath=obj_io%namesource(1:len(trim(obj_io%namesource))-4),vtspath=trim(vtkdir))
+      else
+        error_source = 1
+      endif
     end select
 
     if (error_init/=0) then
@@ -212,6 +230,7 @@ contains
         IOfield(m)%tec%extension = '.szplt'
         IOfield(m)%tec%format = 'binary'
         IOfield(m)%vtk%format = 'binary'
+        if (index(obj_io%sol_format,'raw')>0) IOfield(m)%vtk%format = 'raw'
       endif
     end do
 
