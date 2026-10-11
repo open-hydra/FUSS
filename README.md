@@ -19,7 +19,7 @@ FUSS is an open-source solid heat-conduction solver for the energy equation on m
 - **Multi-material support** — multiple solid regions with temperature-dependent material properties (density, specific heat, thermal conductivity) read from tabulated data.
 - **Explicit time integration** — forward Euler, RK2 and RK3, with optional Implicit Residual Smoothing (IRS).
 - **Convergence acceleration** — local time stepping and grid sequencing (multigrid levels) for steady-state solutions.
-- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation, symmetry, multi-block connection, chimera (overset) blocks, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
+- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation with or without convection, symmetry, multi-block connection, chimera (overset) blocks, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
 - **Parallel execution** — shared-memory parallelism via OpenMP; MPI support for distributed-memory runs.
 - **Flexible I/O** — solution output in Tecplot (ASCII and binary) and VTK formats. Point probes for time-history recording. Restart capability.
 
@@ -62,7 +62,7 @@ See the [Quick Start](https://open-hydra.github.io/FUSS/getting-started/quick-st
 ### Run the Test Suite
 
 ```bash
-ctest --test-dir build -L fast     # 7 verification cases, about a minute
+ctest --test-dir build -L fast     # 8 verification cases, about a minute
 ctest --test-dir build             # all: verification, smoke runs, MPI checks
 ```
 

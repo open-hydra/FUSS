@@ -2,7 +2,7 @@
 
 Transient heat conduction across a rectangular plate composed of three material layers aligned with the Y direction. The two outer blocks (Block 1 and Block 3) are made of a near-perfect insulator (k → 0), so heat flows exclusively through the central conductive block (Block 2). The problem therefore reduces to one-dimensional transient conduction in Y for Block 2, for which an exact Fourier-series solution exists. Verification is performed by comparing the numerical temperature profiles along Y in the central column of Block 2 at six time instants against the analytical solution.
 
-**Reference**: "Some New Verification Test Problems for Multi-Material Diffusion on Meshes that are Non-Aligned with Material Interfaces", LANL report (see `reference/`).
+**Reference**: "Some New Verification Test Problems for Multi-Material Diffusion on Meshes that are Non-Aligned with Material Interfaces", LANL report.
 
 ---
 
@@ -12,9 +12,9 @@ A rectangular plate (2.0 m × 2.0 m) is partitioned into three material zones in
 
 | Block | X extent | Material | Role |
 |---|---|---|---|
-| Block 1 | −1.0 to −0.25 m | Insulator (k ≈ 0) | Thermally transparent layer |
+| Block 1 | −1.0 to −0.25 m | Insulator (k = 10⁻¹²) | Insulating layer |
 | Block 2 | −0.25 to  0.25 m | Conductor (k = 1) | Active conduction zone |
-| Block 3 |  0.25 to  1.0 m | Insulator (k ≈ 0) | Thermally transparent layer |
+| Block 3 |  0.25 to  1.0 m | Insulator (k = 10⁻¹²) | Insulating layer |
 
 Because the two outer blocks are nearly perfectly insulating, no heat crosses the Block 1 / Block 2 and Block 2 / Block 3 interfaces in the X direction. The temperature field inside Block 2 is therefore uniform in X and governed by one-dimensional transient conduction in Y.
 
@@ -30,11 +30,11 @@ $$\alpha = \frac{k}{\rho c_p} = \frac{1.0}{1.0 \times 1.0} = 1.0\ \text{m}^2/\te
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 3 | y = 0 (bottom) | Prescribed temperature – hot wall | T = 101 K |
-| Face 4 | y = 2 m (top) | Prescribed temperature – cold wall | T = 100 K |
-| Face 1 (Block 1) | x = −1 m | Adiabatic | q = 0 |
-| Face 2 (Block 3) | x = +1 m | Adiabatic | q = 0 |
-| Block interfaces | x = ±0.25 m | Continuity (`connection`) | — |
+| Face 3 | y = 0 (bottom) | Prescribed temperature (302) – hot wall | T = 101 K |
+| Face 4 | y = 2 m (top) | Prescribed temperature (302) – cold wall | T = 100 K |
+| Face 1 (Block 1) | x = −1 m | Adiabatic (301) | q = 0 |
+| Face 2 (Block 3) | x = +1 m | Adiabatic (301) | q = 0 |
+| Block interfaces | x = ±0.25 m | Connection (101) | — |
 | Faces 5–6 | z-direction | No-flux (2-D plane) | — |
 
 **Initial condition**
@@ -62,9 +62,9 @@ $$T^*(y, t) = \underbrace{1 - \frac{y}{L}}_{\text{steady state}} + \sum_{r=1}^{\
 
 with:
 
-$$A_r = \frac{2}{r\pi}\left[(-1)^r T_L - T_0\right] = \frac{-2}{r\pi}\,(-1)^r$$
+$$A_r = \frac{2}{r\pi}\left[(-1)^r T_L - T_0\right] = -\frac{2}{r\pi}$$
 
-The series is truncated at 100 terms (implemented in `analytical.py` and inlined in `verify.py`).
+The series is truncated at 100 terms (`analytical_T` in `verify.py`).
 
 ## Numerical setup
 
@@ -75,7 +75,8 @@ The series is truncated at 100 terms (implemented in `analytical.py` and inlined
 | Time-accurate | true |
 | Integration variables | primitive |
 | Implicit residual smoothing | disabled |
-| Simulation end time | 0.505 s |
+| Time step | 5 × 10⁻⁴ s (global, 1011 steps) |
+| Simulation end time | 0.5055 s |
 | Solution write interval | every 10 iterations |
 
 ## Grid structure
@@ -105,7 +106,7 @@ The simulation writes a full field solution every 10 solver iterations. The foll
 
 For each snapshot `verify.py`:
 1. Parses the Tecplot ASCII file and extracts Block 2.
-2. Reads the cell-centred temperature at the central I column (i = 5, x ≈ +0.025 m).
+2. Reads the cell-centred temperature in column 6 of 10 (index 5 from 0), cell centre x = +0.025 m.
 3. Normalises: T* = (T − 100) / (101 − 100).
 4. Evaluates the analytical T* at the same Y cell-centre positions.
 5. Computes the L-inf and L2 errors over the 40 cells in Y.
@@ -114,7 +115,7 @@ A PASS is issued when the maximum L-inf error across all six snapshots is below 
 
 ## Results and verification
 
-The comparison between the FUSS numerical profiles (open circles) and the analytical solution (solid lines) at all six times is shown below.
+The comparison between the FUSS numerical profiles (filled circles) and the analytical solution (solid lines) at all six times is shown below.
 
 ![Temperature profile comparison](images/2D-transient-multimat-plate-comparison.svg)
 
@@ -130,3 +131,8 @@ Summary of errors:
 | `field101.tec` | 0.505 | 0.000171 | 0.000118 |
 
 The largest error occurs at t = 0.005 s, when the steep gradient near y = 0 is underresolved on the Δy = 0.05 m grid (the thermal diffusion length at this early time is √(αt) ≈ 0.07 m, comparable to one cell). All subsequent snapshots have L-inf errors below 0.001, confirming that FUSS accurately reproduces one-dimensional transient conduction across a multi-material interface for a range of times.
+
+```bash
+cd test/transient/multimat_Plate
+./FUSS.sh solve && python3 verify.py
+```

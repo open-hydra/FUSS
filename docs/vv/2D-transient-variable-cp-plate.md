@@ -21,7 +21,7 @@ The geometry and mesh are those of the [Volumetric Heat Plate](2D-steady-state-q
 
 | Property | Value |
 |---|---|
-| Specific heat | $c_p(T) = A + B\,T$, $A = 300$ J/(kg·K), $B = 0.4$ J/(kg·K²): 420 at 300 K, 830 at 1330 K |
+| Specific heat | $c_p(T) = A + B\,T$, $A = 300$ J/(kg·K), $B = 0.4$ J/(kg·K²): 420 at 300 K, 832 at 1330 K |
 | Density | $\rho = 7850$ kg/m³ |
 | Conductivity | $k = 52$ W/(m·K) |
 | Energy column | $h(T) = \rho\,(A\,T + B\,T^2/2) = \int_0^T \rho\,c_p\,\mathrm{d}T'$ |

@@ -1,58 +1,61 @@
 # Input File
 
-FUSS is configured through a single **INI-format** file called `input.ini`, located in the case root directory.
+FUSS reads its settings from `input.ini` in the directory it runs in. The file is parsed by FiNeR.
 
-The file is organised into parameter blocks — each block controls a specific aspect of the simulation (run control, numerics, mesh generation, materials, initial conditions, boundary conditions, output). Parameters not specified take their default values.
-
-## File Structure
-
-```ini
-[SECTION-NAME]
-parameter = value
-```
-
-Example:
+## Syntax
 
 ```ini
 [FUSS-Parameters]
 res-threshold = 1e-8
-iter-threshold = 500000
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 2.0
+vnn = 2.0               ; inline comment after a value
 time-accurate = false
 integration-variables = cons
 irs = true
 irs-beta = 0.5
 ```
 
-!!! warning "Default values"
-    If a parameter is not specified, the **default value** is used silently.
-
-!!! warning "Parameter names are case-sensitive"
-    Incorrect names or values are ignored and the default is used instead. Check the [Parameter Registry](registry.md) for the exact spelling.
+- A section starts with `[name]`; each option is `key = value`.
+- Lines starting with `!`, `;` or `#` are comments, and `;` starts an inline comment after a value.
+- FiNeR rejects a comment line that contains `=`: write such notes as an inline comment after a value, or reword them.
 
 ---
 
-## Sections
+## Sections Read by FUSS
 
-| Section | Description | Reference |
-|---------|-------------|-----------|
-| `[FUSS-Parameters]` | Simulation control: convergence thresholds, restart | [→](registry.md#fuss-parameters) |
-| `[FUSS-Numerics]` | Time scheme, VNN, IRS, integration variables | [→](registry.md#fuss-numerics) |
-| `[FUSS-Multigrid]` | Multigrid acceleration settings | [→](registry.md#fuss-multigrid) |
-| `[FUSS-IO]` | Output formats, frequencies, and overwrite policy | [→](registry.md#fuss-io) |
-| `[FUSS-Probes]` | Point probes for time-history recording | [→](registry.md#fuss-probes) |
-| `[GRIB-meshgen]` | Built-in mesh generator global settings | [User Guide](using.md#mesh) |
-| `[GRIB-Block*]` | Per-block mesh geometry and resolution | [User Guide](using.md#mesh) |
-| `[GPB-Phase1]` | Material property definitions | [Initial Conditions](initial-conditions.md#materials) |
-| `[ICB-Block*]` | Per-block initial conditions | [Initial Conditions](initial-conditions.md) |
-| `[BCB-Block*]` | Per-block face boundary condition assignments | [Boundary Conditions](boundary-conditions.md) |
-| Named BC sections | BC type and parameters (temperature, flux, convection, radiation) | [Boundary Conditions](boundary-conditions.md) |
+| Section | Content | Keys |
+|---------|---------|------|
+| `[FUSS-Parameters]` | New run or restart, stop criteria | [registry](registry.md#fuss-parameters) |
+| `[FUSS-Numerics]` | Time scheme, VNN, IRS, integration variables, face metric | [registry](registry.md#fuss-numerics) |
+| `[FUSS-Multigrid]` | Grid levels and iterations per level | [registry](registry.md#fuss-multigrid) |
+| `[FUSS-IO]` | Formats and frequencies of the output | [registry](registry.md#fuss-io) |
+| `[FUSS-Probes]` and one section per probe | Probes | [registry](registry.md#fuss-probes), [Running FUSS](using.md#probes) |
+
+The [Parameter Registry](registry.md) lists every key with its default and allowed values. It is generated from the source by `bin/DocGen` (`src/app/docgen.f90`): do not edit it by hand. Keys that come in numbered series appear there once as examples: `probe<n>` with its section (`probe-placeholder`), and `level<m>-iter` for two levels.
+
+One key is not in the registry: `levels` in `[FUSS-Multigrid]`, the number of grid levels (default 1, no multigrid). FUSS reads it before building the registry, to know how many `level<m>-iter` keys to expect. Multigrid is described in [Time Integration](../theory/time-integration.md#multigrid-grid-sequencing).
+
+The other sections of the test-case files are not read by FUSS; they are the input of the pre-processors that write `INPUT/`:
+
+| Section | Pre-processor | Described in |
+|---------|---------------|--------------|
+| `[GRIB-meshgen]`, `[GRIB-Block<n>]` | GRIB (mesh) | [Running FUSS](using.md#mesh) |
+| `[GPB-Phase1]` | ATLAS GPB (`phase.txt`, `properties.dat`) | [Initial Conditions](initial-conditions.md#materials) |
+| `[ICB-Block<n>]` | ATLAS ICB (`ic.tec`) | [Initial Conditions](initial-conditions.md#initial-field-inputic) |
+| `[STB-Block<n>]` | ATLAS STB (`st.tec`) | [Initial Conditions](initial-conditions.md#heat-source-inputst) |
+| `[ATLAS-Parameters]`, `[BCB-Block<n>]`, named BC sections | ATLAS BCB (`bc.txt`) | [Boundary Conditions](boundary-conditions.md#atlas-input) |
 
 ---
 
-## Parameter Registry
+## Defaults and Validation
 
-The complete list of all parameters, defaults, and allowed values is in the **[Parameter Registry](registry.md)**. It is generated automatically from the source code at every release — do not edit it manually.
+- A key that is not set takes its default, except `time-accurate`, which is required: without it the run stops at set-up.
+- FUSS looks up only the keys it knows: a misspelled key or section is ignored without a message, and the default is used. Check the spelling against the [registry](registry.md).
+- Values are checked at set-up against the allowed values and ranges of the registry. A value out of range stops the run with `[ERROR] <key> must be ...` under `Input file FAIL`. Text values are case-sensitive: `time-scheme = rk3` is rejected.
+- IRS is switched on by `irs = true` or by `irs-beta > 0`.
+
+## Changes During a Run
+
+FUSS reads `input.ini` again every `ini-diter` iterations (default 10000). Keys used during the iterations take effect from then on, for example `vnn`, `res-threshold`, `time-threshold`, `iter-threshold`, `level<m>-iter` and the output frequencies. IRS cannot be switched on at runtime: `irs = true` in a run started without it is ignored with a warning (see [Time Integration](../theory/time-integration.md#implicit-residual-smoothing-irs)). The values read at runtime are not checked against the registry.

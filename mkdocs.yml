@@ -96,6 +96,7 @@ nav:
     - Input Parameters: user/registry.md
     - Initial Conditions: user/initial-conditions.md
     - Boundary Conditions: user/boundary-conditions.md
+    - Parallel Execution: user/parallel.md
 
   - Theoretical Guide: 
     - theory/index.md
@@ -107,14 +108,16 @@ nav:
   - Verification & Validation:
     - vv/index.md
     - 1D Steady-State Radiative Rod: vv/1D-steady-state-radiative-rod.md
+    - 1D Steady-State Convective Rod with Imposed Flux: vv/1D-steady-state-convective-qrad-rod.md
     - 1D Transient Oscillating Rod: vv/1D-transient-oscillating-rod.md
     - 2D Steady-State Temperature Plate: vv/2D-steady-state-temperature-plate.md
     - 2D Steady-State Volumetric Heat Plate: vv/2D-steady-state-qvol-plate.md
     - 2D Steady-State Convective Plate: vv/2D-steady-state-convective-plate.md
+    - 2D Steady-State Skewed Plate: vv/2D-steady-state-skewed-plate.md
     - 2D Transient Multi-Material Plate: vv/2D-transient-multimat-plate.md
     - 2D Transient Variable-cp Plate: vv/2D-transient-variable-cp-plate.md
     - Residual Convergence Analysis: vv/residual-convergence.md
-    - Parallel Scaling Analysis: vv/time-convergence.md
+    - Parallel Scaling: vv/parallel-scaling.md
 
   - Developer Guide:
     - development/index.md

@@ -20,10 +20,10 @@ where $\dot{q} = 10^6$ W/m³ and $k = 52$ W/mK. The symmetry of the domain and b
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 1 | x = 0 (left) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 2 | x = 0.6 m (right) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 3 | y = 0 (bottom) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 4 | y = 0.4 m (top) | Prescribed temperature | T = 0 °C (273.15 K) |
+| Face 1 | x = 0 (left) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 2 | x = 0.6 m (right) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 3 | y = 0 (bottom) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 4 | y = 0.4 m (top) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
 
 **Material properties and source term**
 
@@ -57,7 +57,7 @@ Boundary conditions (FUSS block-face notation):
 - **Face 4** (y = 0.4 m): Prescribed wall temperature (`type = wall`, `T = 273.15`)
 - **Faces 5–6**: `null` (degenerate 2-D z-direction)
 
-The volumetric heat source is set via the source-term block (`[STB-Block1]`, `qvol = 1e6` W/m³).
+The volumetric heat source is set via the source-term block (`[STB-Block1]`, `qvol = 1e6` W/m³): ATLAS STB writes it to `INPUT/st.tec`, which FUSS reads at start. The initial condition is 273.15 K.
 
 ## Temperature field
 
@@ -81,3 +81,8 @@ The target point B is located at (x = 0.3 m, y = 0.2 m), the geometric centre of
 | B (x = 0.3 m, y = 0.2 m) | 310.10 °C | 309.98 °C | 0.021 % |
 
 The interpolated temperature at point B agrees with the NAFEMS reference to within 0.12 °C (0.02 % relative error), demonstrating excellent accuracy for the two-dimensional Poisson problem with uniform heat generation and Dirichlet boundary conditions.
+
+```bash
+cd test/steady-state/qvol_Plate
+./FUSS.sh solve && python3 verify.py
+```

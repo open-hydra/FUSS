@@ -1,109 +1,90 @@
 # Code Structure
 
-This page documents the repository layout, the internal architecture
-of the FUSS library, and the solver execution pipeline.  All diagrams
-use [Mermaid](https://mermaid.js.org/) and render directly in the
-documentation.
+This page describes the repository layout, the modules of the FUSS library and the order in which the solver calls them.
 
 ---
 
-## Repository Layout
+## Repository layout
 
 ```
 FUSS/
-├── CMakeLists.txt          # Top-level CMake build
-├── CMakePresets.json        # Developer presets (compilers, paths)
-├── install.sh               # Build / compile / update helper
-├── mkdocs.yml               # Documentation site configuration
-│
+├── CMakeLists.txt        # top-level build: ORION, FiNeR, src/lib, src/app, test
+├── install.sh            # build / compile / update
+├── mkdocs.yml            # documentation site
+├── cmake/                # compiler flags, OpenMP/MPI detection
 ├── src/
-│   ├── app/                 # Executables
-│   │   ├── main.f90         # FUSS solver entry point
-│   │   └── docgen.f90       # Input-parameter documentation generator
-│   └── lib/                 # FUSS library (libFUSSL)
-│       ├── base/            # Fundamental types and global parameters
-│       ├── config/          # Input parsing, registry, setup assignment
-│       ├── diagnostic/      # Residual monitoring
-│       ├── driver/          # High-level solver orchestration
-│       ├── io/              # File I/O (solution, BCs, probes, walls)
-│       ├── numerics/        # Numerical methods
-│       │   ├── fluxes/      #   Diffusive flux computation
-│       │   │   └── bc/      #     Boundary-condition flux routines
-│       │   ├── multigrid/   #   Restriction / prolongation
-│       │   ├── space/       #   Metrics, ghost-cell filling
-│       │   └── time/        #   Time stepping
-│       │       └── explicit/#     Runge–Kutta, IRS, state update
-│       ├── parallel/        # MPI ghost-cell exchange
-│       └── physics/         # Solid material properties
-│
-├── lib/                     # External dependencies (git submodules)
-│   ├── ORION/               # Structured-grid I/O library
+│   ├── app/
+│   │   ├── main.f90      # solver executable (bin/FUSS)
+│   │   └── docgen.f90    # writes docs/user/registry.md (bin/DocGen)
+│   └── lib/              # FUSS library (FUSSL), see below
+├── lib/
+│   ├── ORION/            # submodule: Tecplot/VTK I/O, bundles TecIO
 │   └── third_party/
-│       └── FiNeR/           # INI file parser
-│
-├── test/                    # Test suite
-│   ├── steady-state/        # Steady-state V&V problems (NAFEMS benchmarks)
-│   ├── transient/           # Time-accurate V&V problems
-│   └── numerics-features/   # Numerical features verification
-│       ├── residual_convergence/   # Convergence strategy comparison
-│       └── time_convergence/       # Parallel scaling performance
-│
-├── docs/                    # MkDocs documentation source
-├── cmake/                   # CMake modules (flags, OpenMP, MPI, etc.)
-├── bin/                     # Built executables (FUSS, DocGen)
-└── build/                   # Build artefacts
+│       └── FiNeR/        # submodule: INI parser (its dependencies are cloned by install.sh)
+├── test/
+│   ├── CMakeLists.txt    # CTest definitions
+│   ├── run_case.sh       # runs one case for CTest
+│   ├── steady-state/     # verification cases
+│   ├── transient/        # verification cases
+│   └── numerics-features/# chimera, residual convergence, parallel timing
+└── docs/                 # MkDocs sources
 ```
+
+`bin/`, `build/` and `CMakePresets.json` are created by the build and ignored by git.
 
 ---
 
-## Dependency Graph
+## Library sources
 
-The diagram below shows how the FUSS library depends on its
-submodules and third-party components.
+| Directory | Files | Content |
+|-----------|-------|---------|
+| `base/` | `Parameters_m`, `Global_m`, `Base_Types_m`, `Advanced_Types_m`, `Series_Data_m` | Constants, ghost layers `gc` and dimensions `ndir`, block/domain/BC types, time tables of BCs 301/302 |
+| `config/` | `Config_Types_m`, `Registry`, `Backend_INI`, `Read_Ini`, `Register_Sim_Param`, `Register_IO`, `Register_Numerics`, `Assign_Setup` | Settings objects (`obj_*`), `input.ini` key registry and reader, scheme selection |
+| `driver/` | `Procedures_m`, `Wrap_Setup`, `Wrap_Solve`, `Wrap_Postprocess`, `Mod_Allocate_Data` | `FUSS_type` with `setup`, `solve`, `postprocess`; allocation |
+| `io/` | `Load_Table`, `IO_Solution`, `IO_BC`, `IO_Wall`, `IO_Probes` | Property tables, initial condition and solution files, `bc.txt`, wall output, probes |
+| `numerics/fluxes/` | `Mod_Fluxes`, `Lib_Diffusive` | Interior diffusive fluxes |
+| `numerics/fluxes/bc/` | `Mod_BC_Fluxes`, `Lib_BC_Fluxes`, `Lib_BC_Fluxes_Connection`, `Lib_BC_Fluxes_Wall` | Boundary fluxes: dispatch, face helpers, block connection and chimera (101, 102), walls (301–305) |
+| `numerics/space/` | `Mod_Metrics`, `Lib_Metrics`, `Lib_Ghost` | Metrics, face normals and areas; ghost-cell fill for every BC type |
+| `numerics/time/` | `Mod_dt` | Local and global time step |
+| `numerics/time/explicit/` | `Mod_Explicit`, `Mod_Newstate`, `Lib_Newstate`, `Lib_RK`, `Lib_IRS` | Iteration loop, state update (`cons`/`prim`), Runge–Kutta stages, residual smoothing |
+| `numerics/multigrid/` | `Mod_Multigrid`, `Lib_Multigrid` | Coarse levels, restriction, prolongation |
+| `parallel/` | `Mod_MPI`, `Mod_GhostExchange`, `Mod_Timers` | MPI set-up, block partition, reductions; ghost and chimera exchange, gathers to rank 0; wall-clock timers |
+| `physics/` | `Lib_Solid` | Property interpolation `co_Kappa`, `co_Rho`, `co_Cp`, `co_H` and inversion `co_T` |
+| `diagnostic/` | `Mod_Diagnostic` | Residual norm, `diagnostic.tec` |
+
+All files are `.f90`. `src/lib/CMakeLists.txt` collects every `.f90` under `src/lib/` with `GLOB_RECURSE`.
+
+---
+
+## Dependencies
 
 ```mermaid
 graph TD
-    FUSS["<b>FUSS</b><br/>Solid heat-conduction solver"]
-    ORION["<b>ORION</b><br/>Structured-grid I/O"]
+    FUSS["<b>FUSSL</b><br/>FUSS library"]
+    ORION["<b>ORION</b><br/>Tecplot / VTK I/O"]
     FiNeR["<b>FiNeR</b><br/>INI parser"]
+    FDeps["PENF · StringiFor · FACE · FLAP · BeFoR64"]
+    TecIO["TecIO (optional, USE_TECIO)"]
+    OMP["OpenMP (optional, USE_OPENMP)"]
+    MPI["MPI (optional, USE_MPI)"]
 
     FUSS --> ORION
     FUSS --> FiNeR
-
-    style FUSS fill:#37474f,stroke:#cfd8dc,color:#fff
-    style ORION fill:#1565c0,stroke:#90caf9,color:#fff
-    style FiNeR fill:#6a1b9a,stroke:#ce93d8,color:#fff
-```
-
-Optional compile-time dependencies (enabled via CMake flags):
-
-```mermaid
-graph LR
-    FUSS["FUSS"]
-    OMP["OpenMP"]
-    MPI["MPI"]
-    TecIO["TecIO"]
-
-    FUSS -.->|USE_OPENMP| OMP
-    FUSS -.->|USE_MPI| MPI
-    FUSS -.->|USE_TECIO| TecIO
-
-    style FUSS fill:#37474f,stroke:#cfd8dc,color:#fff
-    style OMP fill:#00695c,stroke:#80cbc4,color:#fff
-    style MPI fill:#00695c,stroke:#80cbc4,color:#fff
-    style TecIO fill:#00695c,stroke:#80cbc4,color:#fff
+    FiNeR --> FDeps
+    ORION -.-> TecIO
+    FUSS -.-> OMP
+    FUSS -.-> MPI
 ```
 
 ---
 
-## Library Architecture
+## Module dependencies
 
-The FUSS library (`libFUSSL`) is organised in six layers.  Lower
-layers have no knowledge of higher layers.
+The main `use` relations between the modules (every module also uses `base/` and most use `Config_Types_m`; module names carry the prefix `FUSS_`, omitted here):
 
 ```mermaid
 graph TB
-    subgraph driver ["<b>driver/</b> — Solver orchestration"]
+    subgraph driver ["driver/"]
         Procedures["Procedures_m<br/><i>FUSS_type</i>"]
         WSetup["Wrap_Setup"]
         WSolve["Wrap_Solve"]
@@ -111,92 +92,80 @@ graph TB
         Alloc["Mod_Allocate_Data"]
     end
 
-    subgraph config ["<b>config/</b> — Input & configuration"]
+    subgraph config ["config/"]
         ReadIni["Read_Ini"]
-        Registry["Registry"]
-        BackendINI["Backend_INI"]
-        AssignSetup["Assign_Setup"]
-        ConfigTypes["Config_Types_m"]
+        Assign["Assign_Setup"]
     end
 
-    subgraph numerics ["<b>numerics/</b> — Numerical methods"]
-        Fluxes["Mod_Fluxes<br/>Diffusive flux"]
-        BCFluxes["Mod_BC_Fluxes"]
-        Explicit["Mod_Explicit"]
-        RK["Lib_RK"]
-        IRS["Lib_IRS"]
-        Newstate["Mod_Newstate"]
-        MG["Mod_Multigrid"]
-        Metrics["Mod_Metrics"]
-        DT["Mod_dt"]
-        Ghost["Lib_Ghost"]
-    end
-
-    subgraph physics ["<b>physics/</b> — Material properties"]
-        Solid["Lib_Solid<br/><i>κ · ρ · cp · h</i>"]
-    end
-
-    subgraph io ["<b>io/</b> — File I/O"]
+    subgraph io ["io/"]
+        LoadTable["Load_Table"]
         IOSol["IO_Solution"]
         IOBC["IO_BC"]
-        IOProbes["IO_Probes"]
         IOWall["IO_Wall"]
-        LoadTable["Load_Table"]
+        IOProbes["IO_Probes"]
     end
 
-    subgraph base ["<b>base/</b> — Fundamental types"]
-        Global["Global_m"]
-        BaseTypes["Base_Types_m"]
-        Advanced["Advanced_Types_m"]
-        Params["Parameters_m"]
+    subgraph numerics ["numerics/"]
+        Explicit["Mod_Explicit"]
+        DT["Mod_dt"]
+        Ghost["Lib_Ghost"]
+        Fluxes["Mod_Fluxes"]
+        Diff["Lib_Diffusive"]
+        BCF["Mod_BC_Fluxes"]
+        Wall["Lib_BC_Fluxes_Wall"]
+        Conn["Lib_BC_Fluxes_Connection"]
+        Newstate["Mod_Newstate / Lib_Newstate"]
+        RK["Lib_RK"]
+        IRS["Lib_IRS"]
+        MG["Mod_Multigrid"]
+        Metrics["Mod_Metrics"]
+    end
+
+    subgraph other ["physics/ · parallel/ · diagnostic/"]
+        Solid["Lib_Solid"]
+        GX["Mod_GhostExchange"]
+        MPI["Mod_MPI"]
+        Diag["Mod_Diagnostic"]
     end
 
     Procedures --> WSetup & WSolve & WPost
-    WSetup --> config & io & base
-    WSolve --> Explicit
-    Explicit --> Fluxes & BCFluxes & Newstate & DT
-    Fluxes --> Solid & Metrics
-    Newstate --> RK & IRS
-    WSolve --> MG
-    config --> base
-    io --> base
-
-    style driver fill:#263238,stroke:#90a4ae,color:#eceff1
-    style config fill:#1a237e,stroke:#7986cb,color:#e8eaf6
-    style numerics fill:#004d40,stroke:#80cbc4,color:#e0f2f1
-    style physics fill:#4a148c,stroke:#ce93d8,color:#f3e5f5
-    style io fill:#bf360c,stroke:#ff8a65,color:#fbe9e7
-    style base fill:#3e2723,stroke:#a1887f,color:#efebe9
+    WSetup --> LoadTable & ReadIni & Assign & IOSol & Alloc & MG & IOBC & Metrics & IOProbes & IOWall & Ghost & GX
+    WSolve --> Explicit & MG
+    WPost --> IOSol & IOWall & IOProbes & Diag & MG & ReadIni
+    Assign --> Newstate
+    Explicit --> DT & Ghost & Fluxes & BCF & Newstate & Diag
+    Fluxes --> Diff
+    Diff --> Solid
+    BCF --> Wall & Conn
+    Ghost --> Wall & GX
+    IOWall --> Wall
+    Newstate --> RK & IRS & Solid
+    IRS --> Ghost
+    GX --> MPI
 ```
 
 ---
 
-## Module Hierarchy
+## Naming
 
-Each source directory contains Fortran modules following a consistent
-naming convention:
+| Pattern | Use | Example |
+|---------|-----|---------|
+| `FUSS_` | Prefix of every module name | `FUSS_Mod_Fluxes` in `Mod_Fluxes.f90` |
+| `Mod_*` | Mostly domain-level drivers and module state (procedure pointers, schedules) | `Mod_Fluxes`, `Mod_Newstate`, `Mod_GhostExchange` |
+| `Lib_*` | Mostly routines on a block, face or cell | `Lib_Diffusive`, `Lib_BC_Fluxes_Wall`, `Lib_Solid` |
+| `*_m` | Types and parameters | `Global_m`, `Config_Types_m` |
+| `Wrap_*` | The three phases of `FUSS_type` | `Wrap_Setup` |
+| `IO_*` | File input/output | `IO_Wall` |
+| `obj_*` | Settings objects in `Config_Types_m` | `obj_time_scheme`, `obj_io` |
+| `*_type` | Derived types | `FUSS_block_type` |
 
-| Prefix | Role | Example |
-|--------|------|---------|
-| `Mod_*` | Module defining types, data, and procedure pointers | `Mod_Fluxes`, `Mod_Metrics` |
-| `Lib_*` | Library of pure computational routines | `Lib_RK`, `Lib_Diffusive`, `Lib_Solid` |
-| `*_m` | Fundamental type/parameter modules | `Global_m`, `Config_Types_m` |
-| `Wrap_*` | High-level driver wrappers | `Wrap_Setup`, `Wrap_Solve` |
-| `IO_*` | File I/O routines | `IO_Solution`, `IO_BC` |
-| `Read_*` | Input file parsing | `Read_Ini` |
-| `Load_*` | Database loading | `Load_Table` |
-
-All public symbols are prefixed with `FUSS_` to avoid namespace
-collisions when FUSS is linked as a library (e.g. inside HYDRA
-coupling).
+The module name is `FUSS_` plus the file name, except in `config/`: `Registry.f90` holds `FUSS_Input_Registry`, and `Register_IO.f90`, `Register_Numerics.f90`, `Register_Sim_Param.f90` hold `FUSS_Read_IO`, `FUSS_Read_Numerics`, `FUSS_Read_Sim_Param`. Routine names have no prefix.
 
 ---
 
-## Solver Pipeline
+## Solver pipeline
 
-The main program (`src/app/main.f90`) creates a `FUSS_type` object
-and calls three phases: **setup**, **solve** (in a loop), and
-**postprocess**.
+`src/app/main.f90` creates a `FUSS_type` object and a `FUSS_simulation_type`, calls `setup`, then alternates `solve` (one iteration) and `postprocess` while `obj_sim_param%TODO` ≤ 2, and calls `postprocess` once more at the end. `TODO` is 1 for a plain iteration, 2 when output is due or a multigrid level ends, 3 when the run ends.
 
 ```mermaid
 sequenceDiagram
@@ -207,195 +176,142 @@ sequenceDiagram
 
     Main->>Setup: FUSS%setup(simulation)
     activate Setup
-    Setup->>Setup: Load_Table (material properties)
-    Setup->>Setup: Read_Inifile
-    Setup->>Setup: Assign_Setup (function pointers)
-    Setup->>Setup: Read_IC (initial conditions)
+    Setup->>Setup: Load_Table (phase.txt, properties.dat)
+    Setup->>Setup: Read_Inifile (input.ini)
+    Setup->>Setup: Assign_Setup (schemes, procedure pointers)
+    Setup->>Setup: Read_IC (ic.tec, st.tec or restart file)
     Setup->>Setup: Setup_Data_Structure
-    Setup->>Setup: Setup_Multigrid (if MGL > 1)
-    Setup->>Setup: Setup_BC
-    Setup->>Setup: Setup_Metrics (all grid levels)
-    Setup->>Setup: Setup_Probes
-    Setup->>Setup: Initialize_Wall_File
-    Setup->>Setup: Fill_Ghost_Cell / Fill_matIDg
+    Setup->>Setup: Setup_Multigrid (if levels > 1)
+    Setup->>Setup: Setup_BC (bc.txt, and bc2.txt ... on coarse levels)
+    Setup->>Setup: partition_blocks, exchange schedules, Fill_matIDg
+    Setup->>Setup: Setup_Metrics (every level)
+    Setup->>Setup: Setup_Probes, Setup_Output_Solution, Initialize_Wall_File
+    Setup->>Setup: Fill_Ghost_Cell, Restriction to coarse levels
     deactivate Setup
 
     loop while TODO ≤ 2
-        Main->>Solve: FUSS%solve(simulation)
+        Main->>Solve: FUSS%solve(simulation, External_Function)
         activate Solve
-        Solve->>Solve: Explicit_Step (see below)
-        Solve->>Solve: Restriction (if multigrid)
+        Solve->>Solve: Explicit_Step (current level)
+        Solve->>Solve: Prolongation (when a coarse level ends)
         deactivate Solve
         Main->>Post: FUSS%postprocess(simulation)
+        Note right of Post: residual history, probes, screen,<br/>runtime input.ini, output files
     end
 
     Main->>Post: FUSS%postprocess(simulation)
-    Note right of Post: Final output + timing
+    Note right of Post: final output and timing summary
 ```
 
-### Explicit Step
+The external subroutine passed to `solve` is called at every stage; `main.f90` passes an empty one, hydra uses it for the coupling.
 
-Each call to `Explicit_Step` performs one complete time step with
-Runge–Kutta sub-stages:
+### Explicit step
 
 ```mermaid
 flowchart TB
-    Start([Explicit_Step entry]) --> DT[Compute Δt<br/>VNN criterion]
+    Start([Explicit_Step]) --> DT["Compute_dt<br/>local Δt, global minimum if time-accurate"]
+    DT --> Copy["Copy_State (TO = T)"]
 
-    subgraph RK ["Runge–Kutta loop (n_RK stages)"]
+    subgraph RK ["each Runge–Kutta stage"]
         direction TB
-        Ghost["Fill ghost cells<br/>(MPI exchange if parallel)"] --> Diff["Diffusive fluxes<br/>(Mod_Fluxes)"]
-        Diff --> BCF["Boundary fluxes<br/>(Mod_BC_Fluxes)"]
-        BCF --> Qvol["Volumetric source<br/>term (qvol)"]
-        Qvol --> Update["RK_Newstate<br/>(IRS + state update)"]
+        Ghost["Fill_Ghost_Cell<br/>(MPI ghost and chimera exchange)"] --> Diff["Fluxes<br/>interior faces"]
+        Diff --> BCF["BC_Fluxes<br/>101/102, 301–305, 103/104"]
+        BCF --> Ext["External_Function"]
+        Ext --> Update["RK_Newstate<br/>source qvol, IRS, state update"]
     end
 
-    DT --> RK
-    RK --> Diag["Compute residual<br/>+ diagnostics"]
-    Diag --> End([Return])
-
-    style Start fill:#37474f,stroke:#cfd8dc,color:#fff
-    style End fill:#37474f,stroke:#cfd8dc,color:#fff
-    style RK fill:#004d40,stroke:#80cbc4,color:#e0f2f1
+    Copy --> RK
+    RK --> Res["Compute_Residual (every res-diter)<br/>MPI sum"]
+    Res --> Flags["TODO and level switch on rank 0,<br/>broadcast"]
+    Flags --> End([return])
 ```
 
----
+### Interior face flux
 
-## Diffusive Flux Pipeline
-
-The evaluation of the conductive heat flux at a single cell interface
-follows this sequence:
+`Fluxes_blk` (`Mod_Fluxes`) loops over the faces of each direction and calls `Diffusive_Flux` (`Lib_Diffusive`):
 
 ```mermaid
 flowchart LR
-    A["Cell stencil<br/>(T at 10 points)"] --> B["Face temperature<br/>T = ½(T₁ + T₂)"]
-    B --> C["Thermal conductivity<br/>κ = co_Kappa(matID, T)"]
-    A --> D["Temperature gradient<br/>(normal + tangential)"]
-    D --> E["Metric correction<br/>∇T = M · ∇T_comp"]
-    C --> F["Heat flux<br/>q = κ A (∇T · n̂)"]
-    E --> F
-
-    style A fill:#263238,stroke:#90a4ae,color:#eceff1
-    style F fill:#1b5e20,stroke:#a5d6a7,color:#fff
+    A["Stencil<br/>2 cells across the face<br/>+ 8 tangential neighbours"] --> D["Computational gradient<br/>normal: T₂ − T₁<br/>tangential: central differences"]
+    A --> B["Face temperature<br/>½(T₁ + T₂)"]
+    B --> C["k = co_Kappa(matID, T)<br/>(material of cell 1)"]
+    D --> E["Face metric<br/>inverse of mean M⁻¹ (inverse-mean)<br/>or mean M (mean)"]
+    E --> G["∇T = Σ_d ∂T/∂ξ_d ∇ξ_d"]
+    C --> F["Flux = k A ∇T·n<br/>R₁ −= Flux, R₂ += Flux"]
+    G --> F
 ```
+
+See [Spatial Discretisation](../theory/numerics.md) for the formulas.
 
 ---
 
-## Data Structures
-
-### Simulation container
-
-The top-level data type is `FUSS_simulation_type`, which holds an
-array of grid levels (for multigrid) and an I/O container:
+## Data structures
 
 ```mermaid
 classDiagram
     class FUSS_simulation_type {
-        +domain(:) : FUSS_domain_type
-        +IOfield(:) : ORION_data
+        +domain(:) FUSS_domain_type
+        +IOfield(:) ORION_data
     }
     class FUSS_domain_type {
-        +blk(:) : FUSS_block_type
-        +nb : integer
-        +iter : integer
-        +time : real64
-        +dtglobal : real64
+        +time, dtglobal : real64
+        +iter, itermax, mg_level : integer
+        +nb, nbound : integer
+        +n_bf(:,:) : integer
+        +blk(:) FUSS_block_type
+        +bc(:) FUSS_bc_type
     }
     class FUSS_block_type {
-        +T(:,:,:) : real64
-        +TO(:,:,:) : real64
-        +R(:,:,:) : real64
-        +dtlocal(:,:,:) : real64
-        +qvol(:,:,:) : real64
-        +matID(:,:,:) : real64
-        +dim(3) : integer
+        +dim : integer
+        +node, M, Minv, dl, vol, dir
+        +T, TO, R, qvol, matID : real64
+        +dtlocal : real64
+        +RS0, RS1, RS2 : real64
+    }
+    class FUSS_bc_type {
+        +b, i, j, k, f, type : integer
+        +bs, is, js, ks, fs, d11..d22 : integer
+        +Tg, matIDg, Mg
+        +ni, donorID, volume_fraction
+        +ext_flux
+        +qw, Tw, hconv, qrad, Tref, eps
+        +BCtime : time_series_type
     }
 
-    FUSS_simulation_type "1" --> "*" FUSS_domain_type : domain
-    FUSS_domain_type "1" --> "*" FUSS_block_type : blk
+    FUSS_simulation_type "1" --> "levels" FUSS_domain_type : domain
+    FUSS_domain_type "1" --> "nb" FUSS_block_type : blk
+    FUSS_domain_type "1" --> "nbound" FUSS_bc_type : bc
 ```
 
-| Array | Shape | Content |
-|-------|-------|---------|
-| `T` | `(ni, nj, nk)` | Temperature at current time step |
-| `TO` | `(ni, nj, nk)` | Temperature at previous time step |
-| `R` | `(ni, nj, nk)` | Residual (flux accumulator) |
-| `dtlocal` | `(ni, nj, nk)` | Local time step per cell |
-| `qvol` | `(ni, nj, nk)` | Volumetric heat source term |
-| `matID` | `(ni, nj, nk)` | Material ID per cell |
+`domain(m)` is multigrid level `m` (1 = finest). `bc(:)` has one entry per boundary cell face, in the order of `bc.txt`.
+
+| Array | Bounds | Content |
+|-------|--------|---------|
+| `T`, `TO` | `1-gc:n+gc` | Temperature, and its value at the start of the iteration |
+| `R` | `1-gc:n+gc` | Residual (sum of face fluxes) |
+| `qvol`, `matID` | `1-gc:n+gc` | Volumetric source; material index (stored as real) |
+| `dtlocal` | `1:n` | Local time step |
+| `RS0`, `RS1`, `RS2` | `1-gc:n+gc` | IRS work arrays (allocated with IRS only) |
+| `M`, `Minv`, `dl`, `vol` | `1-gc:n+gc` | Metric (rows ∇ξ_d), its inverse (`inverse-mean` only), cell lengths, volume |
+| `node` | `0:n` | Grid nodes |
+| `dir(d)%f` | faces normal to `d` | Unit normal `N` and area `A` |
 
 ---
 
-## Build System
+## Build system
 
-### CMake targets
+| Target | Type | Source |
+|--------|------|--------|
+| `FUSSL` (alias `FUSSL::FUSSL`) | Library (static by default) | `src/lib/**/*.f90` |
+| `FUSS` | Executable, `bin/FUSS` | `src/app/main.f90` |
+| `DocGen` | Executable, `bin/DocGen` | `src/app/docgen.f90` |
 
-```mermaid
-graph LR
-    FUSSL["<b>FUSSL</b><br/>(Fortran library)"]
-    FUSS_EXE["<b>FUSS</b><br/>(executable)"]
-    DocGen["<b>DocGen</b><br/>(doc generator)"]
-    ORION_LIB["ORION"]
-    FiNeR_LIB["FiNeR"]
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `USE_OPENMP` | `OFF` | OpenMP |
+| `USE_MPI` | `OFF` | MPI; defines the preprocessor symbol `USE_MPI` |
+| `USE_TECIO` | `ON` (ORION option) | TecIO; `install.sh` passes `false` unless `--use-tecio` |
+| `CMAKE_BUILD_TYPE` | `RELEASE` | `RELEASE`, `DEBUG` or `TESTING` (`cmake/SetFortranFlags.cmake`) |
+| `ORION_PATH`, `FINER_PATH` | none (`install.sh`: `lib/ORION/`, `lib/third_party/FiNeR/`) | Dependency source trees |
 
-    FUSS_EXE --> FUSSL
-    DocGen --> FUSSL
-    FUSSL --> ORION_LIB
-    FUSSL --> FiNeR_LIB
-
-    style FUSSL fill:#37474f,stroke:#cfd8dc,color:#fff
-    style FUSS_EXE fill:#1565c0,stroke:#90caf9,color:#fff
-    style DocGen fill:#1565c0,stroke:#90caf9,color:#fff
-    style ORION_LIB fill:#6a1b9a,stroke:#ce93d8,color:#fff
-    style FiNeR_LIB fill:#6a1b9a,stroke:#ce93d8,color:#fff
-```
-
-| Target | Type | Description |
-|--------|------|-------------|
-| `FUSSL` | Static library | Core solver + all physics/numerics |
-| `FUSS` | Executable | Standalone solver (`src/app/main.f90`) |
-| `DocGen` | Executable | Input-parameter docs generator (`src/app/docgen.f90`) |
-
-### Build workflow
-
-```bash
-# Option A: install.sh (recommended for first build)
-./install.sh build --compilers=gnu
-
-# Option B: CMake presets (for iterative development)
-./install.sh compile          # uses CMakePresets.json
-# or equivalently:
-cmake --preset default && cmake --build build
-```
-
-Key CMake options:
-
-| Option | Default | Effect |
-|--------|:-------:|--------|
-| `USE_OPENMP` | OFF | Enable OpenMP threading |
-| `USE_MPI` | OFF | Enable MPI parallelism |
-| `USE_TECIO` | OFF | Enable TecIO output format |
-
-### Dependency paths
-
-External library paths are set via CMake cache variables or the
-`install.sh --include-*` flags:
-
-| Variable | Default | Library |
-|----------|---------|---------|
-| `ORION_PATH` | `lib/ORION/` | ORION I/O |
-| `FINER_PATH` | `lib/third_party/FiNeR/` | FiNeR INI parser |
-
----
-
-## Naming Conventions
-
-| Convention | Example | Meaning |
-|------------|---------|---------|
-| `FUSS_` prefix | `FUSS_Global_m` | Public Fortran module |
-| `obj_` prefix | `obj_sim_param` | Global configuration singleton |
-| `Lib_` prefix | `Lib_Solid` | Computational routine library |
-| `Mod_` prefix | `Mod_Fluxes` | Module with types + pointers |
-| `Wrap_` prefix | `Wrap_Solve` | Driver-level wrapper |
-| `_m` suffix | `Config_Types_m` | Fundamental type module |
-| `_type` suffix | `FUSS_block_type` | Derived type |
+When FUSS is added to another CMake project (as in hydra) only `FUSSL` is built; the parent defines ORION and FiNeR. The executables and the tests are built only when FUSS is the top-level project. See [Installation](../getting-started/installation.md).

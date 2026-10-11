@@ -33,7 +33,7 @@ This project is licensed under the GNU General Public License v3.0. See [License
 FUSS builds upon the work of:
 
 - **ORION** contributors (I/O library)
-- **FiNeR** contributors (INI parser)
+- **FiNeR** contributors (INI parser) and its dependencies PENF, StringiFor, FACE, FLAP, BeFoR64
 - The broader Fortran and scientific computing community
 
 See [Acknowledgements](acknowledgements.md) for full credits.

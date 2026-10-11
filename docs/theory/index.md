@@ -1,6 +1,6 @@
 # Theoretical Guide
 
-This section provides the theoretical foundations for the physical models and numerical methods implemented in FUSS. The material covers the governing equation of heat conduction in solids, the finite-volume spatial discretisation, the explicit time-integration scheme, stability conditions, and the thermophysical property framework.
+This section describes the physical model and the numerical methods implemented in FUSS: the heat-conduction equation and its boundary conditions, the finite-volume spatial discretisation, the explicit time integration and its stability limit, and the tabulated material properties.
 
 <div class="grid cards" markdown>
 
@@ -8,7 +8,7 @@ This section provides the theoretical foundations for the physical models and nu
 
     ---
 
-    Transient heat equation in integral form, steady-state limit, volumetric heat generation, and boundary condition types
+    Transient heat equation in integral form, enthalpy and integration variables, steady-state limit, boundary-condition types and sign convention
 
     [:octicons-arrow-right-24: Governing equations](governing-equations.md)
 
@@ -16,7 +16,7 @@ This section provides the theoretical foundations for the physical models and nu
 
     ---
 
-    Cell-centred finite volume method, diffusive flux evaluation, harmonic-mean conductivity at material interfaces, multi-block connectivity
+    Cell-centred finite volumes, face gradient and face metric, block connections, wall boundary conditions and ghost cells, grid metrics
 
     [:octicons-arrow-right-24: Spatial discretisation](numerics.md)
 
@@ -24,7 +24,7 @@ This section provides the theoretical foundations for the physical models and nu
 
     ---
 
-    SSP Runge–Kutta, VNN diffusive stability condition, steady-state and time-accurate modes, implicit residual smoothing
+    Explicit Euler, RK2 and SSP RK3, VNN time-step limit, steady-state and time-accurate modes, implicit residual smoothing, grid sequencing
 
     [:octicons-arrow-right-24: Time integration](time-integration.md)
 
@@ -32,7 +32,7 @@ This section provides the theoretical foundations for the physical models and nu
 
     ---
 
-    Solid phase definition, constant thermophysical properties, multi-material block assignment, temperature cap
+    Property table per material, linear interpolation, enthalpy column, admissible temperature range, materials per block
 
     [:octicons-arrow-right-24: Material properties](thermo.md)
 
@@ -47,10 +47,8 @@ FUSS advances the transient heat equation in conservative form on structured mul
 | Stage | Method | Page |
 |-------|--------|------|
 | **Governing equation** | Transient (or steady-state) heat diffusion in solids | [Governing Equations](governing-equations.md) |
-| **Spatial discretisation** | Cell-centred FVM with second-order central differences | [Spatial Discretisation](numerics.md) |
-| **Time marching** | 3-stage SSP RK3 with VNN-limited time step; IRS, multigrid | [Time Integration](time-integration.md) |
-| **Material model** | Temperature-dependent $k$, $\rho$, $c_p$ per solid phase | [Material Properties](thermo.md) |
+| **Spatial discretisation** | Cell-centred FVM, central differences with metric terms; wall flux $q_\text{in} = G\,(T_w - T) + C$ | [Spatial Discretisation](numerics.md) |
+| **Time marching** | Explicit Euler (default), RK2 or SSP RK3 with VNN-limited local or global time step; IRS, grid sequencing | [Time Integration](time-integration.md) |
+| **Material model** | Tabulated, temperature-dependent $k$, $\rho$, $c_p$ and enthalpy per material | [Material Properties](thermo.md) |
 
-The single prognostic variable is **temperature** $T$. There are no velocity, pressure, or species fields. The solver is therefore substantially simpler than a general CFD code, while retaining the full multi-block structured grid infrastructure and the same explicit RK3 time-stepping kernel.
-
----
+The single unknown is the **temperature** $T$; each cell also carries a material index and a volumetric heat source. There are no velocity, pressure, or species fields.

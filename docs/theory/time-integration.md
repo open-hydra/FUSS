@@ -1,24 +1,27 @@
 # Time Integration
 
-FUSS advances the semi-discrete heat equation in time with an explicit **strong-stability-preserving Runge–Kutta** scheme.  This page describes the time-stepping algorithm, the diffusive stability condition that limits the time step, the two operating modes (steady-state and time-accurate), and the optional implicit residual smoothing that can accelerate convergence for steady problems.
+FUSS advances the semi-discrete heat equation with an explicit time scheme.  This page describes the schemes, the diffusive stability condition that limits the time step, the two operating modes (steady-state and time-accurate), the optional implicit residual smoothing, and grid sequencing.
 
 ---
 
-## SSP Runge–Kutta Scheme
+## Time Schemes
 
-The default (and only) time integrator is the **3-stage SSP RK3** scheme (Shu–Osher):
+`time-scheme` selects **euler** (default, forward Euler), **RK2** (Heun) or **RK3** (SSP, Shu–Osher):
 
 $$
 \begin{aligned}
-T^{(1)} &= T^n + \Delta t\;\mathcal{L}(T^n)\\[4pt]
+\textsf{euler}:\quad T^{n+1} &= T^n + \Delta t\;\mathcal{L}(T^n)\\[6pt]
+\textsf{RK2}:\quad T^{(1)} &= T^n + \Delta t\;\mathcal{L}(T^n)\\
+T^{n+1} &= \tfrac{1}{2}\,T^n + \tfrac{1}{2}\bigl(T^{(1)} + \Delta t\;\mathcal{L}(T^{(1)})\bigr)\\[6pt]
+\textsf{RK3}:\quad T^{(1)} &= T^n + \Delta t\;\mathcal{L}(T^n)\\
 T^{(2)} &= \tfrac{3}{4}\,T^n
-  + \tfrac{1}{4}\bigl(T^{(1)} + \Delta t\;\mathcal{L}(T^{(1)})\bigr)\\[4pt]
+  + \tfrac{1}{4}\bigl(T^{(1)} + \Delta t\;\mathcal{L}(T^{(1)})\bigr)\\
 T^{n+1} &= \tfrac{1}{3}\,T^n
   + \tfrac{2}{3}\bigl(T^{(2)} + \Delta t\;\mathcal{L}(T^{(2)})\bigr)
 \end{aligned}
 $$
 
-where $\mathcal{L}(T)$ is the spatial residual of the heat equation:
+$\mathcal{L}(T)$ is the spatial residual of the heat equation:
 
 $$
 \mathcal{L}(T_i) =
@@ -30,11 +33,7 @@ $$
 
 This is the `prim` form.  With `integration-variables = cons` (the default) the stages advance the volumetric enthalpy $h_i$ with the bracket alone, and $T_i$ is recovered from the $h(T)$ table after each stage; since $\mathrm{d}h/\mathrm{d}T = \rho\,c_p$ the two forms integrate the same equation (see [Governing Equations](governing-equations.md#state-vector)).
 
-The scheme is:
-
-- **Third-order accurate** in time for smooth problems
-- **SSP (strong-stability-preserving)**: each stage is a convex combination of forward-Euler steps, preserving positivity and monotonicity inherited from a TVD spatial operator
-- **TVD** under the same stability limit as forward Euler
+The schemes are first, second and third-order accurate in time; the RK stages are convex combinations of forward-Euler steps (SSP).  Boundary-condition time tables are read at the stage time $t^n + c_s\,\Delta t$ ($c = 0$; $0, 1$; $0, 1, \tfrac12$), which preserves the temporal order.  Ghost cells are refilled before every stage.
 
 ---
 
@@ -65,7 +64,7 @@ With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ i
 
 ### Time-accurate mode (`time-accurate = true`)
 
-The global minimum time step is used at every iteration.  The solver advances to the physical time `time-threshold` specified in the input file, writing field snapshots at intervals controlled by `sol-dtime` or `sol-diter`.
+The global minimum time step is used at every iteration.  The solver advances to the physical time `time-threshold`, writing field snapshots at intervals controlled by `sol-dtime` or `sol-diter`.  With a boundary-condition time table the residual threshold does not end the run (the table keeps forcing the solution): only `time-threshold` or `iter-threshold` do.
 
 This mode is required for all transient problems: oscillating boundary conditions, evolving temperature profiles, probe monitoring.
 
@@ -73,7 +72,7 @@ This mode is required for all transient problems: oscillating boundary condition
 
 Each cell uses its **local** time step (the cell's own VNN limit without taking the global minimum).  This is equivalent to pseudo-time marching and accelerates convergence to steady state by large factors on grids with widely varying cell sizes.
 
-Convergence is declared when the maximum residual (absolute or relative, user-selectable) falls below `res-threshold`.
+Convergence is declared when the residual — the Euclidean norm over all cells of the temperature change of one iteration, evaluated every `res-diter` iterations — falls below `res-threshold` (see [Governing Equations](governing-equations.md#steady-state-limit)).
 
 !!! warning "Local time stepping and transient accuracy"
 
