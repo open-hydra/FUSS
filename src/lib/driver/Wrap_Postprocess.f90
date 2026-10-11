@@ -6,6 +6,7 @@ module FUSS_Wrap_Postprocess
   public :: FUSS_postprocess
 
   integer, private :: id_stampa=0
+  logical, private :: id_stampa_set = .false.   ! counter resumed from OUTPUT/ on a restart
   logical, private :: irs_runtime_warned = .false.
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
@@ -102,6 +103,12 @@ contains
     elseif ( obj_sim_param%TODO == 2 ) then
 
       if (level == 1) then
+        ! Restart with numbered snapshots: continue after the last field<n> in OUTPUT/
+        if (.not. id_stampa_set) then
+          id_stampa_set = .true.
+          if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite) &
+            call Resume_File_Counter ( trim(simulation%IOfield(1)%tec%extension) )
+        endif
         id_stampa = id_stampa + 1
         if (.not.obj_io%sol_overwrite) solfile  = trim(solfile)//trim(str(.true.,id_stampa))
         if (.not.obj_io%sol_overwrite) wallfile = trim(wallfile)//trim(str(.true.,id_stampa))
@@ -282,5 +289,24 @@ contains
     end function prolongated_due
 
   end subroutine FUSS_postprocess
+
+  !> Highest n with OUTPUT/field<n><ext> present, so a restart appends instead of overwriting
+  subroutine Resume_File_Counter ( ext )
+    use FUSS_Global_m, only: FUSS_phase_prefix
+    use ir_precision, only: str
+    implicit none
+    character(len=*), intent(in) :: ext
+    ! Local
+    logical :: present
+
+    do
+      inquire ( file='OUTPUT/'//trim(FUSS_phase_prefix)//'field'//trim(str(.true.,id_stampa+1))//trim(ext), &
+                exist=present )
+      if (.not. present) exit
+      id_stampa = id_stampa + 1
+    enddo
+    if (id_stampa > 0) write(*,'(A)') ' Numbered output continues from '//trim(str(.true.,id_stampa+1))
+
+  end subroutine Resume_File_Counter
 
 end module FUSS_Wrap_Postprocess
