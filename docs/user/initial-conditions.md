@@ -123,7 +123,7 @@ Give each material its own blocks and join them with block connections (code 101
 With `newrun = false` FUSS reads `OUTPUT/field.*` in `sol-format`, or, when it is missing, the last of `OUTPUT/field1.*`, `field2.*`, .... The final solution of a run is always written to `field.*`.
 
 - The grid, `T` and `matID` come from that file; $\dot q_\text{vol}$ is read again from `INPUT/st.*` (with the extension of `sol-format`), so it can be changed between runs.
-- Time-accurate runs continue from the solution time of the file, steady runs from its iteration count (a `.szplt` file gives 0, see [Output](using.md#output)). Restarting from VTK output is not available: ORION's VTK reader fails on the files its writer produces.
+- Time-accurate runs continue from the solution time of the file, steady runs from its iteration count (a `.szplt` file gives 0, see [Output](using.md#output)).
 - `time-threshold` is the simulated time, while `iter-threshold` counts the iterations of the restarted run only.
 - `residual-history.dat` and the probe files are appended to.
 - With `sol-overwrite = false` the numbering continues after the last `field<n>.*` found in `OUTPUT/`: the snapshots of the previous run are kept.

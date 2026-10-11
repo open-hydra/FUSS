@@ -158,7 +158,7 @@ FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-0
 | `field-level<n>.*`, `wall-level<n>.*` | Multigrid: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
 | `field-prolongated.*`, `wall-prolongated.*` | Multigrid: the coarse solution prolongated to the finest level, written with the coarse-level output (see `prolongated-diter`) |
 
-The final solution of a run is always written to `field.*`. The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII file (`.tec`) continues from it; ORION's binary reader (`.szplt`) does not read it back, so a restart from `tecplot binary` output counts the iterations, or the time, from 0 again. A restart from VTK output is not available (ORION's VTK reader fails on the files its writer produces).
+The final solution of a run is always written to `field.*`. The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII or VTK file continues from it; ORION's binary reader (`.szplt`) does not read the solution time back, so a restart from `tecplot binary` output counts the iterations, or the time, from 0 again.
 
 ### Formats
 
