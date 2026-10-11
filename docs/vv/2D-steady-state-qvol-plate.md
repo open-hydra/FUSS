@@ -1,8 +1,8 @@
 # 2-D Steady State Temperature Distribution in a Plate with Volumetric Heat Generation
 
-Steady-state heat conduction in a rectangular solid plate with prescribed temperatures of 0 °C on all four edges and a uniform internal heat generation rate. This is a two-dimensional Poisson problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Study 2). Verification is performed by bilinear interpolation of the computed temperature field at point B (x = 0.3 m, y = 0.2 m) and comparison against the NAFEMS reference value of 310.1 °C.
+Steady-state heat conduction in a rectangular solid plate with prescribed temperatures of 0 °C on all four edges and a uniform internal heat generation rate. This is a two-dimensional Poisson problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Test 9 (ii)). Verification is performed by bilinear interpolation of the computed temperature field at point B (x = 0.3 m, y = 0.2 m) and comparison against the NAFEMS reference value of 310.1 °C.
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (I) and 9 (ii), YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (ii), YR3087, Vol. 2, 1986.
 
 ---
 

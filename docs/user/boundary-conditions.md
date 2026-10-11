@@ -89,7 +89,7 @@ periodic
 
 - Two columns, time (s) and value; an optional first line containing `periodic` repeats the table with period $t_\text{last} - t_\text{first}$.
 - Linear interpolation; before the first time the first value, after the last time the last value. Steady runs (`time-accurate = false`) run at time −1 and get the first value.
-- The file is opened relative to the directory FUSS runs in. The name is read as a list-directed string of at most 32 characters, so an unquoted name ends at a blank, comma or `/`: keep the table in the case directory.
+- The file is opened relative to the directory FUSS runs in; the name is the whole data line (up to 256 characters, a trailing comma dropped), so it may point into a subdirectory, e.g. `tables/Tw.dat`. A missing, empty or non-increasing table stops the run with a message.
 
 ---
 

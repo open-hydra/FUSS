@@ -15,7 +15,7 @@ The test cases in `test/` run FUSS on problems with analytical or benchmark solu
 | `steady-state/skewed_Plate` | Linear patch test on a 45° sheared mesh, walls 301, 302, 303, 305 | `verify.py` |
 | `steady-state/radiative_Rod` | Radiation (BC 304, NAFEMS T9 (iii)) | `verify.py` |
 | `transient/oscillating_Rod` | Oscillating wall temperature (NAFEMS T5), probes | `verify.py` |
-| `transient/multimat_Plate` | Three materials, Fourier-series solution (LANL) | `verify.py` |
+| `transient/multimat_Plate` | Three material layers (two materials), Fourier-series solution (LANL) | `verify.py` |
 | `transient/variable_cp_Plate` | Temperature-dependent heat capacity, exact solution | `verify.py` |
 | `numerics-features/chimera` | Chimera (overset) interface | smoke run |
 | `numerics-features/residual_convergence/*` | Six convergence strategies (IRS, multigrid) | smoke runs; `plot.py` |

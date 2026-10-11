@@ -1,8 +1,8 @@
 # 2-D Steady State Temperature Distribution in a Plate
 
-Steady-state heat conduction in a rectangular solid plate with prescribed temperatures on all four edges. This is a two-dimensional Laplace problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Study 1). Verification is performed by bilinear interpolation of the computed temperature field at point A (x = 0.2 m, y = 0.2 m) and comparison against the NAFEMS reference value of 260.5 °C.
+Steady-state heat conduction in a rectangular solid plate with prescribed temperatures on all four edges. This is a two-dimensional Laplace problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Test 9 (i)). Verification is performed by bilinear interpolation of the computed temperature field at point A (x = 0.2 m, y = 0.2 m) and comparison against the NAFEMS reference value of 260.5 °C.
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (I) and 9 (ii), YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (i), YR3087, Vol. 2, 1986.
 
 ---
 

@@ -158,7 +158,7 @@ FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-0
 | `field-level<n>.*`, `wall-level<n>.*` | Multigrid: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
 | `field-prolongated.*`, `wall-prolongated.*` | Multigrid: the coarse solution prolongated to the finest level, written with the coarse-level output (see `prolongated-diter`) |
 
-The final solution of a run is always written to `field.*`. The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII file (`.tec`) continues from it; ORION's binary reader (`.szplt`) does not read it back, so a restart from `tecplot binary` output counts the iterations, or the time, from 0 again.
+The final solution of a run is always written to `field.*`. The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII file (`.tec`) continues from it; ORION's binary reader (`.szplt`) does not read it back, so a restart from `tecplot binary` output counts the iterations, or the time, from 0 again. A restart from VTK output is not available (ORION's VTK reader fails on the files its writer produces).
 
 ### Formats
 
@@ -169,7 +169,8 @@ The final solution of a run is always written to `field.*`. The field and wall f
 | `tecplot ascii` | Tecplot ASCII, `.tec` (default) |
 | `tecplot binary` | Tecplot binary, `.szplt` (needs TecIO) |
 | `vtk ascii` | VTK ASCII: `field.vtm`, block files under `OUTPUT/vtk/` |
-| `vtk raw` | VTK binary, same layout |
+| `vtk binary` | VTK base64, same layout |
+| `vtk raw` | VTK raw appended binary, same layout |
 
 ### Frequency
 
@@ -197,12 +198,12 @@ dtime = 1.0e-1
 | Key | Meaning |
 |-----|---------|
 | `index-position` | `block i j k` of the probe cell |
-| `position` | `x y z`, used when `index-position` is not given: the probe takes the cell of the nearest grid node |
+| `position` | `x y z`, used when `index-position` is not given: the probe takes the cell with the nearest centre |
 | `variables` | Recorded variables: only `T`; another name stops the run at set-up |
-| `dtime` | Write every `dtime` seconds of simulated time |
+| `dtime` | Write at the multiples of `dtime` seconds of simulated time (at most once per step, from the first multiple after the start or restart time) |
 | `diter` | Write every `diter` iterations |
 
-Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above), one line per record: the time (or the iteration, for `diter` records) followed by the variables. A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart).
+Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above), one line per record: the time (or the iteration, for `diter` records) followed by the variables. A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart). The last step of the run is always sampled when its time or iteration matches.
 
 ---
 

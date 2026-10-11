@@ -16,7 +16,7 @@ $$
 
 where $Q_f = \bigl(k\,\nabla T\!\cdot\!\hat{\mathbf{n}}_\text{out}\bigr)_f$ is the heat flux entering the cell through face $f$ and $A_f$ is the face area.  The code accumulates the residual $R_P = -\sum_f Q_f\,A_f$ (the heat leaving the cell); the forward-Euler increment of a stage is $\Delta t_P\,(-R_P/V_P + \dot q_{\text{vol},P})$ on $h_P$, or that divided by $\rho_P\,c_{p,P}$ on $T_P$ (see [Time Integration](time-integration.md)).
 
-The fluxes of a stage are computed in three steps: ghost-cell fill, interior faces of each block, boundary faces.  On a 2-D grid (one cell in $k$, detected on the first block) the gradient component along $k$ is dropped; faces 5 and 6 must then be `null`.
+The fluxes of a stage are computed in three steps: ghost-cell fill, interior faces of each block, boundary faces.  On a 2-D grid (one cell in $k$, detected on the first block) the gradient component along $k$ is dropped; faces 5 and 6 must then be zero-flux faces (code `0` or `300`).
 
 ---
 
@@ -119,7 +119,7 @@ For 301 and 303–305, $T_w$ is found by Newton iteration from $T_w = T_P$: one 
 
 **Ghost cells.**  Ghost layer $g$ is set to $2\,T_w - T_g$, with $T_g$ the interior cell $g$ counted from the face: the wall temperature is the mean of each mirrored pair, so for a linear field on a uniform mesh the ghosts hold the exact values.  The ghosts are filled first, with $T_w$ computed from tangential differences that stay inside the block (one-sided at the face edges); the flux evaluation then recomputes $T_w$ with central differences that may read the ghost cells of the neighbouring faces.  The two values differ only at the face edges.
 
-**Output.**  `OUTPUT/wall.tec` holds $T_w$ and $q_w = q_\text{in}$, the heat flux into the solid, for every wall type, computed with the same routine as the flux.
+**Output.**  `OUTPUT/wall.tec` holds $T_w$ and $q_w = q_\text{in}$, the heat flux into the solid, for every wall type, computed with the same routine as the flux but from interior values only (the one-sided form above, with the time tables at the output time): the ghost cells hold the last stage of the step.
 
 **Stiffness.**  Since $T_w$ is solved at every evaluation, $\partial q_\text{in}/\partial T_P = -G\,\beta/(G + \beta)$ with $\beta = h_\text{conv} + 4\varepsilon\sigma T_w^3$, smaller in magnitude than the $-G$ of a prescribed temperature (302): convective and radiative walls do not make the boundary cell stiffer than a temperature wall.
 

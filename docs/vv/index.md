@@ -13,7 +13,7 @@ The test cases compare FUSS with analytical solutions and benchmark values, and 
 | [Temperature Plate](2D-steady-state-temperature-plate.md) | 2D | Steady | Prescribed temperatures | Temperature at one point, 260.5 °C | NAFEMS T9 (i) |
 | [Volumetric Heat Plate](2D-steady-state-qvol-plate.md) | 2D | Steady | Volumetric heat source | Temperature at one point, 310.1 °C | NAFEMS T9 (ii) |
 | [Convective Plate](2D-steady-state-convective-plate.md) | 2D | Steady | Prescribed temperature, convection, insulated edge | Temperature at point E, 18.25 °C | NAFEMS T4 |
-| [Multi-Material Plate](2D-transient-multimat-plate.md) | 2D | Transient | Three materials | Fourier-series solution, 6 snapshots | LANL multi-material diffusion |
+| [Multi-Material Plate](2D-transient-multimat-plate.md) | 2D | Transient | Three material layers (two materials) | Fourier-series solution, 6 snapshots | LANL multi-material diffusion |
 | [Variable-c<sub>p</sub> Plate](2D-transient-variable-cp-plate.md) | 2D | Transient | Uniform heating, c<sub>p</sub>(T) linear | Closed-form solution | Internal |
 | [Residual Convergence](residual-convergence.md) | 2D | Steady | IRS and multigrid against plain time stepping | Iterations to convergence | Internal study |
 | [Parallel Scaling](parallel-scaling.md) | 2D | Steady | OpenMP and MPI × OpenMP | Wall-clock time vs. cores | Internal study |
