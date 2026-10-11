@@ -183,7 +183,9 @@ contains
       return
     endif
 
-    ! Fill IOfield
+    ! Fill IOfield. The vtk reader returns the time as an argument (IOtime), the tecplot
+    ! reader inside IOinit: carry the vtk one over so a restart continues from it
+    if (trim(format(1)) == 'vtk') IOinit%solutiontime = obj_io%IOtime
     IOfield%solutiontime = IOinit%solutiontime
     do b = 1, nblocks
       IOfield%block(b)%Ni = IOinit%block(b)%Ni
@@ -279,6 +281,7 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
+    character(len=llen) :: vtknames
     integer             :: E_IO, b, i, j, k
     real(8)             :: kappa, rho, cp, h
 
@@ -312,8 +315,9 @@ contains
       if (index(obj_io%sol_format,'vtk')>0) then
         localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
+        vtknames = unquoted(obj_io%Ovarnames)
         E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(file), &
-                                                             vtmpath=trim(path)//trim(file),varnames=obj_io%Ovarnames,time=domain%time)
+                                                             vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
       else
         E_IO = tec_write_structured_multiblock(orion=IOfield,varnames=obj_io%Ovarnames,filename=trim(path)//trim(file)//trim(IOfield%tec%extension))
       end if

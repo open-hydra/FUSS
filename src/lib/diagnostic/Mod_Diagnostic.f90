@@ -67,6 +67,7 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
+    character(len=llen) :: vtknames
     integer             :: E_IO, b, i, j, k
     character(len=clen) :: format(2), extension
 
@@ -93,8 +94,9 @@ contains
         IOfield%vtk%format = trim(format(2))
         localpath_vtk = trim(path)//'/vtk'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
+        vtknames = unquoted(Dvarnames)
         E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(file), &
-                                                            vtmpath=trim(path)//trim(file),varnames=Dvarnames,time=domain%time)
+                                                            vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
       case('tecplot')
         IOfield%tec%format = trim(format(2))
         ! TecIO refuses a binary stream unless the name ends in .plt/.szplt, so
