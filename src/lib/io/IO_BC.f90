@@ -8,7 +8,7 @@ module FUSS_IO_BC
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
   integer :: nconnect, nwall, nsym, nchimera, ncoupled
-  logical :: has_tdep_bc
+  logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
 
 contains
 

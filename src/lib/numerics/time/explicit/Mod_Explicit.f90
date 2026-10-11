@@ -17,6 +17,7 @@ contains
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
     use FUSS_Mod_Diagnostic, only: Compute_Residual
+    use FUSS_IO_BC,          only: has_tdep_bc
     use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
@@ -27,7 +28,10 @@ contains
     ! Local
     logical  :: endsim, iosim, endmg
     integer  :: i_rk, b, level
-    real(R8) :: average
+    real(R8) :: average, t_n
+    logical  :: advance, converged
+    ! Stage times t_n + c dt of euler, RK2 (Heun) and SSP RK3
+    real(R8), parameter :: c_stage(3,3) = reshape([0d0, 0d0, 0d0, 0d0, 1d0, 0d0, 0d0, 1d0, 0.5d0], [3,3], order=[2,1])
 
     call timer_iter_begin()
 
@@ -37,23 +41,26 @@ contains
     obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
     obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
 
+    t_n = domain(level) % time
+    advance = obj_sim_param%HYDRA_time_accurate .or. obj_time_scheme%time_accurate
     if (obj_sim_param%HYDRA_time_accurate) then
       call Set_Global_dt ( domain(level) )
-      domain(level) % time = domain(level) % time + domain(level) % dtglobal
     else
       domain(level) % dtglobal = 1d5
       call Compute_dt ( domain(level), obj_time_scheme%vnn, obj_time_scheme%rampa_vnn_iter )  ! Compute local and minimum time step
-      if ( obj_time_scheme%time_accurate ) then
-        call Set_Global_dt ( domain(level) )  ! Time-accurate: apply global minimum time step
-        domain(level) % time = domain(level) % time + domain(level) % dtglobal
-      endif
+      if ( obj_time_scheme%time_accurate ) call Set_Global_dt ( domain(level) )  ! Time-accurate: global minimum time step
     endif
 
     !$omp parallel
     call Copy_State ( domain(level) )
 
     rk: do i_rk = 1, obj_time_scheme%n_RK
-        
+
+      if (advance) then
+        !$omp single
+        domain(level) % time = t_n + c_stage(obj_time_scheme%n_RK, i_rk) * domain(level) % dtglobal   ! BC time tables
+        !$omp end single
+      endif
       call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
       call Fluxes ( domain(level) )                        ! Diffusive fluxes 
       call BC_Fluxes ( domain(level) )                     ! Boundary fluxes
@@ -64,6 +71,7 @@ contains
 
     enddo rk
     !$omp end parallel
+    if (advance) domain(level) % time = t_n + domain(level) % dtglobal
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then
@@ -88,13 +96,15 @@ contains
     if (mpi_is_root) then
       endsim = .false.
       endmg  = .false.
+      ! With time tables a time-accurate run goes on to time-threshold even when T stops changing
+      converged = ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) .and. .not. (advance .and. has_tdep_bc)
       if (level == 1) then
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. converged &
             .or. ( domain(1) % time >= obj_sim_param%time_threshold )
       else
         endmg = ( obj_sim_param%iter_from_call >= domain(level) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. converged &
             .or. ( domain(level) % time >= obj_sim_param%time_threshold )
       endif
 
