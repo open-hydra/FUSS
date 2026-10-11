@@ -98,23 +98,28 @@ contains
   end subroutine Setup_Probes
 
 
+  !> The cell whose centre is nearest to the probe location (needs the nodes of every block)
   subroutine Place (self, domain)
     implicit none
     class(obj_probe)                   :: self
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
     integer :: i, j, k, b
-    real(8) :: d0, d
+    real(8) :: d0, d, c(3)
 
     d0 = huge(1d0)
     do b = 1, domain%nb
-      do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
-        d = norm2(self%location%c-domain%blk(b)%node(i,j,k)%c)
+      associate ( nd => domain%blk(b)%node )
+      do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+        c = 0.125d0 * ( nd(i-1,j-1,k-1)%c + nd(i,j-1,k-1)%c + nd(i-1,j,k-1)%c + nd(i,j,k-1)%c &
+                      + nd(i-1,j-1,k  )%c + nd(i,j-1,k  )%c + nd(i-1,j,k  )%c + nd(i,j,k  )%c )
+        d = norm2(self%location%c - c)
         if (d<d0) then
           d0 = d
           self%ilocation = [b , i, j, k]
         endif
       enddo; enddo; enddo
+      end associate
     enddo
 
   end subroutine Place

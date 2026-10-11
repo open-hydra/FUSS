@@ -81,7 +81,7 @@ contains
         case(300) ! symmetry
           call BC_Symmetry_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
-        case default  ! Rientra qui anche chimera
+        case default  ! chimera included
           call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                         domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
       end select

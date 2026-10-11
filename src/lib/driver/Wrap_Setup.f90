@@ -87,13 +87,15 @@ contains
       call Setup_Metrics ( simulation%domain(m) )
     end do
     
+    ! Setup probes location, output files, and variables to be printed (before the
+    ! nodes of remote blocks are freed: placing a probe searches every block)
+    call Setup_Probes ( simulation%domain(1), obj_sim_param%newrun )
+
     ! Free heavy arrays on non-local blocks to save memory
     do m = 1, obj_multigrid%MGL
       call deallocate_remote_computation_data(simulation%domain(m))
     end do
 
-    ! Setup probes location, output files, and variables to be printed.
-    call Setup_Probes ( simulation%domain(1), obj_sim_param%newrun )
  
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
