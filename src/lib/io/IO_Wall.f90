@@ -183,7 +183,9 @@ contains
               if (domain % bc(i) % type == 301) domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
               if (domain % bc(i) % type == 302) domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
             endif
-            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .true., Ovar(1), Ovar(2) )
+            ! ghosts=.false.: interior values only, current at any point of the step (the ghosts
+            ! hold the last stage); one-sided tangential differences at the face edges
+            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .false., Ovar(1), Ovar(2) )
           endif
           wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
         enddo
