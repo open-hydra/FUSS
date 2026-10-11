@@ -19,7 +19,8 @@ SOLUTION_DIR = os.path.join(os.path.dirname(__file__), "SOLUTION")
 
 _mpi_re = re.compile(r"MPI-(\d+)x(\d+)$")
 _omp_re = re.compile(r"openMP-(\d+)$")
-_time_re = re.compile(r"Time of operation was\s+([\d.]+(?:[Ee][+-]?\d+)?)")
+_time_re = re.compile(r"Time of operation was\s+([\d.]+(?:[Ee][+-]?\d+)?)")            # older logs, minutes
+_elapsed_re = re.compile(r"^\s*Elapsed\s+([\d.]+(?:[Ee][+-]?\d+)?)\s+s")          # FUSS timing block, seconds
 
 # --- read all files in SOLUTION/ ---------------------------------------------
 mpi_points = []   # (cores, time, label)
@@ -37,6 +38,9 @@ for filename in sorted(os.listdir(SOLUTION_DIR)):
             m = _time_re.search(line)
             if m:
                 time_val = float(m.group(1))
+            m = _elapsed_re.search(line)
+            if m:
+                time_val = float(m.group(1)) / 60.0
     if time_val is None:
         print(f"WARNING: no timing line found in {filename}, skipping.")
         continue

@@ -41,7 +41,7 @@ def save_bc_plot(t_tw, T_tw, svg_path):
     fig, ax = plt.subplots(figsize=(8, 4))
 
     ax.plot(t_tw, T_tw, color="tab:red", linewidth=1.8,
-            label=r"Right wall BC  $T_w(t) = a\,(\sin\omega t + \theta)$")
+            label=r"Right wall BC  $T_w(t) = 2000 + a\,\sin(\omega t + \theta)$")
     ax.axhline(T_BASELINE, color="tab:blue", linewidth=1.4, linestyle="--",
                label="Left wall BC (fixed, $T = 2000$ K)")
 
