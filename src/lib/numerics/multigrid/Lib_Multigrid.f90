@@ -21,14 +21,16 @@ subroutine Check_Multigrid ( domain )
     do b = 1, domain % nb
       check = 0
       do d = 1, 3
-        if ( Mod ( domain % Blk(b) % Dim(d), rap ) == 0 ) check = check + 1
-        if (d == 3) then
-          if ( domain % Blk(b) % Dim(d) == 1 ) check = check + 1
+        if ( Mod ( domain % Blk(b) % Dim(d), rap ) == 0 ) then
+          check = check + 1
+        elseif ( d == 3 .and. domain % Blk(b) % Dim(d) == 1 ) then
+          check = check + 1
         endif
       enddo
       if ( check < 3 ) then
-        write(*,'(A90)') ' [ERROR] in Check_Multigrid, block: '//trim(str(.true.,b))
-        stop
+        write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels needs block cells '// &
+                       'divisible by '//trim(str(.true.,rap))//'; block '//trim(str(.true.,b))//' is not'
+        error stop 'multigrid: block cells not divisible'
       endif
     enddo
 

@@ -51,8 +51,9 @@ contains
     ! Registry is built, now load the values from the ini file
     call Load_Ini(fini)
 
-    ! Validate registry
+    ! Validate registry: a bad runtime edit is reported, the value stays as read
     out = Validate_Registry()
+    if (index(out,'ERROR')>0) write(*,'(A)') ' [WARNING] runtime input.ini: '//trim(out)
 
   end subroutine Read_Inifile_Runtime
 

@@ -75,6 +75,7 @@ contains
       probe(i)%ilocation  = obj_io_probes(i)%iloc
 
       if (sum(obj_io_probes(i)%iloc)==0) call probe(i)%Place(domain)
+      call Check_Location(probe(i), domain)
 
       ! Only the rank owning this probe's block sets up pointers and opens the file
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
@@ -123,6 +124,28 @@ contains
     enddo
 
   end subroutine Place
+
+
+  !> index-position must name an existing cell
+  subroutine Check_Location(probe, domain)
+    use FUSS_Mod_MPI, only: mpi_abort_all
+    use IR_precision, only: str
+    implicit none
+    type(obj_probe), intent(in)        :: probe
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: b, d
+
+    b = probe%ilocation(1)
+    if (b < 1 .or. b > domain%nb) &
+      call mpi_abort_all('probe block '//trim(str(.true.,b))//' does not exist')
+    do d = 1, 3
+      if (probe%ilocation(1+d) < 1 .or. probe%ilocation(1+d) > domain%blk(b)%dim(d)) &
+        call mpi_abort_all('probe index-position '//trim(str(.true.,probe%ilocation(1+d)))// &
+                           ' outside block '//trim(str(.true.,b)))
+    enddo
+
+  end subroutine Check_Location
 
 
   subroutine Assign_Variables(probe, domain)

@@ -131,7 +131,8 @@ contains
     integer :: cc, i, s
     integer :: unitfile, ios, cios
     integer :: nzero_chim
-    character(len=32) :: BCfile
+    character(len=256) :: BCfile
+    integer :: lc
 
     cios = 0
 
@@ -183,7 +184,12 @@ contains
         case(301)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          read(unitfile,'(A)',iostat=ios) BCfile
+          BCfile = adjustl(BCfile)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%qw
           if (cios/=0) then
@@ -194,7 +200,12 @@ contains
         case(302)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          read(unitfile,'(A)',iostat=ios) BCfile
+          BCfile = adjustl(BCfile)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%Tw
           if (cios/=0) then
