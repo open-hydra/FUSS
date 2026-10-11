@@ -197,28 +197,36 @@ contains
     integer, intent(in) :: Im, Jm, Km, Fm
     type(FUSS_block_type), intent(inout) :: blk
     ! Local
-    integer :: g
+    integer :: g, gi
 
+    ! The mirrored source stays inside the block (gi clamped): on a 1-cell-wide block the
+    ! second layer would otherwise read the opposite face's ghost, written concurrently
     do g = 1, gc
       select case (Fm)
         case(1)
-            blk % T(Im-g,Jm,Km) = blk % T (Im+g-1,Jm,Km)
-            blk % matID(Im-g,Jm,Km) = blk % matID (Im+g-1,Jm,Km)
+            gi = min ( Im+g-1, blk % dim(1) )
+            blk % T(Im-g,Jm,Km) = blk % T (gi,Jm,Km)
+            blk % matID(Im-g,Jm,Km) = blk % matID (gi,Jm,Km)
         case(2)
-            blk % T(Im+g,Jm,Km) = blk % T (Im-g+1,Jm,Km)
-            blk % matID(Im+g,Jm,Km) = blk % matID (Im-g+1,Jm,Km)
+            gi = max ( Im-g+1, 1 )
+            blk % T(Im+g,Jm,Km) = blk % T (gi,Jm,Km)
+            blk % matID(Im+g,Jm,Km) = blk % matID (gi,Jm,Km)
         case(3)
-            blk % T(Im,Jm-g,Km) = blk % T (Im,Jm+g-1,Km)
-            blk % matID(Im,Jm-g,Km) = blk % matID (Im,Jm+g-1,Km)
+            gi = min ( Jm+g-1, blk % dim(2) )
+            blk % T(Im,Jm-g,Km) = blk % T (Im,gi,Km)
+            blk % matID(Im,Jm-g,Km) = blk % matID (Im,gi,Km)
         case(4)
-            blk % T(Im,Jm+g,Km) = blk % T (Im,Jm-g+1,Km)
-            blk % matID(Im,Jm+g,Km) = blk % matID (Im,Jm-g+1,Km)
+            gi = max ( Jm-g+1, 1 )
+            blk % T(Im,Jm+g,Km) = blk % T (Im,gi,Km)
+            blk % matID(Im,Jm+g,Km) = blk % matID (Im,gi,Km)
         case(5)
-            blk % T(Im,Jm,Km-g) = blk % T (Im,Jm,Km+g-1)
-            blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,Km+g-1)
+            gi = min ( Km+g-1, blk % dim(3) )
+            blk % T(Im,Jm,Km-g) = blk % T (Im,Jm,gi)
+            blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,gi)
         case(6)
-            blk % T(Im,Jm,Km+g) = blk % T (Im,Jm,Km-g+1)
-            blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,Km-g+1)
+            gi = max ( Km-g+1, 1 )
+            blk % T(Im,Jm,Km+g) = blk % T (Im,Jm,gi)
+            blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,gi)
       end select
     enddo
 

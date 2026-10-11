@@ -90,15 +90,22 @@ contains
         return
     end select
 
-    ! Newton on q + h (Tref - Tw) + es (Tref^4 - Tw^4) = G (Tw - T) + C: decreasing and concave in Tw,
-    ! exact in one step without radiation. No conductance at all (k = 0, 301): Tw = T.
-    Tw = T
+    ! Newton on q + h (Tref - Tw) + es (Tref^4 - Tw^4) = G (Tw - T) + C: decreasing and concave
+    ! in Tw > 0, so from the f < 0 side Newton converges monotonically; a step below zero is
+    ! replaced by halving (the model has no admissible root). Exact in one step without
+    ! radiation; no conductance at all (k = 0, 301): Tw = T.
+    Tw = max ( T, 1d0 )
     do it = 1, 50
       f  = q + h*(Tref - Tw) + es*(Tref**4 - Tw**4) - G*(Tw - T) - C
       df = h + 4d0*es*Tw**3 + G
       if (df <= 0d0) exit
       dT = f / df
-      Tw = Tw + dT
+      if (Tw + dT > 0d0) then
+        Tw = Tw + dT
+      else
+        Tw = 0.5d0*Tw
+        cycle
+      endif
       if (es == 0d0 .or. abs(dT) <= 1d-12*abs(Tw)) exit
     enddo
     q_in = q + h*(Tref - Tw) + es*(Tref**4 - Tw**4)
