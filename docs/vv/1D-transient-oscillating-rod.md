@@ -71,7 +71,7 @@ Boundary conditions (FUSS block-face notation):
 
 ## Probes
 
-Two point probes record the temperature history (`dtime = 0.1` s requested; a probe writes at most once per solver step, here Δt = 0.545 s, 294 steps to t = 160.1 s):
+Two point probes record the temperature history (`dtime = 0.1` s requested; a probe writes at most once per solver step and starts at the first multiple of `dtime` after t = 0, here Δt = 0.545 s: 293 records to t = 160.1 s):
 
 | Probe | Grid index (block, i, j, k) | Nominal x position |
 |---|---|---|
