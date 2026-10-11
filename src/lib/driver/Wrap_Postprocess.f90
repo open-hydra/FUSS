@@ -89,6 +89,9 @@ contains
         endif
       end if
 
+      ! Last probe sample (collective: the owner rank writes)
+      if (level == 1) call Write_Probes_Data( obj_sim_param%iter_general, simulation%domain(1)%time )
+
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
 

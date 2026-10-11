@@ -186,6 +186,8 @@ contains
 
     do i = 1, nprobes
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
+      if (probe(i)%tnext < -0.5d0*huge(1d0)) &   ! first call (also after a restart): next grid point of dtime
+        probe(i)%tnext = ( aint(time/probe(i)%dtime) + 1d0 ) * probe(i)%dtime
       if (mod(iter,probe(i)%diter)==0) then
         write(probe(i)%unit,*) iter, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
       elseif (time >= probe(i)%tnext) then
