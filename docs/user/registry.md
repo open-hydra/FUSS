@@ -60,3 +60,7 @@
 | level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
 | level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |
 | prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime) |
+| cycle | none | none, v, w |  no | FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). w is the robust choice: v without IRS can limit-cycle on 4 or more levels |
+| pre-iter | 2 | >= 0 |  no | FAS: smoothing iterations on a level before its coarse-grid visit |
+| post-iter | 1 | >= 0 |  no | FAS: smoothing iterations on a level after the coarse-grid correction |
+| coarse-iter | 10 | > 0 |  no | FAS: smoothing iterations on the coarsest level of a cycle |
