@@ -8,6 +8,12 @@ module FUSS_Wrap_Postprocess
   integer, private :: id_stampa=0
   logical, private :: id_stampa_set = .false.   ! counter resumed from OUTPUT/ on a restart
   logical, private :: irs_runtime_warned = .false.
+  ! FAS setup state: the runtime re-read may not switch cycles on (coarse-level arrays are
+  ! allocated at setup only) nor leave a cycling root with no smoothing iterations
+  logical, private :: fas_setup_saved = .false.
+  logical, private :: fas_cycle_warned = .false., fas_iters_warned = .false.
+  character(len=8), private :: fas_cycle_setup = 'none'
+  integer, private :: fas_pre_setup = 2, fas_post_setup = 1, fas_coarse_setup = 4
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
   character(96), private :: RANS_shell_format_MG  = "('FUSS Grid Level', i2, ' | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
@@ -37,6 +43,15 @@ contains
     character(len=llen) :: solfile, dgsfile, wallfile, mgsol, mgwall
     integer  :: m, level
     real(R8) :: nfall
+
+    ! FAS keys as validated at setup, before the first runtime re-read can change them
+    if (.not. fas_setup_saved) then
+      fas_setup_saved  = .true.
+      fas_cycle_setup  = obj_multigrid%cycle
+      fas_pre_setup    = obj_multigrid%pre_iter
+      fas_post_setup   = obj_multigrid%post_iter
+      fas_coarse_setup = obj_multigrid%coarse_iter
+    endif
 
     level = obj_multigrid%MG_level
 
@@ -276,6 +291,28 @@ contains
           ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
         irs_runtime_warned = .true.
         obj_irs%enabled = .false.
+      endif
+      ! FAS coarse-level arrays exist only if a cycle was on at setup (same pattern as IRS)
+      if ( trim(fas_cycle_setup) == 'none' .and. trim(obj_multigrid%cycle) /= 'none' ) then
+        if ( mpi_is_root .and. .not. fas_cycle_warned ) write(*,'(A)') &
+          ' WARNING: [FUSS-Multigrid] cycle cannot be switched on at runtime (start with cycle = v or w): kept none'
+        fas_cycle_warned = .true.
+        obj_multigrid%cycle = fas_cycle_setup
+      endif
+      ! A cycling run keeps the setup guards: steady, cons, and a root that iterates
+      if ( trim(obj_multigrid%cycle) /= 'none' ) then
+        if ( obj_multigrid%pre_iter + obj_multigrid%post_iter < 1 .or. obj_multigrid%coarse_iter < 1 .or. &
+             obj_time_scheme%time_accurate .or. trim(obj_time_scheme%integration_variables) == 'prim' ) then
+          if ( mpi_is_root .and. .not. fas_iters_warned ) write(*,'(A)') &
+            ' WARNING: runtime edit breaks the FAS guards (pre-iter + post-iter >= 1, coarse-iter >= 1,'// &
+            ' steady, cons): setup values kept'
+          fas_iters_warned = .true.
+          obj_multigrid%pre_iter    = fas_pre_setup
+          obj_multigrid%post_iter   = fas_post_setup
+          obj_multigrid%coarse_iter = fas_coarse_setup
+          obj_time_scheme%time_accurate = .false.
+          obj_time_scheme%integration_variables = 'cons'
+        endif
       endif
     end if
     
