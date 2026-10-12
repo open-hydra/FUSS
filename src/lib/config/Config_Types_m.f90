@@ -145,7 +145,7 @@ module FUSS_Config_Types_m
     character(len=llen)  :: cycle = 'none'     ! FAS cycle: none (grid sequencing), v, w
     integer              :: pre_iter  = 2      ! Smoothing iterations before the coarse-grid visit
     integer              :: post_iter = 1      ! Smoothing iterations after the correction
-    integer              :: coarse_iter = 4    ! Iterations on the coarsest level of a cycle
+    integer              :: coarse_iter = 10   ! Iterations on the coarsest level of a cycle
     ! Useful variables
     integer, public :: MG_level    ! Current MG-level being solved
     logical, public :: change_MG   ! Logical variable to change MG-level
