@@ -9,6 +9,10 @@ module FUSS_Lib_Newstate
   !> FUSS_postprocess every shell-diter iterations.
   integer, public :: irs_fallbacks = 0
 
+  !> FAS coarse-level updates halved because the forcing pushed T outside the table (no-IRS
+  !> conservative path, which otherwise error-stops); reported and reset like irs_fallbacks.
+  integer, public :: fas_update_fallbacks = 0
+
   integer, parameter :: IRS_HALVINGS = 10   ! own update halved down to 2**-10, then not applied
 
 contains
@@ -94,7 +98,8 @@ contains
                                    domain%blk(b)%dtlocal(i,j,k), &
                                    domain%blk(b)%vol(i,j,k),     &
                                    domain%blk(b)%qvol(i,j,k),    &
-                                   irk, n_rk, b, i, j, k         )
+                                   irk, n_rk, b, i, j, k,        &
+                                   domain%fas_forcing            )
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -144,26 +149,45 @@ contains
 
       end subroutine Update_State_Cons_IRS
 
-      ! Full compute+update without IRS
-      subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k )
+      ! Full compute+update without IRS. On a FAS coarse level (guarded = the level carries a
+      ! forcing) an update that leaves the properties table is halved until admissible, like the
+      ! IRS fallback, instead of stopping the run: the forcing can push an explicit coarse update
+      ! outside the table during strong transients. Elsewhere the arithmetic is untouched.
+      subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k, guarded )
         implicit none
         real(R8), intent(inout) :: T, residual
         real(R8), intent(in)    :: TO, matID, dt, volume, qvol
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
+        logical,  intent(in)    :: guarded
         ! Local
-        real(R8) :: hO, h
+        real(R8) :: hO, h, h0stage, theta
+        integer  :: n
 
         residual = ( - residual/volume + qvol) * dt
 
         call co_H( matID, TO, hO )
         call co_H( matID, T, h )
+        h0stage = h
 
         h = RK_stage ( irk, n_rk, h, hO, residual )
 
         call co_T( matID, h, T )
 
+        if ( guarded .and. .not. Admissible_T( T ) ) then
+          !$omp atomic
+          fas_update_fallbacks = fas_update_fallbacks + 1
+          theta = 0.5d0
+          do n = 1, IRS_HALVINGS
+            call co_T( matID, RK_stage ( irk, n_rk, h0stage, hO, theta * residual ), T )
+            if ( Admissible_T( T ) ) exit
+            theta = 0.5d0 * theta
+          enddo
+          ! theta = 0: a convex combination of the admissible stage and time-level states
+          if ( .not. Admissible_T( T ) ) call co_T( matID, RK_stage ( irk, n_rk, h0stage, hO, 0d0 ), T )
+        endif
+
         call Check_And_Fix_State( T, b, i, j, k )
-      
+
       end subroutine Compute_Cons_NoIRS
 
   end subroutine Newstate_Conservative

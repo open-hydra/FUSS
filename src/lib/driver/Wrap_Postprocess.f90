@@ -33,7 +33,7 @@ contains
     use FUSS_Mod_Multigrid,  only: Prolongation
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
-    use FUSS_Lib_Newstate,   only: irs_fallbacks
+    use FUSS_Lib_Newstate,   only: irs_fallbacks, fas_update_fallbacks
     use FUSS_Lib_Multigrid,  only: fas_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
     use IR_precision
@@ -271,6 +271,12 @@ contains
         if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' FAS: ', nint(nfall), &
           ' prolongated corrections halved or dropped since the last report'
         fas_fallbacks = 0
+        ! Coarse-level updates halved because the forcing left the table (Lib_Newstate)
+        nfall = real(fas_update_fallbacks, R8)
+        call mpi_reduce_sum_r8( nfall )
+        if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' FAS: ', nint(nfall), &
+          ' coarse smoothing updates halved since the last report'
+        fas_update_fallbacks = 0
       endif
     endif
 
