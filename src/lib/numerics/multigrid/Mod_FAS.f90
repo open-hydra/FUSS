@@ -37,9 +37,19 @@ contains
     ! Local
     integer :: it, g, nsmooth, ngamma
 
-    ! Pre-smoothing; the coarsest level of a cycle takes its own budget
+    ! Pre-smoothing; the coarsest level of a cycle takes its own budget. A root that is also
+    ! the coarsest level (the first stint of the FMG descent) has no cycle below and smooths
+    ! the whole pre+post budget here, never zero: pre-iter = 0 (legal, post-iter >= 1) would
+    ! otherwise freeze the level and the never-allocated residual norm crashes the first
+    ! residual-history write.
     nsmooth = obj_multigrid%pre_iter
-    if (level == obj_multigrid%MGL .and. level /= top) nsmooth = obj_multigrid%coarse_iter
+    if (level == obj_multigrid%MGL) then
+      if (level /= top) then
+        nsmooth = obj_multigrid%coarse_iter
+      else
+        nsmooth = max(obj_multigrid%pre_iter + obj_multigrid%post_iter, 1)
+      endif
+    endif
 
     obj_multigrid%MG_level = level
     do it = 1, nsmooth
