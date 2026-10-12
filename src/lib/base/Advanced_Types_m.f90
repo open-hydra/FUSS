@@ -47,6 +47,9 @@ module FUSS_Advanced_Types_m
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
     real(R8), dimension(:,:,:), allocatable :: matID           ! ID of material for each cell
+    ! FAS multigrid (coarse levels, cycle /= none): forcing and the restricted state in h
+    real(R8), dimension(:,:,:), allocatable :: fas_f           ! Volume-integrated forcing P_k
+    real(R8), dimension(:,:,:), allocatable :: fas_h0          ! h of the restricted state w0
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
@@ -67,6 +70,7 @@ module FUSS_Advanced_Types_m
     integer                                          :: iter, itermax    ! Iteration number
     integer                                          :: mg_level = 1     ! Multigrid level of this domain (selects exchange schedules)
     integer                                          :: nb, nbound       ! Number of blocks, number of boundary faces
+    logical                                          :: fas_forcing = .false.   ! Add fas_f to the residual (FAS coarse-level visit)
     integer, dimension(:,:), allocatable             :: n_bf             ! Number of bc elements per faces per block
     type(FUSS_block_type), dimension(:), allocatable :: blk              ! Allocatable block type
     type(FUSS_bc_type),    dimension(:), allocatable :: bc               ! Allocatable bc object

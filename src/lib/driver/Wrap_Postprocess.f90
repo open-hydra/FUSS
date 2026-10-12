@@ -28,6 +28,7 @@ contains
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
     use FUSS_Lib_Newstate,   only: irs_fallbacks
+    use FUSS_Lib_Multigrid,  only: fas_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
     use IR_precision
     implicit none
@@ -245,6 +246,17 @@ contains
       if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: fallback to the own update in ', &
         nint(nfall), ' cell updates since the last report, level ', level
       irs_fallbacks = 0
+    endif
+
+    ! FAS corrections cut by the admissibility guard (Lib_Multigrid), same cadence
+    if ( trim(obj_multigrid%cycle) /= 'none' ) then
+      if ( mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
+        nfall = real(fas_fallbacks, R8)
+        call mpi_reduce_sum_r8( nfall )
+        if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' FAS: ', nint(nfall), &
+          ' prolongated corrections halved or dropped since the last report'
+        fas_fallbacks = 0
+      endif
     endif
 
     ! Update input data

@@ -12,6 +12,7 @@ contains
     use FUSS_Config_Types_m,   only: obj_time_scheme, obj_multigrid
     use FUSS_Mod_Multigrid,    only: Prolongation
     use FUSS_Mod_Explicit,     only: Explicit_Step
+    use FUSS_Mod_FAS,          only: FAS_Solve
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     external :: External_Function
@@ -19,9 +20,13 @@ contains
     select case (trim(obj_time_scheme%solver_type))
 
       case ('euler', 'RK2', 'RK3')
-        
-        ! 1. Calculate solution on local grid
-        call Explicit_Step( simulation%domain, External_Function )
+
+        ! 1. Advance the running level: one iteration, or one FAS cycle rooted at it
+        if (trim(obj_multigrid%cycle) == 'none') then
+          call Explicit_Step( simulation%domain, External_Function )
+        else
+          call FAS_Solve( simulation, External_Function )
+        endif
 
         ! 2. Interpolate solution on finer grid
         if (obj_multigrid%change_MG) then

@@ -142,6 +142,10 @@ module FUSS_Config_Types_m
     integer              :: MGL                ! Number of multigrid levels
     integer, allocatable :: iter_threshold(:)  ! Number of iterations for each level
     integer              :: prolongated_diter = 0  ! Level iterations between two prolongated writes (0: with every field write)
+    character(len=llen)  :: cycle = 'none'     ! FAS cycle: none (grid sequencing), v, w
+    integer              :: pre_iter  = 2      ! Smoothing iterations before the coarse-grid visit
+    integer              :: post_iter = 1      ! Smoothing iterations after the correction
+    integer              :: coarse_iter = 4    ! Iterations on the coarsest level of a cycle
     ! Useful variables
     integer, public :: MG_level    ! Current MG-level being solved
     logical, public :: change_MG   ! Logical variable to change MG-level

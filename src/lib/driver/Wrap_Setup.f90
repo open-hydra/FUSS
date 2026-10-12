@@ -43,6 +43,7 @@ contains
     ! Read input.ini
     call Read_Inifile ()
     if (mpi_is_root) call Check_Input ()
+    call Check_FAS ()
 
     ! Allocate container objects Domain and IOfield.
     allocate ( simulation%domain  ( obj_multigrid%MGL ) )
@@ -286,6 +287,25 @@ contains
       endif
 
     end subroutine Check_Input
+
+
+    !> The FAS cycles (cycle /= none) are a steady, standalone, conservative-variables feature (v1)
+    subroutine Check_FAS()
+      implicit none
+
+      if (trim(obj_multigrid%cycle) == 'none') return
+      if (obj_multigrid%MGL < 2) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle needs levels >= 2')
+      if (obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
+      if (obj_sim_param%HYDRA_MG) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
+      if (trim(obj_time_scheme%integration_variables) == 'prim') &
+        call mpi_abort_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
+      if (obj_multigrid%pre_iter + obj_multigrid%post_iter < 1) &
+        call mpi_abort_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
+
+    end subroutine Check_FAS
 
 
     subroutine Check_BC()

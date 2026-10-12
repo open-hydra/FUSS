@@ -134,6 +134,8 @@ contains
       if (allocated(domain%blk(b)%TO))           deallocate(domain%blk(b)%TO)
       if (allocated(domain%blk(b)%R))            deallocate(domain%blk(b)%R)
       if (allocated(domain%blk(b)%RS0))          deallocate(domain%blk(b)%RS0)
+      if (allocated(domain%blk(b)%fas_f))        deallocate(domain%blk(b)%fas_f)
+      if (allocated(domain%blk(b)%fas_h0))       deallocate(domain%blk(b)%fas_h0)
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
       if (allocated(domain%blk(b)%RS2))          deallocate(domain%blk(b)%RS2)
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
