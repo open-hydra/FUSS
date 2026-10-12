@@ -35,6 +35,16 @@ subroutine Check_Multigrid ( domain )
                        'divisible by '//trim(str(.true.,rap))//'; block '//trim(str(.true.,b))//' is not'
         error stop 'multigrid: block cells not divisible'
       endif
+      ! The coarsest level needs at least 2 cells per coarsened direction: a 1-cell-wide block
+      ! has degenerate extrapolated ghost metrics and Setup_Metrics stops on it ("det=0")
+      do d = 1, 3
+        if ( domain % Blk(b) % Dim(d) > 1 .and. domain % Blk(b) % Dim(d) / rap < 2 ) then
+          write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels leaves block '// &
+                         trim(str(.true.,b))//' with '//trim(str(.true.,domain % Blk(b) % Dim(d) / rap))// &
+                         ' cell in direction '//trim(str(.true.,d))//' on the coarsest level; at least 2 are needed'
+          error stop 'multigrid: coarsest level thinner than 2 cells'
+        endif
+      enddo
     enddo
 
   end subroutine Check_Multigrid
