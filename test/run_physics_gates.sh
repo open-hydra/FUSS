@@ -818,8 +818,9 @@ gate_bench_zhang2010 () {
   solve "$dest/N050" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/N050/run.log)"; return 1; fi
   python3 "$ROOT/test/pyrolysis/lit/zhang2010/verify.py" "$dest/N050" > "$dest/verify.log" 2>&1; rc=$?
-  KEYNUM=$(grep -E '^  \((T|mdot)\)' "$dest/verify.log" | sed -E 's/\(T\) +([a-z]+) +max\|T - T_MATLAB\| ([0-9.]+) K.*/\1 \2 K/; s/^  //; s/  (PASS|FAIL)$//' \
-           | cut -c1-60 | paste -sd ';' -)
+  KEYNUM=$(grep -E '^  \((T|mdot)\)' "$dest/verify.log" | sed -E 's/\(T\) +([a-z]+) +max\|T - T_MATLAB\| ([0-9.]+) K.*/\1 \2 K/;
+             s/\(mdot\) FUSS peak ([^ ]+) kg\/m2\/s at ([0-9]+) s;.*window (\[[^]]*\]).*/mdot peak \1 at \2 s, window \3/;
+             s/^  //; s/  (PASS|FAIL)$//' | paste -sd ';' -)
   return $rc
 }
 
