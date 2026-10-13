@@ -97,6 +97,22 @@ contains
   end function Darcy_Is_Open
 
 
+  !> End-of-step coefficient of the stored gas, eta* = 2 eta^n - eta^(n-1)
+  !> (plan 07, the scheme of 2026-10-09), limited: eta ~ 1/T, so a cell whose
+  !> temperature more than doubles in one step (a step-change wall on a coarse
+  !> cell: 298 -> 663 K) makes the linear extrapolation negative, the storage
+  !> diagonal negative and the line solve return a negative pressure (Baum &
+  !> Atreya case, 2026-10-13). Below eta^n/2 the extrapolation falls back to
+  !> eta^n (first order for that step). Assemble and the post-solve update use
+  !> this one function, so G^(n+1) = eta* p^(n+1) is the same expression.
+  pure real(R8) function Eta_Star ( eta, eta_prev ) result ( es )
+    implicit none
+    real(R8), intent(in) :: eta, eta_prev
+    es = 2.0d0 * eta - eta_prev
+    if ( es < 0.5d0 * eta ) es = eta
+  end function Eta_Star
+
+
   !> Per-block solver choice (plan 07 §3.3 direction rule) and the work
   !> arrays. Called after Setup_BC on every rank. A block whose open faces lie
   !> in exactly one index direction is swept line-implicitly along it when
@@ -275,18 +291,19 @@ contains
   subroutine Darcy_Mass_Correction ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy, obj_pyrolysis
-    use FUSS_Lib_Pyrolysis,  only: Energy_Of2, Temperature_Of2, Solid_State
+    use FUSS_Lib_Pyrolysis,  only: Energy_Of2, Temperature_Of2, Solid_State, Reaction_Rate
     use FUSS_Mod_MPI,        only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: b, i, j, k, m, r
-    real(R8) :: dm, E, T_new, tau, eps
+    real(R8) :: dm, E, T_new, tau, eps, G, Gold, deficit, avail
+    logical  :: all_r
 
     if ( obj_darcy%quasi_steady ) return
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
-      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,dm,E,T_new,tau,eps)
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,dm,E,T_new,tau,eps,G,Gold,deficit,avail,all_r)
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -299,6 +316,55 @@ contains
         if ( dm == 0.0d0 ) cycle
         E = Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), domain%blk(b)%p_pg(i,j,k), &
                         domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k) )
+        ! The predicted production can exceed the realised one by a whole step
+        ! (threshold kinetics: a cell that drops back below T_thr during the
+        ! stages). When the correction would empty the stored gas (a negative
+        ! pressure for the next solve otherwise; Baum & Atreya case with a step
+        ! wall, 2026-10-13), the solid supplies the deficit, up to a tenth of
+        ! the start-of-step gas: the reactions that ran this step (or can run at
+        ! T) advance further, in proportion to what each has left. E is held, so
+        ! T comes out of the re-inversion below with the extra endotherm, and
+        ! the gas mass stays exact. A run whose stored gas stays positive never
+        ! enters this branch.
+        Gold = domain%blk(b)%eta_stO(i,j,k) * domain%blk(b)%p_pgO(i,j,k)
+        G    = domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k)
+        if ( G + dm <= 0.0d0 ) then
+          deficit = 0.1d0 * Gold - ( G + dm )
+          ! the reactions that ran this step (or can run at T) first; if they
+          ! cannot cover it (the prediction crossed a threshold the stages did
+          ! not reach: instant kinetics, a whole cell predicted), every reaction
+          ! with mass left -- the cell decomposes now, as the solve assumed
+          all_r = .false.
+          avail = 0.0d0
+          do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+            if ( domain%blk(b)%chi(r,i,j,k) > domain%blk(b)%chiO(r,i,j,k) .or. &
+                 Reaction_Rate( m, r, domain%blk(b)%T(i,j,k) ) > 0.0d0 ) &
+              avail = avail + obj_pyrolysis%reac(r)%eps_rho_F * ( 1.0d0 - domain%blk(b)%chi(r,i,j,k) )
+          enddo
+          if ( avail < deficit ) then
+            all_r = .true.
+            avail = 0.0d0
+            do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+              avail = avail + obj_pyrolysis%reac(r)%eps_rho_F * ( 1.0d0 - domain%blk(b)%chi(r,i,j,k) )
+            enddo
+          endif
+          ! as much as the solid has, up to the target; only a solid that
+          ! cannot keep the stored gas positive stops the run
+          deficit = min( deficit, avail )
+          if ( G + dm + deficit <= 0.0d0 ) then
+            write(*,'(A,4I6)') ' [ERROR] Darcy: the end-of-step gas correction empties the stored gas at b, i, j, k =', b, i, j, k
+            write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         stored G = ', G, ' kg/m3, realised - predicted = ', dm, &
+              ' kg/m3, decomposable solid left = ', avail
+            write(*,'(A)') '         (reduce the time step, or smooth the kinetics near its threshold temperature)'
+            error stop 3
+          endif
+          do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+            if ( all_r .or. domain%blk(b)%chi(r,i,j,k) > domain%blk(b)%chiO(r,i,j,k) .or. &
+                 Reaction_Rate( m, r, domain%blk(b)%T(i,j,k) ) > 0.0d0 ) &
+              domain%blk(b)%chi(r,i,j,k) = domain%blk(b)%chi(r,i,j,k) + ( deficit / avail ) * ( 1.0d0 - domain%blk(b)%chi(r,i,j,k) )
+          enddo
+          dm = dm + deficit
+        endif
         domain%blk(b)%eta_st(i,j,k) = ( domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k) + dm ) / domain%blk(b)%p_pg(i,j,k)
         call Temperature_Of2( m, E, domain%blk(b)%chi(:,i,j,k), domain%blk(b)%p_pg(i,j,k), &
                               domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k), domain%blk(b)%T(i,j,k), T_new, b, i, j, k )
@@ -586,7 +652,7 @@ contains
         if ( obj_darcy%quasi_steady ) then
           domain%blk(b)%eta_st(i,j,k) = domain%blk(b)%eta_pg(i,j,k)
         else
-          domain%blk(b)%eta_st(i,j,k) = 2.0d0 * domain%blk(b)%eta_pg(i,j,k) - domain%blk(b)%eta_prev(i,j,k)
+          domain%blk(b)%eta_st(i,j,k) = Eta_Star( domain%blk(b)%eta_pg(i,j,k), domain%blk(b)%eta_prev(i,j,k) )
         endif
         domain%blk(b)%eta_prev(i,j,k) = domain%blk(b)%eta_pg(i,j,k)
       enddo ; enddo ; enddo
@@ -738,7 +804,7 @@ contains
           ! a fused multiply-add and the rounding error of one product survives,
           ! seen: 1.4e-21 kg/s on gate 4.1(a)). The reference magnitude counts
           ! both terms whole.
-          etas = 2.0d0 * domain%blk(b)%eta_pg(i,j,k) - domain%blk(b)%eta_prev(i,j,k)
+          etas = Eta_Star( domain%blk(b)%eta_pg(i,j,k), domain%blk(b)%eta_prev(i,j,k) )
           ast  = etas * ( V / dt )
           st   = ( etas * ( domain%blk(b)%p_pg(i,j,k) - domain%blk(b)%p_pgO(i,j,k) ) &
                  + ( etas - domain%blk(b)%eta_stO(i,j,k) ) * domain%blk(b)%p_pgO(i,j,k) ) * ( V / dt )
