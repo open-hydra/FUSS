@@ -22,8 +22,11 @@ contains
     ! Local
     integer  :: f, lower, upper, i, b
     integer  :: Bm, Im, Jm, Km, Fm
+    real(R8) :: Ovar(2)    ! wall temperature and flux of the face (Compute_Wall_Properties)
     
-    ! BC fluxes are computed in order of block and face type.
+    ! BC fluxes are computed in order of block and face type. A wall BC
+    ! (301-305) also leaves its wall temperature in bc%Tw_face, which the
+    ! type-2 gas-enthalpy flux of an open face reads later in the same stage.
     upper = 0
 
     blocks: do b = 1, domain % nb
@@ -32,7 +35,7 @@ contains
         lower = upper + 1                   ! Update lower bound
         upper = upper + domain % n_bf(b,f)  ! Upper bound: add number of cells on face f of block b
         
-        !$omp do schedule ( dynamic ) private(i, Bm, Im, Jm, Km, Fm)
+        !$omp do schedule ( dynamic ) private(i, Bm, Im, Jm, Km, Fm, Ovar)
         do i = lower, upper
           Bm = domain % bc(i) % b
           if (.not. is_local_block(Bm)) cycle
@@ -52,29 +55,35 @@ contains
             case (301) ! wall: prescribed heat flux
               if (domain % bc(i) % BCtime % exists) &
                 domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
+              Ovar = 0.0d0
               call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                  domain % bc(i) % qw )
+                                  domain % bc(i) % qw, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
 
             case (302) ! wall: prescribed temperature
               if (domain % bc(i) % BCtime % exists) &
                 domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
               call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
-                                         domain % bc(i) % Tw )
+                                         domain % bc(i) % Tw, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
 
             case (303) ! wall: prescribed hconv, Tref, qrad
               ! Read_BCfile stores the second bc.txt value in
               ! bc%qrad; this call used to pass bc%qw, which is assigned only for
               ! BC 301 and was otherwise whatever the allocation left there.
               call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad )
+                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
 
             case (304) ! wall: prescribed epsilon, Tref
               call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                       domain % bc(i) % eps, domain % bc(i) % Tref )
+                                       domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
               
             case (305) ! wall: prescribed hconv, epsilon, Tref
               call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref )
+                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
             
             case(103,104) ! Multi-Solver Coupling (104 = with chimera)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % ext_flux

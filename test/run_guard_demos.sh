@@ -306,7 +306,7 @@ law = translation
 vel = 1.0e-4 0.0 0.0"
 demo_pyro pyro_no_outflow   1 "outflow-direction must be set"                    "outflow-direction=none"
 # face 5 (type 0, no value line) becomes a 103 self-connection with its 9-integer line
-demo_pyro pyro_connection   1 "pyrolysis phase 2 is single-block: no 101/102/103 faces" "BCFACE:5:103:1 1 1 1 6 1 0 0 1"
+demo_pyro pyro_connection   1 "pyrolysis phase 2 is single-block: no 101/102/103/104 faces" "BCFACE:5:103:1 1 1 1 6 1 0 0 1"
 # the outflow face 2 (302 with a time file) becomes a 300 symmetry plane, no value line
 demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-305)"         "BCFACE:2:300:-"
 demo_pyro pyro_missing_virgin 1 "[ERROR] pyrolysis tables"                       "RM:INPUT/virgin.dat"
@@ -353,8 +353,8 @@ demo_pyro darcy_sealed_quasi_steady 1 "a sealed domain has no unique quasi-stead
     "RAW:[FUSS-Darcy]
 quasi-steady = true"
 # face 5 (type 0) becomes a 102 chimera face; its two donor counts are zero. The Darcy text
-# precedes plan 06 guard 9's (which refuses 101/102/103 on every pyrolysis run until plan 08)
-demo_pyro darcy_chimera      1 "a chimera (102) face has no pressure condition" \
+# precedes plan 06 guard 9's (which refuses 101/102/103/104 on every pyrolysis run until plan 08)
+demo_pyro darcy_chimera      1 "a chimera (102, 104) face has no pressure condition" \
     "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:5:102:0 0"
 # the per-face p_w of a 303 line (plan 07 section 4.3) must be positive
 demo_pyro darcy_bad_pw       1 "the fourth value of a 303 line (p_w) must be > 0" \

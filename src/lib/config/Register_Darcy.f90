@@ -66,7 +66,8 @@ contains
                   '', .false. )
 
     call reg%add( trim(section), 'quasi-steady', obj_darcy%quasi_steady, '.false.', &
-                  'Drop the gas storage: d(eta p)/dt from the pressure equation and eps (rho_g h_g - p) from the energy E', &
+                  'Drop the gas storage: d(eta p)/dt from the pressure equation and eps (rho_g h_g - p) from the energy E; ' // &
+                  'the gas released but not yet expelled is carried to the next step as (eta_st - eta_prev) p', &
                   'logical', .false. )
 
     call reg%add( trim(section), 'klinkenberg', obj_darcy%klinkenberg, '.false.', &

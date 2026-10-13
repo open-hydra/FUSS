@@ -48,6 +48,7 @@ module FUSS_Mod_Darcy
     real(R8), allocatable :: lo(:,:,:)     ! coefficient of p(c-1) along the line (= -C of the lower face)
     real(R8), allocatable :: hi(:,:,:)     ! coefficient of p(c+1) along the line (= -C of the upper face)
     real(R8), allocatable :: g(:,:,:,:)    ! energy pass: cell tensor h_g Gamma (9, row-major)
+    real(R8), allocatable :: cq(:,:,:)     ! quasi-steady: gas released but not yet expelled at the step start [kg/m3]
   end type darcy_work_t
   type(darcy_work_t), allocatable, save :: wk(:)
 
@@ -150,9 +151,9 @@ contains
       if ( .not. is_local_block(b) ) cycle
       ni = domain%blk(b)%dim(1) ; nj = domain%blk(b)%dim(2) ; nk = domain%blk(b)%dim(3)
       allocate( wk(b)%res(ni,nj,nk), wk(b)%dgl(ni,nj,nk), wk(b)%dga(ni,nj,nk), wk(b)%rhs(ni,nj,nk), &
-                wk(b)%lo(ni,nj,nk), wk(b)%hi(ni,nj,nk), wk(b)%g(9,ni,nj,nk) )
+                wk(b)%lo(ni,nj,nk), wk(b)%hi(ni,nj,nk), wk(b)%g(9,ni,nj,nk), wk(b)%cq(ni,nj,nk) )
       wk(b)%res = 0.0d0 ; wk(b)%dgl = 0.0d0 ; wk(b)%dga = 0.0d0 ; wk(b)%rhs = 0.0d0
-      wk(b)%lo  = 0.0d0 ; wk(b)%hi  = 0.0d0 ; wk(b)%g   = 0.0d0
+      wk(b)%lo  = 0.0d0 ; wk(b)%hi  = 0.0d0 ; wk(b)%g   = 0.0d0 ; wk(b)%cq  = 0.0d0
     enddo
 
   end subroutine Darcy_Setup_Blocks
@@ -300,7 +301,6 @@ contains
     real(R8) :: dm, E, T_new, tau, eps, G, Gold, deficit, avail
     logical  :: all_r
 
-    if ( obj_darcy%quasi_steady ) return
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
       !$omp do collapse(3) schedule(static) private(i,j,k,m,r,dm,E,T_new,tau,eps,G,Gold,deficit,avail,all_r)
@@ -314,6 +314,12 @@ contains
         enddo
         dm = dm - ( domain%blk(b)%pi_pg(i,j,k) - obj_darcy%pi_source ) * domain%blk(b)%dtlocal(i,j,k)
         if ( dm == 0.0d0 ) cycle
+        if ( obj_darcy%quasi_steady ) then
+          ! no stored gas: the difference waits in the carry, eta_st - eta_prev
+          ! (Solve_Pressure set eta_st = eta_prev + carry/p), for the next solve
+          domain%blk(b)%eta_st(i,j,k) = domain%blk(b)%eta_st(i,j,k) + dm / domain%blk(b)%p_pg(i,j,k)
+          cycle
+        endif
         E = Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), domain%blk(b)%p_pg(i,j,k), &
                         domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k) )
         ! The predicted production can exceed the realised one by a whole step
@@ -509,7 +515,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: b, i, j, k, m, r, u, ios, bw, iw, jw, kw
-    real(R8) :: eta, Gam(3,3), eps, rho_g, h, pi, dt, kap, rel, rw, Tstar
+    real(R8) :: eta, Gam(3,3), eps, rho_g, h, pi, dt, kap, rel, rw, Tstar, cq
     character(len=256) :: file
 
     ! 1. lagged coefficients and the gas production of this step (plan 07
@@ -524,7 +530,7 @@ contains
     !    makes the expelled mass second-order consistent at no extra cost.
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
-      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,eta,Gam,eps,rho_g,h,pi,dt,kap,Tstar)
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,eta,Gam,eps,rho_g,h,pi,dt,kap,Tstar,cq)
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -538,6 +544,17 @@ contains
                 ( Advance_Reaction( domain%blk(b)%chiO(r,i,j,k), kap, obj_pyrolysis%reac(r)%m, dt ) &
                   - domain%blk(b)%chiO(r,i,j,k) ) / dt
         enddo
+        ! Quasi-steady: no stored gas absorbs the difference between the gas
+        ! predicted here and the gas the RK stages release, so
+        ! Darcy_Mass_Correction carries it, as (eta_st - eta_prev) p (restart
+        ! columns all three), into this source: the gas mass is exact with a
+        ! one-step lag. A negative carry (more expelled than released) is
+        ! taken only down to a zero source; the rest waits for the next step.
+        if ( obj_darcy%quasi_steady ) then
+          cq = ( domain%blk(b)%eta_st(i,j,k) - domain%blk(b)%eta_prev(i,j,k) ) * domain%blk(b)%p_pgO(i,j,k)
+          wk(b)%cq(i,j,k) = cq
+          if ( cq /= 0.0d0 ) pi = obj_darcy%pi_source + max( 0.0d0, ( pi - obj_darcy%pi_source ) + cq / dt )
+        endif
         call Darcy_Cell_Coeffs( m, domain%blk(b)%p_pgO(i,j,k), domain%blk(b)%TO(i,j,k), domain%blk(b)%chiO(:,i,j,k), &
                                 [b, i, j, k], eta, Gam, eps, rho_g, h )
         domain%blk(b)%eta_pg(i,j,k)   = eta
@@ -650,7 +667,7 @@ contains
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
         if ( obj_darcy%quasi_steady ) then
-          domain%blk(b)%eta_st(i,j,k) = domain%blk(b)%eta_pg(i,j,k)
+          domain%blk(b)%eta_st(i,j,k) = domain%blk(b)%eta_pg(i,j,k) + wk(b)%cq(i,j,k) / domain%blk(b)%p_pg(i,j,k)
         else
           domain%blk(b)%eta_st(i,j,k) = Eta_Star( domain%blk(b)%eta_pg(i,j,k), domain%blk(b)%eta_prev(i,j,k) )
         endif
@@ -1159,9 +1176,9 @@ contains
   !> The gas-enthalpy flux of the energy equation under type 2 (plan 07 §3.5;
   !> PATO's fvc::laplacian(GammaHg, p)): + div(h_g Gamma grad p) added to
   !> blk%R with the convention of Diffusive_Flux (Res1 -= Flux, Res2 += Flux),
-  !> the face tensor (g_L + g_R)/2 with g = h_g(p^(n+1), T_stage) Gamma^n, the
-  !> half-cell Dirichlet closure on open faces (g_w from h_g(p_w, T_c) and
-  !> Gamma(p_w)). Called by Pyrolysis_Stage in place of the type-1 line
+  !> the face tensor (g_L + g_R)/2 with g = h_g(p^(n+1), T_stage) Gamma^n; on
+  !> an open face h_g(p_w, T_wall) times the pressure solve's face mass flux
+  !> (T_wall from the face's BC routine, bc%Tw_face). Called by Pyrolysis_Stage in place of the type-1 line
   !> integral, after BC_Fluxes, inside the parallel region. bc%edot_pg records
   !> the enthalpy flux leaving each open face for the energy budget.
   subroutine Darcy_Energy_Flux ( domain )
@@ -1172,7 +1189,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: b, i, j, k, ni, nj, nk, fc, lower, upper, ii, Im, Jm, Km, Fm, m
-    real(R8) :: C, E, F, Cw, Ew, s, A, q, inflow, Gw(3,3), eta_w, eps_w, rho_w, h_w, W, h, mu, Gf(3,3)
+    real(R8) :: C, E, F, Cw, Ew, s, A, q, inflow, Gw(3,3), eta_w, eps_w, rho_w, h_w, W, h, mu, Gf(3,3), Tf
 
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
@@ -1226,7 +1243,7 @@ contains
         lower = upper + 1
         upper = upper + domain%n_bf(b,fc)
         if ( .not. is_local_block(b) ) cycle
-        !$omp do schedule(dynamic) private(ii,Im,Jm,Km,Fm,m,Cw,Ew,s,A,q,inflow,Gw,eta_w,eps_w,rho_w,h_w,W,h,mu,Gf)
+        !$omp do schedule(dynamic) private(ii,Im,Jm,Km,Fm,m,Cw,Ew,s,A,q,inflow,Gw,eta_w,eps_w,rho_w,h_w,W,h,mu,Gf,Tf)
         do ii = lower, upper
           Im = domain%bc(ii)%i ; Jm = domain%bc(ii)%j ; Km = domain%bc(ii)%k ; Fm = domain%bc(ii)%f
           s = real( 1 - 2 * mod(Fm,2), R8 )
@@ -1235,10 +1252,20 @@ contains
             m = nint( domain%blk(b)%matID(Im,Jm,Km) )
             call Darcy_Cell_Coeffs( m, q, domain%blk(b)%TO(Im,Jm,Km), domain%blk(b)%chiO(:,Im,Jm,Km), &
                                     [b, Im, Jm, Km], eta_w, Gw, eps_w, rho_w, h_w )
-            call Gas_State( m, q, domain%blk(b)%T(Im,Jm,Km), W, h, mu, [b, Im, Jm, Km] )
-            Gf = 0.5d0 * ( Tensor9( wk(b)%g(:,Im,Jm,Km) ) + h * Gw )
+            ! The gas crosses the face at the wall temperature its BC routine
+            ! computed this stage (bc%Tw_face; the cell's where no wall BC set
+            ! one), carried by the face mass flux of the pressure solve itself
+            ! (Open_Face_Fluxes' expression): edot_pg = h_g(p_w, T_w) mdot_pg.
+            ! Before 2026-10-13 the face value averaged h Gamma of the cell with
+            ! h_g(p_w, T_cell) Gamma_w: the enthalpy at the cell temperature, an
+            ! O(dx) flux error that made open faces first order (exact steady
+            ! transpiration, test/pyrolysis/exact/transpiration).
+            Tf = domain%blk(b)%T(Im,Jm,Km)
+            if ( domain%bc(ii)%Tw_face > 0.0d0 ) Tf = domain%bc(ii)%Tw_face
+            call Gas_State( m, q, Tf, W, h, mu, [b, Im, Jm, Km] )
+            Gf = 0.5d0 * ( Tensor9( domain%blk(b)%gam_pg(:,Im,Jm,Km) ) + Gw )
             call Wall_Terms( domain%blk(b), Gf, Im, Jm, Km, Fm, .true., Cw, Ew, A )
-            inflow = Cw * ( q - domain%blk(b)%p_pg(Im,Jm,Km) ) + s * Ew
+            inflow = h * ( Cw * ( q - domain%blk(b)%p_pg(Im,Jm,Km) ) + s * Ew )
             domain%blk(b)%R(Im,Jm,Km) = domain%blk(b)%R(Im,Jm,Km) - inflow
             domain%bc(ii)%edot_pg = - inflow / A
           elseif ( domain%bc(ii)%type == 101 ) then

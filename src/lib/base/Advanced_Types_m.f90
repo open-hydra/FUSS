@@ -90,6 +90,11 @@ module FUSS_Advanced_Types_m
     ! mdot_pg / edot_pg the gas mass [kg/m2/s] and enthalpy [W/m2] fluxes
     ! leaving through the face (outward positive), set by the solver.
     real(R8) :: pw = 0d0, mdot_pg = 0d0, edot_pg = 0d0
+    ! Tw_face: the wall temperature the face's BC routine computed in the
+    ! current RK stage (BC_Fluxes, 301-305), read by the type-2 gas-enthalpy
+    ! flux of an open face; -1 where no wall BC has set it (the cell value is
+    ! used there).
+    real(R8) :: Tw_face = -1d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

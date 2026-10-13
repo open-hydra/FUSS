@@ -93,7 +93,7 @@
 | p-init | 101325.0 | > 0 |  no | Uniform gas pressure [Pa] on newrun; ignored on restart |
 | p-wall | 101325.0 | > 0 |  no | Dirichlet gas pressure [Pa] on an open face whose bc.txt line carries no p_w of its own |
 | open-bc-types | 303 305 306 |  |  no | Blank-separated BC codes whose faces are open to the gas (p = p_w); from {301,302,303,304,305,306,103} |
-| quasi-steady | .false. | logical |  no | Drop the gas storage: d(eta p)/dt from the pressure equation and eps (rho_g h_g - p) from the energy E |
+| quasi-steady | .false. | logical |  no | Drop the gas storage: d(eta p)/dt from the pressure equation and eps (rho_g h_g - p) from the energy E; the gas released but not yet expelled is carried to the next step as (eta_st - eta_prev) p |
 | klinkenberg | .false. | logical |  no | K_eff = K + (mu/p) B with the tensors B_v, B_c of pyrolysis.dat (thesis eq. 3.15) |
 | pseudo-vnn | 0.5 | > 0 |  no | Damping of the Jacobi (pseudo) sweep: p <- p + pseudo-vnn * residual / diagonal; (0, 1] |
 | axes-follow-grid | .false. | logical |  no | Rotate the permeability tensor with the grid lines (not built: false only) |

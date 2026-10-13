@@ -94,7 +94,7 @@ contains
       call add( 'p_new',   1,    .false., 'none',      .false., .false., .false., .true. )   ! sweep scratch
       call add( 'eta_pg',  1,    .false., 'none',      .false., .false., .false., .true. )   ! eta^n = eps_pg W/(R T) [kg/m3/Pa]
       call add( 'eta_prev',1,    .false., 'none',      .true.,  .true.,  .false., .true. )   ! eta^(n-1): the extrapolation's history
-      call add( 'eta_st',  1,    .false., 'conserved', .true.,  .true.,  .true.,  .true. )   ! stored gas G = eta_st p_pg (a state)
+      call add( 'eta_st',  1,    .false., 'conserved', .true.,  .true.,  .true.,  .true. )   ! stored gas G = eta_st p_pg (a state); quasi-steady: (eta_st - eta_prev) p_pg = carried gas
       call add( 'eta_stO', 1,    .false., 'none',      .false., .false., .false., .true. )   ! eta_st at step n
       call add( 'gam_pg',  9,    .false., 'none',      .false., .false., .false., .true. )   ! Gamma^n = rho_g K/mu, row-major 3x3
       call add( 'pi_pg',   1,    .false., 'none',      .false., .false., .false., .true. )   ! pi_tot^n of the solve [kg/m3/s]

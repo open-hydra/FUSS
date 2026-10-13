@@ -516,7 +516,7 @@ contains
 
 
     !> bc.txt-level rules of plan 06 sections 2.1 and 3.7 (root, after
-    !> Check_BC): one block, no 101/102/103 face (chi ghosts are plan 08) and
+    !> Check_BC): one block, no 101/102/103/104 face (chi ghosts are plan 08) and
     !> a wall BC (301-305) on the outflow end of the block.
     subroutine Check_Pyrolysis_BC_Topology ( domain )
       implicit none
@@ -530,9 +530,9 @@ contains
       ! refusal must outlive plan 08's lifting of the single-block rule below.
       if ( obj_darcy%enabled ) then
         do i = 1, domain%nbound
-          if ( domain%bc(i)%type == 102 ) then
-            write(*,'(A)') ' [ERROR] Darcy: a chimera (102) face has no pressure condition under gas-closure = type2.'
-            write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is of type 102 on face ', domain%bc(i)%f
+          if ( domain%bc(i)%type == 102 .or. domain%bc(i)%type == 104 ) then
+            write(*,'(A)') ' [ERROR] Darcy: a chimera (102, 104) face has no pressure condition under gas-closure = type2.'
+            write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, ' on face ', domain%bc(i)%f
             bad = .true.
             exit
           endif
@@ -558,14 +558,14 @@ contains
       endif
 
       if ( domain%nb > 1 ) then
-        write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103 faces (chi ghosts are plan 08).'
+        write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103/104 faces (chi ghosts are plan 08).'
         write(*,'(A,I0,A)') '         The mesh has ', domain%nb, ' blocks.'
         bad = .true.
       endif
       do i = 1, domain%nbound
         select case ( domain%bc(i)%type )
-          case (101, 102, 103)
-            write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103 faces (chi ghosts are plan 08).'
+          case (101, 102, 103, 104)
+            write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103/104 faces (chi ghosts are plan 08).'
             write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, &
               ' on face ', domain%bc(i)%f
             bad = .true.
