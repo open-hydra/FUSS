@@ -1,17 +1,20 @@
 #!/bin/bash
-# run_case.sh <case dir> <work dir> <FUSS binary> [--iters N] [--verify] [--mpi N]
+# run_case.sh <case dir> <work dir> <FUSS binary> [--iters N] [--verify] [--mpi N] [--none-inert]
 # Runs a test case in a fresh copy (the source tree is not written), 1 thread.
-#   --iters N  stop after N iterations (iter-threshold and every level<m>-iter)
-#   --verify   then run the case's verify.py
-#   --mpi N    run serial and on N ranks, and require identical output files
+#   --iters N     stop after N iterations (iter-threshold and every level<m>-iter)
+#   --verify      then run the case's verify.py
+#   --mpi N       run serial and on N ranks, and require identical output files
+#   --none-inert  run again with every FAS key spelled out under cycle = none, and require
+#                 identical output files: the FAS keys must be inert outside a cycle
 set -u
 case_dir=$(cd "$1" && pwd); work=$2; bin=$3; shift 3
-iters=""; verify=0; np=0
+iters=""; verify=0; np=0; none_inert=0
 while [[ $# -gt 0 ]]; do
   case $1 in
     --iters) iters=$2; shift 2 ;;
     --verify) verify=1; shift ;;
     --mpi) np=$2; shift 2 ;;
+    --none-inert) none_inert=1; shift ;;
     *) echo "run_case.sh: unknown option $1"; exit 2 ;;
   esac
 done
@@ -47,6 +50,16 @@ if [[ $np -gt 1 ]]; then
     cmp -s "$work/OUTPUT/$f" "$work-mpi/OUTPUT/$f" || { echo "FAIL: $f differs between 1 process and $np ranks"; exit 1; }
   done
   echo "1 process and $np ranks: identical output files"
+fi
+if [[ $none_inert -eq 1 ]]; then
+  prepare "$work-none"
+  sed -i -E '/^(cycle|pre-iter|post-iter|coarse-iter)[[:space:]]*=/d' "$work-none/input.ini"
+  sed -i -E 's/^\[FUSS-Multigrid\]/[FUSS-Multigrid]\ncycle = none\npre-iter = 7\npost-iter = 5\ncoarse-iter = 3/' "$work-none/input.ini"
+  run "$work-none" 1
+  for f in $(cd "$work/OUTPUT" && ls); do
+    cmp -s "$work/OUTPUT/$f" "$work-none/OUTPUT/$f" || { echo "FAIL: $f differs when the FAS keys are set under cycle = none"; exit 1; }
+  done
+  echo "FAS keys inert under cycle = none: identical output files"
 fi
 if [[ $verify -eq 1 ]]; then
   (cd "$work" && python3 -B verify.py) || exit 1

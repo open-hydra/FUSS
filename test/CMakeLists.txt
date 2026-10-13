@@ -26,16 +26,22 @@ fuss_add_test(OscillatingRod     transient/oscillating_Rod        300 "fast;vali
 fuss_add_test(ConvectivePlate    steady-state/convective_Plate   1200 "validation"      --verify)
 
 # Smoke runs of the cases without a verifier
-foreach(_c nominal irs mg1 mg2 mg3 mg_irs)
+foreach(_c nominal irs mg1 mg2 mg3 mg_irs fas_v fas_w fas_w_irs)
   fuss_add_test(ResidualConvergence_${_c} numerics-features/residual_convergence/${_c} 300 "smoke" --iters 300)
 endforeach()
 fuss_add_test(Chimera          numerics-features/chimera                300 "smoke" --iters 300)
 fuss_add_test(ChimeraMG        numerics-features/chimera_mg             300 "smoke" --iters 300)
+fuss_add_test(AnisotropicPlate numerics-features/anisotropic_Plate      300 "smoke" --iters 300)
 fuss_add_test(TimeConvergence  numerics-features/time_convergence/simdir 300 "smoke" --iters 100)
+
+# The FAS keys must be inert outside a cycle: cycle = none with every FAS key set
+# must reproduce the plain multigrid run byte for byte
+fuss_add_test(MultigridNoneInert numerics-features/residual_convergence/mg3 300 "smoke" --iters 300 --none-inert)
 
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)
   fuss_add_test(ChimeraMPI   numerics-features/chimera                      300 "needs-mpi" --iters 300 --mpi 2)
   fuss_add_test(ChimeraMGMPI numerics-features/chimera_mg                   300 "needs-mpi" --iters 300 --mpi 2)
   fuss_add_test(MultigridMPI numerics-features/residual_convergence/mg_irs  300 "needs-mpi" --iters 300 --mpi 2)
+  fuss_add_test(FASMPI       numerics-features/residual_convergence/fas_w_irs 300 "needs-mpi" --iters 300 --mpi 2)
 endif()
