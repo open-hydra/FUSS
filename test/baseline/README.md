@@ -85,3 +85,29 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     final source reproduces all 1633 (`1cc8fea` adds the restart reader, the later commits are test scripts).
   - **Binaries:** the final source's scratch build is `5a32f9bb` and its worktree build is `456af9c5`. They differ because the
     binary embeds its source paths, so an md5 identifies a build only within one tree.
+- **2026-10-13 (night), plan 08 stage A (the ablating wall BC 306, static mesh): four type-1 cases moved by round-off, four
+  ablation cases added. 1689 rows.**
+  - **How measured:** `run_regression.sh -B -p 1 -k -o` on a scratch snapshot of the tree (fresh preset build, binary `7bf8ff24`;
+    the worktree build of the same source is `15cece56`). 491 `<` lines, 547 `>` lines.
+  - **Added, 56 rows:** `test/pyrolysis/ablation/demo_base` (5), `demo_base_pyro` (7), `seb_closure` (22), `zero_blowing` (22).
+    `ATC21` and `atc2off_306_static(_t2)` carry `.slow`.
+  - **Moved, 491 rows, all type-1 pyrolysis:** `adiabatic0d/T1000` (42), `energy_audit` (6), `heated0d` (80) and
+    `lit/zhang2010/N050` (363). Maximum change, old binary (`d9d2c21`) against new, each field over all its files and
+    scaled by the field's own maximum:
+    - T 6.2e-15;
+    - h and χ 1.9e-12 (`heated0d`: the decomposition carries the last bits through its 3 s);
+    - ṁ_pg 7.4e-13 (`zhang2010`), other fields ≤ 1.6e-14;
+    - energy budgets ≤ 1.9e-12 pointwise, probes ≤ 2.4e-15;
+    - `residual-history.dat` 5.9e-10 (a difference of nearly equal numbers).
+    `SOLUTIONTIME` moves in its last printed digit (dt depends on T). No type-2 or non-pyrolysis case moved.
+  - **Why they moved:** LTO inlining under FMA contraction (`-march=native`). Bisected on `energy_audit` with scratch builds:
+    - `d9d2c21` plus the appended, unused `Surface_Optics`/`Char_Enthalpy`: the old bits;
+    - the full new source without the `Gas_State` call, or without the BC-kernel calls: still the new bits;
+    - the full new source without the `Surface_Optics` and `Char_Enthalpy` calls: the old bits.
+    The BC 306 code's new calls into `Tab_Lookup`/`Tau_Of` change how LTO inlines those kernels into the type-1 energy
+    path, and the fused multiply-adds then round differently. No line of the type-1 path changed.
+  - **Not done:** copying the two kernels to keep the bits would hold for one stage only (plan 08 stage C's remap calls
+    `Solid_State`/`Energy_Of`). `-ffp-contract=off` would make results independent of inlining, at the cost of one global
+    re-record; that is a project decision, left open.
+  - **Gates:** all 23 physics gates pass on the new binary (`run_physics_gates.sh`, 8 min 55 s), the guard demos and the
+    restart gate too.
