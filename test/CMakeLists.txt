@@ -30,10 +30,12 @@ foreach(_c nominal irs mg1 mg2 mg3 mg_irs)
   fuss_add_test(ResidualConvergence_${_c} numerics-features/residual_convergence/${_c} 300 "smoke" --iters 300)
 endforeach()
 fuss_add_test(Chimera          numerics-features/chimera                300 "smoke" --iters 300)
+fuss_add_test(ChimeraMG        numerics-features/chimera_mg             300 "smoke" --iters 300)
 fuss_add_test(TimeConvergence  numerics-features/time_convergence/simdir 300 "smoke" --iters 100)
 
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)
   fuss_add_test(ChimeraMPI   numerics-features/chimera                      300 "needs-mpi" --iters 300 --mpi 2)
+  fuss_add_test(ChimeraMGMPI numerics-features/chimera_mg                   300 "needs-mpi" --iters 300 --mpi 2)
   fuss_add_test(MultigridMPI numerics-features/residual_convergence/mg_irs  300 "needs-mpi" --iters 300 --mpi 2)
 endif()

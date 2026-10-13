@@ -1,0 +1,56 @@
+ Volume division succesful
+  - Receiver ID           =            1          30           2           1
+  - Receiver total volume =   5.000000000000004E-006
+  - Receiver real volume  =   5.000000000000005E-006
+ Volume division succesful
+  - Receiver ID           =            1          29           1           1
+  - Receiver total volume =   5.000000000000004E-006
+  - Receiver real volume  =   5.000000000000005E-006
+ Volume division succesful
+  - Receiver ID           =            1          30           4           1
+  - Receiver total volume =   5.000000000000001E-006
+  - Receiver real volume  =   5.000000000000002E-006
+ Volume division succesful
+  - Receiver ID           =            1          30           3           1
+  - Receiver total volume =   5.000000000000006E-006
+  - Receiver real volume  =   5.000000000000006E-006
+ Volume division succesful
+  - Receiver ID           =            1          30           1           1
+  - Receiver total volume =   5.000000000000005E-006
+  - Receiver real volume  =   5.000000000000005E-006
+ Volume division succesful
+  - Receiver ID           =            1          29           4           1
+  - Receiver total volume =   5.000000000000001E-006
+  - Receiver real volume  =   5.000000000000002E-006
+ Volume division succesful
+  - Receiver ID           =            1          29           2           1
+  - Receiver total volume =   5.000000000000004E-006
+  - Receiver real volume  =   5.000000000000005E-006
+ Volume division succesful
+  - Receiver ID           =            1          29           3           1
+  - Receiver total volume =   5.000000000000006E-006
+  - Receiver real volume  =   5.000000000000006E-006
+ Volume division succesful
+  - Receiver ID           =            2           0           2           1
+  - Receiver total volume =   6.794871794871831E-006
+  - Receiver real volume  =   6.794871794871814E-006
+ Chimera volume division failed
+  - Receiver ID           =            2          -1           1           1
+  - Receiver total volume =   7.927350427350448E-006
+  - Receiver real volume  =   6.794871794871814E-006
+ Chimera volume division failed
+  - Receiver ID           =            2          -1           3           1
+  - Receiver total volume =   7.927350427350449E-006
+  - Receiver real volume  =   6.794871794871815E-006
+ Chimera volume division failed
+  - Receiver ID           =            2           0           3           1
+  - Receiver total volume =   7.927350427350461E-006
+  - Receiver real volume  =   6.794871794871815E-006
+ Volume division succesful
+  - Receiver ID           =            2          -1           2           1
+  - Receiver total volume =   6.794871794871814E-006
+  - Receiver real volume  =   6.794871794871814E-006
+ Chimera volume division failed
+  - Receiver ID           =            2           0           1           1
+  - Receiver total volume =   7.927350427350461E-006
+  - Receiver real volume  =   6.794871794871814E-006
