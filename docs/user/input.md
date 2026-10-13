@@ -92,7 +92,7 @@ Tecplot layout of the three tables: `TITLE = "FUSS pyrolysis table"`, `VARIABLES
 
 ### Output
 
-The solution file gains the columns `chi_1 … chi_nsub` (reaction advancements, read back on restart), `rho_s` and `mdot_pg` (gas mass flux through the cell's downstream face, kg m⁻² s⁻¹); `k`, `rho`, `cs` carry the blended solid conductivity, the total density and the blended specific heat, and `h` the stored energy `E` [J/m³]. `OUTPUT/<prefix>energy-budget.txt` records, at every solution write, `t E_tot M_s Q_out Q_gas_out M_gas_out Q_src` (the discrete energy and solid-mass balances close to round-off; `test/pyrolysis/energy_audit/verify.py` checks them).
+The solution file gains the columns `chi_1 … chi_nsub` (reaction advancements, read back on restart; `chi` when the material has one reaction), `rho_s` and `mdot_pg` (gas mass flux through the cell's downstream face, kg m⁻² s⁻¹); `k`, `rho`, `cs` carry the blended solid conductivity, the total density and the blended specific heat, and `h` the stored energy `E` [J/m³]. `OUTPUT/<prefix>energy-budget.txt` records, at every solution write, `t E_tot M_s Q_out Q_gas_out M_gas_out Q_src` (the discrete energy and solid-mass balances close to round-off; `test/pyrolysis/energy_audit/verify.py` checks them).
 
 ### Type-2 gas closure (Darcy)
 
