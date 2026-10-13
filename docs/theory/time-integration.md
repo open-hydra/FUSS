@@ -135,6 +135,15 @@ A restart (`newrun = false`) reads only the finest-level field and **redoes the 
 
 **Stability.** `w` converges with textbook, grid-independent rates on every verified case and is insensitive to `coarse-iter`. `v` *without IRS* is reliable up to 3 levels; on 4 or more it can lock into a bounded limit cycle (the residual oscillates at a large value and the log fills with `FAS: ... updates halved` reports) whatever `coarse-iter` and even from a converged FMG descent — the explicit pre/post smoothing is too weak for the accumulated coarse corrections. Use `w`, or enable IRS, which stabilises `v` at any depth.
 
+**Chimera.** Cycles work unrestricted across chimera (102) boundaries. The FAS transfers never
+read a receiver cell: restriction, forcing and correction sums cover interior cells only, the
+receivers are ghost cells refreshed by each level's own chimera fill (so the coarse donors come
+from the restricted donor field, which the forcing absorbs like any other coarse-operator
+inconsistency), and with IRS the residual ghost at a 102 face is zero-gradient, the same policy
+IRS applies to every non-connection ghost. Both `v` and `w` are verified on overlapping blocks
+([chimera numbers](../vv/fas-cycles.md#chimera-overset-blocks)): convergence to the `none` field,
+1-vs-2-rank bit-identity with donors crossing ranks on every level, no admissibility fallbacks.
+
 **Guards.** Setup aborts a cycle request with `levels = 1`, `time-accurate = true`, `integration-variables = prim` or `pre-iter + post-iter = 0`. At runtime (`ini-diter` re-reads) switching cycles on from `none` is ignored with a warning (the coarse-level arrays are allocated at setup only), and an edit that breaks the setup guards restores the setup values; `v` ↔ `w` and valid `pre/post/coarse-iter` edits take effect. Two admissibility guards protect the properties table and report at the `shell-diter` cadence: a prolongated correction that leaves the table is halved up to 10 times, else dropped (`FAS: n prolongated corrections halved or dropped`), and a coarse smoothing update pushed outside the table by the forcing is halved the same way instead of stopping the run (`FAS: n coarse smoothing updates halved`). Occasional reports during a transient are harmless; a steady stream of them means the cycle is not converging (see Stability above).
 
 Under cycles the root-level iteration counter advances by `pre-iter` + `post-iter` per solver step, and the `res-diter` / `shell-diter` / `sol-diter` conditions are only tested at the end of each cycle: an interval that is not a multiple of the per-cycle count is effectively stretched (up to that factor). With the defaults (`res-diter = shell-diter = 1`) the residual history and the shell get one entry per cycle, carrying the residual of the cycle's last fine iteration.

@@ -117,6 +117,7 @@ nav:
     - 2D Transient Multi-Material Plate: vv/2D-transient-multimat-plate.md
     - 2D Transient Variable-cp Plate: vv/2D-transient-variable-cp-plate.md
     - Residual Convergence Analysis: vv/residual-convergence.md
+    - Multigrid Cycles (FAS): vv/fas-cycles.md
     - Parallel Scaling: vv/parallel-scaling.md
 
   - Developer Guide:
