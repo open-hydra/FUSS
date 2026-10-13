@@ -24,6 +24,8 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BASE="$ROOT/test/moving-mesh/receding/N040"
 BASE_PYRO="$ROOT/test/pyrolysis/energy_audit"
+BASE_ABL="$ROOT/test/pyrolysis/ablation/demo_base"
+BASE_ABL_PYRO="$ROOT/test/pyrolysis/ablation/demo_base_pyro"
 WORK="${TMPDIR:-/tmp}/fuss-guard-demos.$$"
 
 while test $# -gt 0; do
@@ -40,7 +42,8 @@ pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "FUSS guard demonstrations"
-echo "  base case : test/moving-mesh/receding/N040 (mesh motion), test/pyrolysis/energy_audit (pyrolysis)"
+echo "  base case : test/moving-mesh/receding/N040 (mesh motion), test/pyrolysis/energy_audit (pyrolysis),"
+echo "              test/pyrolysis/ablation/demo_base{,_pyro} (the ablating wall 306)"
 echo "  work dir  : $WORK"
 echo
 
@@ -200,25 +203,29 @@ q = 0.0"
 #                                   replace its value line (`-` = no value line)
 #   DELKEY:<key>                    delete every `key = ...` line of input.ini
 #   PYROADD:<line>                  append a line to INPUT/pyrolysis.dat
+#   FILE:<path>:<text>              replace a file of the copy with <text> (plan 08: env rows, B' rows)
 # A bare key=value that is not already in the ini goes to [FUSS-Pyrolysis].
 # Guard 8 (MPI, `mpi_size_ > 1`) has no demo: it needs -m 2 (documented).
+# demo_on BASE NAME ... is the same on another base (the ablating-wall bases).
 # ---------------------------------------------------------------------------
-demo_pyro () {
-  local name=$1 expect_rc=$2 expect=$3; shift 3
+demo_pyro () { demo_on "$BASE_PYRO" "$@"; }
+demo_on () {
+  local base=$1 name=$2 expect_rc=$3 expect=$4; shift 4
   local d="$WORK/$name"
 
   rm -rf "$d"; mkdir -p "$d"
-  cp -r "$BASE_PYRO/INPUT" "$BASE_PYRO/MESH" "$BASE_PYRO/input.ini" "$BASE_PYRO/FUSS.sh" "$d/"
-  cp "$BASE_PYRO"/*.dat "$d/" 2>/dev/null || true
+  cp -r "$base/INPUT" "$base/MESH" "$base/input.ini" "$base/FUSS.sh" "$d/"
+  cp "$base"/*.dat "$d/" 2>/dev/null || true
   sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
   sed -i 's/^iter-threshold = .*/iter-threshold = 3/' "$d/input.ini"
 
-  local kv sec
+  local kv sec rest
   for kv in "$@"; do
     case "${kv%%:*}" in
       RAW)  printf '\n%s\n' "${kv#RAW:}" >> "$d/input.ini"; continue ;;
       RM)   rm -f "$d/${kv#RM:}"; continue ;;
+      FILE) rest=${kv#FILE:}; printf '%s\n' "${rest#*:}" > "$d/${rest%%:*}"; continue ;;
       DELKEY) sed -i "/^${kv#DELKEY:}[[:space:]]*=/d" "$d/input.ini"; continue ;;
       PYROADD) printf '%s\n' "${kv#PYROADD:}" >> "$d/INPUT/pyrolysis.dat"; continue ;;
       PYRO) python3 - "$d/INPUT/pyrolysis.dat" "${kv#PYRO:}" <<'PYEDIT'
@@ -239,7 +246,7 @@ face, typ, line2 = spec.split(":", 2)
 face, typ = int(face), int(typ)
 lines = open(p).read().split("\n")
 out, i = [], 0
-WITH_LINE2 = {101, 103, 301, 302, 303, 304, 305}
+WITH_LINE2 = {101, 103, 301, 302, 303, 304, 305, 306, 307}
 while i < len(lines):
     f = lines[i].split()
     if len(f) == 6 and all(t.lstrip("-").isdigit() for t in f):
@@ -311,7 +318,7 @@ demo_pyro pyro_chimera_104  1 "pyrolysis phase 2 is single-block: no 101/102/103
  1 1 1 1 1.0
  1 1 1 1 1.0"
 # the outflow face 2 (302 with a time file) becomes a 300 symmetry plane, no value line
-demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-305)"         "BCFACE:2:300:-"
+demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-306)"         "BCFACE:2:300:-"
 demo_pyro pyro_missing_virgin 1 "[ERROR] pyrolysis tables"                       "RM:INPUT/virgin.dat"
 # F[2][1] = 0.9 makes the phase's sum of F 1.15 > 1
 demo_pyro pyro_bad_F        1 "[ERROR] pyrolysis tables"                         "PYRO:F[2][1] 0.9"
@@ -371,6 +378,176 @@ demo_pyro darcy_bad_pw       1 "the fourth value of a 303 line (p_w) must be > 0
 # probe variables: p_pg exists only under type 2, and an unknown name is refused (it used to be ignored)
 demo_pyro probe_p_pg_type1   1 "probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2" "variables=T p_pg"
 demo_pyro probe_unknown_var  1 "unknown probe variable \"q\"" "variables=T q"
+
+# ---------------------------------------------------------------------------
+# Ablating-wall guards (plan 08 stage A: the bc.txt line, the env and B' tables, the setup rules, the restart
+# state, the solve), on test/pyrolysis/ablation/demo_base (kinematic 306, legacy material) and demo_base_pyro
+# (type 2, the toy B' table). abl_base_ok and abl_base_pyro_ok first prove that both bases run as committed, so
+# that every demo below stops for its own reason. The MPI refusal ("OpenMP-only until plan 11") needs -m 2 and
+# has no demo, as guard 8.
+# ---------------------------------------------------------------------------
+ABL_ENV_HDR="// t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge"
+demo_ok_on () {   # $1 = base, $2 = name: the base must run to completion (exit 0, no [ERROR])
+  local base=$1 name=$2 d="$WORK/$2"
+  rm -rf "$d"; mkdir -p "$d"
+  cp -r "$base/INPUT" "$base/MESH" "$base/input.ini" "$base/FUSS.sh" "$d/"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  mkdir -p "$d/OUTPUT" "$d/bin"
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  local rc=$?
+  if [ "$rc" -ne 0 ] || grep -q '\[ERROR\]' "$d/run.log"; then
+    bad "$name: the base itself does not run (exit $rc, see $d/run.log)"
+    return
+  fi
+  pass "$name -> exit 0, the base runs as committed"
+}
+demo_ok_on "$BASE_ABL"      abl_base_ok
+demo_ok_on "$BASE_ABL_PYRO" abl_base_pyro_ok
+
+# bc.txt line 2 of a 306 record
+demo_on "$BASE_ABL" abl_bad_line    1 "a 306 line is \"lambda  T_inf  <bprime-file>  <env-file>\"" "BCFACE:2:306:0.5, 300.0"
+demo_on "$BASE_ABL" abl_bad_lambda  1 "a 306 line needs lambda >= 0 and T_inf > 0" "BCFACE:2:306:-1.0, 300.0, none, env_demo.dat"
+demo_on "$BASE_ABL" abl_bad_tinf    1 "a 306 line needs lambda >= 0 and T_inf > 0" "BCFACE:2:306:0.0, 0.0, none, env_demo.dat"
+# the env table (time_table_t%load)
+demo_on "$BASE_ABL" abl_env_missing   1 "env table INPUT/env_demo.dat: cannot open" "RM:INPUT/env_demo.dat"
+demo_on "$BASE_ABL" abl_env_one_row   1 "env table INPUT/env_demo.dat: fewer than two rows" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0"
+demo_on "$BASE_ABL" abl_env_order     1 "t must increase strictly from row to row" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0"
+demo_on "$BASE_ABL" abl_env_short_row 1 "line 2: expected 8 numbers (t and 7 columns)" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0
+1.0 101325.0 0.0 0.0 0.0 0.0 10.0"
+demo_on "$BASE_ABL" abl_env_not_finite 1 "value is not finite" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 NaN 400.0
+1.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0"
+# the env rows (Check_Ablation), one demo per condition of the one rule
+for spec in "pw:0.0 0.0 0.0 0.0 0.0 0.0 10.0 400.0" "rhoe:0.0 101325.0 -1.0 0.0 0.0 0.0 10.0 400.0" \
+            "hconv:0.0 101325.0 0.0 0.0 0.0 0.0 -10.0 400.0" "chem_neg:0.0 101325.0 0.0 0.0 0.0 -0.5 10.0 400.0" \
+            "chem_gt1:0.0 101325.0 0.0 0.0 0.0 1.5 10.0 400.0" "tedge:0.0 101325.0 0.0 0.0 0.0 0.0 10.0 0.0"; do
+  demo_on "$BASE_ABL" "abl_env_row_${spec%%:*}" 1 "needs p_w > 0, rhoeUeCH0 >= 0, hconv >= 0, 0 <= chem <= 1 and T_edge > 0" \
+      "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+${spec#*:}
+1.0e6 101325.0 0.0 0.0 0.0 0.0 10.0 400.0"
+done
+demo_on "$BASE_ABL" abl_chem_without_pyro 1 "without [FUSS-Pyrolysis] (kinematic mode) has no pyrolysis gas and no B' table" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.1 1.0e6 0.0 1.0 0.0 300.0
+1.0e6 101325.0 0.1 1.0e6 0.0 1.0 0.0 300.0"
+# setup rules
+# multigrid needs an even cell count across, which the 1-D demo base lacks (Check_Multigrid would stop first): the
+# 40 x 4 receding base, its mesh motion removed and its face 1 (302) made a kinematic 306 face
+demo_on "$BASE" abl_multigrid   1 "the ablating wall (306) is not compatible with multigrid" \
+    "DELKEY:law" "DELKEY:vel" "DELKEY:gcl-tolerance" "BCFACE:1:306:0.0, 300.0, none, env_demo.dat" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0
+1.0e6 101325.0 0.0 0.0 0.0 0.0 10.0 400.0" \
+    "RAW:[FUSS-Multigrid]
+levels = 2
+level1-iter = 3
+level2-iter = 3"
+demo_on "$BASE_ABL" abl_306_translation 1 "the ablating wall (306) cannot ride a translation mesh" \
+    "RAW:[FUSS-MeshMotion]
+law = translation
+vel = 1.0e-5 0.0 0.0"
+# [FUSS-Ablation] registry rules
+demo_on "$BASE_ABL" abl_bad_seb_tol      1 "seb-tol must be > 0"      "SEC:FUSS-Ablation:seb-tol=0.0"
+demo_on "$BASE_ABL" abl_bad_seb_max_iter 1 "seb-max-iter must be > 0" "SEC:FUSS-Ablation:seb-max-iter=0"
+demo_on "$BASE_ABL" abl_bad_oor          1 "bprime-out-of-range must be one of" "SEC:FUSS-Ablation:bprime-out-of-range=maybe"
+# the type-1 line integral ends at the outflow face: a 306 face elsewhere is refused (energy_audit: outflow +i, face 2)
+demo_pyro abl_type1_not_outflow 1 "under gas-closure = type1 a 306 face must be the outflow face" \
+    "BCFACE:1:306:0.0, 300.0, none, env_demo.dat" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 0.0 0.0 0.0 0.0 10.0 400.0
+1.0e6 101325.0 0.0 0.0 0.0 0.0 10.0 400.0"
+# the B' table (FUSS_Lib_Bprime) on the pyrolysis base
+ABL_B_HDR="// kind: equilibrium
+// axes: p Bprime-g T"
+demo_on "$BASE_ABL_PYRO" abl_bprime_missing 1 "B' table INPUT/bprime_demo.dat: cannot open" "RM:INPUT/bprime_demo.dat"
+demo_on "$BASE_ABL_PYRO" abl_bprime_order   1 "p must decrease from block to block" \
+    "FILE:INPUT/bprime_demo.dat:$ABL_B_HDR
+50000.0 10.0 0.1 300.0 -700000.0
+50000.0 10.0 0.1 4000.0 3000000.0
+50000.0 0.001 0.1 300.0 -700000.0
+50000.0 0.001 0.1 4000.0 3000000.0
+200000.0 10.0 0.1 300.0 -700000.0
+200000.0 10.0 0.1 4000.0 3000000.0
+200000.0 0.001 0.1 300.0 -700000.0
+200000.0 0.001 0.1 4000.0 3000000.0"
+demo_on "$BASE_ABL_PYRO" abl_bprime_bg_order 1 "B'g must decrease from sub-block to sub-block" \
+    "FILE:INPUT/bprime_demo.dat:$ABL_B_HDR
+200000.0 0.001 0.1 300.0 -700000.0
+200000.0 0.001 0.1 4000.0 3000000.0
+200000.0 10.0 0.1 300.0 -700000.0
+200000.0 10.0 0.1 4000.0 3000000.0"
+demo_on "$BASE_ABL_PYRO" abl_bprime_T_order 1 "T must not decrease inside an increasing (p, B'g) sub-table" \
+    "FILE:INPUT/bprime_demo.dat:$ABL_B_HDR
+200000.0 10.0 0.1 300.0 -700000.0
+200000.0 10.0 0.1 4000.0 3000000.0
+200000.0 10.0 0.1 3000.0 2000000.0
+200000.0 0.001 0.1 300.0 -700000.0
+200000.0 0.001 0.1 4000.0 3000000.0"
+demo_on "$BASE_ABL_PYRO" abl_bprime_kind 1 "unknown kind \"magic\"" \
+    "FILE:INPUT/bprime_demo.dat:// kind: magic
+200000.0 10.0 0.1 300.0 -700000.0
+200000.0 10.0 0.1 4000.0 3000000.0"
+demo_on "$BASE_ABL_PYRO" abl_bprime_one_row 1 "fewer than two data rows" \
+    "FILE:INPUT/bprime_demo.dat:$ABL_B_HDR
+200000.0 10.0 0.1 300.0 -700000.0"
+demo_on "$BASE_ABL_PYRO" abl_bprime_none_chem 1 "has chem > 0 and the face has no B' table (none)" \
+    "BCFACE:2:306:0.5, 300.0, none, env_demo.dat"
+demo_on "$BASE_ABL_PYRO" abl_pw_outside_gas 1 "lies outside the gas table of the face's material" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 2.0e6 0.1 2.0e6 0.0 1.0 0.0 300.0
+1.0e6 2.0e6 0.1 2.0e6 0.0 1.0 0.0 300.0"
+# exit 3: the solve. A p_w inside the gas table but outside the B' table's p range clamps the lookup;
+# bprime-out-of-range = abort stops there. rhoeUeCH0 1e9 with two Newton iterations cannot converge.
+demo_on "$BASE_ABL_PYRO" abl_bprime_abort 3 "the B' table query left the table (bprime-out-of-range = abort)" \
+    "SEC:FUSS-Ablation:bprime-out-of-range=abort" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 3.0e5 0.1 2.0e6 0.0 1.0 0.0 300.0
+1.0e6 3.0e5 0.1 2.0e6 0.0 1.0 0.0 300.0"
+demo_on "$BASE_ABL_PYRO" seb_fail 3 "SEB did not converge" "SEC:FUSS-Ablation:seb-max-iter=2" \
+    "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
+0.0 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0
+1.0e6 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0"
+
+# the restart state (Setup_Ablation): a 5-step run of the kinematic base, OUTPUT/bc306-state.dat edited, newrun = false
+demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the state file (or RM)
+  local name=$1 expect=$2 edit=$3 d="$WORK/$1"
+  rm -rf "$d"; mkdir -p "$d"
+  cp -r "$BASE_ABL/INPUT" "$BASE_ABL/MESH" "$BASE_ABL/input.ini" "$BASE_ABL/FUSS.sh" "$d/"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  mkdir -p "$d/OUTPUT" "$d/bin"
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run1.log" 2>&1 || { bad "$name: the first leg failed (see $d/run1.log)"; return; }
+  if [ "$edit" = "RM" ]; then
+    rm -f "$d/OUTPUT/bc306-state.dat"
+  else
+    python3 -c "$edit" "$d/OUTPUT/bc306-state.dat" || { bad "$name: the state-file edit failed"; return; }
+  fi
+  sed -i 's/^newrun = .*/newrun = false/' "$d/input.ini"
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  local rc=$?
+  if ! grep -qF "$expect" "$d/run.log"; then
+    bad "$name: expected \"$expect\", not found in $d/run.log"; tail -4 "$d/run.log" | sed 's/^/          /'; return
+  fi
+  if [ "$rc" -ne 1 ]; then bad "$name: refused correctly but exited $rc, expected 1"; return; fi
+  pass "$name -> exit $rc, $(grep -m1 -F "$expect" "$d/run.log" | sed 's/^ *//')"
+}
+ABL_ROWS='import sys; p = sys.argv[1]; L = open(p).read().splitlines(); h = [l for l in L if l.startswith("#")]; r = [l for l in L if not l.startswith("#")]'
+demo_abl_restart abl_restart_no_state "OUTPUT/bc306-state.dat is missing" RM
+demo_abl_restart abl_restart_bad_row  "expected \"b i j k f s_total Tw_prev sdot beta Bpg_lag\"" \
+    "$ABL_ROWS; open(p, 'w').write('\n'.join(h + [r[0].split()[0] + ' x'] + r[1:]) + '\n')"
+demo_abl_restart abl_restart_foreign_row "no 306 face of bc.txt matches this row" \
+    "$ABL_ROWS; t = r[0].split(); t[1] = '7'; open(p, 'w').write('\n'.join(h + [' '.join(t)] + r[1:]) + '\n')"
+demo_abl_restart abl_restart_dup_row  "a second row for the same face" \
+    "$ABL_ROWS; open(p, 'w').write('\n'.join(h + r + r) + '\n')"
+demo_abl_restart abl_restart_no_row   "no row for the 306 face of bc.txt record" \
+    "$ABL_ROWS; open(p, 'w').write('\n'.join(h) + '\n')"
 
 echo
 if [ "$fail" -eq 0 ]; then

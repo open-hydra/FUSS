@@ -1,0 +1,81 @@
+{
+ "budget": {
+  "T": 2.8690706474760646,
+  "Tw": 3.3695745133679793,
+  "c02": 0.0002512950713664512,
+  "mdot_g": 0.002828239340869747,
+  "v98": 0.0020890746776325857
+ },
+ "measured": {
+  "T": {
+   "max": 0.8690706474760646,
+   "t": 60.6,
+   "where": "1 mm"
+  },
+  "Tw": {
+   "max": 1.3695745133679793,
+   "t": 60.5,
+   "where": ""
+  },
+  "c02": {
+   "max": 3.539071366451195e-06,
+   "t": 0.2,
+   "where": ""
+  },
+  "mdot_g": {
+   "max": 0.00022948934086974675,
+   "t": 0.2,
+   "where": ""
+  },
+  "v98": {
+   "max": 1.1474677632585494e-05,
+   "t": 0.5,
+   "where": ""
+  }
+ },
+ "note": "budget: T and Tw measured + 2 K, mdot_g and the fronts measured + 10 % of PATO's peak (plan 08 P-D4); the 1.5x target is recorded, not gated; oracle ref/ = PATO 3.1 ATC 2.x with movingMesh no, DIC preconditioners and maxDeltaT 0.0005 (ref/README.md), run 2026-10-13",
+ "pato_peaks": {
+  "c02": 0.00247756,
+  "mdot_g": 0.0259875,
+  "v98": 0.020776
+ },
+ "recorded": "2026-10-13",
+ "skipped_grid_times": [
+  60.0,
+  60.1
+ ],
+ "spread_pato_amaryllis": {
+  "T": {
+   "max": 25.347000000000037,
+   "t": 0.3,
+   "where": "1 mm"
+  },
+  "Tw": {
+   "max": 98.957,
+   "t": 0.1,
+   "where": ""
+  },
+  "c02": {
+   "max": 6.36985e-05,
+   "t": 0.2,
+   "where": ""
+  },
+  "mdot_g": {
+   "max": 0.0023429700000000015,
+   "t": 0.2,
+   "where": ""
+  },
+  "v98": {
+   "max": 0.00011300000000000199,
+   "t": 117.8,
+   "where": ""
+  }
+ },
+ "target_1p5x_met": {
+  "T": true,
+  "Tw": true,
+  "c02": true,
+  "mdot_g": true,
+  "v98": true
+ }
+}

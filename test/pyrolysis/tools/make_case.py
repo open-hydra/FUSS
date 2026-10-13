@@ -6,6 +6,7 @@ Implements plan 06 (phase 2, pyrolysis on a static mesh) section 4: the four cas
 gates 4.2 (isothermal kinetics), 4.3 (energy and mass audit), 4.4 (ATC1 against FIAT) and
 4.5 (ATC2-chemistryOff against a local PATO run), plus two verification kinds with exact
 oracles (conduction: the slab series; adiabatic0d: the zero-dimensional decomposition ODE),
+and plan 08's ablating-wall cases (BC 306: atc2x306, and atc2off --bc306-chemoff),
 in the standard test-case layout:
 
     <case>/FUSS.sh            copy of test/moving-mesh/freestream/FUSS.sh, MASTERDIR fixed for depth
@@ -25,9 +26,10 @@ Geometry common to every kind: one block, cells along i; j: 2 cells of 0.1 m; k:
 ic.tec / mesh.tec / bc.txt use the formats of test/moving-mesh/receding/generate.py.
 
 Usage:
-    make_case.py <case-dir> --kind {isothermal,energy_audit,atc1,atc2off,conduction,adiabatic0d}
+    make_case.py <case-dir> --kind {isothermal,energy_audit,atc1,atc2off,atc2x306,conduction,adiabatic0d}
                  --tables <dir> [--T0 K] [--vnn V] [--no-kinetics] [--ncells N] [--uniform]
-                 [--fuss-sh <path>] [--depth N]
+                 [--fuss-sh <path>] [--depth N] [--case 2.1] [--lambda L] [--bprime FILE]
+                 [--bc306-chemoff]
 
     isothermal    4 cells x 1 mm, both i-faces BC 302 at T0, T(0) = T0, 30 s, fields every 1 s
                   (--T0 one of 700 / 900 / 1200; tables: the --isothermal set)
@@ -37,6 +39,13 @@ Usage:
                   T(0) = 298 K, 60 s, bracketing probes at 1, 2, 4, 8, 16 mm plus the back face
     atc2off       as atc1 with T(0) = 300 K and face 2 = BC 303 `300.0, 0.0, 2800.0`,
                   bracketing probes at 1, 2, 4, 8, 12, 16, 24 mm plus the back face
+    atc2x306      plan 08 section 3.3: atc2off's mesh, tables and probes under the type-2 closure
+                  (always; PATO's model), face 2 = the ablating wall BC 306 with line 2
+                  `<lambda>, 300.0, bprime_tacot_earth.dat, env_atc2<x>.dat`: the B' table copied from
+                  --bprime, the env table = PATO's AblationTestCase_2.x BoundaryConditions completed with
+                  the Ta constants (qRad 0, hconv 0, Tedge 300), 120 s, a field file every 0.1 s (the
+                  fronts are measured from them); --case 2.1 = static mesh with no-char = true (PATO's
+                  movingMesh no). 2.2 and 2.3 need the receding mesh of plan 08 stage C.
     conduction    pure conduction on the pyrolysis path: mesh as atc1 (or N equal cells with
                   --uniform), the kinetics ALWAYS stripped from the copied pyrolysis.dat, face 2
                   stepped to 1644 K at t = 0 (BC 302 time file `0 1644` / `60 1644`), face 1
@@ -66,6 +75,20 @@ Usage:
                   other kinds, atc2off's 303 by default; probes record T and p_pg.
     --permeability K  isotropic K_v = K_c = K [m2] into the copied pyrolysis.dat (the 0-D type-2 gates use
                   1e-7 so that the fixed-p oracle applies: the pressure excursion is then < 1 Pa).
+    --case C      atc2x306 only: the Ablation Test Case variant (2.1; default 2.1).
+    --lambda L    atc2x306 only: the blowing-correction lambda of the 306 line (default 0.5; 0 = no
+                  blowing correction, plan 08 gate 3.1 (b)).
+    --bprime F    atc2x306 only: the B' table copied to INPUT/bprime_tacot_earth.dat (default
+                  test/pyrolysis/ablation/tables/bprime_tacot_earth.dat).
+    --heat-until T  atc2x306 only: the switch-off row of the env table at T instead of 60 s (the
+                  chemistry ramps off over T .. T + 0.1 s as PATO's does over 60 .. 60.1 s); the short
+                  closure cases use 1 s so that 2 s cover chemistry on, the ramp and chemistry off.
+    --sol-overwrite {true,false}  override the kind's sol-overwrite.
+    --bc306-chemoff  atc2off only (plan 08 gate 3.1 (a)): face 2 = BC 306 `0.5, 300.0, none, env_off.dat`
+                  with INPUT/env_off.dat = two chemistry-off rows carrying the 303 line (hconv 300,
+                  T_edge 2800, p_w 101325), and the emissivity and absorptivity columns of the copied
+                  virgin.dat and char.dat set to 0, so that the 306 routine hands the face to the BC 303
+                  kernel and every output but the wall file matches the unmodified case byte for byte.
 
 Python 3.6, no third-party modules.
 """
@@ -103,6 +126,8 @@ KINDS = {
              "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
     "atc2off": {"canonical": "test/pyrolysis/ATC2-chemistryOff", "T0": 300.0,
                 "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
+    "atc2x306": {"canonical": "test/pyrolysis/ablation/ATC21", "T0": 300.0,
+                 "t_end": 120.0, "sol_dtime": 0.1, "sol_overwrite": "false"},
     "conduction": {"canonical": "test/pyrolysis/conduction", "T0": 298.0,
                    "t_end": 60.0, "sol_dtime": 10.0, "sol_overwrite": "false"},
     "adiabatic0d": {"canonical": "test/pyrolysis/adiabatic0d/T%04d", "T0": None,
@@ -114,7 +139,7 @@ ATC_N = 100              # default --ncells
 ATC_RATIO = 0.1          # last/first cell, PATO blockMeshDict simpleGrading (1 0.1 1)
 ATC1_DEPTHS_MM = [1, 2, 4, 8, 16]
 ATC2_DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
-GRADED_KINDS = ("atc1", "atc2off", "conduction")     # L = ATC_L, --ncells, bracketing probes, probes.json
+GRADED_KINDS = ("atc1", "atc2off", "atc2x306", "conduction")     # L = ATC_L, --ncells, bracketing probes, probes.json
 
 TW_TIME = {
     "energy_audit": [(0.0, 300.0), (1.0, 1644.0), (60.0, 1644.0)],   # 1 s ramp: resolved by the coarsest run (dt ~ 0.17 s); a 0.1 s ramp aliased gate 4.3 (iv), measured 2026-10-07
@@ -123,6 +148,27 @@ TW_TIME = {
 }
 
 BC303_LINE = (300.0, 0.0, 2800.0)      # hconv, qrad, Tref
+
+# ---------------------------------------------------------------- plan 08: the ablating wall (BC 306)
+BPRIME_NAME = "bprime_tacot_earth.dat"
+DEFAULT_BPRIME = os.path.join(REPO, "test", "pyrolysis", "ablation", "tables", BPRIME_NAME)
+TINF = 300.0                           # T_inf of the 306 line: PATO's Tbackground
+# The env table of a 306 face, columns t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge: PATO's
+# tutorials/1D/AblationTestCase_2.x/constant/porousMat/BoundaryConditions (t p rhoUeCH h_r chemistryOn)
+# completed with the constants of its origin.0/porousMat/Ta (qRad 0, hconv 0, Tedge 300). 2.3 is 2.2
+# with h_r = 2.5e7 on the heating rows (ATC2 v2.8, no shipped PATO variant).
+def env_atc2x(case, t_off=60.0):
+    """t_off moves the switch-off (60 s in PATO) for the short closure cases; the rows keep PATO's shape."""
+    hr = 2.5e7 if case == "2.3" else 1.5e6
+    return [(0.0, 101325.0, 0.003, 0.0, 0.0, 1.0, 0.0, 300.0),
+            (0.1, 101325.0, 0.3, hr, 0.0, 1.0, 0.0, 300.0),
+            (t_off, 101325.0, 0.3, hr, 0.0, 1.0, 0.0, 300.0),
+            (round(t_off + 0.1, 12), 101325.0, 0.003, 0.0, 0.0, 0.0, 0.0, 300.0),
+            (max(120.0, 2.0 * t_off), 101325.0, 0.003, 0.0, 0.0, 0.0, 0.0, 300.0)]
+# gate 3.1 (a): the 303 line as two chemistry-off rows (hconv 300, T_edge 2800, p_w the type-2 p-wall)
+ENV_OFF = [(0.0, 101325.0, 0.0, 0.0, 0.0, 0.0, BC303_LINE[0], BC303_LINE[2]),
+           (60.0, 101325.0, 0.0, 0.0, 0.0, 0.0, BC303_LINE[0], BC303_LINE[2])]
+ENV_HEADER = "// t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge   (SI; plan 08 section 2.1, linear in t, clamped)"
 
 
 def die(msg):
@@ -135,12 +181,12 @@ def fmt(v):
 
 
 # ---------------------------------------------------------------- mesh / ic (generate.py formats)
-def write_ic(path, xs, zone_name, with_vars, T0, qvol=None):
+def write_ic(path, xs, zone_name, with_vars, T0, qvol=None, ny=NY):
     """ic.tec (with_vars: T and matID per cell), mesh.tec (nodes only) or, with qvol, the volumetric
     source file st.tec: the same nodal blocks and ZONE line with [4]=CELLCENTERED, one qvol per cell
     (Read_vtk_tec reads INPUT/st.tec beside ic.tec and takes its first cell-centred variable as qvol).
     Returns the number of lines written."""
-    ni, nj, nk = len(xs), NY + 1, NK + 1
+    ni, nj, nk = len(xs), ny + 1, NK + 1
     nx = ni - 1
     ys = [DY * j for j in range(nj)]
     zs = [DZ * k for k in range(nk)]
@@ -166,7 +212,7 @@ def write_ic(path, xs, zone_name, with_vars, T0, qvol=None):
                 for i in range(ni):
                     v = (xs[i], ys[j], zs[k])[axis]
                     lines.append(fmt(v))
-    ncell = NK * NY * nx
+    ncell = NK * ny * nx
     if qvol is not None:
         for _ in range(ncell):
             lines.append(fmt(qvol))
@@ -186,7 +232,7 @@ VAL3_FMT = "    %13.6E, %13.6E, %13.6E,"                 # BC 303: hconv, qrad, 
 TIMEFILE_LINE = " Tw_time.dat,"                          # BC 302/301 time file: the bare name
 
 
-def write_bc(path, nx, face1, face2):
+def write_bc(path, nx, face1, face2, ny=NY):
     """face1/face2: (type, value-line or None). Faces 3/4 = 300, 5/6 = 0 (no value line).
 
     Record count = 2 nj nk + 2 ni nk + 2 nj ni (Allocate_BC); face order 1..6 as generate.py.
@@ -198,10 +244,10 @@ def write_bc(path, nx, face1, face2):
         if line is not None:
             out.append(line)
 
-    for j in range(1, NY + 1):
+    for j in range(1, ny + 1):
         for k in range(1, NK + 1):
             rec(1, j, k, 1, face1[0], face1[1])
-    for j in range(1, NY + 1):
+    for j in range(1, ny + 1):
         for k in range(1, NK + 1):
             rec(nx, j, k, 2, face2[0], face2[1])
     for i in range(1, nx + 1):
@@ -209,16 +255,16 @@ def write_bc(path, nx, face1, face2):
             rec(i, 1, k, 3, 300)
     for i in range(1, nx + 1):
         for k in range(1, NK + 1):
-            rec(i, NY, k, 4, 300)
-    for j in range(1, NY + 1):
+            rec(i, ny, k, 4, 300)
+    for j in range(1, ny + 1):
         for i in range(1, nx + 1):
             rec(i, j, 1, 5, 0)
-    for j in range(1, NY + 1):
+    for j in range(1, ny + 1):
         for i in range(1, nx + 1):
             rec(i, j, 1, 6, 0)
     with open(path, "w") as fh:
         fh.write("\n".join(out) + "\n")
-    nrec = 2 * NY * NK + 2 * nx * NK + 2 * NY * nx
+    nrec = 2 * ny * NK + 2 * nx * NK + 2 * ny * nx
     return nrec
 
 
@@ -421,6 +467,23 @@ INI_HEAD = {
         "hconv 300 W/m2/K, qrad 0, Tref 2800 K from t equal 0 (PATO run with zero emissivity).",
         "Two probes bracket each PATO probe depth (see probes.json).",
     ],
+    "atc2off-306": [
+        "Ablation Test Case 2, chemistry off, face 2 as the ablating wall BC 306  (plan 08, gate 3.1 (a))",
+        "",
+        "The atc2off case with two edits: the emissivity and absorptivity columns (7 and 8) of",
+        "virgin.dat and char.dat set to 0, and face 2 a BC 306 face whose env table INPUT/env_off.dat",
+        "keeps the chemistry off with hconv 300 W/m2/K and T_edge 2800 K. The 306 routine then hands",
+        "the face to the BC 303 kernel: every output but the wall file matches the unmodified case.",
+    ],
+    "atc2x306": [
+        "Ablation Test Case %(atc_case)s, chemistry on  (plan 08 section 3.3; oracle a local PATO run)",
+        "",
+        "Mesh and tables as ATC2-chemistryOff; T(0) at 300 K; face 2 is the ablating wall BC 306, the",
+        "surface energy balance with the equilibrium B' table INPUT/bprime_tacot_earth.dat and PATO's",
+        "boundary conditions as the time table INPUT/%(env)s; lambda %(lam)s, T_inf 300 K.",
+        "%(mesh_note)s",
+        "Two probes bracket each PATO probe depth (see probes.json). %(io_note)s",
+    ],
     # No `=` inside a comment line (hydra INI rule: ATLAS's FiNeR reads such a line as an option).
     "conduction": [
         "Pure conduction on the pyrolysis path, constant properties, step-heated face 2 and insulated",
@@ -458,7 +521,7 @@ def fmt_time(v):
     return s if float(s) == v else repr(v)
 
 
-def write_ini(path, head_key, cfg, vnn, probes, subst, type2=False, open_codes=None):
+def write_ini(path, head_key, cfg, vnn, probes, subst, type2=False, open_codes=None, extra=None):
     head = ["; " + "=" * 77]
     for s in INI_HEAD[head_key]:
         if "%(" in s:
@@ -493,7 +556,7 @@ def write_ini(path, head_key, cfg, vnn, probes, subst, type2=False, open_codes=N
         "integration-variables = cons",
         "irs = false",
         "",
-    ] + pyro + [
+    ] + pyro + (extra or []) + [
         "",
         "[FUSS-IO]",
         "sol-dtime     = %s" % fmt_time(cfg["sol_dtime"]),
@@ -512,6 +575,43 @@ def write_ini(path, head_key, cfg, vnn, probes, subst, type2=False, open_codes=N
                      "dtime = 0.1"]
     with open(path, "w") as fh:
         fh.write("\n".join(body) + "\n")
+
+
+def write_env_file(path, rows):
+    """The env table of a 306 face (plan 08 section 2.1): one `//` header, then the rows (repr: exact)."""
+    with open(path, "w") as fh:
+        fh.write(ENV_HEADER + "\n")
+        for r in rows:
+            fh.write(" ".join(repr(float(v)) for v in r) + "\n")
+
+
+def zero_optics(path):
+    """Set the emissivity and absorptivity columns (the last two of 8) of a FUSS pyrolysis table to 0,
+    every other byte unchanged."""
+    out = []
+    n = 0
+    with open(path) as fh:
+        for line in fh:
+            toks = line.split()
+            try:
+                [float(t) for t in toks]
+                is_row = len(toks) == 8
+            except ValueError:
+                is_row = False
+            if is_row:
+                k = line.rstrip("\n")
+                parts = k.split(" ")
+                if len(parts) != 8:
+                    die("%s: a data row not separated by single blanks: %r" % (path, k))
+                parts[6] = parts[7] = "0.000000000E+00"
+                line = " ".join(parts) + "\n"
+                n += 1
+            out.append(line)
+    if n == 0:
+        die("%s: no 8-column rows" % path)
+    with open(path, "w") as fh:
+        fh.write("".join(out))
+    return n
 
 
 def write_time_file(path, pairs):
@@ -569,10 +669,39 @@ def main():
                          " default), probes record T and p_pg")
     ap.add_argument("--permeability", type=float, default=None,
                     help="isotropic K_v = K_c [m2] written into the copied pyrolysis.dat (replaces the tables' tensors)")
+    ap.add_argument("--case", dest="atc_case", default=None, choices=("2.1", "2.2", "2.3"),
+                    help="atc2x306 only: the Ablation Test Case variant (default 2.1)")
+    ap.add_argument("--lambda", dest="lam", type=float, default=None,
+                    help="atc2x306 only: blowing-correction lambda on the 306 line (default 0.5)")
+    ap.add_argument("--bprime", default=None, help="atc2x306 only: the B' table to copy (default %s)" % DEFAULT_BPRIME)
+    ap.add_argument("--heat-until", type=float, default=None, help="atc2x306 only: the switch-off time of the env table (default 60)")
+    ap.add_argument("--sol-overwrite", choices=("true", "false"), default=None, help="override the kind's sol-overwrite")
+    ap.add_argument("--bc306-chemoff", action="store_true",
+                    help="atc2off only: face 2 = BC 306 with a chemistry-off env table carrying the 303 line, optics zeroed")
     args = ap.parse_args()
 
     kind = args.kind
     cfg = dict(KINDS[kind])                    # the kind's defaults; --qvol / --tend / --sol-dtime adjust the copy
+    if kind != "atc2x306" and (args.atc_case or args.lam is not None or args.bprime or args.heat_until is not None):
+        die("--case, --lambda, --bprime and --heat-until apply to --kind atc2x306 only")
+    if args.sol_overwrite is not None:
+        cfg["sol_overwrite"] = args.sol_overwrite
+    t_off = 60.0 if args.heat_until is None else args.heat_until
+    if t_off <= 0.1:
+        die("--heat-until must be > 0.1 (the heating ramp ends at 0.1 s)")
+    if args.bc306_chemoff and kind != "atc2off":
+        die("--bc306-chemoff applies to --kind atc2off only")
+    atc_case = args.atc_case or "2.1"
+    lam = 0.5 if args.lam is None else args.lam
+    bprime = args.bprime or DEFAULT_BPRIME
+    if kind == "atc2x306":
+        if atc_case != "2.1":
+            die("--case %s needs the receding mesh (law nodeshift) of plan 08 stage C" % atc_case)
+        if lam < 0:
+            die("--lambda must be >= 0")
+        if not os.path.isfile(bprime):
+            die("B' table not found: %s" % bprime)
+        args.type2 = True                      # PATO's model: the gas pressure is solved
     T0 = args.T0 if args.T0 is not None else cfg["T0"]
     if T0 is None:
         die("--T0 is required for --kind %s%s" % (kind, " (700, 900 or 1200)" if kind == "isothermal" else ""))
@@ -667,6 +796,17 @@ def main():
         face1 = (301, VAL_FMT % 0.0)
         face2 = (302, TIMEFILE_LINE)
         write_time_file(os.path.join(case, "Tw_time.dat"), TW_TIME[kind])
+    elif kind == "atc2x306":
+        env_name = "env_atc%s.dat" % atc_case.replace(".", "")
+        face1 = (301, VAL_FMT % 0.0)
+        face2 = (306, "     %s, %s, %s, %s" % (repr(lam), repr(TINF), BPRIME_NAME, env_name))
+        write_env_file(os.path.join(case, "INPUT", env_name), env_atc2x(atc_case, t_off))
+        shutil.copy(bprime, os.path.join(case, "INPUT", BPRIME_NAME))
+    elif args.bc306_chemoff:                   # atc2off, gate 3.1 (a)
+        face1 = (301, VAL_FMT % 0.0)
+        face2 = (306, "     0.5, %s, none, env_off.dat" % repr(TINF))
+        write_env_file(os.path.join(case, "INPUT", "env_off.dat"), ENV_OFF)
+        nz = [zero_optics(os.path.join(case, "INPUT", f)) for f in ("virgin.dat", "char.dat")]
     else:                                      # atc2off
         face1 = (301, VAL_FMT % 0.0)
         face2 = (303, VAL3_FMT % BC303_LINE)
@@ -686,7 +826,7 @@ def main():
         for p in probes:
             p["x"] = 0.5 * (xs[p["i"] - 1] + xs[p["i"]])
     elif kind in GRADED_KINDS:
-        depths = ATC2_DEPTHS_MM if kind == "atc2off" else ATC1_DEPTHS_MM
+        depths = ATC2_DEPTHS_MM if kind in ("atc2off", "atc2x306") else ATC1_DEPTHS_MM
         probes, pairs, xc = bracketing_probes(xs, depths)
         with open(os.path.join(case, "probes.json"), "w") as fh:
             json.dump({"kind": kind, "L": ATC_L, "n_cells": nx, "ratio_last_first": 1.0 if args.uniform else ATC_RATIO,
@@ -703,11 +843,23 @@ def main():
     subst = {"ncells": nx, "T0": T0, "qvol": args.qvol, "tend": cfg["t_end"], "sol_dtime": cfg["sol_dtime"],
              "grading": "of equal size" if args.uniform else "graded 0.1 toward the heated face 2"}
     head_key = "adiabatic0d-qvol" if args.qvol is not None else kind
+    extra = None
+    if args.bc306_chemoff:
+        head_key = "atc2off-306"
+    if kind == "atc2x306":
+        subst.update({"atc_case": atc_case, "env": env_name, "lam": repr(lam),
+                      "mesh_note": "Static mesh, no-char true: the char is not consumed (PATO with movingMesh no)."
+                                   + ("" if t_off == 60.0 else " Heating until %g s." % t_off),
+                      "io_note": "A field file every %g s (the fronts)." % cfg["sol_dtime"] if cfg["sol_overwrite"] == "false"
+                                 else "seb.txt rows every %g s." % cfg["sol_dtime"]})
+        extra = ["", "[FUSS-Ablation]", "no-char = true"]
     open_codes = None
     if args.type2:
-        # the faces the gas leaves through (plan 07 section 3.4): atc2off's 303 is open by default
-        open_codes = {"adiabatic0d": "301", "atc2off": None}.get(kind, "302")
-    write_ini(os.path.join(case, "input.ini"), head_key, cfg, args.vnn, probes, subst, type2=args.type2, open_codes=open_codes)
+        # the faces the gas leaves through (plan 07 section 3.4): atc2off's 303 is open by default, a 306
+        # face always (plan 08 P-D6)
+        open_codes = {"adiabatic0d": "301", "atc2off": None, "atc2x306": None}.get(kind, "302")
+    write_ini(os.path.join(case, "input.ini"), head_key, cfg, args.vnn, probes, subst, type2=args.type2,
+              open_codes=open_codes, extra=extra)
 
     depth, how = case_depth(case, kind, T0, args.depth)
     masterdir = write_fuss_sh(os.path.join(case, "FUSS.sh"), args.fuss_sh, depth)
@@ -731,6 +883,10 @@ def main():
           % (T0, cfg["t_end"], args.vnn, ALPHA_V, dt, int(cfg["t_end"] / dt)))
     print("  faces: 1 = %d, 2 = %d, 3/4 = 300, 5/6 = 0%s" % (face1[0], face2[0],
           "; Tw_time.dat at the case root" if kind in TW_TIME else ""))
+    if face2[0] == 306:
+        print("  BC 306 line 2: %s" % face2[1].strip())
+    if args.bc306_chemoff:
+        print("  emissivity and absorptivity zeroed: %d rows of virgin.dat, %d of char.dat" % tuple(nz))
     if args.type2:
         print("  gas closure: type2 ([FUSS-Darcy], open-bc-types %s%s)" % (open_codes or "default 303 305 306",
               ", K = %g m2 isotropic" % args.permeability if args.permeability is not None else ""))

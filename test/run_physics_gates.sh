@@ -825,10 +825,83 @@ gate_bench_zhang2010 () {
 }
 
 # ---------------------------------------------------------------------------
+# ablation (plan 08, the ablating wall BC 306), cases under test/pyrolysis/ablation/
+# ---------------------------------------------------------------------------
+ABL="$ROOT/test/pyrolysis/ablation"
+
+# 3.3 Ablation Test Case 2.1: BC 306 on a static mesh against the bundled PATO run (movingMesh no)
+gate_ablation_atc21 () {
+  local dest="$WORK/ablation_atc21" rc
+  stage "$ABL/ATC21" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/ATC21/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|Tw|mdot_g|v98|c02) *\)' "$dest/verify.log" \
+             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* budget ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
+  return $rc
+}
+
+# 3.1 (a): a 306 face whose env keeps the chemistry off, on tables with zero emissivity and absorptivity, hands the
+# face to the BC 303 kernel: every output but the wall files is byte-identical to a run of the unmodified 303 case,
+# under both gas closures (type 2 also checks that bc%Tw_face and bc%pw reach the Darcy path)
+gate_ablation_306_static () {
+  local dest="$WORK/ablation_306_static" rc pair name rest src twin f n303 bad="" extra
+  rm -rf "$dest"; mkdir -p "$dest"
+  for pair in "type1:$ROOT/test/pyrolysis/ATC2-chemistryOff:$ABL/atc2off_306_static" \
+              "type2:$DARCY/ATC2-chemistryOff-type2:$ABL/atc2off_306_static_t2"; do
+    name=${pair%%:*}; rest=${pair#*:}; src=${rest%%:*}; twin=${rest#*:}
+    stage "$src" "$dest/$name-303"
+    solve "$dest/$name-303" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$name 303: solver exit $rc  (see $dest/$name-303/run.log)"; return 1; fi
+    stage "$twin" "$dest/$name-306"
+    # proven-red hook: an hconv one part in 1e9 off the 303 line must break the identity
+    [ "$SELFTEST" = "1" ] && sed -i 's/ 300\.0 2800\.0$/ 300.0000003 2800.0/' "$dest/$name-306/INPUT/env_off.dat"
+    solve "$dest/$name-306" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$name 306: solver exit $rc  (see $dest/$name-306/run.log)"; return 1; fi
+    n303=0
+    for f in $(cd "$dest/$name-303/OUTPUT" && ls); do
+      case $f in wall*) continue ;; esac
+      n303=$((n303 + 1))
+      cmp -s "$dest/$name-303/OUTPUT/$f" "$dest/$name-306/OUTPUT/$f" || bad="$bad $name:$f"
+    done
+    extra=$(cd "$dest/$name-306/OUTPUT" && ls | grep -v '^wall' | while read -r f; do [ -e "$dest/$name-303/OUTPUT/$f" ] || echo "$f"; done | paste -sd ' ' -)
+    [ "$extra" = "bc306-state.dat seb.txt" ] || bad="$bad $name:new-files=[$extra]"
+    eval "n_$name=$n303"
+  done
+  if [ -n "$bad" ]; then KEYNUM="differ:$bad"; return 1; fi
+  KEYNUM="identical: type1 $n_type1 files, type2 $n_type2 files (wall*.tec excluded; seb.txt, bc306-state.dat new)"
+  return 0
+}
+
+# 3.1 (b): lambda = 0 gives beta = 1 bitwise and the bare convective term rhoeUeCH0 (h_r - h_w)
+gate_ablation_zero_blowing () {
+  local dest="$WORK/ablation_zero_blowing" rc
+  stage "$ABL/zero_blowing" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/zero_blowing/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="beta != 1 in $(grep -F -m1 '(beta)' "$dest/verify.log" | sed -E 's/.*\(bitwise\): ([0-9]+ of [0-9]+).*/\1/') rows; conv rel $(grep -F -m1 '(conv)' "$dest/verify.log" | sed -E 's/.*\| = ([^ ]+).*/\1/'); |F|/max term $(grep -F -m1 '(seb-a)' "$dest/verify.log" | sed -E 's/.*max\|term\| +([^ ]+).*/\1/')"
+  return $rc
+}
+
+# 3.2: the surface energy balance closes on every row (chemistry on, the ramp, chemistry off) and beta sits at the
+# Picard's closed-form fixed point zeta/(e^zeta - 1)
+gate_ablation_seb_closure () {
+  local dest="$WORK/ablation_seb_closure" rc
+  stage "$ABL/seb_closure" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/seb_closure/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="|F|/max term $(grep -F -m1 '(seb-a)' "$dest/verify.log" | sed -E 's/.*max\|term\| +([^ ]+).*/\1/') (<= 1e-7); |beta - closed form| $(grep -F -m1 '(seb-b)' "$dest/verify.log" | sed -E 's/.*zeta-1\)\| +([^ ]+).*/\1/'); rows $(grep -F -m1 '(rows)' "$dest/verify.log" | sed -E 's/.*on ([0-9]+), ramp ([0-9]+), off ([0-9]+).*/on \1 ramp \2 off \3/')"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
-       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010)
+       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
+       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

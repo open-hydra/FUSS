@@ -60,6 +60,21 @@
 #                                    inversion stops at |f| <= 1e-13 |E|, and
 #                                    the restart's rounded guess can stop one
 #                                    Newton iterate apart.
+#                 pyrolysis/ablation/seb_closure  the ablating wall BC 306 (plan
+#                                    08): besides field.tec, each face's state
+#                                    in OUTPUT/bc306-state.dat -- the Newton
+#                                    start T_w, the Picard start beta, the
+#                                    lagged B'_pg, the recession and its rate --
+#                                    is compared column by column. The restart
+#                                    falls in the 1-1.1 s switch-off ramp, so
+#                                    beta and B'_pg stay frozen through the
+#                                    second leg and must come back bitwise; a
+#                                    build that skipped the read failed with
+#                                    rel 4.4e-2 (beta) and 1 (B'_pg) on
+#                                    2026-10-13, while T moved by 3e-13 only:
+#                                    on a static mesh the Newton and Picard
+#                                    starts change the converged wall by
+#                                    nothing the field shows.
 #
 #               WHY THE TOLERANCE IS NOT ZERO
 #               ----------------------------
@@ -235,6 +250,40 @@ PY
 )
   rc=$?
   printf '        %s\n' "$out"
+  # The ablating wall (BC 306, plan 08 section 2.3 R3): each face's recession, wall temperature (the Newton start),
+  # recession rate, blowing correction (the Picard start) and lagged B'_pg cross the restart in
+  # OUTPUT/bc306-state.dat (17 digits). Compared column by column with the same relative budget.
+  if [ $rc -eq 0 ] && [ -f "$cont/OUTPUT/bc306-state.dat" ]; then
+    out=$(python3 - "$cont/OUTPUT/bc306-state.dat" "$rst/OUTPUT/bc306-state.dat" <<'PY'
+import sys
+REL_TOL = 1.0e-11
+names = ["s_total", "Tw_prev", "sdot", "beta", "Bpg_lag"]
+def rd(path):
+    rows = {}
+    for line in open(path):
+        if line.startswith("#") or not line.strip():
+            continue
+        t = line.split()
+        rows[tuple(int(x) for x in t[:5])] = [float(x) for x in t[5:]]
+    return rows
+a, b = rd(sys.argv[1]), rd(sys.argv[2])
+if sorted(a) != sorted(b) or not a:
+    print("FACE-MISMATCH %s vs %s" % (sorted(a), sorted(b)))
+    sys.exit(2)
+ok, worst = True, []
+for c, n in enumerate(names):
+    d = max(abs(a[k][c] - b[k][c]) for k in a)
+    scale = max(abs(a[k][c]) for k in a)
+    rel = d / scale if scale > 0.0 else d
+    worst.append((n, rel))
+    ok &= rel <= REL_TOL
+print("bc306-state: " + "  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   (%d faces)" % len(a))
+sys.exit(0 if ok else 1)
+PY
+)
+    rc=$?
+    printf '        %s\n' "$out"
+  fi
   if [ $rc -eq 0 ]; then
     pass "$case_rel: restart reproduces the continuous run (within the ASCII floor)"
   else
@@ -260,6 +309,13 @@ run_case "test/pyrolysis/darcy/heated0d_type2"  200
 # released beyond the prediction waits in (eta_st - eta_prev) p_pg, all three
 # restart columns; 800 steps per half (~136 s each, inside the 300 s case) cross many cell fronts
 run_case "test/pyrolysis/lit/baum_atreya2007/qs_N100" 800
+# the ablating wall BC 306 on a static mesh (plan 08 stage A): the face state of bc306-state.dat (Newton and Picard
+# starts, the lagged B'_pg) crosses the restart beside the type-2 fields. 300 steps per half (~1.02 s each) put the
+# restart in the 1-1.1 s switch-off ramp, so the second leg never solves with the chemistry on: beta and B'_pg stay
+# frozen at the values the file carried and must come back bitwise (a build that skips the read: rel 4e-2 and 1).
+# A restart inside the heating would recompute both from the pressure field, whose round-trip floor under type 2
+# is ~1e-10 (the derived mdot_pg below), and heal a lost state to ~1e-12 -- measured 2026-10-13, see the header.
+run_case "test/pyrolysis/ablation/seb_closure" 300
 
 echo
 if [ "$fail" -eq 0 ]; then
