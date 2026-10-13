@@ -841,6 +841,21 @@ gate_ablation_atc21 () {
   return $rc
 }
 
+# plan 08 section 3.3, stage C: ATC 2.2 and 2.3 on the receding mesh (law nodeshift) against PATO at 0.5 ms; T at the
+# fixed depths, the fronts and the recession from the field files (X-D4), the budgets' swept-out columns, the SEB
+gate_ablation_atc2x_receding () {
+  local name=$1 dest="$WORK/ablation_$1" rc
+  stage "$ABL/$2" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/$2/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|Tw|mdot_g|mdot_c|s|v98|c02) *\)' "$dest/verify.log" \
+             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* budget ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
+  return $rc
+}
+gate_ablation_atc22 () { gate_ablation_atc2x_receding atc22 ATC22; }
+gate_ablation_atc23 () { gate_ablation_atc2x_receding atc23 ATC23; }
+
 # 3.1 (a): a 306 face whose env keeps the chemistry off, on tables with zero emissivity and absorptivity, hands the
 # face to the BC 303 kernel: every output but the wall files is byte-identical to a run of the unmodified 303 case,
 # under both gas closures (type 2 also checks that bc%Tw_face and bc%pw reach the Darcy path)
@@ -913,12 +928,64 @@ gate_conjugate_receding () {
   return $rc
 }
 
+# plan 08 section 2.9 V1: a 306 face that cannot recede (chemistry off) under law = nodeshift skips every cell of the
+# remap, so it must reproduce the static run byte for byte -- every field, probe, wall, seb and darcy file; the energy
+# budget's first 8 columns (nodeshift adds E_abl M_abl G_abl) and bc306-state.dat but its min-thickness line
+gate_ablation_nodeshift_inert () {
+  local dest="$WORK/ablation_nodeshift_inert" rc v f bad="" n=0
+  for v in static nodeshift; do
+    stage "$ABL/atc2off_306_static_t2" "$dest/$v"
+    sed -i -e 's/^iter-threshold = .*/iter-threshold = 200/' -e 's/^sol-dtime .*/sol-diter     = 50/' "$dest/$v/input.ini"
+  done
+  printf '\n[FUSS-MeshMotion]\nlaw = nodeshift\n' >> "$dest/nodeshift/input.ini"
+  # proven-red hook: a recession of 1e-9 m/s must break the identity
+  [ "$SELFTEST" = "1" ] && printf '\n[FUSS-Ablation]\nsdot-override = 1.0e-9\n' >> "$dest/nodeshift/input.ini"
+  for v in static nodeshift; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+  done
+  for f in $(cd "$dest/static/OUTPUT" && ls); do
+    n=$((n + 1))
+    case $f in
+      energy-budget.txt)
+        cmp -s <(awk '!/^#/ {print $1, $2, $3, $4, $5, $6, $7, $8}' "$dest/static/OUTPUT/$f") \
+               <(awk '!/^#/ {print $1, $2, $3, $4, $5, $6, $7, $8}' "$dest/nodeshift/OUTPUT/$f") || bad="$bad $f" ;;
+      bc306-state.dat)
+        cmp -s <(grep -v '^# min-thickness' "$dest/static/OUTPUT/$f") <(grep -v '^# min-thickness' "$dest/nodeshift/OUTPUT/$f") \
+          || bad="$bad $f" ;;
+      *) cmp -s "$dest/static/OUTPUT/$f" "$dest/nodeshift/OUTPUT/$f" || bad="$bad $f" ;;
+    esac
+  done
+  [ "$(cd "$dest/static/OUTPUT" && ls)" = "$(cd "$dest/nodeshift/OUTPUT" && ls)" ] || bad="$bad file-sets"
+  if [ -n "$bad" ]; then KEYNUM="differ:$bad"; return 1; fi
+  KEYNUM="identical: $n files of 200 steps (energy-budget: columns 1-8; bc306-state.dat: but min-thickness)"
+  return 0
+}
+
+# plan 08 section 2.9 V2: a uniform type-2 slab (TACOT, 300 K: no reaction runs, the reactive masses are carried)
+# receding at a forced rate stays uniform and loses exactly what the face sweeps out, stored gas and quasi-steady
+gate_ablation_remap_uniform () {
+  local dest="$WORK/ablation_remap_uniform" rc rq v
+  stage "$ABL/remap_uniform" "$dest/stored"
+  stage "$ABL/remap_uniform" "$dest/qs"
+  sed -i 's/^quasi-steady = false$/quasi-steady = true/' "$dest/qs/input.ini"
+  for v in stored qs; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+  done
+  python3 "$ABL/remap_uniform/verify.py" "$dest/stored" > "$dest/stored/verify.log" 2>&1; rc=$?
+  python3 "$ABL/remap_uniform/verify.py" "$dest/qs" --qs > "$dest/qs/verify.log" 2>&1; rq=$?
+  KEYNUM="E + E_abl $(grep -F -m1 'E   + E_abl' "$dest/stored/verify.log" | awk '{print $7}') / qs $(grep -F -m1 'E   + E_abl' "$dest/qs/verify.log" | awk '{print $7}') (<= 1e-12); M_s + M_abl $(grep -F -m1 'M_s + M_abl' "$dest/stored/verify.log" | awk '{print $7}'); p spread $(grep -F -m1 'p_pg' "$dest/stored/verify.log" | awk '{print $5}') (<= 1e-12)"
+  [ "$rc" -eq 0 ] && [ "$rq" -eq 0 ]
+}
+
 # ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad conjugate_two_layer conjugate_receding receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
-       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21)
+       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
+       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

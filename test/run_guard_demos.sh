@@ -335,7 +335,7 @@ level1-iter = 3
 level2-iter = 3"
 demo_pyro pyro_prim         1 "pyrolysis requires integration-variables = cons"  "integration-variables=prim"
 demo_pyro pyro_steady       1 "pyrolysis requires a time-accurate run"           "time-accurate=false"
-demo_pyro pyro_moving       1 "pyrolysis on a moving mesh is plan 08" \
+demo_pyro pyro_moving       1 "pyrolysis on a moving mesh needs law = nodeshift" \
     "RAW:[FUSS-MeshMotion]
 law = translation
 vel = 1.0e-4 0.0 0.0"
@@ -575,6 +575,13 @@ demo_on "$BASE_ABL" recession_too_fast 2 "the mesh moved too far in one time ste
 demo_on "$BASE_ABL" block_consumed     2 "ablating block consumed" "SEC:FUSS-Ablation:min-thickness=0.05"
 # R5 with the TEST ONLY perturbation of one shared node at step 2: the interface assertion stops it
 demo_on "$BASE_R5" abl_node_mismatch   2 "the mesh tore at a block interface" "SEC:FUSS-Ablation:perturb-interface-node=true"
+# Pyrolysis on the receding mesh (plan 08 stage C): the remap's fixed-size work vectors hold 64 sub-phases (reactions);
+# 65 are refused at the first remap (64 run: checked 2026-10-13). The conservation audit (error stop 2) cannot fire on a
+# correct remap; its demonstration is a scratch build (plan-bucket/records/2026-10-13-plan08-stageC/).
+REAC65="s = open('INPUT/pyrolysis.dat').read(); s = s.replace('nPyroReac[2] 0', 'nPyroReac[2] 65\\n' + ''.join('F[2][%d] 0.005\\nA[2][%d] 12000\\nE[2][%d] 71130.89\\nm[2][%d] 3\\nn[2][%d] 0\\nT[2][%d] 333.3\\nh[2][%d] -4e6\\n' % ((r,) * 7) for r in range(1, 66))); open('INPUT/pyrolysis.dat', 'w').write(s)"
+demo_on "$BASE_ABL_PYRO" abl_remap_subphases 1 "pyrolysis remap: more than 64 sub-phases" \
+    "RAW:[FUSS-MeshMotion]
+law = nodeshift" "PY:$REAC65"
 
 # the restart state (Setup_Ablation): a 5-step run of the kinematic base, OUTPUT/bc306-state.dat edited, newrun = false
 demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the state file (or RM)

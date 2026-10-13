@@ -45,7 +45,9 @@ Usage:
                   --bprime, the env table = PATO's AblationTestCase_2.x BoundaryConditions completed with
                   the Ta constants (qRad 0, hconv 0, Tedge 300), 120 s, a field file every 0.1 s (the
                   fronts are measured from them); --case 2.1 = static mesh with no-char = true (PATO's
-                  movingMesh no). 2.2 and 2.3 need the receding mesh of plan 08 stage C.
+                  movingMesh no); --case 2.2 and 2.3 = the receding mesh, law = nodeshift (PATO's
+                  movingMesh yes; 2.3 has h_r = 2.5e7 on the heating rows), and no index probes: a
+                  probe is a cell, and every cell moves, so verify.py samples the field files.
     conduction    pure conduction on the pyrolysis path: mesh as atc1 (or N equal cells with
                   --uniform), the kinetics ALWAYS stripped from the copied pyrolysis.dat, face 2
                   stepped to 1644 K at t = 0 (BC 302 time file `0 1644` / `60 1644`), face 1
@@ -75,7 +77,7 @@ Usage:
                   other kinds, atc2off's 303 by default; probes record T and p_pg.
     --permeability K  isotropic K_v = K_c = K [m2] into the copied pyrolysis.dat (the 0-D type-2 gates use
                   1e-7 so that the fixed-p oracle applies: the pressure excursion is then < 1 Pa).
-    --case C      atc2x306 only: the Ablation Test Case variant (2.1; default 2.1).
+    --case C      atc2x306 only: the Ablation Test Case variant (2.1, 2.2 or 2.3; default 2.1).
     --lambda L    atc2x306 only: the blowing-correction lambda of the 306 line (default 0.5; 0 = no
                   blowing correction, plan 08 gate 3.1 (b)).
     --bprime F    atc2x306 only: the B' table copied to INPUT/bprime_tacot_earth.dat (default
@@ -482,7 +484,7 @@ INI_HEAD = {
         "surface energy balance with the equilibrium B' table INPUT/bprime_tacot_earth.dat and PATO's",
         "boundary conditions as the time table INPUT/%(env)s; lambda %(lam)s, T_inf 300 K.",
         "%(mesh_note)s",
-        "Two probes bracket each PATO probe depth (see probes.json). %(io_note)s",
+        "%(probe_note)s %(io_note)s",
     ],
     # No `=` inside a comment line (hydra INI rule: ATLAS's FiNeR reads such a line as an option).
     "conduction": [
@@ -695,13 +697,14 @@ def main():
     lam = 0.5 if args.lam is None else args.lam
     bprime = args.bprime or DEFAULT_BPRIME
     if kind == "atc2x306":
-        if atc_case != "2.1":
-            die("--case %s needs the receding mesh (law nodeshift) of plan 08 stage C" % atc_case)
+        if atc_case not in ("2.1", "2.2", "2.3"):
+            die("--case must be 2.1, 2.2 or 2.3")
         if lam < 0:
             die("--lambda must be >= 0")
         if not os.path.isfile(bprime):
             die("B' table not found: %s" % bprime)
         args.type2 = True                      # PATO's model: the gas pressure is solved
+    receding = kind == "atc2x306" and atc_case != "2.1"      # plan 08 stage C: law nodeshift
     T0 = args.T0 if args.T0 is not None else cfg["T0"]
     if T0 is None:
         die("--T0 is required for --kind %s%s" % (kind, " (700, 900 or 1200)" if kind == "isothermal" else ""))
@@ -825,7 +828,7 @@ def main():
                   {"name": "p35mm", "i": 37}, {"name": "p75mm", "i": 33}]
         for p in probes:
             p["x"] = 0.5 * (xs[p["i"] - 1] + xs[p["i"]])
-    elif kind in GRADED_KINDS:
+    elif kind in GRADED_KINDS and not receding:
         depths = ATC2_DEPTHS_MM if kind in ("atc2off", "atc2x306") else ATC1_DEPTHS_MM
         probes, pairs, xc = bracketing_probes(xs, depths)
         with open(os.path.join(case, "probes.json"), "w") as fh:
@@ -847,12 +850,18 @@ def main():
     if args.bc306_chemoff:
         head_key = "atc2off-306"
     if kind == "atc2x306":
-        subst.update({"atc_case": atc_case, "env": env_name, "lam": repr(lam),
-                      "mesh_note": "Static mesh, no-char true: the char is not consumed (PATO with movingMesh no)."
-                                   + ("" if t_off == 60.0 else " Heating until %g s." % t_off),
+        if receding:
+            mesh_note = "Receding mesh, law nodeshift: the char is consumed at the rate of the B' table (PATO with movingMesh yes)."
+            probe_note = "No index probes (a probe is a cell and every cell moves): verify.py samples the field files."
+            extra = ["", "[FUSS-MeshMotion]", "law = nodeshift"]
+        else:
+            mesh_note = "Static mesh, no-char true: the char is not consumed (PATO with movingMesh no)."
+            probe_note = "Two probes bracket each PATO probe depth (see probes.json)."
+            extra = ["", "[FUSS-Ablation]", "no-char = true"]
+        subst.update({"atc_case": atc_case, "env": env_name, "lam": repr(lam), "probe_note": probe_note,
+                      "mesh_note": mesh_note + ("" if t_off == 60.0 else " Heating until %g s." % t_off),
                       "io_note": "A field file every %g s (the fronts)." % cfg["sol_dtime"] if cfg["sol_overwrite"] == "false"
                                  else "seb.txt rows every %g s." % cfg["sol_dtime"]})
-        extra = ["", "[FUSS-Ablation]", "no-char = true"]
     open_codes = None
     if args.type2:
         # the faces the gas leaves through (plan 07 section 3.4): atc2off's 303 is open by default, a 306

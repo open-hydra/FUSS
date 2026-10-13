@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""edit_pato_atc2x.py <copy-of-AblationTestCase_2.x> --case {2.1,2.2,2.3} [--max-dt DT] [--ta-tol TOL]
+"""edit_pato_atc2x.py <copy-of-AblationTestCase_2.x> --case {2.1,2.2,2.3} [--max-dt DT] [--ta-tol TOL] [--ncells N]
+                   [--end-time T]
 
 The PATO 3.1 oracle runs of plan 08 section 3.3, made from a COPY of $PATO_DIR/tutorials/1D/AblationTestCase_2.x
 (an in-place ./Allrun writes 0/, constant/porousMat/polyMesh and output/ into PATO's tree):
@@ -17,6 +18,9 @@ The PATO 3.1 oracle runs of plan 08 section 3.3, made from a COPY of $PATO_DIR/t
        maxDeltaT ~0.0005 the per-step change of T falls under 1e-06 in the slow interior and the solve does zero
        iterations, i.e. T is not advanced: the 0.00025 ATC 2.1 run drifted 38 K between 40 and 60 s (30035 such solves).
        The reference step study uses 1e-12 there; count `No Iterations 0` in the log of any refined run.
+  --ncells N  system/porousMat/blockMeshDict: N cells across the slab instead of 100, the grading (simpleGrading
+       1 0.1 1, last/first cell 0.1) unchanged -- make_case.py --ncells N builds FUSS's mesh with the same rule
+  --end-time T  system/controlDict endTime (120 s shipped): the mesh studies of the first seconds
 
 Idempotent: an edit already made is left alone. Python 3.6, standard library only. Then:
   set +u; source /opt/anaconda3/etc/profile.d/conda.sh && conda activate pato
@@ -45,10 +49,12 @@ def main():
     ap.add_argument("--case", required=True, choices=("2.1", "2.2", "2.3"))
     ap.add_argument("--max-dt", type=float, default=None)
     ap.add_argument("--ta-tol", type=float, default=None)
+    ap.add_argument("--ncells", type=int, default=None)
+    ap.add_argument("--end-time", type=float, default=None)
     a = ap.parse_args()
     c = a.copy
     for f in ("constant/porousMat/porousMatProperties", "system/porousMat/fvSolution",
-              "constant/porousMat/BoundaryConditions", "system/controlDict"):
+              "constant/porousMat/BoundaryConditions", "system/controlDict", "system/porousMat/blockMeshDict"):
         if not os.path.isfile(os.path.join(c, f)):
             sys.exit("not an AblationTestCase_2.x copy: %s missing" % f)
     done = []
@@ -84,6 +90,18 @@ def main():
             return s[:i] + blk + s[j:]
         if edit(os.path.join(c, "system/porousMat/fvSolution"), tatol):
             done.append("Ta tolerance %s" % repr(a.ta_tol))
+    if a.ncells is not None:
+        def cells(s):
+            t = re.sub(r"porousMat \(1 \d+ 1\) simpleGrading \(1 0\.1 1\)", "porousMat (1 %d 1) simpleGrading (1 0.1 1)" % a.ncells, s)
+            if "porousMat (1 %d 1) simpleGrading (1 0.1 1)" % a.ncells not in t:
+                sys.exit("blockMeshDict: the shipped hex line `porousMat (1 100 1) simpleGrading (1 0.1 1)` was not found")
+            return t
+        if edit(os.path.join(c, "system/porousMat/blockMeshDict"), cells):
+            done.append("%d cells" % a.ncells)
+    if a.end_time is not None:
+        if edit(os.path.join(c, "system/controlDict"),
+                lambda s: re.sub(r"^endTime(\s+)[^;]*;", lambda m: "endTime%s%s;" % (m.group(1), repr(a.end_time)), s, flags=re.M)):
+            done.append("endTime %s" % repr(a.end_time))
     print("edit_pato_atc2x.py %s: %s" % (a.case, ", ".join(done) if done else "nothing to change"))
 
 

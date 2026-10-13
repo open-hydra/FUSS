@@ -1,0 +1,11 @@
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/system/controlDict	2023-09-27 19:12:29.000000000 +0200
++++ system/controlDict	2026-10-13 19:27:13.877739052 +0200
+@@ -52,7 +52,7 @@
+ 
+ maxCo           10;
+ 
+-maxDeltaT   0.005; // reduce it if the surface temperature starts oscilliating
++maxDeltaT   0.0005; // reduce it if the surface temperature starts oscilliating
+ 
+ minDeltaT   1e-6;
+ 

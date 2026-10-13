@@ -75,6 +75,17 @@
 #                                    on a static mesh the Newton and Picard
 #                                    starts change the converged wall by
 #                                    nothing the field shows.
+#                 pyrolysis/ablation/ATC22  (plan 08 stage C, E-D10's
+#                                    atc22_restart) pyrolysis and the type-2
+#                                    gas on the RECEDING mesh with the SEB
+#                                    driving the recession: the receded mesh
+#                                    (field.tec), the reaction, gas and history
+#                                    fields and the face state (bc306-state.dat:
+#                                    s_total, the rate sdot of the last step,
+#                                    beta, B'_pg) cross the restart inside the
+#                                    heating. The *_abl columns of
+#                                    energy-budget.txt count from the start of
+#                                    each leg, like Q_*, and are not compared.
 #
 #               WHY THE TOLERANCE IS NOT ZERO
 #               ----------------------------
@@ -252,12 +263,17 @@ PY
   printf '        %s\n' "$out"
   # The ablating wall (BC 306, plan 08 section 2.3 R3): each face's recession, wall temperature (the Newton start),
   # recession rate, blowing correction (the Picard start) and lagged B'_pg cross the restart in
-  # OUTPUT/bc306-state.dat (17 digits). Compared column by column with the same relative budget.
+  # OUTPUT/bc306-state.dat (17 digits). Compared column by column with the same relative budget, but for B'_pg
+  # under type 2 while the chemistry is on: B'_pg = mdot_pg / (rhoeUeCH0 beta) is recomputed every step from the
+  # open-face Darcy flux, a difference of p, and so sits at the round-trip floor of the derived fields above (ATC22
+  # 1.9e-11 on 2026-10-13, heated0d_type2's mdot_pg 1.4e-10); 1e-9 there, still far below a lost read (4e-2 .. 1).
   if [ $rc -eq 0 ] && [ -f "$cont/OUTPUT/bc306-state.dat" ]; then
-    out=$(python3 - "$cont/OUTPUT/bc306-state.dat" "$rst/OUTPUT/bc306-state.dat" <<'PY'
+    out=$(python3 - "$cont/OUTPUT/bc306-state.dat" "$rst/OUTPUT/bc306-state.dat" "$cont/OUTPUT/field.tec" <<'PY'
 import sys
 REL_TOL = 1.0e-11
 names = ["s_total", "Tw_prev", "sdot", "beta", "Bpg_lag"]
+type2 = "p_pg" in open(sys.argv[3]).readline().split()
+tols = {"Bpg_lag": 1.0e-9} if type2 else {}
 def rd(path):
     rows = {}
     for line in open(path):
@@ -276,8 +292,9 @@ for c, n in enumerate(names):
     scale = max(abs(a[k][c]) for k in a)
     rel = d / scale if scale > 0.0 else d
     worst.append((n, rel))
-    ok &= rel <= REL_TOL
-print("bc306-state: " + "  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   (%d faces)" % len(a))
+    ok &= rel <= tols.get(n, REL_TOL)
+print("bc306-state: " + "  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   (%d faces%s)" % (len(a),
+      ", type 2: B'_pg to 1e-9" if type2 else ""))
 sys.exit(0 if ok else 1)
 PY
 )
@@ -319,6 +336,9 @@ run_case "test/pyrolysis/ablation/seb_closure" 300
 # law = nodeshift (plan 08 stage B): the receded mesh travels in field.tec, the recession so far (s_total) and the
 # resolved min-thickness in bc306-state.dat; 100 steps per half of the receding conjugate case
 run_case "test/moving-mesh/conjugate_receding" 100
+# pyrolysis on the receding mesh (plan 08 stage C): ATC 2.2's setup, 200 steps per half (~0.74 s each, inside the
+# heating, the SEB driving the recession); the case is .slow for the physics suite, not here
+run_case "test/pyrolysis/ablation/ATC22" 200
 
 echo
 if [ "$fail" -eq 0 ]; then
