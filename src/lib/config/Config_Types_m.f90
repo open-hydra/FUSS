@@ -191,6 +191,7 @@ module FUSS_Config_Types_m
     integer                               :: Tmin, Tmax   ! First and last temperature of the tables [K]
     character(len=clen), allocatable      :: name(:)
     real(R8), dimension(:,:), allocatable :: cp, rho, kappa, h
+    logical, dimension(:), allocatable    :: h_monotone   ! Energy column non-decreasing in T (co_T bisects it)
   end type table_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
