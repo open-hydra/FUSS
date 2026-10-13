@@ -64,3 +64,24 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
   `tensor_linear_2d` (5). `darcy/ATC2-chemistryOff-type2` carries `.slow`. Between the two snapshots only the type-2 field files
   moved (the restart column `T_prev` became `TO`, record `plan-bucket/records/2026-10-09-plan07/`); probes, budgets and
   `darcy.txt` were identical.
+- **2026-10-13, the benchmark fixes and gates: two type-2 cases moved at the 1e-10 level, six benchmark cases added. 1633 rows.**
+  - **How measured:** each step ran `run_regression.sh -B -k -o` on a scratch snapshot (fresh preset build). The record is
+    `plan-bucket/records/2026-10-13-benchmark-fixes/`.
+  - **`061160c`** (BC 305 keeps h_conv, the η* limiter, the deficit supply; binary `7c6aefba`): 914/914 identical. No suite
+    case uses BC 305, and neither the limiter nor the supply fires in any suite case.
+  - **`54acf19`** (open faces carry h_g at the wall temperature, the quasi-steady carry) changed 68 rows in two cases:
+    - `darcy/adiabatic0d_type2`, all 67 rows: T by at most 1.2e-10 relative, ṁ_pg and u_pg_1 by 1.2e-7 of their peak.
+    - `darcy/heated0d_type2`: `energy-budget.txt` only, one entry, 4.4e-16 relative.
+    - **Why they moved:** the open faces of both cases are adiabatic 301 faces, where T_w = T_cell, so the face enthalpy is
+      the same. What changed is the form of the flux: h_w·½(Γ_c + Γ_w)·∇p replaces ½(h_c Γ_c + h_w Γ_w)·∇p. The Newton
+      stop band of the temperature inversion carries last-bit changes in these cases to about 1e-10.
+    - The suite's quasi-steady cases (`darcy/sealed_profile/N*`, `darcy/tensor_linear_2d`) did not move. They freeze T
+      (solid cp 1e12), so η is constant and the carry is zero.
+  - **`a10a2a3`** (cases and gates, no Fortran change) reproduced those 914 rows and added 719, each case running under 8 s:
+    - `test/pyrolysis/exact/pressure_transient/N020` (53), `exact/sharp_front/N050` (113), `exact/transpiration/N020` (11);
+    - `lit/baum_atreya2007/full_N100` (68), `qs_N100` (68);
+    - `lit/zhang2010/N050` (406).
+  - **Cross-checks:** the determinism gate's pass A (the worktree build of `a10a2a3`, binary `ac89d28c`) gives the same 1633 rows. The
+    final source reproduces all 1633 (`1cc8fea` adds the restart reader, the later commits are test scripts).
+  - **Binaries:** the final source's scratch build is `5a32f9bb` and its worktree build is `456af9c5`. They differ because the
+    binary embeds its source paths, so an md5 identifies a build only within one tree.
