@@ -14,6 +14,7 @@ contains
     use FUSS_Mod_dt,         only: Set_Global_dt, Compute_dt
     use FUSS_Mod_Metrics,    only: Update_Mesh
     use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE
+    use FUSS_Mod_Recession,  only: Ablation_Update_Env
     use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell, Fill_Ghost_chi
     use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Stage, Pyrolysis_Residual, Pyrolysis_Budget_Rewind
     use FUSS_Mod_Darcy,      only: Solve_Pressure, Darcy_Residual, Darcy_First_Step_Pending, &
@@ -75,6 +76,10 @@ contains
     if ( advance_time ) then
       domain(level) % time = domain(level) % time + domain(level) % dtglobal
     endif
+
+    ! Ablating walls (plan 08): the env values at t^(n+1), before the type-2
+    ! pressure solve reads the faces' p_w. Serial, outside the parallel region.
+    call Ablation_Update_Env ( domain(level) )
 
     !$omp parallel
 

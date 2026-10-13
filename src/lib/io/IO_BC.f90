@@ -7,7 +7,7 @@ module FUSS_IO_BC
   public :: Print_BC_Summary
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
-  integer :: nconnect, nwall, nsym, nchimera, ncoupled
+  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating
   logical :: has_tdep_bc
 
 contains
@@ -104,7 +104,7 @@ contains
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
       select case(ti)
-      case(101,301,302,303,304,305,103)
+      case(101,301,302,303,304,305,306,103)
         read( unitfile,*,iostat=ios )
       case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
@@ -130,8 +130,9 @@ contains
 
   subroutine Read_BCfile ( bc, n_bf, level )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_darcy
+    use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_darcy, obj_ablation, obj_multigrid
     use FUSS_Global_m
+    use FUSS_Lib_Bprime, only: Load_Bprime_Table
     use IR_Precision
     implicit none
     type(FUSS_bc_type), dimension(:), intent(inout) :: bc
@@ -141,7 +142,8 @@ contains
     integer :: cc, i, s, nzero_chim
     integer :: unitfile, ios, cios
     character(len=32) :: BCfile
-    character(len=256) :: rec
+    character(len=256) :: rec, bfile, efile
+    character(len=1024) :: line306
 
     cios = 0
 
@@ -163,6 +165,7 @@ contains
       nsym = 0
       nchimera = 0
       ncoupled = 0
+      nablating = 0
       has_tdep_bc = .false.
     endif
 
@@ -255,6 +258,43 @@ contains
             error stop 1
           endif
 
+        case(306)
+          ! Ablating wall (plan 08 section 2.1): `lambda  T_inf  <bprime-file>
+          ! <env-file>`, the files bare names under INPUT/, read through a
+          ! buffer of its own (two 255-character names do not fit the shared
+          ! rec buffer); `none` = no B' table, legal only when every env row
+          ! has chem = 0 (checked at setup, Check_Ablation).
+          if (level == 1) nwall = nwall + 1
+          if (level == 1) nablating = nablating + 1
+          obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
+          ! refused here, at the first 306 record of the fine grid: a coarse
+          ! grid would need its own bc file before any setup check could run
+          if ( obj_multigrid%MGL > 1 ) then
+            write(*,'(A)') ' [ERROR] the ablating wall (306) is not compatible with multigrid.'
+            error stop 1
+          endif
+          ! One record, then an internal read: a list-directed read from the
+          ! unit would run on into the next record when the line is short.
+          bfile = '' ; efile = ''
+          read(unitfile,'(A)',iostat=ios) line306
+          if ( ios == 0 ) read(line306,*,iostat=ios) bc(i)%lambda, bc(i)%Tinf, bfile, efile
+          if ( ios /= 0 .or. len_trim(efile) == 0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, &
+              ': a 306 line is "lambda  T_inf  <bprime-file>  <env-file>" (bare names under INPUT/, or none for the table)'
+            error stop 1
+          endif
+          if ( bc(i)%lambda < 0.0d0 .or. bc(i)%Tinf <= 0.0d0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 306 line needs lambda >= 0 and T_inf > 0'
+            error stop 1
+          endif
+          call bc(i)%env%load( 'INPUT/'//trim(efile), 7 )
+          bc(i)%ibprime = 0
+          if ( trim(bfile) /= 'none' ) bc(i)%ibprime = Load_Bprime_Table( 'INPUT/'//trim(bfile) )
+          if ( level == 1 ) then
+            obj_ablation%enabled = .true.
+            obj_ablation%n_faces = obj_ablation%n_faces + 1
+          endif
+
         case(102,104)
           if (level == 1) nchimera = nchimera + 1
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
@@ -308,7 +348,10 @@ contains
 
 
   subroutine Print_BC_Summary ()
+    use FUSS_Config_Types_m, only: obj_ablation
+    use FUSS_Lib_Bprime,     only: Bprime_Count, Bprime_Describe
     implicit none
+    integer :: it
 
     write(*,*)
     write(*,'(A)') ' Boundary conditions'
@@ -317,6 +360,12 @@ contains
     if (nsym > 0)     write(*,'(A,T35,I0)') '   Symmetry', nsym
     if (nchimera > 0) write(*,'(A,T35,I0)') '   Chimera', nchimera
     if (ncoupled > 0) write(*,'(A,T35,I0)') '   Coupled wall', ncoupled
+    if (nablating > 0) then
+      write(*,'(A,T35,I0)') '   Ablating wall (306)', nablating
+      do it = 1, Bprime_Count()
+        write(*,'(A)') '     B'' table '//trim(Bprime_Describe(it))
+      enddo
+    endif
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
 
   end subroutine Print_BC_Summary

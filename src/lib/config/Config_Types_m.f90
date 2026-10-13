@@ -307,6 +307,24 @@ module FUSS_Config_Types_m
   end type darcy_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
+  !> [FUSS-Ablation]: the ablating wall BC 306 (plan 08 sections 2.1, 2.10).
+  !> Every key is immutable mid-run. The per-face parameters (lambda, T_inf,
+  !> the B' table and the env table) come from bc.txt, not from here.
+  type, public :: ablation_t
+    character(len=llen) :: warning_message = 'none'
+    character(len=llen) :: error_message = 'none'
+    character(len=llen) :: description = 'none'
+    ! USER-DEFINED INPUTS
+    real(R8) :: seb_tol = 1.0d-8                     ! surface-balance Newton/Picard stop test
+    integer  :: seb_max_iter = 50                    ! iteration cap -> error stop 3
+    logical  :: no_char = .false.                    ! TEST ONLY: B'_ch = mdot_ch = 0
+    character(len=llen) :: bprime_out_of_range = 'clamp'   ! clamp | abort
+    ! Useful variables
+    logical  :: enabled = .false.                    ! at least one 306 face (Read_BCfile)
+    integer  :: n_faces = 0                          ! number of 306 faces of the finest grid
+  end type ablation_t
+  !! ------------------------------------------------------
+  !! ------------------------------------------------------
 
 
   !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -325,6 +343,7 @@ module FUSS_Config_Types_m
   type(table_t), public                 :: obj_table
   type(pyrolysis_t), public             :: obj_pyrolysis
   type(darcy_t), public                 :: obj_darcy
+  type(ablation_t), public              :: obj_ablation
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 

@@ -369,7 +369,7 @@ contains
 
   subroutine Write_vtk_tec ( domain, IOfield, file )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion, obj_pyrolysis, obj_darcy
+    use FUSS_Config_Types_m, only: obj_io, obj_mesh_motion, obj_pyrolysis, obj_darcy, obj_ablation
     use FUSS_Global_m
     use FUSS_Parameters_m
     use IR_Precision
@@ -380,6 +380,7 @@ contains
     use FUSS_Lib_Pyrolysis,  only: Solid_State, Gas_State, Energy_Of, Energy_Of2
     use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
     use FUSS_Mod_Pyrolysis,  only: Write_Energy_Budget
+    use FUSS_Mod_Recession,  only: Write_Ablation_Outputs
     use FUSS_Mod_MPI, only: mpi_is_root
     use FUSS_Mod_GhostExchange, only: gather_T_to_root, gather_qvol_to_root, gather_matID_to_root, mpi_io_barrier
     implicit none
@@ -527,6 +528,8 @@ contains
 
       ! Energy budget line at every solution write (plan 06 section 3.6)
       if ( obj_pyrolysis%enabled ) call Write_Energy_Budget( domain )
+      ! Ablating walls (plan 08 sections 2.3 R3, 3.2): seb.txt and the restart state
+      if ( obj_ablation%enabled ) call Write_Ablation_Outputs( domain )
     end if
 
     ! Synchronize all ranks after I/O

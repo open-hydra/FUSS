@@ -4,6 +4,7 @@ program FUSS_docgen
     use FUSS_Read_Numerics,  only: Register_Numerics
     use FUSS_Read_Pyrolysis, only: Register_Pyrolysis
     use FUSS_Register_Darcy, only: Register_Darcy
+    use FUSS_Register_Ablation, only: Register_Ablation
     use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini
     use FUSS_Input_Registry
     implicit none
@@ -15,6 +16,7 @@ program FUSS_docgen
     call Register_Numerics(2)
     call Register_Pyrolysis()
     call Register_Darcy()
+    call Register_Ablation()
 
     call reg%generate_markdown('docs/user/registry.md')
 

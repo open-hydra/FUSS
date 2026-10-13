@@ -96,6 +96,23 @@ module FUSS_Advanced_Types_m
     ! used there).
     real(R8) :: Tw_face = -1d0
     type(time_series_type) :: BCtime
+    ! Ablating wall 306 (plan 08 section 2.1). Line 2 of bc.txt: lambda, T_inf
+    ! and the two INPUT/ files (the B' table, registry index ibprime, 0 for
+    ! none; the env table). The current env values are set once per step by
+    ! Ablation_Update_Env (the env p_w goes into pw above); then the state of
+    ! the last converged surface energy balance: T_w (also in Tw_face, which
+    ! the type-2 open-face gas enthalpy reads), the conduction flux, the
+    ! recession rate, the char mass flux, B' = B'_pg + B'_ch, the recession,
+    ! the blowing correction beta (the Picard start of the next solve) and the
+    ! B'_pg of the last chem = 1 solve (the fractional-chem rule); seb(1:8) =
+    ! conduction, convection, pyrolysis-gas advection, char advection,
+    ! alpha q_rad, eps sigma T_inf^4, -eps sigma T_w^4, residual F (seb.txt).
+    real(R8) :: lambda = 0d0, Tinf = 0d0, rhoeUeCH0 = 0d0, hr = 0d0, qrad_env = 0d0, hconv_env = 0d0, &
+                Tedge = 0d0, chem = 0d0
+    real(R8) :: Tw_prev = 0d0, qw_last = 0d0, sdot = 0d0, mdot_ch = 0d0, Bprime = 0d0, s_total = 0d0
+    real(R8) :: seb(8) = 0d0, beta = 1d0, hw = 0d0, Bpg = 0d0, Bch = 0d0, Bpg_lag = 0d0
+    integer  :: seb_iter = 0, ibprime = 0, nclamp(4) = 0
+    type(time_table_t) :: env
   end type FUSS_bc_type
   !! ------------------------------------------------------
   !! ------------------------------------------------------

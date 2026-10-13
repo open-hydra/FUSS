@@ -1,6 +1,6 @@
 module FUSS_IO_Wall
   use iso_fortran_env, only: I4 => int32, R8 => real64
-  use FUSS_Config_Types_m, only: obj_io, obj_io_bc
+  use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_ablation
   use FUSS_Global_m
   use FUSS_Parameters_m
   use Lib_ORION_data
@@ -19,8 +19,16 @@ contains
     integer :: b, f, bb, i, j, k
 
     IOwall%tec%extension = extension
-    obj_io%Onwall = 2
-    obj_io%Owallnames = '"Tw" "qw"'
+    ! Two columns, unless the run has an ablating wall (306, plan 08 section
+    ! 2.4): then seven, the extra five from the face's stored balance. A run
+    ! without one keeps its wall.tec byte for byte.
+    if ( obj_ablation%enabled ) then
+      obj_io%Onwall = 7
+      obj_io%Owallnames = '"Tw" "qw" "sdot" "mdot_pg" "mdot_ch" "Bprime" "recession"'
+    else
+      obj_io%Onwall = 2
+      obj_io%Owallnames = '"Tw" "qw"'
+    endif
 
     allocate(IOwall%block(1:count(obj_io_bc%viscous_flag)))
 
@@ -141,8 +149,9 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     real(R8), dimension(2) :: Ovar
+    real(R8), dimension(7) :: Ow
     integer :: f, lower, upper, i, b, bb, Bm, Im, Jm, Km, Fm, Is, Js, Ks
-    integer :: n_wall_total, wall_i
+    integer :: n_wall_total, wall_i, nv
     real(R8), allocatable :: wall_buf(:)
 
     ! Count total BC cells across all viscous faces
@@ -153,7 +162,8 @@ contains
       end do
     end do
 
-    allocate(wall_buf(2 * n_wall_total))
+    nv = obj_io%Onwall
+    allocate(wall_buf(nv * n_wall_total))
     wall_buf = 0d0
 
     ! Each rank computes Ovar only for its local blocks
@@ -197,7 +207,14 @@ contains
                                                  domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
 
           end select
-          wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
+          Ow = 0d0
+          Ow(1:2) = Ovar
+          ! 306: the stored state of the last converged balance -- re-running
+          ! the routine here would repeat the Newton solve and move its state
+          if ( domain % bc(i) % type == 306 ) &
+            Ow = [ domain%bc(i)%Tw_prev, domain%bc(i)%qw_last, domain%bc(i)%sdot, domain%bc(i)%mdot_pg, &
+                   domain%bc(i)%mdot_ch, domain%bc(i)%Bprime, domain%bc(i)%s_total ]
+          wall_buf(nv*(wall_i-1)+1 : nv*wall_i) = Ow(1:nv)
         enddo
 
       enddo ! face
@@ -205,7 +222,7 @@ contains
 
     ! Reduce wall_buf to root. Each cell is owned by exactly one rank, so SUM gives
     ! correct values.
-    call mpi_reduce_sum_r8_array(wall_buf, 2*n_wall_total)
+    call mpi_reduce_sum_r8_array(wall_buf, nv*n_wall_total)
 
     ! Root fills IOwall from the gathered buffer
     if (mpi_is_root) then
@@ -219,15 +236,14 @@ contains
 
           do i = lower, upper
             wall_i = wall_i + 1
-            Ovar = wall_buf(2*(wall_i-1)+1 : 2*wall_i)
+            Ow(1:nv) = wall_buf(nv*(wall_i-1)+1 : nv*wall_i)
 
             select case(f)
               case(1,2); Is = 1               ; Js = domain%bc(i)%j ; Ks = domain%bc(i)%k
               case(3,4); Is = domain%bc(i)% i ; Js = 1              ; Ks = domain%bc(i)%k
               case(5,6); Is = domain%bc(i)% i ; Js = domain%bc(i)%j ; Ks = 1
             end select
-            IOwall%block(bb)%vars(1, Is, Js, Ks) = Ovar(1)
-            IOwall%block(bb)%vars(2, Is, Js, Ks) = Ovar(2)
+            IOwall%block(bb)%vars(1:nv, Is, Js, Ks) = Ow(1:nv)
           enddo
 
         enddo ! face

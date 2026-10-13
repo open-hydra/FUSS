@@ -29,6 +29,7 @@ contains
                                          Darcy_Is_Open
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
+    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
@@ -86,6 +87,10 @@ contains
     call Setup_BC ( simulation%domain )
     if (mpi_is_root) call Check_BC ()
     if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_BC_Topology ( simulation%domain(1) )
+    ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so
+    ! they are checked apart; then a restart reads the faces' state back.
+    if (mpi_is_root .and. obj_ablation%enabled) call Check_Ablation ( simulation%domain(1) )
+    call Setup_Ablation ( simulation%domain(1), obj_sim_param%newrun )
     
     ! MPI: partition blocks and build ghost cell communication schedule
     do m = 1, obj_multigrid%MGL
@@ -168,6 +173,9 @@ contains
           obj_sim_param%iter_from_call = 0
         enddo
         call Fill_Ghost_Cell ( simulation%domain(1) )
+        ! Ablating walls (plan 08): the env values at the start time, so the
+        ! first step and a restart see the table's p_w
+        call Ablation_Update_Env ( simulation%domain(1) )
         ! Gas-pressure ghosts and the t = 0 cell velocity (plan 07): serial
         ! here, inside the parallel region of every later step.
         if (obj_darcy%enabled) then
@@ -586,8 +594,8 @@ contains
       if ( fo > 0 ) then
         do i = 1, domain%nbound
           if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
-          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 305 ) then
-            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-305).'
+          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 306 ) then
+            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-306).'
             write(*,'(A,I0,A,I0,A)') '         Face ', fo, ' of block 1 carries type ', domain%bc(i)%type, &
               ': a symmetry plane or a null face cannot pass the pyrolysis gas.'
             bad = .true.
@@ -599,6 +607,94 @@ contains
       if ( bad ) error stop 1
 
     end subroutine Check_Pyrolysis_BC_Topology
+
+
+    !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,
+    !> 2.10), with or without pyrolysis (root, after Check_BC).
+    subroutine Check_Ablation ( domain )
+      use FUSS_Mod_MPI, only: mpi_size_
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical :: bad
+      integer :: i, r, m, fo
+      real(R8) :: v(8)
+
+      bad = .false.
+      if ( mpi_size_ > 1 ) then
+        write(*,'(A)') ' [ERROR] the ablating wall (306) is OpenMP-only until plan 11.'
+        bad = .true.
+      endif
+      ! multigrid: refused where the first 306 record is read (Read_BCfile)
+      if ( obj_mesh_motion%enabled ) then
+        select case ( trim(obj_mesh_motion%law) )
+          case ( 'translation', 'prescribed' )
+            write(*,'(A)') ' [ERROR] the ablating wall (306) cannot ride a '//trim(obj_mesh_motion%law)// &
+              ' mesh: its recession moves the mesh (law = nodeshift, plan 08), or nothing does (law = static).'
+            bad = .true.
+        end select
+      endif
+
+      fo = 0
+      if ( obj_pyrolysis%enabled .and. .not. obj_darcy%enabled ) then
+        select case ( trim(obj_pyrolysis%outflow_direction) )
+          case ('+i') ; fo = 2
+          case ('-i') ; fo = 1
+          case ('+j') ; fo = 4
+          case ('-j') ; fo = 3
+          case ('+k') ; fo = 6
+          case ('-k') ; fo = 5
+        end select
+      endif
+
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type /= 306 ) cycle
+        associate ( bc => domain%bc(i) )
+          ! the type-1 line integral carries the gas to the outflow face only
+          if ( fo > 0 .and. ( bc%b /= 1 .or. bc%f /= fo ) ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': under gas-closure = type1 a 306 face must be the '// &
+              'outflow face (outflow-direction): the gas it blows is the line integral that ends there.'
+            bad = .true.
+          endif
+          m = 0
+          if ( obj_pyrolysis%enabled ) m = nint( domain%blk(bc%b)%matID(bc%i,bc%j,bc%k) )
+          do r = 1, bc%env%nrow
+            v(1) = bc%env%time(r)
+            v(2:8) = bc%env%var(:,r)
+            if ( v(2) <= 0.0d0 .or. v(3) < 0.0d0 .or. v(7) < 0.0d0 .or. v(6) < 0.0d0 .or. v(6) > 1.0d0 &
+                 .or. v(8) <= 0.0d0 ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                ' needs p_w > 0, rhoeUeCH0 >= 0, hconv >= 0, 0 <= chem <= 1 and T_edge > 0'
+              bad = .true.
+            endif
+            if ( v(6) > 0.0d0 .and. .not. obj_pyrolysis%enabled ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, ' has chem > 0, but a 306 face '// &
+                'without [FUSS-Pyrolysis] (kinematic mode) has no pyrolysis gas and no B'' table: every row needs chem = 0.'
+              bad = .true.
+            endif
+            if ( v(6) > 0.0d0 .and. bc%ibprime == 0 ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                ' has chem > 0 and the face has no B'' table (none).'
+              bad = .true.
+            endif
+            if ( m > 0 .and. obj_darcy%enabled ) then
+              associate ( mt => obj_pyrolysis%mat(m) )
+                if ( v(2) < mt%p_lev(1) .or. v(2) > mt%p_lev(mt%Np) ) then
+                  write(*,'(A,I0,A,I0,A,ES12.4,A,ES12.4,A,ES12.4,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                    ' p_w = ', v(2), ' Pa lies outside the gas table of the face''s material [', mt%p_lev(1), ', ', &
+                    mt%p_lev(mt%Np), '] Pa'
+                  bad = .true.
+                endif
+              end associate
+            endif
+            if ( bad ) exit
+          enddo
+        end associate
+        if ( bad ) exit
+      enddo
+
+      if ( bad ) error stop 1
+
+    end subroutine Check_Ablation
 
 
     subroutine Check_BC()

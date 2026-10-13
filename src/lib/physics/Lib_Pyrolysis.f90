@@ -25,6 +25,7 @@ module FUSS_Lib_Pyrolysis
   public :: Tab_Lookup, Tau_Of, Solid_State, Gas_State, Energy_Of, Energy_Tau, Temperature_Of
   public :: Reaction_Rate, Advance_Reaction
   public :: Gas_Lookup, Energy_Of2, Temperature_Of2, Perm_Tensor, Darcy_Cell_Coeffs
+  public :: Surface_Optics, Char_Enthalpy
 
   real(R8), parameter :: NEWTON_DT_TOL = 1.0d-10   ! [K] a Newton step at most this long terminates
   real(R8), parameter :: NEWTON_REL_F  = 1.0d-13   ! |f(T)| <= NEWTON_REL_F*|E| terminates too
@@ -541,5 +542,49 @@ contains
     Gam   = ( rho_g / mu ) * Perm_Tensor( m, tau, p, mu )
 
   end subroutine Darcy_Cell_Coeffs
+
+
+  ! ---------------------------------------------------------------------------
+  ! Ablating wall (plan 08 section 2.1), new routines only; nothing above is
+  ! touched (see the bit-identity note in the header).
+  ! ---------------------------------------------------------------------------
+
+  !> Surface emissivity and absorptivity of a cell's material at the WALL
+  !> temperature: the virgin and char table values blended with the weight
+  !> tau rho_v/max(rho_s, rho_c) of the cell's state, exactly as PATO blends
+  !> them on its boundary faces (PorousMaterialPropertiesModel.C:471-478) and
+  !> as Solid_State blends cp and k.
+  pure subroutine Surface_Optics ( m, Tw, chi, eps_s, alpha_s )
+    implicit none
+    integer,  intent(in)  :: m
+    real(R8), intent(in)  :: Tw, chi(:)
+    real(R8), intent(out) :: eps_s, alpha_s
+    ! Local
+    integer  :: r
+    real(R8) :: tau, rho_s, wv
+
+    associate ( mt => obj_pyrolysis%mat(m) )
+      tau = Tau_Of( m, chi )
+      rho_s = mt%rho_v
+      do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+        rho_s = rho_s - obj_pyrolysis%reac(r)%eps_rho_F * chi(r)
+      enddo
+      wv = tau * mt%rho_v / max( rho_s, mt%rho_c )
+      eps_s   = Tab_Lookup( mt%em_v, mt%Tlo_s, Tw ) * wv + Tab_Lookup( mt%em_c, mt%Tlo_s, Tw ) * ( 1.0d0 - wv )
+      alpha_s = Tab_Lookup( mt%ab_v, mt%Tlo_s, Tw ) * wv + Tab_Lookup( mt%ab_c, mt%Tlo_s, Tw ) * ( 1.0d0 - wv )
+    end associate
+
+  end subroutine Surface_Optics
+
+
+  !> Char enthalpy h_c(T) [J/kg] of a material (the char table), the h_ch,w of
+  !> the surface energy balance's char-advection term.
+  pure function Char_Enthalpy ( m, T ) result ( h )
+    implicit none
+    integer,  intent(in) :: m
+    real(R8), intent(in) :: T
+    real(R8) :: h
+    h = Tab_Lookup( obj_pyrolysis%mat(m)%h_c, obj_pyrolysis%mat(m)%Tlo_s, T )
+  end function Char_Enthalpy
 
 end module FUSS_Lib_Pyrolysis

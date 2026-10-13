@@ -98,3 +98,12 @@
 | pseudo-vnn | 0.5 | > 0 |  no | Damping of the Jacobi (pseudo) sweep: p <- p + pseudo-vnn * residual / diagonal; (0, 1] |
 | axes-follow-grid | .false. | logical |  no | Rotate the permeability tensor with the grid lines (not built: false only) |
 | pi-source | 0.0 | >= 0 |  no | TEST ONLY: constant gas production [kg/m3/s] added to the kinetics in every cell |
+
+## FUSS-Ablation
+
+| Parameter | Default | Allowed | Required | Description |
+|-----------|---------|---------|----------|-------------|
+| seb-tol | 1.0e-8 | > 0 |  no | Stop test of the surface energy balance of BC 306: |dT_w| <= seb-tol*T_w, |F| <= seb-tol*max|term| and |d(beta)| <= seb-tol |
+| seb-max-iter | 50 | > 0 |  no | Iteration cap of the surface energy balance; reached -> error stop 3 |
+| no-char | .false. | logical |  no | TEST ONLY: B'_ch = mdot_ch = 0 on every 306 face; h_w is still read from the B' table |
+| bprime-out-of-range | clamp | clamp ,  abort |  no | A B' table query outside the table: clamp (PATO's behaviour, counted in seb.txt) or abort (error stop 3 at the first p or B'g outside) |

@@ -17,17 +17,25 @@ contains
     use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
     use FUSS_Lib_BC_Fluxes_Wall_Radiation
     use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+    use FUSS_Lib_BC_Fluxes_Wall_Ablating, only: BC_Wall_Ablating
+    use FUSS_Config_Types_m, only: obj_darcy
+    use FUSS_Mod_Darcy, only: Darcy_First_Step_Pending
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: f, lower, upper, i, b
     integer  :: Bm, Im, Jm, Km, Fm
     real(R8) :: Ovar(2)    ! wall temperature and flux of the face (Compute_Wall_Properties)
+    logical  :: count_clamps
     
     ! BC fluxes are computed in order of block and face type. A wall BC
-    ! (301-305) also leaves its wall temperature in bc%Tw_face, which the
+    ! (301-306) also leaves its wall temperature in bc%Tw_face, which the
     ! type-2 gas-enthalpy flux of an open face reads later in the same stage.
     upper = 0
+    ! The ablating wall counts its B' table clamps only once per stage: not in
+    ! the first pass of a new type-2 run's first step, which is discarded.
+    count_clamps = .true.
+    if ( obj_darcy%enabled ) count_clamps = .not. Darcy_First_Step_Pending()
 
     blocks: do b = 1, domain % nb
       faces: do f = 1, 6
@@ -83,6 +91,10 @@ contains
             case (305) ! wall: prescribed hconv, epsilon, Tref
               call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                                  domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
+              domain % bc(i) % Tw_face = Ovar(1)
+
+            case (306) ! wall: ablating (plan 08), surface energy balance with the B' table and the env table
+              call BC_Wall_Ablating ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), Ovar, count_clamps )
               domain % bc(i) % Tw_face = Ovar(1)
             
             case(103,104) ! Multi-Solver Coupling (104 = with chimera)

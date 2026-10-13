@@ -17,6 +17,7 @@ contains
     use FUSS_Read_Numerics,  only: Register_Numerics
     use FUSS_Read_Pyrolysis, only: Register_Pyrolysis
     use FUSS_Register_Darcy, only: Register_Darcy
+    use FUSS_Register_Ablation, only: Register_Ablation
     use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini, Check_Unknown_Options
     use FUSS_Input_Registry
     implicit none
@@ -39,6 +40,7 @@ contains
     call Register_Numerics(nmgl)
     call Register_Pyrolysis()
     call Register_Darcy()
+    call Register_Ablation()
 
     ! Registry is built, now load the values from the ini file
     call Load_Ini(fini)

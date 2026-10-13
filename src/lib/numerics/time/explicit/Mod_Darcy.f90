@@ -91,7 +91,11 @@ contains
     implicit none
     integer, intent(in) :: bctype
     integer :: k
-    open = .false.
+    ! An ablating wall (306, 307) is open to its own pyrolysis gas whatever
+    ! open-bc-types says (plan 08, decision P-D6): a face that blows the gas
+    ! in its surface balance cannot be sealed in the pressure equation.
+    open = ( bctype == 306 .or. bctype == 307 )
+    if ( open ) return
     do k = 1, obj_darcy%n_open
       if ( obj_darcy%open_codes(k) == bctype ) open = .true.
     enddo
