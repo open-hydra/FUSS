@@ -125,4 +125,23 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
   - **Added, 7 rows:** `test/pyrolysis/ablation/remap_uniform` (gate V2). ATC22 and ATC23 are `.slow` and add no row.
   - **The other 1700 rows are byte-identical.** The T_prev shift moved out of `Copy_State` (phase 0) and the remap,
     budget and guard changes touch no pre-existing case.
+- **2026-10-13 (night), plan 08 stage D (307, smoothing, multi-block pyrolysis): 15 type-2 cases move, three cases
+  added. 1771 rows.**
+  - **How measured:** `run_regression.sh -B -p 1 -k -o` on the stage-D tree (fresh preset build, binary `fed0baec`):
+    506 `<` lines, 570 `>` lines. `test/pyrolysis/ablation/smoothing/{w1,w5,w5_2blk}` are `.slow` (their generator
+    writes the markers).
+  - **Moved, 506 rows, every one attributed to the Darcy line-solver change of stage D.**
+    - The change: a face across the tridiag lines, and every boundary row, has its conductance on the line diagonal.
+      An additive correction then removes the error that is uniform across the lines.
+    - Why: with the whole cross flux on the right-hand side, a 2-D slab diverged.
+    - The same fixed point by another arithmetic route. The moves are round-off on the line cases (T 1e-14 on
+      `mass_balance_1d`, 9e-15 on `sharp_front`, 5e-13 on `seb_closure`) and up to 6e-9 (η_st) in the stiff 0-D cases.
+    - The 15 cases: `darcy/{adiabatic0d_type2, heated0d_type2, mass_balance_1d, sealed_profile/N020..N160}`,
+      `exact/{pressure_transient/N020, sharp_front/N050, transpiration/N020}`, `lit/baum_atreya2007/{full,qs}_N100`,
+      `ablation/{seb_closure, zero_blowing, remap_uniform}`.
+    - Proof, case by case: the stage-D sources with only the old splitting restored (without it the correction is
+      inert) reproduce the stage-C binary byte for byte on all 15, every output file.
+  - **Added, 64 rows:** `test/pyrolysis/ablation/coupled307/{run307,run306}` (56) and
+    `test/moving-mesh/conjugate_receding_t2` (8).
+  - **The other 1201 pre-existing rows are byte-identical.**
 
