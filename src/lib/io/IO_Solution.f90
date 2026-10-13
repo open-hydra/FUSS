@@ -202,13 +202,13 @@ contains
 
       ! Pyrolysis state (plan 06 section 3.6), by column POSITION. A new run's
       ! initial field never carries it (virgin). A restart file written with
-      ! pyrolysis on carries the seven legacy columns, chi_1..chi_nsub, rho_s
-      ! and mdot_pg (nv = 9 + nsub) -- the names are checked when the reader
-      ! kept them; a legacy restart file (nv = 7) resets to virgin with a
-      ! notice; anything else is refused, because a file written with a
-      ! different pyrolysis.dat must not be read positionally. A type-2 file
-      ! (plan 07 section 3.8) adds p_pg, u_pg_1..3, eta_prev, eta_st and T_prev
-      ! (nv = 16 + nsub).
+      ! pyrolysis on carries the seven legacy columns, chi_1..chi_nsub (one
+      ! reaction: chi), rho_s and mdot_pg (nv = 9 + nsub) -- the names are
+      ! checked when the reader kept them; a legacy restart file (nv = 7)
+      ! resets to virgin with a notice; anything else is refused, because a
+      ! file written with a different pyrolysis.dat must not be read
+      ! positionally. A type-2 file (plan 07 section 3.8) adds p_pg,
+      ! u_pg_1..3, eta_prev, eta_st and T_prev (nv = 16 + nsub).
       if ( obj_pyrolysis%enabled ) then
         if ( obj_sim_param%newrun ) then
           IOfield%block(b)%vars(4:3+nchi,:,:,:) = 0.0d0
@@ -218,7 +218,13 @@ contains
             do r = 1, nchi
               if ( allocated(IOinit%varnames) ) then
                 if ( size(IOinit%varnames) >= 10 + r ) then
-                  write(expected,'(A,I0)') 'chi_', r
+                  ! the writer names a one-component field without a suffix
+                  ! (one reaction: 'chi'), several as chi_1..chi_nsub
+                  if ( nchi == 1 ) then
+                    expected = 'chi'
+                  else
+                    write(expected,'(A,I0)') 'chi_', r
+                  endif
                   if ( trim(adjustl(IOinit%varnames(10+r))) /= trim(expected) ) then
                     write(obj_io%error_message,'(A,I0,A)') "[ERROR] pyrolysis restart: "//trim(obj_io%nameinit)// &
                       " column ", 10+r, " is '"//trim(adjustl(IOinit%varnames(10+r)))//"', expected '"//trim(expected)//"'"
