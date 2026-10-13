@@ -123,15 +123,22 @@ measured in 2D.
    the cell's own diffusivity while the face flux carries the copper-side transmissibility — a
    pre-existing property of the explicit multimaterial scheme, not of the cycles. `vnn = 0.2`
    is stable, for the baseline and the cycles alike.
-2. **IRS + cycles with aggressive vnn can limit-cycle here.** `v`/`w` + IRS at `vnn = 2.0`
-   (the setting every other case takes) locks into the documented bounded orbit (residual
-   ~2.4e4, steady `FAS:` fallback reports) instead of converging.
-   <!-- FILL: liner vnn 1.0 + none vnn 0.2 results -->
+2. **IRS is the other fragile ingredient — with or without cycles.** At `vnn = 2.0` (the
+   setting every other case takes) *plain* IRS locks into a bounded orbit at residual ~2.6e4,
+   its admissibility fallback firing on ~4e5 cell updates per report: the smoothed updates
+   leave the properties table en masse and the fallback reverts them to raw explicit updates,
+   unstable at that vnn. At `vnn = 1.0` plain IRS still orbits (~1e2 after 340 000 iterations),
+   and the cycles inherit the orbit whenever IRS is on (`v`/`w` + IRS orbit at ~1e4 for
+   `vnn = 1.0` and ~2.4e4 for `vnn = 2.0`, with steady `FAS:` fallback reports).
 
-Without IRS at `vnn = 0.2` both cycles converge cleanly: v 8 362, w 7 222 iterations (fields
-equal to 2.6e-6 K). This case sits at the anisotropic end of the spectrum (squeezed cells +
-material jumps): the gains are real but far from the isotropic 200×, exactly as the AR-100
-limit below predicts.
+With `vnn = 0.2` and no IRS, **the cycles are the only configuration that converges**: the
+baseline crawls to residual 7.3e-4 in 400 000 iterations (~39 min) with a flat tail and never
+reaches 1e-8, while v takes 8 362 iterations (108 s) and w 7 222 (97 s) — fields equal to
+2.6e-6 K. On this case the robustness ranking is inverted: cycles first, IRS last. The gains
+sit at the anisotropic end of the spectrum (squeezed cells + material jumps), far from the
+isotropic 200×, exactly as the AR-100 limit below predicts — but here the baseline does not
+converge at all, so the cycles are not an acceleration, they are the difference between an
+answer and none.
 
 ## Anisotropic cells: the honest limit
 
