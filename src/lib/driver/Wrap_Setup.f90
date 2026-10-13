@@ -179,7 +179,7 @@ contains
         call Fill_Ghost_Cell ( simulation%domain(1) )
         ! Ablating walls (plan 08): the env values at the start time, so the
         ! first step and a restart see the table's p_w
-        call Ablation_Update_Env ( simulation%domain(1) )
+        call Ablation_Update_Env ( simulation%domain(1), setup = .true. )
         ! Gas-pressure ghosts and the t = 0 cell velocity (plan 07): serial
         ! here, inside the parallel region of every later step.
         if (obj_darcy%enabled) then
@@ -570,15 +570,28 @@ contains
         endif
       endif
 
-      if ( domain%nb > 1 ) then
-        write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103/104 faces (chi ghosts are plan 08).'
+      ! Guard 9 (plan 08 section 2.9): block connections (101) under type 2
+      ! only -- the type-1 outflow line integral restarts at every block, so a
+      ! second block's gas would be lost; chimera (102, 104) has no chi or p
+      ! donor path, and a coupled face (103) no chi exchange (the coupled
+      ! ablating wall is 307).
+      if ( .not. obj_darcy%enabled .and. domain%nb > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
+          'cross block faces); use type2 for a multi-block mesh.'
         write(*,'(A,I0,A)') '         The mesh has ', domain%nb, ' blocks.'
         bad = .true.
       endif
       do i = 1, domain%nbound
         select case ( domain%bc(i)%type )
-          case (101, 102, 103, 104)
-            write(*,'(A)') ' [ERROR] pyrolysis phase 2 is single-block: no 101/102/103/104 faces (chi ghosts are plan 08).'
+          case (101)
+            if ( obj_darcy%enabled ) cycle
+            write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
+              'cross block faces); use type2 for a multi-block mesh.'
+            write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is a block connection (101) on face ', domain%bc(i)%f
+            bad = .true.
+            exit
+          case (102, 103, 104)
+            write(*,'(A)') ' [ERROR] pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2).'
             write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, &
               ' on face ', domain%bc(i)%f
             bad = .true.
@@ -599,8 +612,8 @@ contains
       if ( fo > 0 ) then
         do i = 1, domain%nbound
           if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
-          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 306 ) then
-            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-306).'
+          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 307 ) then
+            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-307).'
             write(*,'(A,I0,A,I0,A)') '         Face ', fo, ' of block 1 carries type ', domain%bc(i)%type, &
               ': a symmetry plane or a null face cannot pass the pyrolysis gas.'
             bad = .true.
@@ -629,6 +642,11 @@ contains
         write(*,'(A)') ' [ERROR] the ablating wall (306) is OpenMP-only until plan 11.'
         bad = .true.
       endif
+      if ( mod( obj_ablation%smoothing_width, 2 ) == 0 ) then
+        write(*,'(A,I0,A)') ' [ERROR] [FUSS-Ablation] smoothing-width = ', obj_ablation%smoothing_width, &
+          ' must be odd: the stencil is centred on its node (1 = no smoothing).'
+        bad = .true.
+      endif
       ! multigrid: refused where the first 306 record is read (Read_BCfile)
       if ( obj_mesh_motion%enabled ) then
         select case ( trim(obj_mesh_motion%law) )
@@ -652,13 +670,24 @@ contains
       endif
 
       do i = 1, domain%nbound
-        if ( domain%bc(i)%type /= 306 ) cycle
+        if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
         associate ( bc => domain%bc(i) )
           ! the type-1 line integral carries the gas to the outflow face only
           if ( fo > 0 .and. ( bc%b /= 1 .or. bc%f /= fo ) ) then
-            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': under gas-closure = type1 a 306 face must be the '// &
-              'outflow face (outflow-direction): the gas it blows is the line integral that ends there.'
+            write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': under gas-closure = type1 a ', bc%type, &
+              ' face must be the outflow face (outflow-direction): the gas it blows is the line integral that ends there.'
             bad = .true.
+          endif
+          ! a coupled ablating wall runs with the chemistry on (plan 08 section 2.5 ii);
+          ! its exchange values have no table here (hydra, or Setup_Ablation's coupled-env-file)
+          if ( bc%type == 307 ) then
+            if ( .not. obj_pyrolysis%enabled ) then
+              write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a coupled ablating wall (307) runs with the '// &
+                'chemistry on, which needs [FUSS-Pyrolysis] (its gas and its B'' table).'
+              bad = .true.
+            endif
+            if ( bad ) exit
+            cycle
           endif
           m = 0
           if ( obj_pyrolysis%enabled ) m = nint( domain%blk(bc%b)%matID(bc%i,bc%j,bc%k) )

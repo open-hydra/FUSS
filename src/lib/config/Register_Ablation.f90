@@ -63,6 +63,16 @@ contains
                   '(the interface-node assertion must stop the run)', &
                   'logical', .false. )
 
+    call reg%add( trim(section), 'smoothing-width', obj_ablation%smoothing_width, '5', &
+                  'law = nodeshift: nodes of the stencil that averages the surface recession rate along each surface '// &
+                  'grid line (thesis Eq. 5.1, truncated at a line end; odd; 1 = no smoothing)', &
+                  '>= 1', .false. )
+
+    call reg%add( trim(section), 'coupled-env-file', obj_ablation%coupled_env_file, 'none', &
+                  'TEST ONLY: every coupled ablating wall (307) takes its exchange values from this INPUT/ file '// &
+                  '(rows t p_w rhoeUeCH h_r q_rad, linear in t) instead of hydra; none = from hydra', &
+                  '', .false. )
+
   end subroutine Register_Ablation
 
 end module FUSS_Register_Ablation

@@ -7,7 +7,7 @@ module FUSS_IO_BC
   public :: Print_BC_Summary
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
-  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating
+  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating, ncoupled_abl
   logical :: has_tdep_bc
 
 contains
@@ -104,7 +104,7 @@ contains
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
       select case(ti)
-      case(101,301,302,303,304,305,306,103)
+      case(101,301,302,303,304,305,306,307,103)
         read( unitfile,*,iostat=ios )
       case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
@@ -139,7 +139,7 @@ contains
     integer, intent(in)                             :: level
     integer, dimension(1:,1:), intent(inout)        :: n_bf
     ! Local
-    integer :: cc, i, s, nzero_chim
+    integer :: cc, i, s, nzero_chim, ntok
     integer :: unitfile, ios, cios
     character(len=32) :: BCfile
     character(len=256) :: rec, bfile, efile
@@ -166,6 +166,7 @@ contains
       nchimera = 0
       ncoupled = 0
       nablating = 0
+      ncoupled_abl = 0
       has_tdep_bc = .false.
     endif
 
@@ -295,6 +296,46 @@ contains
             obj_ablation%n_faces = obj_ablation%n_faces + 1
           endif
 
+        case(307)
+          ! Coupled ablating wall (plan 08 section 2.5 ii): the 103
+          ! connectivity record `bs is js ks fs d11 d12 d21 d22`, then `T_inf
+          ! <bprime-file>` -- exactly 11 tokens; no lambda, a coupled face runs
+          ! at lambda = 0 (the CFD's coefficient is already blown). The face is
+          ! 306's balance with the env taken from the exchange (env_now).
+          if (level == 1) nwall = nwall + 1
+          if (level == 1) nablating = nablating + 1
+          if (level == 1) ncoupled_abl = ncoupled_abl + 1
+          obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
+          obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
+          if ( obj_multigrid%MGL > 1 ) then
+            write(*,'(A)') ' [ERROR] the ablating wall (306, 307) is not compatible with multigrid.'
+            error stop 1
+          endif
+          bfile = ''
+          read(unitfile,'(A)',iostat=ios) line306
+          ntok = 0
+          if ( ios == 0 ) ntok = Count_Tokens( line306 )
+          if ( ios == 0 .and. ntok == 11 ) read(line306,*,iostat=ios) &
+            bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22, bc(i)%Tinf, bfile
+          if ( ios /= 0 .or. ntok /= 11 ) then
+            write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line is "bs is js ks fs d11 d12 d21 d22  T_inf  '// &
+              '<bprime-file>" (11 values, ', ntok, ' read): a coupled face takes no lambda, it runs at lambda = 0'
+            error stop 1
+          endif
+          if ( bc(i)%Tinf <= 0.0d0 .or. trim(bfile) == 'none' ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line needs T_inf > 0 and a B'' table '// &
+              '(the chemistry of a coupled face is always on)'
+            error stop 1
+          endif
+          bc(i)%lambda = 0.0d0
+          bc(i)%ext_flux = 0.0
+          bc(i)%ibprime = Load_Bprime_Table( 'INPUT/'//trim(bfile) )
+          if ( level == 1 ) then
+            obj_ablation%enabled = .true.
+            obj_ablation%n_faces = obj_ablation%n_faces + 1
+            obj_ablation%n_coupled = obj_ablation%n_coupled + 1
+          endif
+
         case(102,104)
           if (level == 1) nchimera = nchimera + 1
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
@@ -361,7 +402,8 @@ contains
     if (nchimera > 0) write(*,'(A,T35,I0)') '   Chimera', nchimera
     if (ncoupled > 0) write(*,'(A,T35,I0)') '   Coupled wall', ncoupled
     if (nablating > 0) then
-      write(*,'(A,T35,I0)') '   Ablating wall (306)', nablating
+      if (nablating > ncoupled_abl) write(*,'(A,T35,I0)') '   Ablating wall (306)', nablating - ncoupled_abl
+      if (ncoupled_abl > 0) write(*,'(A,T35,I0)') '   Coupled ablating wall (307)', ncoupled_abl
       do it = 1, Bprime_Count()
         write(*,'(A)') '     B'' table '//trim(Bprime_Describe(it))
       enddo
@@ -369,5 +411,23 @@ contains
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
 
   end subroutine Print_BC_Summary
+
+
+  !> The number of list-directed values on a line: blank-, tab- or comma-
+  !> separated tokens (bare names hold none of these, plan 08 section 2.1).
+  pure function Count_Tokens ( line ) result ( n )
+    implicit none
+    character(len=*), intent(in) :: line
+    integer :: n, k
+    logical :: intok
+    n = 0 ; intok = .false.
+    do k = 1, len_trim(line)
+      if ( line(k:k) == ' ' .or. line(k:k) == ',' .or. line(k:k) == char(9) ) then
+        intok = .false.
+      elseif ( .not. intok ) then
+        n = n + 1 ; intok = .true.
+      endif
+    enddo
+  end function Count_Tokens
 
 end module FUSS_IO_BC

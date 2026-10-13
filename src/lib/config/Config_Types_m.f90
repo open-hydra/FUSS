@@ -324,9 +324,12 @@ module FUSS_Config_Types_m
     real(R8) :: sdot_override = -1.0d0               ! TEST ONLY: every 306 face's recession rate [m/s]; < 0 = off
     logical  :: dump_interface_flux = .false.        ! TEST ONLY: OUTPUT/<prefix>interface-flux.txt
     logical  :: perturb_interface_node = .false.     ! TEST ONLY: move one shared 101 node by 1e-12 m at step 2
+    character(len=llen) :: coupled_env_file = 'none' ! TEST ONLY: a 307 face reads env_now from INPUT/<this>; none = hydra
+    integer  :: smoothing_width = 5                  ! nodes of the wall smoothing stencil (thesis Eq. 5.1); odd, 1 = off
     ! Useful variables
-    logical  :: enabled = .false.                    ! at least one 306 face (Read_BCfile)
-    integer  :: n_faces = 0                          ! number of 306 faces of the finest grid
+    logical  :: enabled = .false.                    ! at least one 306 or 307 face (Read_BCfile)
+    integer  :: n_faces = 0                          ! number of 306 and 307 faces of the finest grid
+    integer  :: n_coupled = 0                        ! of which 307
     ! material the receding 306 faces swept out since the start of this run
     ! (the pyrolysis remap; energy-budget.txt columns E_abl M_abl G_abl)
     real(R8) :: E_abl = 0.0d0, M_abl = 0.0d0, G_abl = 0.0d0

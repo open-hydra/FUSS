@@ -191,8 +191,54 @@ The format and presence of the data line depend on the numeric `type` code. Inte
 | `303` | Convection (+ radiative pre-load) | `hconv, qrad, Tref` — optionally a fourth value `p_w` [Pa], the gas pressure of the face under the type-2 gas closure ([Input File](input.md#type-2-gas-closure-darcy)); ignored otherwise, must be > 0 when given |
 | `304` | Pure radiation | `eps, Tref` |
 | `305` | Convection + radiation | `hconv, eps, Tref` — optionally a fourth value `p_w` [Pa], as for `303` |
+| `306` | Ablating wall (surface energy balance with B′ tables; plan 08) | `lambda, T_inf, <bprime-file>, <env-file>` — see [Ablating wall](#ablating-wall-306-and-coupled-ablating-wall-307) |
+| `307` | Coupled ablating wall (306's balance, exchange values from hydra) | `bs is js ks fs  d11 d12 d21 d22  T_inf  <bprime-file>` (11 values, no `lambda`) |
 
 ---
+
+### Ablating wall (306) and coupled ablating wall (307)
+
+ATLAS does not write these two codes yet (a cross-plan ask); the case generators under `test/pyrolysis/` write `bc.txt`
+directly. Both faces solve the surface energy balance of the material response (thesis eq. 3.49, PATO's
+`BprimeBoundaryConditions`) for the wall temperature, with the char and pyrolysis-gas blowing of an equilibrium or
+finite-rate B′ table. They need `[FUSS-Pyrolysis]` when the chemistry is on, and they set the gas pressure of the face
+under the type-2 closure (open faces). Keys and outputs: [Input File](input.md#ablating-wall-306-307-and-recession).
+
+**306 line 2**, list-directed: `lambda  T_inf  <bprime-file>  <env-file>`.
+
+| Field | Description |
+|-------|-------------|
+| `lambda` | blowing-correction exponent (`β = ζ/(e^ζ − 1)`, `ζ = 2λ(ṁ_pg + ṁ_ch)/(ρ_e u_e C_H0)`); `0` = no correction, `β = 1` |
+| `T_inf` | background temperature of the re-radiation, K |
+| `<bprime-file>` | bare file name under `INPUT/`, or `none` when every env row has `chem = 0` |
+| `<env-file>` | bare file name under `INPUT/`: the time table of the face |
+
+File names are bare (no `/`, `,` or blanks; at most 255 characters): an undelimited list-directed value ends at the
+first `/`.
+
+**Env table** (`//` lines are comments): one row per time, `t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge`, linear in t,
+clamped outside its range, evaluated once per step at the step's end time.
+
+| Column | Units | Meaning |
+|--------|-------|---------|
+| `p_w` | Pa | wall pressure: the B′ lookup, and the gas pressure of the face under type 2 |
+| `rhoeUeCH0` | kg/(m²·s) | unblown heat-transfer coefficient (Stanton number times ρ_e u_e) |
+| `h_r` | J/kg | recovery enthalpy |
+| `q_rad` | W/m² | incident radiative flux (absorbed with the material's absorptivity) |
+| `chem` | — | 1 = chemistry on (the B′ balance). Below 1 (0, or the switch-off ramp between two rows) the chemistry-off balance, PATO's `chemistryOn == 0`: convection `hconv (T_edge − T_w)`, no gas advection, radiation kept; while `0 < chem < 1` the B′_pg of the last chemistry-on solve and the blowing correction stay frozen. With `chem = 0` and a zero emissivity the face is BC 303 `hconv, T_edge` bit for bit |
+| `hconv`, `T_edge` | W/(m²·K), K | the chemistry-off convection |
+
+**B′ table** (PATO's `BprimeTable` layout): rows `p B'g B'c T h_w` (`//` comments), p-blocks of decreasing `p`, B′g
+sub-blocks of decreasing B′g, `T` monotonic within a sub-block (repeated `T` allowed). The header line `// kind:
+equilibrium | finite-rate | forced-equilibrium` records the provenance. A 4-D finite-rate table adds `rhoeueCM` as the
+first column (`// axes: rhoeueCM p Bprime-g T`). Queries outside the table are clamped and counted in `seb.txt`, or
+stop the run with `[FUSS-Ablation] bprime-out-of-range = abort`. The equilibrium TACOT table of the test cases and its
+provenance: `test/pyrolysis/ablation/tables/`.
+
+**307 line 2**: the 103 connectivity record of the MOSE partner face, then `T_inf <bprime-file>`. hydra writes the
+exchange values `p_w, ρ_e u_e C_H, h_r, q_rad` before every FUSS step (`bc%env_now`); the face runs with `chem = 1` and
+`lambda = 0` (the CFD's coefficient is already blown) on a static mesh. A standalone run reads those values from the
+TEST ONLY `[FUSS-Ablation] coupled-env-file`, a table with the rows `t p_w rhoeUeCH h_r q_rad`.
 
 ## Examples
 

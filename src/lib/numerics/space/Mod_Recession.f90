@@ -3,7 +3,9 @@
 !> restart state of the faces, and the two files the faces write.
 !>
 !> ENV VALUES. The env table of a 306 face (t p_w rhoeUeCH0 h_r q_rad chem
-!> hconv T_edge) is evaluated ONCE per step, after the clock has advanced to
+!> hconv T_edge) -- for a coupled ablating wall 307, the exchange values
+!> env_now (p_w, rhoeUeCH, h_r, q_rad; chem = 1, hconv = 0), which hydra
+!> writes before every FUSS step -- is evaluated ONCE per step, after the clock has advanced to
 !> t^(n+1) and before the type-2 pressure solve, which reads the face's p_w as
 !> its Dirichlet value: a refresh inside the BC routine (stage time) would hand
 !> the backward-Euler p^(n+1) the previous step's p_w, and p-wall on step 1.
@@ -33,10 +35,21 @@
 !> per-face rates would tear the mesh). The node moves along its grid line,
 !> its normal component -sdot dt. Assert_Interface_Nodes then checks after the
 !> move that the four nodes of every 101 face agree bitwise on both sides.
+!>
+!> SMOOTHING (plan 08 section 2.6, thesis Eq. 5.1). Before the displacement,
+!> the nodal rate is averaged along each surface grid line over
+!> smoothing-width nodes (5: nu_k = (nu_k-2 + .. + nu_k+2)/5), in two passes,
+!> one per surface direction; at a line end the window keeps the nodes that
+!> exist (truncated). The lines are walked on the surface-node map, so a line
+!> continues through a 101 seam whatever the index orientation of the next
+!> block (from a node to the neighbour that shares no 306 face with the
+!> previous one), and a shared node gets one value. Written as nu_k + mean(
+!> nu_j - nu_k), so a uniform rate is returned bit for bit.
 !> The surface-node map is built once, at setup, by exact coordinate equality
 !> of the block-boundary nodes (they come from one MESH/ file).
 module FUSS_Mod_Recession
   use iso_fortran_env, only: I4 => int32, R8 => real64
+  use FUSS_Series_Data_m, only: time_table_t
 
   implicit none
   private
@@ -62,31 +75,65 @@ module FUSS_Mod_Recession
   real(R8), save :: min_thick = 0d0             ! resolved min-thickness [m]
   real(R8), save :: min_thick_restart = -1d0    ! the value bc306-state.dat carried, < 0 = none
   integer,  save :: nstep_mesh = 0              ! nodeshift steps so far (the TEST ONLY perturbation fires at 2)
+  !> smoothing windows: win(m, f, n) = the m-th node of the window of surface
+  !> node n along its surface direction f (m = 1..h one side, h+1..2h the
+  !> other, nearest first; 0 = beyond the line end), h = (smoothing-width-1)/2
+  integer, allocatable, save :: win(:,:,:)
+  integer, save :: hwin = 0
+  !> TEST ONLY [FUSS-Ablation] coupled-env-file: the exchange values of every
+  !> 307 face of a standalone run (t p_w rhoeUeCH h_r q_rad); nrow = 0 = hydra
+  type(time_table_t), save :: coupled_env
 
 contains
 
-  !> Env values of every 306 face at domain%time (serial; outside the
-  !> parallel region).
-  subroutine Ablation_Update_Env ( domain )
+  !> Env values of every 306 and 307 face at domain%time (serial; outside the
+  !> parallel region). A 307 face takes its exchange values env_now (from the
+  !> coupled-env-file table when that TEST ONLY key is set): hydra writes them
+  !> before every step, not before FUSS's setup, so at setup (setup = .true.)
+  !> a face without them keeps p-wall; at a step it stops the run.
+  subroutine Ablation_Update_Env ( domain, setup )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    logical, intent(in), optional :: setup
     ! Local
     integer  :: i
     real(R8) :: v(7)
+    logical  :: at_setup
 
     if ( .not. obj_ablation%enabled ) return
+    at_setup = .false.
+    if ( present(setup) ) at_setup = setup
     do i = 1, domain%nbound
-      if ( domain%bc(i)%type /= 306 ) cycle
-      v = domain%bc(i)%env%eval( domain%time )
-      domain%bc(i)%pw        = v(1)
-      domain%bc(i)%rhoeUeCH0 = v(2)
-      domain%bc(i)%hr        = v(3)
-      domain%bc(i)%qrad_env  = v(4)
-      domain%bc(i)%chem      = v(5)
-      domain%bc(i)%hconv_env = v(6)
-      domain%bc(i)%Tedge     = v(7)
+      select case ( domain%bc(i)%type )
+        case (306)
+          v = domain%bc(i)%env%eval( domain%time )
+          domain%bc(i)%pw        = v(1)
+          domain%bc(i)%rhoeUeCH0 = v(2)
+          domain%bc(i)%hr        = v(3)
+          domain%bc(i)%qrad_env  = v(4)
+          domain%bc(i)%chem      = v(5)
+          domain%bc(i)%hconv_env = v(6)
+          domain%bc(i)%Tedge     = v(7)
+        case (307)
+          if ( coupled_env%nrow > 0 ) domain%bc(i)%env_now = coupled_env%eval( domain%time )
+          if ( .not. ( domain%bc(i)%env_now(1) > 0.0d0 ) ) then
+            if ( at_setup ) cycle
+            write(*,'(A,I0,A)') ' [ERROR] coupled ablating wall (307), bc.txt record ', i, &
+              ': no exchange values (p_w = 0) at this step.'
+            write(*,'(A)') '         hydra writes them before every FUSS step; a standalone run needs '// &
+              '[FUSS-Ablation] coupled-env-file.'
+            error stop 1
+          endif
+          domain%bc(i)%pw        = domain%bc(i)%env_now(1)
+          domain%bc(i)%rhoeUeCH0 = domain%bc(i)%env_now(2)
+          domain%bc(i)%hr        = domain%bc(i)%env_now(3)
+          domain%bc(i)%qrad_env  = domain%bc(i)%env_now(4)
+          domain%bc(i)%chem      = 1.0d0
+          domain%bc(i)%hconv_env = 0.0d0
+          domain%bc(i)%Tedge     = domain%bc(i)%Tinf
+      end select
     enddo
 
   end subroutine Ablation_Update_Env
@@ -107,6 +154,23 @@ contains
     integer  :: u, ios, ln, i, b, ii, jj, kk, f, nrows
     real(R8) :: v(5)
     logical, allocatable :: seen(:)
+
+    ! TEST ONLY coupled-env-file: the exchange values of the 307 faces
+    if ( trim(obj_ablation%coupled_env_file) /= 'none' ) then
+      if ( obj_ablation%n_coupled == 0 ) then
+        write(*,'(A)') ' [ERROR] [FUSS-Ablation] coupled-env-file is set, but bc.txt has no coupled ablating wall (307).'
+        error stop 1
+      endif
+      call coupled_env%load( 'INPUT/'//trim(obj_ablation%coupled_env_file), 4 )
+      do i = 1, coupled_env%nrow
+        v(1:4) = coupled_env%var(:,i)
+        if ( .not. ( v(1) > 0.0d0 ) .or. v(2) < 0.0d0 .or. v(4) < 0.0d0 ) then
+          write(*,'(A,I0,A)') ' [ERROR] coupled-env-file INPUT/'//trim(obj_ablation%coupled_env_file)//' row ', i, &
+            ': needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0'
+          error stop 1
+        endif
+      enddo
+    endif
 
     if ( .not. obj_ablation%enabled ) return
     if ( newrun ) return
@@ -136,11 +200,11 @@ contains
       if ( ios /= 0 ) call Fail( 'expected "b i j k f s_total Tw_prev sdot beta Bpg_lag"' )
       nrows = nrows + 1
       do i = 1, domain%nbound
-        if ( domain%bc(i)%type /= 306 ) cycle
+        if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
         if ( domain%bc(i)%b == b .and. domain%bc(i)%i == ii .and. domain%bc(i)%j == jj .and. &
              domain%bc(i)%k == kk .and. domain%bc(i)%f == f ) exit
       enddo
-      if ( i > domain%nbound ) call Fail( 'no 306 face of bc.txt matches this row' )
+      if ( i > domain%nbound ) call Fail( 'no 306 or 307 face of bc.txt matches this row' )
       if ( seen(i) ) call Fail( 'a second row for the same face' )
       seen(i) = .true.
       domain%bc(i)%s_total = v(1)
@@ -152,7 +216,7 @@ contains
     enddo
     close( u )
     do i = 1, domain%nbound
-      if ( domain%bc(i)%type == 306 .and. .not. seen(i) ) then
+      if ( ( domain%bc(i)%type == 306 .or. domain%bc(i)%type == 307 ) .and. .not. seen(i) ) then
         write(*,'(A,I0,A)') ' [ERROR] '//trim(file)//': no row for the 306 face of bc.txt record ', i, &
           ' (written by a run with another bc.txt?)'
         error stop 1
@@ -202,7 +266,7 @@ contains
       error stop 1
     endif
     do i = 1, domain%nbound
-      if ( domain%bc(i)%type /= 306 ) cycle
+      if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
       associate ( bc => domain%bc(i) )
         write(u,'(ES24.16,5I8,10ES24.16,5I8,8ES24.16)') domain%time, bc%b, bc%i, bc%j, bc%k, bc%f, &
           bc%Tw_prev, domain%blk(bc%b)%T(bc%i,bc%j,bc%k), bc%beta, bc%Bpg, bc%Bch, bc%hw, bc%rhoeUeCH0, bc%hr, &
@@ -221,7 +285,7 @@ contains
     write(u,'(A)') '# b i j k f s_total Tw_prev sdot beta Bpg_lag'
     write(u,'(A,ES24.16)') '# min-thickness ', min_thick
     do i = 1, domain%nbound
-      if ( domain%bc(i)%type /= 306 ) cycle
+      if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
       associate ( bc => domain%bc(i) )
         write(u,'(5I8,5ES24.16)') bc%b, bc%i, bc%j, bc%k, bc%f, bc%s_total, bc%Tw_prev, bc%sdot, bc%beta, bc%Bpg_lag
       end associate
@@ -243,7 +307,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: i, b, f, n, nb, nbn, nsf, q, r, lo, ii, jj, kk, nd(3,4), cnt
-    integer, allocatable :: bid(:,:), perm(:), sfi(:), sperm(:)
+    integer, allocatable :: bid(:,:), perm(:), sfi(:), sperm(:), pnode(:)
     real(R8), allocatable :: bx(:,:), sx(:,:)
     real(R8) :: L1, L2, hmin
     logical :: bad, found
@@ -304,7 +368,7 @@ contains
       endif
     enddo
     if ( allocated(smap) ) deallocate( smap )
-    allocate( smap(cnt) )
+    allocate( smap(cnt), pnode(nsf) )
     cnt = 0
     do n = 1, nsf
       if ( n == 1 ) then
@@ -314,6 +378,7 @@ contains
       endif
       smap(cnt)%x = sx(:,sperm(n))
       call push_face( smap(cnt), sfi(sperm(n)) )
+      pnode(sperm(n)) = cnt
     enddo
 
     ! incarnations: the boundary nodes with the same coordinates
@@ -385,6 +450,9 @@ contains
     write(*,'(A,I0,A,I0,A,ES12.4,A)') '   Receding blocks (nodeshift)   ', count( recede_dir > 0 ), &
       ', surface nodes ', size(smap), ', min-thickness ', min_thick, ' m'
 
+    ! the smoothing windows (pair 4 (o - 1) + q is corner q of the o-th 306 face)
+    call Setup_Smoothing ( reshape( pnode(1:nsf), [4, nsf/4] ) )
+
   end subroutine Setup_Recession
 
 
@@ -402,6 +470,7 @@ contains
     ! Local
     integer  :: i, b, n, q, r, dr, fi, fj, fk, inc(4), nb_idx(3)
     real(R8) :: A, sum_a, sum_as, sdn, nrm(3), e(3), xs(3), cosang, disp(3), L
+    real(R8), allocatable :: sdn_n(:)
 
     ! the recession rates (TEST ONLY override) and the recession so far
     do i = 1, domain%nbound
@@ -417,19 +486,37 @@ contains
       enddo ; enddo ; enddo
     enddo
 
+    ! the nodal rates: the area-weighted mean of the adjacent 306 faces, then
+    ! the smoothing along the surface lines
+    allocate( sdn_n(size(smap)) )
     do n = 1, size(smap)
-      sum_a = 0.0d0 ; sum_as = 0.0d0 ; nrm = 0.0d0
+      sum_a = 0.0d0 ; sum_as = 0.0d0
       do q = 1, smap(n)%nface
         associate ( bc => domain%bc(smap(n)%face(q)) )
           call Face_Index ( bc%f, dr, bc%i, bc%j, bc%k, fi, fj, fk )
           A = domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%A
           sum_a  = sum_a  + A
           sum_as = sum_as + A * bc%sdot
-          nrm    = nrm + A * domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%N * real( 1 - 2 * mod(bc%f,2), R8 )
         end associate
       enddo
-      sdn = sum_as / sum_a
+      sdn_n(n) = sum_as / sum_a
+    enddo
+    if ( hwin > 0 ) then
+      call Smooth_Pass ( sdn_n, 1 )
+      call Smooth_Pass ( sdn_n, 2 )
+    endif
+
+    do n = 1, size(smap)
+      sdn = sdn_n(n)
       if ( sdn == 0.0d0 ) cycle               ! no motion: the nodes stay bitwise
+      nrm = 0.0d0
+      do q = 1, smap(n)%nface
+        associate ( bc => domain%bc(smap(n)%face(q)) )
+          call Face_Index ( bc%f, dr, bc%i, bc%j, bc%k, fi, fj, fk )
+          A = domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%A
+          nrm = nrm + A * domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%N * real( 1 - 2 * mod(bc%f,2), R8 )
+        end associate
+      enddo
       nrm = nrm / norm2( nrm )
       ! the line direction, from the node toward its neighbour on the line
       inc = smap(n)%inc(:,1)
@@ -460,6 +547,125 @@ contains
     enddo
 
   end subroutine Compute_Node_Recession
+
+
+  !> The smoothing windows of every surface node (setup, law = nodeshift):
+  !> fc(q, o) = the surface node of corner q of the o-th 306 face, corners in
+  !> face_nodes' order (0,0) (1,0) (0,1) (1,1) of the face's two transverse
+  !> directions, so the face's edges along direction 1 are corners 1-2 and
+  !> 3-4, along direction 2 corners 1-3 and 2-4. A node's window along its
+  !> direction f starts from its edge neighbour along f in its first face and
+  !> walks both ways: the next node after (prev, cur) is the neighbour of cur
+  !> that shares no 306 face with prev (on a quad surface, the node straight
+  !> ahead), until the line ends or h nodes are taken.
+  subroutine Setup_Smoothing ( fc )
+    use FUSS_Config_Types_m, only: obj_ablation
+    implicit none
+    integer, intent(in) :: fc(:,:)
+    ! Local
+    integer :: nn, o, n, f, m, q, a, prev, cur, nxt, side, first
+    integer, allocatable :: nbr(:,:), nnb(:), firstf(:)
+    integer, parameter :: MAXNB = 16
+    integer, parameter :: EDGES(2,4) = reshape( [1,2, 3,4, 1,3, 2,4], [2,4] )   ! dir 1: 1-2, 3-4; dir 2: 1-3, 2-4
+
+    hwin = ( obj_ablation%smoothing_width - 1 ) / 2
+    if ( allocated(win) ) deallocate( win )
+    if ( hwin <= 0 ) return
+    nn = size(smap)
+    allocate( nbr(MAXNB, nn), nnb(nn), win(2*hwin, 2, nn), firstf(nn) )
+    nbr = 0 ; nnb = 0 ; win = 0 ; firstf = 0
+    do o = 1, size(fc, 2)
+      do q = 1, 4
+        call add_nbr( fc(EDGES(1,q),o), fc(EDGES(2,q),o) )
+        call add_nbr( fc(EDGES(2,q),o), fc(EDGES(1,q),o) )
+        if ( firstf(fc(q,o)) == 0 ) firstf(fc(q,o)) = o
+      enddo
+    enddo
+    do n = 1, nn
+      first = firstf(n)
+      do f = 1, 2
+        ! the edge neighbour of n along direction f in the first face containing n
+        a = 0
+        do q = 1, 2
+          if ( fc(EDGES(1,2*(f-1)+q),first) == n ) a = fc(EDGES(2,2*(f-1)+q),first)
+          if ( fc(EDGES(2,2*(f-1)+q),first) == n ) a = fc(EDGES(1,2*(f-1)+q),first)
+        enddo
+        do side = 1, 2
+          prev = n
+          cur  = a
+          if ( side == 2 ) cur = straight( a, n )          ! the other side: ahead of n, coming from a
+          if ( side == 2 ) prev = n
+          do m = 1, hwin
+            if ( cur == 0 ) exit
+            win( (side-1)*hwin + m, f, n ) = cur
+            nxt  = straight( prev, cur )
+            prev = cur
+            cur  = nxt
+          enddo
+        enddo
+      enddo
+    enddo
+
+  contains
+
+    subroutine add_nbr ( u, v )
+      integer, intent(in) :: u, v
+      if ( any( nbr(1:nnb(u), u) == v ) ) return
+      if ( nnb(u) == MAXNB ) then
+        write(*,'(A,I0,A)') ' [ERROR] smoothing: surface node ', u, ' has too many neighbours (not a quad surface)'
+        error stop 1
+      endif
+      nnb(u) = nnb(u) + 1
+      nbr(nnb(u), u) = v
+    end subroutine add_nbr
+
+    !> the neighbour of cur that shares no 306 face with prev (0 = none)
+    integer function straight ( prev, cur ) result ( nx )
+      integer, intent(in) :: prev, cur
+      integer :: k
+      nx = 0
+      if ( prev == 0 .or. cur == 0 ) return
+      do k = 1, nnb(cur)
+        if ( nbr(k,cur) == prev ) cycle
+        if ( share_face( nbr(k,cur), prev ) ) cycle
+        nx = nbr(k,cur)
+        return
+      enddo
+    end function straight
+
+    logical function share_face ( u, v )
+      integer, intent(in) :: u, v
+      integer :: k
+      share_face = .false.
+      do k = 1, smap(u)%nface
+        if ( any( smap(v)%face(1:smap(v)%nface) == smap(u)%face(k) ) ) then
+          share_face = .true.
+          return
+        endif
+      enddo
+    end function share_face
+
+  end subroutine Setup_Smoothing
+
+
+  !> One smoothing pass along surface direction f: nu_n + mean over the
+  !> window (n itself and its existing window nodes) of nu_j - nu_n.
+  subroutine Smooth_Pass ( v, f )
+    real(R8), intent(inout) :: v(:)
+    integer,  intent(in)    :: f
+    real(R8) :: w(size(v)), dsum
+    integer  :: n, m, cnt
+    do n = 1, size(v)
+      dsum = 0.0d0 ; cnt = 1
+      do m = 1, 2*hwin
+        if ( win(m,f,n) == 0 ) cycle
+        dsum = dsum + ( v(win(m,f,n)) - v(n) )
+        cnt  = cnt + 1
+      enddo
+      w(n) = v(n) + dsum / real( cnt, R8 )
+    enddo
+    v = w
+  end subroutine Smooth_Pass
 
 
   !> After the move, before the ghost metrics are rebuilt: the four nodes of

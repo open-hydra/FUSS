@@ -18,7 +18,7 @@ contains
     use FUSS_Lib_BC_Fluxes_Wall_Radiation
     use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
     use FUSS_Lib_BC_Fluxes_Wall_Ablating, only: BC_Wall_Ablating
-    use FUSS_Config_Types_m, only: obj_darcy, obj_ablation
+    use FUSS_Config_Types_m, only: obj_darcy, obj_ablation, obj_pyrolysis
     use FUSS_Mod_Darcy, only: Darcy_First_Step_Pending
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -54,7 +54,13 @@ contains
           select case ( domain % bc(i) % type )
           
             case (101,102) ! connection & chimera (101=block connect, 102=chimera)
-              if ( obj_ablation%dump_interface_flux ) then
+              if ( obj_pyrolysis%enabled ) then
+                ! k_s(T, chi) on both sides (plan 08 section 2.9; 101 only, type 2: guard 9);
+                ! q_if is the TEST ONLY dump of interface-flux.txt (plan 08 R5)
+                call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
+                                     domain % bc(i) % Tg , domain % bc(i) % matIDg, domain % bc(i) % q_if, &
+                                     chig = domain % bc(i) % chig )
+              elseif ( obj_ablation%dump_interface_flux ) then
                 ! TEST ONLY (plan 08 R5): keep the flux for interface-flux.txt
                 call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
                                      domain % bc(i) % Tg , domain % bc(i) % matIDg, domain % bc(i) % q_if )
@@ -99,7 +105,8 @@ contains
                                                  domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
               domain % bc(i) % Tw_face = Ovar(1)
 
-            case (306) ! wall: ablating (plan 08), surface energy balance with the B' table and the env table
+            case (306, 307) ! wall: ablating (plan 08), surface energy balance with the B' table and the env
+                            ! table (307: the env of the hydra exchange, lambda = 0)
               call BC_Wall_Ablating ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), Ovar, count_clamps )
               domain % bc(i) % Tw_face = Ovar(1)
             

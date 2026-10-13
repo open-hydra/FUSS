@@ -115,6 +115,12 @@ module FUSS_Advanced_Types_m
     real(R8) :: seb(8) = 0d0, beta = 1d0, hw = 0d0, Bpg = 0d0, Bch = 0d0, Bpg_lag = 0d0
     integer  :: seb_iter = 0, ibprime = 0, nclamp(4) = 0
     type(time_table_t) :: env
+    ! Coupled ablating wall 307 (plan 08 section 2.5 ii): line 2 is the 103
+    ! connectivity record, T_inf and the B' table (lambda = 0: the CFD's
+    ! coefficient is already blown); env_now = p_w, rhoeUeCH, h_r, q_rad of
+    ! the exchange, written by hydra before every FUSS step (standalone: by
+    ! the TEST ONLY [FUSS-Ablation] coupled-env-file); p_w = 0 = never written
+    real(R8) :: env_now(4) = 0d0
     ! TEST ONLY dump of a 101 face (plan 08 section 2.3 R5): the conduction
     ! flux BC_Connection put into the residual, and (type 2) the Darcy mass
     ! and enthalpy fluxes of the face, written to interface-flux.txt

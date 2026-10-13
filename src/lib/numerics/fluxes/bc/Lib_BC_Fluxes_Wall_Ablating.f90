@@ -191,7 +191,7 @@ contains
     clamped = cl
 
     if ( .not. converged ) then
-      write(*,'(A)') ' [ERROR] BC 306: the surface energy balance did not converge (SEB did not converge)'
+      write(*,'(A,I0,A)') ' [ERROR] BC ', bc%type, ': the surface energy balance did not converge (SEB did not converge)'
       write(*,'(A,4I6,A,I0)') '         face (i, j, k, f) =', Im, Jm, Km, Fm, '  iterations ', nmax
       write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         T_w = ', Tw, '  T_c = ', Tc, '  F = ', F0
       write(*,'(A,8ES12.4)') '         terms (cond, conv, adv_pg, adv_ch, alpha q, eps T_inf^4, -eps T_w^4, F):', terms
@@ -201,7 +201,7 @@ contains
     endif
 
     if ( trim(obj_ablation%bprime_out_of_range) == 'abort' .and. ( clamped(1) .or. clamped(2) .or. clamped(4) ) ) then
-      write(*,'(A)') ' [ERROR] BC 306: the B'' table query left the table (bprime-out-of-range = abort)'
+      write(*,'(A,I0,A)') ' [ERROR] BC ', bc%type, ': the B'' table query left the table (bprime-out-of-range = abort)'
       write(*,'(A,4I6)') '         face (i, j, k, f) =', Im, Jm, Km, Fm
       write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         p_w = ', bc%pw, '  B''g = ', Bpg, '  T_w = ', Tw
       error stop 3

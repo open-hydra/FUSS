@@ -209,9 +209,9 @@ contains
           end select
           Ow = 0d0
           Ow(1:2) = Ovar
-          ! 306: the stored state of the last converged balance -- re-running
-          ! the routine here would repeat the Newton solve and move its state
-          if ( domain % bc(i) % type == 306 ) &
+          ! 306, 307: the stored state of the last converged balance -- re-
+          ! running the routine here would repeat the Newton solve and move it
+          if ( domain % bc(i) % type == 306 .or. domain % bc(i) % type == 307 ) &
             Ow = [ domain%bc(i)%Tw_prev, domain%bc(i)%qw_last, domain%bc(i)%sdot, domain%bc(i)%mdot_pg, &
                    domain%bc(i)%mdot_ch, domain%bc(i)%Bprime, domain%bc(i)%s_total ]
           wall_buf(nv*(wall_i-1)+1 : nv*wall_i) = Ow(1:nv)

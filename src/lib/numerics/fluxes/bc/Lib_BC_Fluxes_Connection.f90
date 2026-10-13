@@ -9,21 +9,26 @@ module FUSS_Lib_BC_Fluxes_Connection
 
 contains
 
-  subroutine BC_Connection ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, q_out )
+  subroutine BC_Connection ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, q_out, chig )
     use FUSS_Lib_Solid
     use FUSS_Lib_Diffusive
+    use FUSS_Lib_Pyrolysis, only: Solid_State
     implicit none
     integer, intent(in) :: Im, Jm, Km, Fm
     type(FUSS_tensor_3D_type), intent(in) :: Mg
     real(R8), intent(in)         :: Tg(6), matIDg
     type(FUSS_block_type), intent(inout) :: Blk
     real(R8), intent(out), optional :: q_out     ! TEST ONLY: the flux put into the residual (dump-interface-flux)
+    !> pyrolysis (plan 08 section 2.9): the ghost chi, so that both sides take
+    !> the solid conductivity k_s(T, chi) -- this cell's from the cache, the
+    !> neighbour's from Solid_State at the ghost state; absent = legacy co_Kappa
+    real(R8), intent(in), optional :: chig(:)
     ! Local
     integer :: Dir, Face_im, Face_jm, Face_km, modfm2
     real(R8) :: T_loc, T_con, T_ip_loc, T_im_loc, T_jp_loc, T_jm_loc, T_kp_loc, T_km_loc
     real(R8) :: Normal(3), Area, M_loc(3,3), M_con(3,3), Gradient(3)
     real(R8) :: kappa_loc, kappa_con, Num_loc, Num_con, Den_loc, Den_con
-    real(R8) :: Tint, Flux
+    real(R8) :: Tint, Flux, rho_s, cp_s, tau, eps_pg
     
     ! Boundary face index
     call Face_Index ( Fm, Dir, Im, Jm, Km, Face_im, Face_jm, Face_km )
@@ -51,8 +56,13 @@ contains
     
     T_con = Tg(1)
 
-    call co_Kappa( Blk % matID(Im,Jm,Km), T_loc, kappa_loc )
-    call co_Kappa( matIDg, T_con, kappa_con )
+    if ( present(chig) ) then
+      kappa_loc = Blk % k_s(Im,Jm,Km)
+      call Solid_State( nint(matIDg), T_con, chig, rho_s, cp_s, kappa_con, tau, eps_pg )
+    else
+      call co_Kappa( Blk % matID(Im,Jm,Km), T_loc, kappa_loc )
+      call co_Kappa( matIDg, T_con, kappa_con )
+    endif
           
     ! Tint computations
     select case ( Fm )

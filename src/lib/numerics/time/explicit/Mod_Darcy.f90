@@ -49,6 +49,8 @@ module FUSS_Mod_Darcy
     real(R8), allocatable :: hi(:,:,:)     ! coefficient of p(c+1) along the line (= -C of the upper face)
     real(R8), allocatable :: g(:,:,:,:)    ! energy pass: cell tensor h_g Gamma (9, row-major)
     real(R8), allocatable :: cq(:,:,:)     ! quasi-steady: gas released but not yet expelled at the step start [kg/m3]
+    real(R8), allocatable :: dgx(:,:,:)    ! line-implicit: the part of dgl from the faces across the lines
+    real(R8), allocatable :: cx(:,:,:,:)   ! line-implicit: C of the cross faces, (- first, + first, - second, + second)
   end type darcy_work_t
   type(darcy_work_t), allocatable, save :: wk(:)
 
@@ -155,9 +157,11 @@ contains
       if ( .not. is_local_block(b) ) cycle
       ni = domain%blk(b)%dim(1) ; nj = domain%blk(b)%dim(2) ; nk = domain%blk(b)%dim(3)
       allocate( wk(b)%res(ni,nj,nk), wk(b)%dgl(ni,nj,nk), wk(b)%dga(ni,nj,nk), wk(b)%rhs(ni,nj,nk), &
-                wk(b)%lo(ni,nj,nk), wk(b)%hi(ni,nj,nk), wk(b)%g(9,ni,nj,nk), wk(b)%cq(ni,nj,nk) )
+                wk(b)%lo(ni,nj,nk), wk(b)%hi(ni,nj,nk), wk(b)%g(9,ni,nj,nk), wk(b)%cq(ni,nj,nk), &
+                wk(b)%dgx(ni,nj,nk), wk(b)%cx(4,ni,nj,nk) )
       wk(b)%res = 0.0d0 ; wk(b)%dgl = 0.0d0 ; wk(b)%dga = 0.0d0 ; wk(b)%rhs = 0.0d0
       wk(b)%lo  = 0.0d0 ; wk(b)%hi  = 0.0d0 ; wk(b)%g   = 0.0d0 ; wk(b)%cq  = 0.0d0
+      wk(b)%dgx = 0.0d0 ; wk(b)%cx  = 0.0d0
     enddo
 
   end subroutine Darcy_Setup_Blocks
@@ -511,7 +515,7 @@ contains
   !> mass fluxes, eta^(n-1) <- eta^n for the next step.
   subroutine Solve_Pressure ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_darcy, obj_pyrolysis, obj_io, obj_sim_param
+    use FUSS_Config_Types_m, only: obj_darcy, obj_pyrolysis, obj_io, obj_sim_param, obj_ablation
     use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Lib_Pyrolysis,  only: Darcy_Cell_Coeffs, Reaction_Rate, Advance_Reaction
     use FUSS_Mod_MPI,        only: is_local_block, mpi_is_root
@@ -664,6 +668,7 @@ contains
     !    eta^(n-1) for the next step
     call Darcy_Update_Velocity( domain )
     call Open_Face_Fluxes( domain )
+    if ( obj_ablation%dump_interface_flux ) call Connection_Mass_Fluxes( domain )
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
       !$omp do collapse(3) schedule(static) private(i,j,k)
@@ -706,6 +711,7 @@ contains
       do k = 1, nk ; do j = 1, nj ; do i = 1, ni
         wk(b)%res(i,j,k) = 0.0d0 ; wk(b)%dgl(i,j,k) = 0.0d0 ; wk(b)%dga(i,j,k) = 0.0d0
         wk(b)%rhs(i,j,k) = 0.0d0 ; wk(b)%lo(i,j,k)  = 0.0d0 ; wk(b)%hi(i,j,k)  = 0.0d0
+        wk(b)%dgx(i,j,k) = 0.0d0 ; wk(b)%cx(:,i,j,k) = 0.0d0
       enddo ; enddo ; enddo
       !$omp end do
 
@@ -716,7 +722,8 @@ contains
         do i = 1, ni - 1
           call Face_Terms( domain%blk(b), domain%blk(b)%gam_pg, 1, i, j, k, C, E )
           F = C * ( domain%blk(b)%p_pg(i+1,j,k) - domain%blk(b)%p_pg(i,j,k) ) + E
-          call Scatter( wk(b), bd == 1, i, j, k, i+1, j, k, C, E, F )
+          call Scatter( wk(b), bd, 1, i, j, k, i+1, j, k, C, E, F, &
+                        domain%blk(b)%p_pg(i,j,k), domain%blk(b)%p_pg(i+1,j,k) )
           fmax = max( fmax, abs(F) )
         enddo
       enddo ; enddo
@@ -727,7 +734,8 @@ contains
         do j = 1, nj - 1
           call Face_Terms( domain%blk(b), domain%blk(b)%gam_pg, 2, i, j, k, C, E )
           F = C * ( domain%blk(b)%p_pg(i,j+1,k) - domain%blk(b)%p_pg(i,j,k) ) + E
-          call Scatter( wk(b), bd == 2, i, j, k, i, j+1, k, C, E, F )
+          call Scatter( wk(b), bd, 2, i, j, k, i, j+1, k, C, E, F, &
+                        domain%blk(b)%p_pg(i,j,k), domain%blk(b)%p_pg(i,j+1,k) )
           fmax = max( fmax, abs(F) )
         enddo
       enddo ; enddo
@@ -738,7 +746,8 @@ contains
         do k = 1, nk - 1
           call Face_Terms( domain%blk(b), domain%blk(b)%gam_pg, 3, i, j, k, C, E )
           F = C * ( domain%blk(b)%p_pg(i,j,k+1) - domain%blk(b)%p_pg(i,j,k) ) + E
-          call Scatter( wk(b), bd == 3, i, j, k, i, j, k+1, C, E, F )
+          call Scatter( wk(b), bd, 3, i, j, k, i, j, k+1, C, E, F, &
+                        domain%blk(b)%p_pg(i,j,k), domain%blk(b)%p_pg(i,j,k+1) )
           fmax = max( fmax, abs(F) )
         enddo
       enddo ; enddo
@@ -767,27 +776,26 @@ contains
             call Wall_Terms( domain%blk(b), 0.5d0 * ( Tensor9( domain%blk(b)%gam_pg(:,Im,Jm,Km) ) + Gw ), &
                              Im, Jm, Km, Fm, .true., Cw, Ew, A )
           elseif ( domain%bc(ii)%type == 101 ) then
-            ! block-Jacobi connection: the ghost value of the previous sweep,
-            ! the neighbour's coefficient from its ghost state, a full-cell
-            ! distance (no 101 case can run before plan 08: guard 9)
+            ! block-Jacobi connection (plan 08 section 2.9 (3)): the ghost
+            ! value of the previous sweep and the interior face kernel on both
+            ! blocks' data -- face metric (M + Mg)/2, face tensor from the two
+            ! cells' own lagged coefficients, both tangential stencils -- so
+            ! the two sides evaluate one flux and the gas mass is conserved
             q = domain%bc(ii)%pg(1)
-            m = nint( domain%bc(ii)%matIDg )
-            call Darcy_Cell_Coeffs( m, q, domain%bc(ii)%Tg(1), domain%bc(ii)%chig, &
-                                    [b, Im, Jm, Km], eta_w, Gw, eps_w, rho_w, h_w )
-            call Wall_Terms( domain%blk(b), 0.5d0 * ( Tensor9( domain%blk(b)%gam_pg(:,Im,Jm,Km) ) + Gw ), &
-                             Im, Jm, Km, Fm, .false., Cw, Ew, A )
+            call Connection_Terms( domain%blk(b), domain%bc(ii), domain%blk(b)%gam_pg(:,Im,Jm,Km), &
+                                   domain%blk(domain%bc(ii)%bs)%gam_pg(:,domain%bc(ii)%is,domain%bc(ii)%js, &
+                                   domain%bc(ii)%ks), Cw, Ew, A )
           else
             cycle
           endif
           inflow = Cw * ( q - domain%blk(b)%p_pg(Im,Jm,Km) ) + s * Ew
           wk(b)%res(Im,Jm,Km) = wk(b)%res(Im,Jm,Km) + inflow
           wk(b)%dga(Im,Jm,Km) = wk(b)%dga(Im,Jm,Km) + Cw
-          if ( bd == Dir ) then
-            wk(b)%dgl(Im,Jm,Km) = wk(b)%dgl(Im,Jm,Km) + Cw
-            wk(b)%rhs(Im,Jm,Km) = wk(b)%rhs(Im,Jm,Km) + Cw * q + s * Ew
-          else
-            wk(b)%rhs(Im,Jm,Km) = wk(b)%rhs(Im,Jm,Km) + inflow
-          endif
+          ! the face's conductance on the line diagonal whatever its direction
+          ! (a face across the lines too, as Scatter's; the value beyond it
+          ! from the previous sweep): line Jacobi with the full diagonal
+          wk(b)%dgl(Im,Jm,Km) = wk(b)%dgl(Im,Jm,Km) + Cw
+          wk(b)%rhs(Im,Jm,Km) = wk(b)%rhs(Im,Jm,Km) + Cw * q + s * Ew
           fmax = max( fmax, abs(inflow) )
         enddo
         !$omp end do
@@ -877,18 +885,27 @@ contains
             call Thomas_Line( domain%blk(b), wk(b), 1, j, k )
           enddo ; enddo
           !$omp end do
+          !$omp single
+          call Line_Uniform_Correction( domain%blk(b), wk(b), 1 )
+          !$omp end single
         case (2)
           !$omp do collapse(2) schedule(static) private(i,k)
           do k = 1, nk ; do i = 1, ni
             call Thomas_Line( domain%blk(b), wk(b), 2, i, k )
           enddo ; enddo
           !$omp end do
+          !$omp single
+          call Line_Uniform_Correction( domain%blk(b), wk(b), 2 )
+          !$omp end single
         case (3)
           !$omp do collapse(2) schedule(static) private(i,j)
           do j = 1, nj ; do i = 1, ni
             call Thomas_Line( domain%blk(b), wk(b), 3, i, j )
           enddo ; enddo
           !$omp end do
+          !$omp single
+          call Line_Uniform_Correction( domain%blk(b), wk(b), 3 )
+          !$omp end single
         case default
           !$omp do collapse(3) schedule(static) private(i,j,k)
           do k = 1, nk ; do j = 1, nj ; do i = 1, ni
@@ -956,6 +973,81 @@ contains
     end subroutine Singular
 
   end subroutine Thomas_Line
+
+
+  !> The additive correction of the error uniform across the lines of a
+  !> line-implicit block (Hutchinson and Raithby's additive correction, in the
+  !> line direction). After the Thomas solves, the residual of the full system
+  !> at p_new is the cross-line coupling of the change, r = sum_cross C (p_new -
+  !> p_pg)(neighbour). The correction delta(s), one value per position s
+  !> along the lines, solves the line-summed system, in which the cross terms
+  !> cancel: sum_t [lo delta(s-1) + (dgl - dgx) delta(s) + hi delta(s+1)] =
+  !> sum_t r(s,t). On lines that carry the same data (a one-dimensional case
+  !> cut into identical lines) the corrected iterate is the exact line
+  !> solution, so one sweep solves the step to round-off, as the lagged-flux
+  !> splitting did before the cross conductance moved onto the diagonal; on a
+  !> two-dimensional block it removes line Jacobi's slowest mode. A singular
+  !> summed system (no line with a fixed pressure under quasi-steady) skips
+  !> the correction. Serial (inside an omp single).
+  subroutine Line_Uniform_Correction ( blk, w, d )
+    use FUSS_Advanced_Types_m, only: FUSS_block_type
+    implicit none
+    type(FUSS_block_type), intent(inout) :: blk
+    type(darcy_work_t),    intent(in)    :: w
+    integer, intent(in) :: d
+    ! Local
+    integer  :: n, s, t1, t2, n1, n2, c1, c2, ic(3), jc(3), q
+    real(R8) :: Ls(blk%dim(d)), Ds(blk%dim(d)), Hs(blk%dim(d)), Rs(blk%dim(d)), cp(blk%dim(d)), rp(blk%dim(d))
+    real(R8) :: den, r, dl
+
+    n = blk%dim(d)
+    c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
+    n1 = blk%dim(c1) ; n2 = blk%dim(c2)
+    if ( n1 * n2 == 1 ) return                      ! one line: the Thomas solve is exact
+    Ls = 0.0d0 ; Ds = 0.0d0 ; Hs = 0.0d0 ; Rs = 0.0d0
+    do s = 1, n
+      do t2 = 1, n2 ; do t1 = 1, n1
+        call Line_Index( d, s, t1, t2, ic )
+        r = 0.0d0
+        do q = 1, 4
+          if ( w%cx(q,ic(1),ic(2),ic(3)) == 0.0d0 ) cycle
+          jc = ic
+          select case ( q )
+            case (1) ; jc(c1) = ic(c1) - 1
+            case (2) ; jc(c1) = ic(c1) + 1
+            case (3) ; jc(c2) = ic(c2) - 1
+            case (4) ; jc(c2) = ic(c2) + 1
+          end select
+          r = r + w%cx(q,ic(1),ic(2),ic(3)) * ( blk%p_new(jc(1),jc(2),jc(3)) - blk%p_pg(jc(1),jc(2),jc(3)) )
+        enddo
+        Rs(s) = Rs(s) + r
+        Ds(s) = Ds(s) + ( w%dgl(ic(1),ic(2),ic(3)) - w%dgx(ic(1),ic(2),ic(3)) )
+        Ls(s) = Ls(s) + w%lo(ic(1),ic(2),ic(3))
+        Hs(s) = Hs(s) + w%hi(ic(1),ic(2),ic(3))
+      enddo ; enddo
+    enddo
+    ! Thomas on the summed line
+    if ( Ds(1) == 0.0d0 ) return
+    cp(1) = Hs(1) / Ds(1) ; rp(1) = Rs(1) / Ds(1)
+    do s = 2, n
+      den = Ds(s) - Ls(s) * cp(s-1)
+      if ( den == 0.0d0 ) return
+      cp(s) = Hs(s) / den
+      rp(s) = ( Rs(s) - Ls(s) * rp(s-1) ) / den
+    enddo
+    do s = n - 1, 1, -1
+      rp(s) = rp(s) - cp(s) * rp(s+1)
+    enddo
+    do s = 1, n
+      dl = rp(s)
+      if ( dl == 0.0d0 ) cycle
+      do t2 = 1, n2 ; do t1 = 1, n1
+        call Line_Index( d, s, t1, t2, ic )
+        blk%p_new(ic(1),ic(2),ic(3)) = blk%p_new(ic(1),ic(2),ic(3)) + dl
+      enddo ; enddo
+    enddo
+
+  end subroutine Line_Uniform_Correction
 
 
   !> Cell (i,j,k) of position s along direction d at transverse (t1, t2):
@@ -1070,16 +1162,105 @@ contains
   end subroutine Wall_Terms
 
 
-  !> Scatter of an interior face (lower cell L, upper cell R) into the rows:
-  !> the residual and the Jacobi diagonal always; the line direction gets its
-  !> conductance on the diagonal and off-diagonals with the tangential part
-  !> lagged, any other direction goes to the right-hand side whole.
-  subroutine Scatter ( w, implicit_line, iL, jL, kL, iR, jR, kR, C, E, F )
+  !> C and E of the block-connection (101) face of bc entry bcf (plan 08
+  !> section 2.9 (3)): the interior kernel Darcy_Face with the face metric
+  !> (M + Mg)/2 -- Mg the neighbour cell's, bcf%Mg(1) --, the face tensor
+  !> (gloc + gnb)/2 of the two cells' own coefficients and the tangential pairs
+  !> of both sides (this cell's row and the source block's, bcf%pg(3:6), as
+  !> BC_Connection reads Tg(3:6)); the inflow into the cell is C (pg(1) - p) +
+  !> s E, s = +1 on a high face. Both blocks evaluate the same expression, so
+  !> the face conserves what it carries. Before plan 08 the row used this
+  !> cell's metric alone at a full-cell distance and the neighbour's tensor
+  !> re-evaluated at its ghost state: on unequal spacing the two sides'
+  !> conductances differed (by the spacing ratio at R5's dx2/dx1 = 4).
+  subroutine Connection_Terms ( blk, bcf, gloc, gnb, C, E, A )
+    use FUSS_Advanced_Types_m,     only: FUSS_block_type, FUSS_bc_type
+    use FUSS_Lib_BC_Fluxes,        only: Face_Index
+    use FUSS_Lib_Diffusive_Tensor, only: Darcy_Face
+    implicit none
+    type(FUSS_block_type), intent(in) :: blk
+    type(FUSS_bc_type),    intent(in) :: bcf
+    real(R8), intent(in)  :: gloc(9), gnb(9)
+    real(R8), intent(out) :: C, E, A
+    ! Local
+    integer  :: Dir, Fi, Fj, Fk, Im, Jm, Km, bb, cc
+    real(R8) :: n(3), Gf(3,3), lb(2), lc(2)
+
+    Im = bcf%i ; Jm = bcf%j ; Km = bcf%k
+    call Face_Index( bcf%f, Dir, Im, Jm, Km, Fi, Fj, Fk )
+    n = blk%dir(Dir)%f(Fi,Fj,Fk)%n
+    A = blk%dir(Dir)%f(Fi,Fj,Fk)%A
+    select case ( Dir )
+      case (1)
+        bb = 2 ; cc = 3
+        lb = [ blk%p_pg(Im,Jm-1,Km), blk%p_pg(Im,Jm+1,Km) ]
+        lc = [ blk%p_pg(Im,Jm,Km-1), blk%p_pg(Im,Jm,Km+1) ]
+      case (2)
+        bb = 1 ; cc = 3
+        lb = [ blk%p_pg(Im-1,Jm,Km), blk%p_pg(Im+1,Jm,Km) ]
+        lc = [ blk%p_pg(Im,Jm,Km-1), blk%p_pg(Im,Jm,Km+1) ]
+      case default
+        bb = 1 ; cc = 2
+        lb = [ blk%p_pg(Im-1,Jm,Km), blk%p_pg(Im+1,Jm,Km) ]
+        lc = [ blk%p_pg(Im,Jm-1,Km), blk%p_pg(Im,Jm+1,Km) ]
+    end select
+    Gf = 0.5d0 * ( Tensor9( gloc ) + Tensor9( gnb ) )
+    call Darcy_Face( Gf, n, A, lb(1), lb(2), bcf%pg(3), bcf%pg(4), lc(1), lc(2), bcf%pg(5), bcf%pg(6), &
+                     blk%M(Im,Jm,Km)%c, bcf%Mg(1)%c, Dir, bb, cc, C, E )
+
+  end subroutine Connection_Terms
+
+
+  !> TEST ONLY (dump-interface-flux, plan 08 R5): the gas mass flow [kg/s]
+  !> into the cell through every 101 face from the converged p^(n+1) and its
+  !> ghosts, the expression of Assemble's connection row.
+  subroutine Connection_Mass_Fluxes ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer  :: ii, b, Im, Jm, Km
+    real(R8) :: Cw, Ew, A, s
+
+    !$omp do schedule(dynamic) private(ii,b,Im,Jm,Km,Cw,Ew,A,s)
+    do ii = 1, domain%nbound
+      if ( domain%bc(ii)%type /= 101 ) cycle
+      b = domain%bc(ii)%b
+      if ( .not. is_local_block(b) ) cycle
+      Im = domain%bc(ii)%i ; Jm = domain%bc(ii)%j ; Km = domain%bc(ii)%k
+      s = real( 1 - 2 * mod(domain%bc(ii)%f,2), R8 )
+      call Connection_Terms( domain%blk(b), domain%bc(ii), domain%blk(b)%gam_pg(:,Im,Jm,Km), &
+                             domain%blk(domain%bc(ii)%bs)%gam_pg(:,domain%bc(ii)%is,domain%bc(ii)%js, &
+                             domain%bc(ii)%ks), Cw, Ew, A )
+      domain%bc(ii)%qm_if = Cw * ( domain%bc(ii)%pg(1) - domain%blk(b)%p_pg(Im,Jm,Km) ) + s * Ew
+    enddo
+    !$omp end do
+
+  end subroutine Connection_Mass_Fluxes
+
+
+  !> Scatter of an interior face (lower cell L, upper cell R; F = C (pR - pL)
+  !> + E) into the rows: the residual and the Jacobi diagonal always; the line
+  !> direction gets its conductance on the diagonal and off-diagonals with the
+  !> tangential part E lagged. A face ACROSS the lines puts its conductance on
+  !> the diagonal too and only the neighbour's part, C p_neighbour +- E of the
+  !> current iterate, on the right-hand side: line Jacobi with the full
+  !> diagonal, whose fixed point is the same system. The whole flux on the
+  !> right-hand side (as first built) left the diagonal without the cross
+  !> conductance, and the sweeps diverged once the storage V/dt fell below it
+  !> -- a 2-D slab with its open face on top, at any time step (2026-10-13).
+  subroutine Scatter ( w, bd, dd, iL, jL, kL, iR, jR, kR, C, E, F, pL, pR )
     implicit none
     type(darcy_work_t), intent(inout) :: w
-    logical,  intent(in) :: implicit_line
+    integer,  intent(in) :: bd, dd          ! the block's line direction (0: none) and the face's
     integer,  intent(in) :: iL, jL, kL, iR, jR, kR
-    real(R8), intent(in) :: C, E, F
+    real(R8), intent(in) :: C, E, F, pL, pR
+    ! Local
+    logical :: implicit_line
+    integer :: q
+
+    implicit_line = ( bd == dd )
 
     w%res(iL,jL,kL) = w%res(iL,jL,kL) + F
     w%res(iR,jR,kR) = w%res(iR,jR,kR) - F
@@ -1093,8 +1274,20 @@ contains
       w%rhs(iL,jL,kL) = w%rhs(iL,jL,kL) + E
       w%rhs(iR,jR,kR) = w%rhs(iR,jR,kR) - E
     else
-      w%rhs(iL,jL,kL) = w%rhs(iL,jL,kL) + F
-      w%rhs(iR,jR,kR) = w%rhs(iR,jR,kR) - F
+      w%dgl(iL,jL,kL) = w%dgl(iL,jL,kL) + C
+      w%dgl(iR,jR,kR) = w%dgl(iR,jR,kR) + C
+      w%rhs(iL,jL,kL) = w%rhs(iL,jL,kL) + ( C * pR + E )
+      w%rhs(iR,jR,kR) = w%rhs(iR,jR,kR) + ( C * pL - E )
+      if ( bd >= 1 .and. bd <= 3 ) then
+        ! for the line-uniform correction (Line_Uniform_Correction): slot 1/2
+        ! the first cross direction (lower, upper neighbour), 3/4 the second
+        q = 3
+        if ( dd == merge( 2, 1, bd == 1 ) ) q = 1
+        w%dgx(iL,jL,kL) = w%dgx(iL,jL,kL) + C
+        w%dgx(iR,jR,kR) = w%dgx(iR,jR,kR) + C
+        w%cx(q+1,iL,jL,kL) = C          ! cell L's upper neighbour along dd is R
+        w%cx(q,iR,jR,kR)   = C          ! cell R's lower neighbour along dd is L
+      endif
     endif
 
   end subroutine Scatter
@@ -1273,14 +1466,15 @@ contains
             domain%blk(b)%R(Im,Jm,Km) = domain%blk(b)%R(Im,Jm,Km) - inflow
             domain%bc(ii)%edot_pg = - inflow / A
           elseif ( domain%bc(ii)%type == 101 ) then
+            ! the gas enthalpy flux of the connection: Connection_Terms on the
+            ! two cells' h Gamma of this stage (plan 08 section 2.9 (3))
             q = domain%bc(ii)%pg(1)
-            m = nint( domain%bc(ii)%matIDg )
-            call Darcy_Cell_Coeffs( m, q, domain%bc(ii)%Tg(1), domain%bc(ii)%chig, &
-                                    [b, Im, Jm, Km], eta_w, Gw, eps_w, rho_w, h_w )
-            Gf = 0.5d0 * ( Tensor9( wk(b)%g(:,Im,Jm,Km) ) + h_w * Gw )
-            call Wall_Terms( domain%blk(b), Gf, Im, Jm, Km, Fm, .false., Cw, Ew, A )
+            call Connection_Terms( domain%blk(b), domain%bc(ii), wk(b)%g(:,Im,Jm,Km), &
+                                   wk(domain%bc(ii)%bs)%g(:,domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks), &
+                                   Cw, Ew, A )
             inflow = Cw * ( q - domain%blk(b)%p_pg(Im,Jm,Km) ) + s * Ew
             domain%blk(b)%R(Im,Jm,Km) = domain%blk(b)%R(Im,Jm,Km) - inflow
+            domain%bc(ii)%qh_if = inflow
           endif
         enddo
         !$omp end do

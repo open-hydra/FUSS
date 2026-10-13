@@ -135,17 +135,20 @@ contains
 
 
   !> Ghost reaction state (plan 06 section 3.1): mirrored at wall, symmetry
-  !> and null faces exactly as Ghost_Symmetry mirrors T; block connections and
-  !> chimera faces are plan 08 (refused in phase 2 by Check_Pyrolysis_BC_Topology).
-  !> No phase-2 consumer reads ghost chi; the call site exists so that plan 08
-  !> adds the connection branches without adding a call.
+  !> and null faces exactly as Ghost_Symmetry mirrors T; across a block
+  !> connection (101, type 2 only: guard 9) the neighbour's chi, as
+  !> Fill_Ghost_p copies p, with bc%chig = the first ghost layer (the
+  !> conductivity of the connection kernel, plan 08 section 2.9). Chimera
+  !> (102) is refused under pyrolysis.
   subroutine Fill_Ghost_chi ( domain )
+    use FUSS_Parameters_m, only: guide
+    use FUSS_Mod_MPI,      only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer :: ii, i, Bm, Im, Jm, Km, Fm, g
+    integer :: ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg
 
-    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, g)
+    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg)
     do ii = 1, domain % n_local_bc
       i  = domain % local_bc_idx(ii)
       Bm = domain % bc(i) % b
@@ -154,8 +157,19 @@ contains
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
       select case ( domain % bc(i) % type )
-        case (101, 102)
-          write(*,'(A)') ' [ERROR] pyrolysis: chi ghost connection is plan 08'
+        case (101)
+          Bs = domain % bc(i) % bs
+          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: plan 11
+          Is = domain % bc(i) % is ; Js = domain % bc(i) % js ; Ks = domain % bc(i) % ks ; Fs = domain % bc(i) % fs
+          do g = 1, gc
+            Ig = Im - guide(Fm,1)*g ; Jg = Jm - guide(Fm,2)*g ; Kg = Km - guide(Fm,3)*g
+            domain % blk(Bm) % chi(:,Ig,Jg,Kg) = domain % blk(Bs) % chi(:, Is + guide(Fs,1)*(g-1), &
+                                                                           Js + guide(Fs,2)*(g-1), &
+                                                                           Ks + guide(Fs,3)*(g-1) )
+          enddo
+          domain % bc(i) % chig = domain % blk(Bm) % chi(:, Im - guide(Fm,1), Jm - guide(Fm,2), Km - guide(Fm,3))
+        case (102)
+          write(*,'(A)') ' [ERROR] pyrolysis: chimera (102) faces are refused'
           error stop 1
         case default
           do g = 1, gc

@@ -98,15 +98,21 @@ contains
   !>
   !> This does not affect a static mesh: Update_Mesh returns before calling it
   !> when motion is disabled.
-  subroutine Setup_BC_Metrics ( domain )
+  subroutine Setup_BC_Metrics ( domain, refresh )
     use FUSS_Advanced_Types_m
     use FUSS_Lib_Metrics, only: BC_Connect_Metrics, BC_Symmetry_Metrics, &
                                 BC_Extrapolate_Metrics
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    !> .true. on the per-step refresh of a moving mesh (Update_Mesh)
+    logical, intent(in), optional :: refresh
     ! Local
+    logical :: is_refresh
     integer :: i
     integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
+
+    is_refresh = .false.
+    if ( present(refresh) ) is_refresh = refresh
 
     !$omp parallel
     ! Create the nodes for gc layers of ghost cell
@@ -134,6 +140,13 @@ contains
         case(300) ! symmetry
           call BC_Symmetry_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
+        case(103, 307) ! coupled faces (plan 08 decision 3): hydra overwrites
+          ! this metric once, after FUSS's setup, with the MOSE neighbour's, and
+          ! its interface temperature reads it; a refresh must keep hydra's (no
+          ! receding block owns a coupled face, guard abl_receding_coupled)
+          if ( .not. is_refresh ) &
+            call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
+                                          domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
         case default  ! Rientra qui anche chimera
           call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                         domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
@@ -226,7 +239,7 @@ contains
     ! so they have to be rebuilt too. See Setup_BC_Metrics. (TEST ONLY
     ! skip-bc-metrics-refresh keeps the stale ones: the red control of the
     ! receding conjugate case.)
-    if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) call Setup_BC_Metrics ( domain )
+    if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) call Setup_BC_Metrics ( domain, refresh = .true. )
 
   end subroutine Update_Mesh
 
