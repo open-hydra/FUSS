@@ -9,7 +9,9 @@
 #               iterations followed by a restart for another N, and compares the
 #               two solutions field by field.
 #
-#               Five cases, because they fail for unrelated reasons:
+#               Twelve cases (the run_case calls at the end; qs_N100 and
+#               conjugate_receding are described there), because they fail
+#               for unrelated reasons:
 #
 #                 qvol_Plate         static mesh WITH a volumetric source. The
 #                                    source file name used to be assigned only
@@ -55,11 +57,24 @@
 #                                    in-memory value (two steps old at the end
 #                                    of a step) instead of TO failed it
 #                                    (2026-10-09: rel|dT| 2.7e-8). Fixed, the
-#                                    case sits at ~1e-12 (T) to ~6e-12 (chi),
-#                                    above the ~1e-15 of the others: the type-2
-#                                    inversion stops at |f| <= 1e-13 |E|, and
-#                                    the restart's rounded guess can stop one
-#                                    Newton iterate apart.
+#                                    case sits far above the ~1e-15 of the
+#                                    others: the type-2 inversion stops at
+#                                    |f| <= 1e-13 |E|, so two runs that differ
+#                                    by any round-off stop at different Newton
+#                                    iterates and drift apart step by step.
+#                                    Measured 2026-10-13 by restarting from the
+#                                    first leg's file with one unit added to the
+#                                    15th digit of T, chi_1, p_pg, T_prev or
+#                                    eta_prev: chi ends 0.7e-11 .. 1.9e-11
+#                                    apart (T 2e-12 .. 4e-12), on the stage-C
+#                                    and the stage-D binaries alike; the plain
+#                                    restart is one more draw (6.6e-12 on
+#                                    stage C, 1.24e-11 on stage D). Its budget
+#                                    is 1e-10: five times the widest draw, and
+#                                    still 270 times below a lost history
+#                                    (restarting with T_prev := T: rel|dT|
+#                                    2.7e-8, chi 1.2e-7; with eta_prev :=
+#                                    eta_st: 7.7e-8 and 3.4e-7).
 #                 pyrolysis/ablation/seb_closure  the ablating wall BC 306 (plan
 #                                    08): besides field.tec, each face's state
 #                                    in OUTPUT/bc306-state.dat -- the Newton
@@ -86,6 +101,19 @@
 #                                    heating. The *_abl columns of
 #                                    energy-budget.txt count from the start of
 #                                    each leg, like Q_*, and are not compared.
+#                 pyrolysis/ablation/coupled307/run307  the coupled
+#                                    ablating wall 307 standalone (its exchange
+#                                    values from coupled-env-file): the face
+#                                    state crosses the restart as for 306.
+#                 pyrolysis/ablation/smoothing/w5  a 2-D receding slab
+#                                    with the wall smoothing: the smoothed
+#                                    surface (field.tec) and the face state
+#                                    cross the restart (the smoothing itself
+#                                    keeps no state).
+#                 moving-mesh/conjugate_receding_t2  pyrolysis on two
+#                                    blocks across an unequal-spacing 101
+#                                    face (type 2): both blocks' state
+#                                    crosses the restart.
 #
 #               WHY THE TOLERANCE IS NOT ZERO
 #               ----------------------------
@@ -100,7 +128,16 @@
 #               measured floor, and many orders below what losing state costs.
 #               For scale, the two defects this gate exists for produce
 #               relative differences of 1.6e-1 and 4.6e-3 respectively, both
-#               verified by reintroducing them.
+#               verified by reintroducing them. A case whose own floor is
+#               higher passes its budget as run_case's third argument, with
+#               the measurement beside it (heated0d_type2 only). The other
+#               heated type-2 cases, measured the same way on 2026-10-13:
+#               smoothing/w5 up to 5.4e-12 (eta_st), conjugate_receding_t2
+#               3.4e-12, ATC22, run307 and seb_closure 1.4e-12 at most.
+#
+#               field.tec holds one zone per block and every zone is compared.
+#               Until 2026-10-13 the reader took the first zone only, so the
+#               second block of the two two-block cases was never compared.
 #===============================================================================
 set -u
 
@@ -126,7 +163,7 @@ echo
 
 # $1 = case path relative to the repo root, $2 = iterations per half
 run_case () {
-  local case_rel=$1 half=$2
+  local case_rel=$1 half=$2 tol=${3:-1.0e-11}
   local src="$ROOT/$case_rel"
   local name; name=$(echo "$case_rel" | tr '/' '_')
   local cont="$WORK/$name.cont" rst="$WORK/$name.rst"
@@ -178,35 +215,38 @@ PY
     || { bad "$case_rel: restarted leg failed (see $rst/run2.log)"; return; }
 
   local out rc
-  out=$(python3 - "$cont/OUTPUT/field.tec" "$rst/OUTPUT/field.tec" <<'PY'
+  out=$(python3 - "$cont/OUTPUT/field.tec" "$rst/OUTPUT/field.tec" "$tol" <<'PY'
 import re, sys
 
 def read_tec(path):
+    # every zone (one per block), each variable's values concatenated block after block
     lines = open(path).read().split("\n")
     names = [t.strip('"') for t in lines[0].split("=", 1)[-1].split() if t.strip('"')]  # VARIABLES names, quoted (ORION <= v1.6) or bare (ORION >= v1.7.0 writes `VARIABLES = x y z T ...`)
-    m = re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", lines[1])
-    ni, nj, nk = (int(x) for x in m.groups())
-    vals = []
-    for line in lines[2:]:
-        s = line.strip()
-        if not s:
-            continue
-        try:
-            vals.append(float(s))
-        except ValueError:
-            pass
-    n_nodal = ni * nj * nk
-    n_cell = (ni - 1) * (nj - 1) * max(nk - 1, 1)
-    out, off = {}, 0
-    for name in names:
-        n = n_nodal if name in ("x", "y", "z") else n_cell
-        out[name] = vals[off:off + n]
-        off += n
-    return out
+    zones = [i for i, line in enumerate(lines) if line.lstrip().startswith("ZONE")]
+    out = {name: [] for name in names}
+    for z, first in enumerate(zones):
+        m = re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", lines[first])
+        ni, nj, nk = (int(x) for x in m.groups())
+        last = zones[z + 1] if z + 1 < len(zones) else len(lines)
+        vals = [float(line) for line in lines[first + 1:last] if line.strip()]
+        n_nodal = ni * nj * nk
+        n_cell = (ni - 1) * (nj - 1) * max(nk - 1, 1)
+        off = 0
+        for name in names:
+            n = n_nodal if name in ("x", "y", "z") else n_cell
+            out[name] += vals[off:off + n]
+            off += n
+        if off != len(vals):
+            print("ZONE-SIZE %s zone %d: %d values for %d expected" % (path, z + 1, len(vals), off))
+            sys.exit(2)
+    return out, len(zones)
 
-REL_TOL = 1.0e-11   # see the header: the ASCII round-trip floor is ~1e-15
+REL_TOL = float(sys.argv[3])   # 1e-11 unless the case passes its own (see the header): the ASCII round-trip floor is ~1e-15
 
-a, b = read_tec(sys.argv[1]), read_tec(sys.argv[2])
+(a, nza), (b, nzb) = read_tec(sys.argv[1]), read_tec(sys.argv[2])
+if nza != nzb or nza == 0:
+    print("ZONE-COUNT %d vs %d" % (nza, nzb))
+    sys.exit(2)
 worst, ok = [], True
 compared = set()
 # Keys from the header itself, not a literal list: a misspelt literal would pass
@@ -255,6 +295,7 @@ if "T" not in compared or "x" not in compared:
     print("MISSING-NAMES: compared %s -- the VARIABLES header was not parsed" % sorted(compared))
     sys.exit(2)
 print("  ".join("rel|d%s|=%.2e" % kv for kv in worst) + "   qvol_peak=%.3e" % qmax
+      + ("   (%d blocks)" % nza if nza > 1 else "") + ("   budget %.0e" % REL_TOL if REL_TOL != 1.0e-11 else "")
       + ("   info (derived from p, not gated): " + "  ".join("rel|d%s|=%.2e" % kv for kv in info) if info else ""))
 sys.exit(0 if ok else 1)
 PY
@@ -320,8 +361,10 @@ run_case "test/pyrolysis/energy_audit"       100
 # run to ~17 s, far past the case's own 2 s.
 run_case "test/pyrolysis/darcy/mass_balance_1d" 200
 # the history fields of the type-2 step (T_prev, eta_prev) under heating and
-# kinetics: 200 steps per half (~0.4 s each, 300 K to ~560 K, reacting)
-run_case "test/pyrolysis/darcy/heated0d_type2"  200
+# kinetics: 200 steps per half (~0.56 s each; 827 K at the restart, 1236 K at the end, reacting); its own
+# budget, 1e-10: one-digit perturbations of the restart file end 0.7e-11 ..
+# 1.9e-11 apart (header), a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
+run_case "test/pyrolysis/darcy/heated0d_type2"  200 1.0e-10
 # quasi-steady type 2 with threshold kinetics (2026-10-13): the gas the stages
 # released beyond the prediction waits in (eta_st - eta_prev) p_pg, all three
 # restart columns; 800 steps per half (~136 s each, inside the 300 s case) cross many cell fronts
@@ -339,6 +382,15 @@ run_case "test/moving-mesh/conjugate_receding" 100
 # pyrolysis on the receding mesh (plan 08 stage C): ATC 2.2's setup, 200 steps per half (~0.74 s each, inside the
 # heating, the SEB driving the recession); the case is .slow for the physics suite, not here
 run_case "test/pyrolysis/ablation/ATC22" 200
+# the coupled ablating wall BC 307 (plan 08 stage D) standalone: its exchange values come from the TEST ONLY
+# coupled-env-file, its face state crosses the restart in bc306-state.dat as a 306 face's does
+run_case "test/pyrolysis/ablation/coupled307/run307" 100
+# a 2-D receding slab with the wall smoothing (plan 08 stage D): the receded, smoothed surface and the pyrolysis
+# state cross the restart; 6 steps per half (~1 s steps, the case runs 20 s)
+run_case "test/pyrolysis/ablation/smoothing/w5" 6
+# pyrolysis across a block connection (plan 08 stage D, R5's type-2 variant): chi, p and the gas state of two blocks
+# cross the restart; 50 steps per half
+run_case "test/moving-mesh/conjugate_receding_t2" 50
 
 echo
 if [ "$fail" -eq 0 ]; then

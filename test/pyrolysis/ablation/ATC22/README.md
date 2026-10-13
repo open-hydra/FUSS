@@ -84,7 +84,7 @@ then is 0.265 mm wide (the front cells span 0.130–0.383 mm over the run). e_fr
 reconstruction is added. On 2.3 the same holds (`../ATC23/README.md`).
 
 The verify also checks:
-- (bal-m) the type-2 mass M_s + M_g + M_gas_out + M_abl + G_abl of `energy-budget.txt` holds to 1.0e-14 (bound 1e-12);
+- (bal-m) the type-2 mass M_s + M_g + M_gas_out + M_abl + G_abl of `energy-budget.txt` holds to 6.1e-15 (bound 1e-12; 1.0e-14 on the stage-C binary);
 - (bal-e) the energy E_tot + E_abl + Q_out − Q_src holds to 5.7e-11 (bound 5e-10). This drift is per-step round-off: it
   grows as t^0.5 and grows when the step shrinks;
 - (seb) §3.2 on all 2376 rows: |F|/max term ≤ 9.7e-9, |β − ζ/(e^ζ − 1)| ≤ 1.4e-10, B′_pg and ṁ_ch identities exact.

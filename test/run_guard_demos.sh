@@ -341,12 +341,14 @@ law = translation
 vel = 1.0e-4 0.0 0.0"
 demo_pyro pyro_no_outflow   1 "outflow-direction must be set"                    "outflow-direction=none"
 # face 5 (type 0, no value line) becomes a 103 self-connection with its 9-integer line
-demo_pyro pyro_connection   1 "pyrolysis phase 2 is single-block: no 101/102/103/104 faces" "BCFACE:5:103:1 1 1 1 6 1 0 0 1"
-demo_pyro pyro_chimera_104  1 "pyrolysis phase 2 is single-block: no 101/102/103/104 faces" "BCFACE:5:104:1 1
+demo_pyro pyro_connection   1 "pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:103:1 1 1 1 6 1 0 0 1"
+# a block connection under type 1: its outflow line integral cannot cross it (plan 08 section 2.9 (4))
+demo_pyro pyro_type1_multiblock 1 "gas-closure = type1 is single-block" "BCFACE:5:101:1 1 1 1 6 1 0 0 1"
+demo_pyro pyro_chimera_104  1 "pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:104:1 1
  1 1 1 1 1.0
  1 1 1 1 1.0"
 # the outflow face 2 (302 with a time file) becomes a 300 symmetry plane, no value line
-demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-306)"         "BCFACE:2:300:-"
+demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-307)"         "BCFACE:2:300:-"
 demo_pyro pyro_missing_virgin 1 "[ERROR] pyrolysis tables"                       "RM:INPUT/virgin.dat"
 # F[2][1] = 0.9 makes the phase's sum of F 1.15 > 1
 demo_pyro pyro_bad_F        1 "[ERROR] pyrolysis tables"                         "PYRO:F[2][1] 0.9"
@@ -582,6 +584,29 @@ REAC65="s = open('INPUT/pyrolysis.dat').read(); s = s.replace('nPyroReac[2] 0', 
 demo_on "$BASE_ABL_PYRO" abl_remap_subphases 1 "pyrolysis remap: more than 64 sub-phases" \
     "RAW:[FUSS-MeshMotion]
 law = nodeshift" "PY:$REAC65"
+# The coupled ablating wall 307 (plan 08 stage D, section 2.5 ii): line 2 = the 103 connectivity record, T_inf and the
+# B' table, no lambda; its exchange values come from hydra or, standalone, from the TEST ONLY coupled-env-file.
+L307="1 1 1 1 1 1 0 0 1 300.0 bprime_demo.dat"
+CENV="0.0 101325.0 0.1 2000000.0 0.0
+1000000.0 101325.0 0.1 2000000.0 0.0"
+demo_on "$BASE_ABL_PYRO" abl307_lambda       1 "(11 values, 12 read): a coupled face takes no lambda" \
+    "BCFACE:2:307:1 1 1 1 1 1 0 0 1 0.5 300.0 bprime_demo.dat"
+demo_on "$BASE_ABL_PYRO" abl307_no_table     1 "a 307 line needs T_inf > 0 and a B' table" "BCFACE:2:307:1 1 1 1 1 1 0 0 1 300.0 none"
+demo_on "$BASE_ABL_PYRO" abl307_no_exchange  1 "no exchange values (p_w = 0) at this step" "BCFACE:2:307:$L307"
+demo_on "$BASE_ABL_PYRO" abl307_env_no307    1 "coupled-env-file is set, but bc.txt has no coupled ablating wall (307)" \
+    "FILE:INPUT/cenv.dat:$CENV" "SEC:FUSS-Ablation:coupled-env-file=cenv.dat"
+demo_on "$BASE_ABL_PYRO" abl307_env_bad_row  1 "needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0" "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:0.0 0.0 0.1 2000000.0 0.0
+1000000.0 101325.0 0.1 2000000.0 0.0" "SEC:FUSS-Ablation:coupled-env-file=cenv.dat"
+demo_on "$BASE_ABL" abl307_without_pyro      1 "a coupled ablating wall (307) runs with the chemistry on, which needs [FUSS-Pyrolysis]" \
+    "PY:import shutil; shutil.copy('$BASE_ABL_PYRO/INPUT/bprime_demo.dat', 'INPUT/bprime_demo.dat')" \
+    "BCFACE:2:307:$L307" "SEC:FUSS-MeshMotion:law=static"
+demo_on "$BASE_ABL_PYRO" abl307_receding     1 "recedes (law = nodeshift) and owns a coupled face 307" \
+    "BCFACE:1:307:$L307" "FILE:INPUT/cenv.dat:$CENV" "SEC:FUSS-Ablation:coupled-env-file=cenv.dat" \
+    "RAW:[FUSS-MeshMotion]
+law = nodeshift"
+# the wall smoothing's stencil is centred on its node (plan 08 section 2.10)
+demo_on "$BASE_ABL" abl_bad_width            1 "smoothing-width = 4 must be odd" "SEC:FUSS-Ablation:smoothing-width=4"
 
 # the restart state (Setup_Ablation): a 5-step run of the kinematic base, OUTPUT/bc306-state.dat edited, newrun = false
 demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the state file (or RM)
@@ -609,7 +634,7 @@ ABL_ROWS='import sys; p = sys.argv[1]; L = open(p).read().splitlines(); h = [l f
 demo_abl_restart abl_restart_no_state "OUTPUT/bc306-state.dat is missing" RM
 demo_abl_restart abl_restart_bad_row  "expected \"b i j k f s_total Tw_prev sdot beta Bpg_lag\"" \
     "$ABL_ROWS; open(p, 'w').write('\n'.join(h + [r[0].split()[0] + ' x'] + r[1:]) + '\n')"
-demo_abl_restart abl_restart_foreign_row "no 306 face of bc.txt matches this row" \
+demo_abl_restart abl_restart_foreign_row "no 306 or 307 face of bc.txt matches this row" \
     "$ABL_ROWS; t = r[0].split(); t[1] = '7'; open(p, 'w').write('\n'.join(h + [' '.join(t)] + r[1:]) + '\n')"
 demo_abl_restart abl_restart_dup_row  "a second row for the same face" \
     "$ABL_ROWS; open(p, 'w').write('\n'.join(h + r + r) + '\n')"

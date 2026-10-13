@@ -64,7 +64,7 @@ the codes agree to 3.3 K at N400.
 suffices, as on 2.2.
 
 The verify also checks:
-- (bal-m) the mass holds to 4.0e-15;
+- (bal-m) the mass holds to 1.2e-14 (4.0e-15 on the stage-C binary);
 - (bal-e) the energy holds to 4.1e-11;
 - (seb) §3.2 on all 2388 rows: |F|/max term ≤ 1.0e-8, |β − ζ/(e^ζ − 1)| ≤ 7.6e-10.
 

@@ -841,6 +841,37 @@ gate_ablation_atc21 () {
   return $rc
 }
 
+# plan 08 section 3.6: the wall smoothing (smoothing-width, thesis Eq. 5.1) damps the period-4 node mode of the
+# recession of a 2-D slab by its transfer factor (theory 5; the gate asks >= 4.5); the same slab cut into two blocks
+# (101 faces at x = 0.1 m) must give the one-block surface: the windows cross the seam
+gate_ablation_smoothing () {
+  local dest="$WORK/ablation_smoothing" rc w
+  for w in w1 w5 w5_2blk; do
+    stage "$ABL/smoothing/$w" "$dest/$w"
+    solve "$dest/$w" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$w: solver exit $rc  (see $dest/$w/run.log)"; return 1; fi
+  done
+  python3 "$ABL/smoothing/verify.py" "$dest/w1" "$dest/w5" "$dest/w5_2blk" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="$(grep -F '(ratio)' "$dest/verify.log" | sed -E 's/.*= ([0-9.]+) \(>= ([^;]+);.*/w1\/w5 amplitude \1 (>= \2, theory 5)/'); seam $(grep -F '(seam)' "$dest/verify.log" | awk '{print $8}') m"
+  return $rc
+}
+
+# plan 08 section 3.5 (ii), FUSS standalone: BC 307 fed by the TEST ONLY coupled-env-file reproduces BC 306 with
+# lambda 0 and the same values byte for byte (one SEB routine, two input paths)
+gate_ablation_coupled307 () {
+  local dest="$WORK/ablation_coupled307" rc r
+  for r in run307 run306; do stage "$ABL/coupled307/$r" "$dest/$r"; done
+  # proven-red hook: h_r one part in 1e7 off in the exchange values must break the identity
+  [ "$SELFTEST" = "1" ] && sed -i 's/ 1500000.0 / 1500000.1 /' "$dest/run307/INPUT/env307.dat"
+  for r in run307 run306; do
+    solve "$dest/$r" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$r: solver exit $rc  (see $dest/$r/run.log)"; return 1; fi
+  done
+  python3 "$ABL/coupled307/verify.py" "$dest/run307" "$dest/run306" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(head -n 1 "$dest/verify.log")
+  return $rc
+}
+
 # plan 08 section 3.3, stage C: ATC 2.2 and 2.3 on the receding mesh (law nodeshift) against PATO at 0.5 ms; T at the
 # fixed depths, the fronts and the recession from the field files (X-D4), the budgets' swept-out columns, the SEB
 gate_ablation_atc2x_receding () {
@@ -979,13 +1010,26 @@ gate_ablation_remap_uniform () {
   [ "$rc" -eq 0 ] && [ "$rq" -eq 0 ]
 }
 
+# plan 08 section 2.9 (3): R5's type-2 variant -- pyrolysis across an unequal-spacing 101 interface; the two sides
+# of every connection face carry opposite conduction, gas mass and gas enthalpy flows
+gate_conjugate_receding_t2 () {
+  local src="$ROOT/test/moving-mesh/conjugate_receding_t2" dest="$WORK/conjugate_receding_t2" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$src/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -F '(pair)' "$dest/verify.log" | awk '{print $2, $10}' | paste -sd ';' -)" of max|q| (<= 1e-12)"
+  return $rc
+}
+
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad conjugate_two_layer conjugate_receding receding residual_convergence pyrolysis
+CASES=(freestream conservation bc303_qrad conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
        ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
-       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23)
+       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
+       ablation_smoothing)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in
