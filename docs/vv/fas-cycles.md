@@ -5,7 +5,10 @@ same converged field as the baseline run at a fraction of the fine-grid iteratio
 collects the measured evidence: the equivalence checks, the gains on the verification cases, the
 stress campaign on representative hard cases, and the known limits. Every run converges to
 `res-threshold = 1e-8` unless stated; "iterations" are fine-grid (root-level) iterations, the
-ones the baseline also counts.
+ones the baseline also counts. The wall times were measured before `co_T` found $T(h)$ by
+bisection ([performance notes](../development/performance_notes.md)): the same `cons` runs are
+now faster (×1.2–4.4 measured, more the farther the temperatures sit from the start of the
+properties table), with unchanged iteration counts.
 
 !!! note "The two invariants behind every number"
     1. **`cycle = none` is bit-identical to the pre-FAS solver.** Verified on all 17 test cases,
