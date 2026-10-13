@@ -89,12 +89,24 @@
 #                                exactly, zero flux), mass_balance_1d (steady face fluxes
 #                                pi x: b2 time-accurate 1e-6, b1 quasi-steady sedded copy
 #                                1e-9), sealed_profile (closed-form p^2 profile, observed
-#                                order >= 1.9 on N020..N160), tensor_linear_2d (rotated K:
+#                                order >= 1.9 on N020..N160), klinkenberg (the same grids with
+#                                K + (mu/p) B: exact (p+b)^2 profile, b = mu B/K = p_w/2, order
+#                                >= 1.9 and a shift >= 100 x the error), tensor_linear_2d (rotated K:
 #                                |u_y|/|u_x| = K_yx/K_xx to 1e-10; the diagonal-K red control
 #                                written into a staged copy), 0d (adiabatic0d/heated0d under
 #                                type 2 vs the exact type-2 ODE), atc2_chemistry_off (type 2
 #                                vs the bundled PATO run, T and p, plus the type-1 case on
 #                                the same mesh for the sign check). ~2 min at -p 1.
+#                 bench_*     -- 2026-10-13, benchmarks of the type-2 closure, ladders
+#                                generated into $WORK by test/pyrolysis/tools/make_*.py:
+#                                exact (test/pyrolysis/exact/, verify_exact.py):
+#                                pressure_transient (series, order >= 1.8 on N020..N080),
+#                                transpiration (exponential T + Darcy mdot, order >= 1.8),
+#                                sharp_front (similarity, front order in [0.7, 1.4]);
+#                                literature (test/pyrolysis/lit/): baum_atreya (Baum &
+#                                Atreya 2007 corrected: front, T, char pressure, gas ledgers
+#                                of both type-2 modes), zhang2010 (three-code slab, BC 305,
+#                                within the codes' spread). ~4 min at -p 1.
 #                 ablation    -- add gate_ablation()   + list it
 #
 #               NOTE ON -a (receding). verify.py's order/decay/pointwise-error
@@ -514,6 +526,40 @@ gate_darcy_sealed_profile () {
   return $rc
 }
 
+# Klinkenberg oracle (plan 07, closed 2026-10-13): the sealed_profile grids with
+# [FUSS-Darcy] klinkenberg = true and B_v = B_c = B I, B = b K/mu, b = p_w/2;
+# p + b then obeys the plain equation, (p+b)^2 = (p_w+b)^2 + (pi R T mu/(W K))(L^2 - x^2)
+gate_darcy_klinkenberg () {
+  local src="$DARCY/sealed_profile" dest="$WORK/darcy_klinkenberg" rc g
+  rm -rf "$dest"; mkdir -p "$dest"
+  for g in N020 N040 N080 N160; do
+    stage "$src/$g" "$dest/$g"
+    python3 - "$dest/$g" "$dest" "$ROOT/test/pyrolysis/tools" > "$dest/$g.edit.log" 2>&1 <<'PY' || { KEYNUM="$g: Klinkenberg edit failed (see $dest/$g.edit.log)"; return 1; }
+import json, os, sys
+case, parent, tools = sys.argv[1:4]
+sys.path.insert(0, tools)
+import darcy_tools as dt
+meta = dt.case_meta(case)
+W, mu, h = dt.gas_constants(case)
+b = 0.5 * meta["p0"]
+B = b * meta["K"] / mu
+with open(os.path.join(case, "INPUT", "pyrolysis.dat"), "a") as fh:
+    fh.write("B_v %.15g 0 0 0 %.15g 0 0 0 %.15g\nB_c %.15g 0 0 0 %.15g 0 0 0 %.15g\n" % ((B,) * 6))
+ini = os.path.join(case, "input.ini")
+s = open(ini).read()
+assert s.count("[FUSS-Darcy]\n") == 1
+open(ini, "w").write(s.replace("[FUSS-Darcy]\n", "[FUSS-Darcy]\nklinkenberg = true\n"))
+json.dump({"b": b, "B": B}, open(os.path.join(parent, "klinkenberg.json"), "w"))
+print("b %.6g Pa, B %.6g m2/s" % (b, B))
+PY
+    solve "$dest/$g" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$g: solver exit $rc  (see $dest/$g/run.log)"; return 1; fi
+  done
+  darcy_verify "" "$src/verify_klinkenberg.py" "$dest"; rc=$?
+  KEYNUM="$(grep -F -m1 '(a) observed orders' "$dest/verify.log" | sed -E 's/^ *\(a\) //; s/  (PASS|FAIL)$//')  $(grep -F -m1 '(b) Klinkenberg' "$dest/verify.log" | sed -E 's/^ *\(b\) Klinkenberg moves the profile by ([^ ]+) Pa.*/shift \1 Pa/')"
+  return $rc
+}
+
 # 4.3 orthotropic permeability: |u_y|/|u_x| = K_yx/K_xx in every cell; the red
 # control (K diagonal, written into the staged copy) must give u_y = 0 to the
 # solver tolerance
@@ -588,7 +634,7 @@ gate_darcy_atc2_chemistry_off () {
   if [ "$rc" -ne 0 ]; then KEYNUM="type2: solver exit $rc  (see $dest/type2/run.log)"; return 1; fi
   darcy_verify "" "$DARCY/ATC2-chemistryOff-type2/verify.py" "$dest/type2" --type1 "$dest/type1"; rc=$?
   if grep -q '^SKIP' "$dest/type2/verify.log"; then KEYNUM="SKIP (no PATO probe files)"; return 0; fi
-  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | awk '{print $7}') K (B_T 24.75)  dp ratio $(grep -F -m1 '        ratio' "$dest/type2/verify.log" | awk '{print $2}') (tol 0.15)  type2-type1 hot max $(grep -F -m1 '(sign) max' "$dest/type2/verify.log" | awk '{print $10}') K"
+  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | awk '{print $7}') K (budget $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | sed -E 's/.*budget ([0-9.]+) K.*/\1/'), B_T 22.75)  dp ratio $(grep -F -m1 '        ratio' "$dest/type2/verify.log" | awk '{print $2}') (tol 0.15)  type2-type1 hot max $(grep -F -m1 '(sign) max' "$dest/type2/verify.log" | awk '{print $10}') K"
   return $rc
 }
 
@@ -696,9 +742,92 @@ gate_residual_convergence () {
 }
 
 # ---------------------------------------------------------------------------
+# bench_* (2026-10-13): the benchmarks of the type-2 closure, against exact
+# solutions (test/pyrolysis/exact/) and the literature (test/pyrolysis/lit/).
+# The mesh ladders are generated into $WORK by the committed generators
+# (test/pyrolysis/tools/make_*.py); the in-tree case of each benchmark is its
+# coarsest member, for the regression manifest. Every verify honours
+# FUSS_GATE_SELFTEST=1 (budgets to 0, order windows empty).
+# ---------------------------------------------------------------------------
+TOOLS="$ROOT/test/pyrolysis/tools"
+
+# gen_case GENERATOR DEST ARGS... -- write a case with a committed generator
+# (absolute MASTERDIR), then give it the snapshot binary as `stage` does
+gen_case () {
+  local gen=$1 dest=$2; shift 2
+  rm -rf "$dest"
+  python3 "$TOOLS/$gen" "$dest" "$@" --masterdir "$ROOT" > "$dest.gen.log" 2>&1 || return 1
+  mkdir -p "$dest/OUTPUT" "$dest/bin"
+  cp "$BINSNAP/FUSS" "$dest/bin/FUSS"
+  touch -d '+1 hour' "$dest/bin/FUSS"
+}
+
+# bench_ladder KIND NAME N... -- generate and run an exact-solution ladder, then verify_exact.py
+bench_ladder () {
+  local kind=$1 name=$2; shift 2
+  local dest="$WORK/$name" n rc cases=()
+  rm -rf "$dest"; mkdir -p "$dest"
+  for n in "$@"; do
+    gen_case make_exact_case.py "$dest/N$n" --kind "$kind" --tables "$ROOT/test/pyrolysis/exact/tables" --ncells "$n" \
+      || { KEYNUM="N$n: generator failed (see $dest/N$n.gen.log)"; return 1; }
+    solve "$dest/N$n" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="N$n: solver exit $rc  (see $dest/N$n/run.log)"; return 1; fi
+    cases+=("$dest/N$n")
+  done
+  python3 "$ROOT/test/pyrolysis/exact/verify_exact.py" "$kind" "${cases[@]}" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '(finest|order)' "$dest/verify.log" | sed -E 's/  (PASS|FAIL)$//; s/ on the finest (grid|pair)//' | tr -s ' ' | paste -sd ';' -)
+  return $rc
+}
+
+# exact transient Darcy pressure (frozen T): 2nd order in space at vnn 0.5
+gate_bench_pressure_transient () { bench_ladder pressure_transient bench_pressure_transient 20 40 80; }
+
+# exact steady transpiration (exponential T, Darcy mdot): 2nd order since the
+# open-face gas enthalpy is taken at the wall temperature (was 1st order)
+gate_bench_transpiration () { bench_ladder transpiration bench_transpiration 20 40 80; }
+
+# exact sharp front with transpiration through the char: 1st order by design
+gate_bench_sharp_front () { bench_ladder sharp_front bench_sharp_front 50 100 200; }
+
+# Baum & Atreya 2007 (corrected): full type 2 on N100/N200 (front, T, char
+# pressure, gas-mass ledger to round-off; the surface steps to 1298 K at t = 0,
+# which stopped the run before the storage-coefficient limiter) and the
+# quasi-steady N100 gas ledger (one carried step; 11 % lost before the carry)
+gate_bench_baum_atreya () {
+  local dest="$WORK/bench_baum_atreya" c rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  gen_case make_baum_atreya.py "$dest/full_N100" --mode full --cg 1475 --ncells 100 || { KEYNUM="generator failed"; return 1; }
+  gen_case make_baum_atreya.py "$dest/full_N200" --mode full --cg 1475 --ncells 200 || { KEYNUM="generator failed"; return 1; }
+  gen_case make_baum_atreya.py "$dest/qs_N100" --mode qs --cg 0 --ncells 100 || { KEYNUM="generator failed"; return 1; }
+  for c in full_N100 full_N200 qs_N100; do
+    solve "$dest/$c" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$c: solver exit $rc  (see $dest/$c/run.log)"; return 1; fi
+  done
+  python3 "$ROOT/test/pyrolysis/lit/baum_atreya2007/verify.py" "$dest/full_N100" "$dest/full_N200" --qs "$dest/qs_N100" \
+    > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((front|T|p|qs)\)' "$dest/verify.log" | sed -E 's/  (PASS|FAIL)$//; s/^  //' | tr -s ' ' | paste -sd ';' -)
+  return $rc
+}
+
+# Zhang 2010 three-code decomposing slab (BC 305 front face, type 1): within
+# the codes' own spread of the MATLAB code (7.4 K off before the BC 305 fix)
+gate_bench_zhang2010 () {
+  local dest="$WORK/bench_zhang2010" rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  gen_case make_zhang2010.py "$dest/N050" --ncells 50 || { KEYNUM="generator failed"; return 1; }
+  solve "$dest/N050" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/N050/run.log)"; return 1; fi
+  python3 "$ROOT/test/pyrolysis/lit/zhang2010/verify.py" "$dest/N050" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|mdot)\)' "$dest/verify.log" | sed -E 's/\(T\) +([a-z]+) +max\|T - T_MATLAB\| ([0-9.]+) K.*/\1 \2 K/; s/^  //; s/  (PASS|FAIL)$//' \
+           | cut -c1-60 | paste -sd ';' -)
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis
-       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_tensor_linear_2d darcy_0d
-       darcy_atc2_chemistry_off)
+       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
+       darcy_atc2_chemistry_off
+       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

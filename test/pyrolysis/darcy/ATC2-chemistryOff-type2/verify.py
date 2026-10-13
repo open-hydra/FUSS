@@ -14,9 +14,13 @@ FUSS samples each depth with two bracketing index-position probes (probes.json; 
 linear in x then linear in time onto PATO's 0.1 s grid.
 
 Checks (expected.json):
-  (T)  max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= budget_K = B_T = 24.75 K, the type-1 regression budget
-       recorded by plan 06 (ATC2-chemistryOff/expected.json: measured 22.75 K at 1 mm / 2.6 s + 2 K; plan 07 decision
-       2026-10-08 -- its section 5 still reads "the measured type-1 maximum", 22.75 K; both hold: type 2 measures 15.8 K)
+  (T)  max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= budget_K, the regression budget = this case's measured
+       maximum + 2 K (plan 06 section 4.5's rule, the same for both closures; 10.52 K measured 2026-10-13, after the open
+       face took the gas enthalpy at the wall temperature; 15.79 K before)
+  (acc) the same maximum <= acceptance_K = B_T = the measured type-1 maximum, 22.75 K at 1 mm / 2.6 s (plan 07 D4 and
+       section 5: removing the type-1 approximation must not make the answer worse). Resolution of 2026-10-13: the
+       24.75 K of the 2026-10-08 decision was the type-1 REGRESSION budget, not this acceptance; with 22.75 K the
+       derivation of the 0.15 below holds (14.6 %; the plan's 14.9 % left dmu/mu unscaled, and 24.75 K would give 15.4 %)
   (dir) at the probe and time where the type-1 run's |T_FUSS - T_PATO| peaked (1 mm, 2.6 s), the
        type-2 value is smaller than that peak
   (p)  max_{t,probe} |dp_FUSS - dp_PATO| <= dp_tol_rel * max_{t,probe} dp_PATO, dp = p - p_w (0.15: the
@@ -122,13 +126,14 @@ def main():
     pato_p = read_pato_plot(p_plot)
     expected_path = os.path.join(here, "expected.json")
     expected = json.load(open(expected_path)) if os.path.isfile(expected_path) else {}
-    budget = expected.get("budget_K", 24.7483856120341)
+    budget = expected.get("budget_K", 12.52)
+    accept = expected.get("acceptance_K", 22.7483856120341)
     peak1 = expected.get("type1_peak_K", 22.7483856120341)
     peak_d, peak_t = expected.get("type1_peak_depth_mm", 1), expected.get("type1_peak_t", 2.6)
     dp_tol = expected.get("dp_tol_rel", 0.15)
     sign_slack = SIGN_SLACK
     if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1":
-        budget, peak1, dp_tol, sign_slack = 0.0, 0.0, 0.0, -1.0
+        budget, accept, peak1, dp_tol, sign_slack = 0.0, 0.0, 0.0, 0.0, -1.0
 
     sT = bracket_series(case, pj, px, L, 1)
     sp = bracket_series(case, pj, px, L, 2)
@@ -163,6 +168,9 @@ def main():
     good = worst_all <= budget
     ok &= good
     print("  (T)   max over the seven depths: %.2f K at %s  (budget %.2f K)  %s" % (worst_all, worst_at, budget, "PASS" if good else "FAIL"))
+    good = worst_all <= accept
+    ok &= good
+    print("  (acc) the same maximum against the measured type-1 maximum %.2f K  %s" % (accept, "PASS" if good else "FAIL"))
     if dT_at_peak1 is None:
         print("  (dir) FAIL: no sample at the type-1 peak (%g mm, %g s)" % (peak_d, peak_t))
         ok = False

@@ -6,18 +6,27 @@ with `[FUSS-Pyrolysis] gas-closure = type2`, `[FUSS-Darcy] p-init = p-wall = 101
 Run: `./FUSS.sh -p 1 solve`, then `python3 verify.py [--type1 <type-1 run of ../../ATC2-chemistryOff>] [--record]`;
 `run_physics_gates.sh -c darcy_atc2_chemistry_off` does both. The oracle is the PATO run in `ref/` (see `ref/README.md`).
 
-## Gate 4.4 (2026-10-09, `expected.json`)
+## Gate 4.4 (`expected.json`; re-recorded 2026-10-13)
 
-| check | measured | budget |
-|---|---|---|
-| (T) max `|T − T_PATO|`, 7 depths, 0.1–60 s | 15.79 K at 1 mm, 2.1 s | B_T 24.75 K (type 1: 22.75 K) |
-| (dir) `|T − T_PATO|` at type 1's peak (1 mm, 2.6 s) | 15.65 K | < 22.75 K |
-| (p) max `|Δp_FUSS − Δp_PATO|` / PATO's peak `Δp` | 24.2 Pa / 2048 Pa = 0.012 (FUSS peak 2052.6 Pa) | 0.15 |
-| (sign) `T_type2 − T_type1` where `T_PATO ≥ 700 K` | −1.25 … −9.76 K (1 mm −7.3…−1.3, 8 mm −9.8…−8.9) | ≤ +0.05 K |
+| check | measured 2026-10-13 | measured 2026-10-09 | bound |
+|---|---|---|---|
+| (T) max `|T − T_PATO|`, 7 depths, 0.1–60 s | 10.52 K at 1 mm, 0.9 s | 15.79 K at 1 mm, 2.1 s | regression budget = measured + 2 K (12.52 K) |
+| (acc) the same maximum | 10.52 K | 15.79 K | B_T = type 1's measured maximum, 22.75 K |
+| (dir) `|T − T_PATO|` at type 1's peak (1 mm, 2.6 s) | 7.48 K | 15.65 K | < 22.75 K |
+| (p) max `|Δp_FUSS − Δp_PATO|` / PATO's peak `Δp` | 0.0055 (FUSS peak 2049.6 Pa, PATO 2048 Pa) | 0.012 | 0.15 |
+| (sign) `T_type2 − T_type1` where `T_PATO ≥ 700 K` | -15.81 … -2.44 K | −9.76 … −1.25 K | ≤ +0.05 K |
 
-Per depth, type 2 vs PATO (type 1 vs PATO in parentheses): 1 mm 15.79 (22.75), 2 mm 9.72 (18.05), 4 mm 5.50 (14.56),
-8 mm 2.77 (12.24), 12 mm 1.69 (11.13), 16 mm 1.27 (9.30), 24 mm 0.42 (2.80) K: removing the type-1 approximation brings every
-depth closer to PATO, most of all where the char layer is thick.
+What moved, 2026-10-13: the gas leaving through the open face now carries `h_g(p_w, T_wall)`, the enthalpy at the wall
+temperature its BC computes (it took the cell temperature before, an O(dx) flux error that made the exact transpiration
+benchmark first order, `test/pyrolysis/exact/transpiration`). Per depth, type 2 vs PATO, before → after: 1 mm 15.79 → 10.52,
+2 mm 9.72 → 5.23, 4 mm 5.50 → 2.69, 8 mm 2.77 → 1.46, 12 mm 1.69 → 0.90, 16 mm 1.27 → 0.71, 24 mm 0.42 → 0.21 K (type 1:
+22.75, 18.05, 14.56, 12.24, 11.13, 9.30, 2.80 K): removing the type-1 approximation brings every depth closer to PATO.
+
+`B_T` (resolved 2026-10-13): plan 07's D4 and section 5 read "the measured type-1 maximum" (22.75 K), the decision of
+2026-10-08 used 24.75 K. The two are different bounds: 24.75 K is type 1's own regression budget (measured + 2 K), 22.75 K
+the acceptance "removing the type-1 approximation must not make the answer worse". The gate now checks both roles: this
+case's own regression budget and the 22.75 K acceptance. With 22.75 K the derivation of the 0.15 pressure tolerance holds
+(14.6 %; the plan's 14.9 % left the viscosity term unscaled, and 24.75 K would give 15.4 %).
 
 Budgets: the solid and gas mass balance closes to 7e-15 relative over the run (`M_s + M_g + M_gas_out`); the energy identity
 `E(t) − E(0) + Q_out − Q_src` drifts linearly, −6e-7 J at 10 s to −9.7e-6 J at 60 s (5.4e-11 of the heat input), where type 1

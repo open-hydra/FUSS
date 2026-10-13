@@ -1,0 +1,22 @@
+{
+ "e_max": 5e-05,
+ "measured": [
+  {
+   "e": 0.0006782487180316821,
+   "n": 20,
+   "t": 875.546533416621
+  },
+  {
+   "e": 0.000167517748195678,
+   "n": 40,
+   "t": 875.136697391062
+  },
+  {
+   "e": 3.964472853112966e-05,
+   "n": 80,
+   "t": 875.034178352314
+  }
+ ],
+ "note": "max|p - p_series|/dp at t = 0.5 L^2/D on N080: 3.96e-5 measured 2026-10-13 (budget 1.26 x); order on N040/N080 2.08 at vnn 0.5 (dt ~ dx^2: the backward-Euler step's first order in time shows up as dx^2). Gate: run_physics_gates.sh -c bench_pressure_transient (N020 N040 N080).",
+ "order_min": 1.8
+}

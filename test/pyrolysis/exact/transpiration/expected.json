@@ -1,0 +1,26 @@
+{
+ "e_max": 0.21,
+ "emdot_max": 0.0005,
+ "measured": [
+  {
+   "e": 2.731963180258731,
+   "emdot": 0.006307522089141969,
+   "n": 20,
+   "t": 3547.00187382901
+  },
+  {
+   "e": 0.6796129158416306,
+   "emdot": 0.0016151134581500663,
+   "n": 40,
+   "t": 3546.47711295043
+  },
+  {
+   "e": 0.1695376227472707,
+   "emdot": 0.0004100175109604952,
+   "n": 80,
+   "t": 3546.27748916438
+  }
+ ],
+ "note": "steady max|T - T_exact| on N080: 0.170 K, order 2.00 on N040/N080, mdot error 4.1e-4, measured 2026-10-13 after the open face took the gas enthalpy at the wall temperature; before: 4.76 K, order 1.0 (red). Gate: bench_transpiration (N020 N040 N080).",
+ "order_min": 1.8
+}

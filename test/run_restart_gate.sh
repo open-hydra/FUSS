@@ -256,6 +256,10 @@ run_case "test/pyrolysis/darcy/mass_balance_1d" 200
 # the history fields of the type-2 step (T_prev, eta_prev) under heating and
 # kinetics: 200 steps per half (~0.4 s each, 300 K to ~560 K, reacting)
 run_case "test/pyrolysis/darcy/heated0d_type2"  200
+# quasi-steady type 2 with threshold kinetics (2026-10-13): the gas the stages
+# released beyond the prediction waits in (eta_st - eta_prev) p_pg, all three
+# restart columns; 800 steps per half (~136 s each, inside the 300 s case) cross many cell fronts
+run_case "test/pyrolysis/lit/baum_atreya2007/qs_N100" 800
 
 echo
 if [ "$fail" -eq 0 ]; then

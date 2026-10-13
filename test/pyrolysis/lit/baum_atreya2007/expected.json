@@ -1,0 +1,28 @@
+{
+ "eL2_max": 17.0,
+ "exf_max": 0.085,
+ "ledger_full": 1e-10,
+ "ledger_qs": 0.001,
+ "measured": [
+  {
+   "eL2": 27.47867168983558,
+   "exf": 0.1501382220041596,
+   "ledger": -1.083603054992277e-14,
+   "n": 100
+  },
+  {
+   "eL2": 15.0925363562174,
+   "exf": 0.07363117728839101,
+   "ledger": 1.0355284218573821e-14,
+   "n": 200,
+   "p_rel": -0.06634537270236307
+  },
+  {
+   "qs_ledger": -8.487881160166902e-05
+  }
+ ],
+ "note": "full type 2, c_g 1475, step wall, averages over 30-300 s on N200: front 7.36 % (order 1.03 on N100/N200), L2 T 15.09 K, <p^2 - ps^2> at 1.1 mm -6.6 %; gas ledgers 1e-14; quasi-steady c_g 0 N100 ledger -8.5e-5, measured 2026-10-13. Red before 2026-10-13: the step wall stopped the full run at step 2 (negative storage coefficient), and the quasi-steady ledger was -11.9 %. Gate: bench_baum_atreya.",
+ "order_hi": 1.3,
+ "order_lo": 0.8,
+ "p_rel_max": 0.09
+}

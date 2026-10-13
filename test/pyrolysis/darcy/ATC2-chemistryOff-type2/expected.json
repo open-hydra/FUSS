@@ -1,15 +1,16 @@
 {
- "budget_K": 24.7483856120341,
+ "acceptance_K": 22.7483856120341,
+ "budget_K": 12.524531479722327,
  "dp_tol_rel": 0.15,
- "fuss_dp_peak_Pa": 2052.5881132898794,
- "measured_K": 15.791697791770162,
+ "fuss_dp_peak_Pa": 2049.616895637053,
+ "measured_K": 10.524531479722327,
  "measured_at": [
   1,
-  2.1
+  0.9
  ],
- "measured_dT_at_type1_peak_K": 15.648630687614968,
- "measured_dp_rel": 0.011793624026807947,
- "note": "budget_K = B_T = the type-1 regression budget recorded by plan 06 (test/pyrolysis/ATC2-chemistryOff/expected.json: measured 22.75 K + 2 K), plan 07 decision 2026-10-08; dp_tol_rel from plan 07 section 4.4; measured_* written by verify.py --type1 DIR --record",
+ "measured_dT_at_type1_peak_K": 7.484186223344068,
+ "measured_dp_rel": 0.005453169022047177,
+ "note": "budget_K = this case's measured maximum + 2 K (regression; plan 06 section 4.5's rule, the same for both closures), re-recorded 2026-10-13 after the open face took the gas enthalpy at the wall temperature (15.79 -> 10.52 K); acceptance_K = B_T = the measured type-1 maximum (plan 07 D4 and section 5; the 24.75 K of the 2026-10-08 decision was the type-1 regression budget -- resolved 2026-10-13); dp_tol_rel from plan 07 section 4.4 (its derivation gives 14.6 % with B_T = 22.75 K); measured_* written by verify.py --type1 DIR --record",
  "oracle": "ref/Ta_plot and ref/p_plot (PATO 3.1 AblationTestCase_2.x_chemistryOff, emissivity 0, hconv 300, Tedge 2800, endTime 60, p probed; run 2026-10-08, Ta_plot identical to the 2026-10-07 run)",
  "pato_dp_peak_Pa": 2048.0,
  "type1_peak_K": 22.7483856120341,
@@ -17,24 +18,24 @@
  "type1_peak_t": 2.6,
  "type2_minus_type1_K": {
   "1": [
-   -7.314860496552228,
-   -1.2532986595665534
+   -15.808395175982469,
+   -2.4367995319585134
   ],
   "12": [
-   -9.707479463176583,
-   -9.122925653196944
+   -10.390947442547485,
+   -9.880123634294819
   ],
   "2": [
-   -8.819090784475975,
-   -2.0376644885250244
+   -13.921982631158698,
+   -3.369083319448464
   ],
   "4": [
-   -9.427548871975887,
-   -4.447911420272703
+   -12.09237712412505,
+   -6.025143441684804
   ],
   "8": [
-   -9.756267404570167,
-   -8.865421947584764
+   -10.913785844454651,
+   -10.145812873500518
   ]
  }
 }

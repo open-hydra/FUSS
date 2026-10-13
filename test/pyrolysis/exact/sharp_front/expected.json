@@ -1,0 +1,27 @@
+{
+ "eL2_max": 0.7,
+ "exf_max": 0.012,
+ "measured": [
+  {
+   "e": 2.2922631839249954,
+   "exf": 0.03950257592186917,
+   "n": 50,
+   "nsnap": 47
+  },
+  {
+   "e": 1.1610440305976095,
+   "exf": 0.01967483871287353,
+   "n": 100,
+   "nsnap": 50
+  },
+  {
+   "e": 0.5944197206954233,
+   "exf": 0.009590627555208238,
+   "n": 200,
+   "nsnap": 51
+  }
+ ],
+ "note": "type 2, time averages over t >= 5 s on N200: L2 T error 0.594 K, front error 0.96 %, front order 1.04 on N100/N200, measured 2026-10-13; a cell-by-cell front is first order by design. Gate: bench_sharp_front (N050 N100 N200).",
+ "order_hi": 1.4,
+ "order_lo": 0.7
+}

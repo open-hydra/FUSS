@@ -1,0 +1,25 @@
+{
+ "dT_max": 4.5,
+ "dt_peak": 30.0,
+ "mdot_hi": 1.05,
+ "mdot_lo": 0.95,
+ "measured": {
+  "exposed": {
+   "max": 3.285765512877333,
+   "mean": -2.660634173482846
+  },
+  "mdot_peak": [
+   903.694644216365,
+   0.00438468921413349
+  ],
+  "middle": {
+   "max": 2.419841728347137,
+   "mean": -0.43774155435756995
+  },
+  "unexposed": {
+   "max": 2.683540373793562,
+   "mean": 0.482320513516316
+  }
+ },
+ "note": "N050: max|T - T_MATLAB| 3.29 / 2.42 / 2.68 K at the exposed face / mid-plane / unexposed face (the three codes spread 4.75-5.26 K); peak gas flux 4.385e-3 kg/m2/s at 904 s (codes 4.49-4.60e-3 at 890-910 s), measured 2026-10-13. Red before the BC 305 fix: 7.4 K at the mid-plane. Gate: bench_zhang2010."
+}

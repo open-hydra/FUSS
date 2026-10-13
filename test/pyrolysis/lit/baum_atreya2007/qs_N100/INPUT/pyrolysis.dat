@@ -1,0 +1,20 @@
+// FUSS pyrolysis constants (plan 06 section 3.2 grammar): one `key value` per line,
+// `//` comments allowed. Written by make_tacot_tables.py from
+// test/pyrolysis/tools/make_baum_atreya.py (Baum & Atreya 2007, Di Blasi set)
+// on 2026-10-13
+material BA
+nSolidPhases 1
+rhoI[1] 1000
+epsI[1] 0.7
+nPyroReac[1] 1
+eps_g_v 0.3
+eps_g_c 0.76
+F[1][1] 0.8
+A[1][1] 0.0377099238219306
+E[1][1] 0
+m[1][1] 0
+n[1][1] 0
+T[1][1] 598.16
+h[1][1] 0
+K_v 1e-20 0 0 0 1e-20 0 0 0 1e-20
+K_c 1e-15 0 0 0 1e-15 0 0 0 1e-15
