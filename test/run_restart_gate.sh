@@ -316,6 +316,9 @@ run_case "test/pyrolysis/lit/baum_atreya2007/qs_N100" 800
 # A restart inside the heating would recompute both from the pressure field, whose round-trip floor under type 2
 # is ~1e-10 (the derived mdot_pg below), and heal a lost state to ~1e-12 -- measured 2026-10-13, see the header.
 run_case "test/pyrolysis/ablation/seb_closure" 300
+# law = nodeshift (plan 08 stage B): the receded mesh travels in field.tec, the recession so far (s_total) and the
+# resolved min-thickness in bc306-state.dat; 100 steps per half of the receding conjugate case
+run_case "test/moving-mesh/conjugate_receding" 100
 
 echo
 if [ "$fail" -eq 0 ]; then

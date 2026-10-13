@@ -85,6 +85,7 @@ $MORPH/motion/Morph_Motion_m.f90
 $MORPH/motion/Morph_Motion_Static.f90
 $MORPH/motion/Morph_Motion_Prescribed.f90
 $MORPH/motion/Morph_Motion_Translation.f90
+$MORPH/motion/Morph_Motion_Nodeshift.f90
 $MORPH/quality/Morph_Quality.f90
 $MORPH/Morph_API.f90
 "
@@ -99,7 +100,7 @@ fi
 # ---------------------------------------------------------------------------
 # (e) Unit tests: the GCL identity, single cell and whole block.
 # ---------------------------------------------------------------------------
-for prog in test_morph_gcl test_morph_block; do
+for prog in test_morph_gcl test_morph_block test_morph_nodeshift; do
   if ( cd "$WORK" && $FC -O2 -fopenmp -fimplicit-none -o "$prog" \
          $SRC "$MORPH/test/$prog.f90" ) >> "$WORK/build.log" 2>&1; then
     for nt in 1 8; do

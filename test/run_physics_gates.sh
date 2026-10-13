@@ -896,8 +896,25 @@ gate_ablation_seb_closure () {
   return $rc
 }
 
+# plan 08 section 2.3 R5: a block receding (law nodeshift) beside a static one across an unequal-spacing 101 interface;
+# the interface stays conservative only if the ghost metrics are rebuilt after every move -- the red control skips that
+gate_conjugate_receding () {
+  local src="$ROOT/test/moving-mesh/conjugate_receding" dest="$WORK/conjugate_receding" rc rcr
+  stage "$src" "$dest/refresh"
+  solve "$dest/refresh" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/refresh/run.log)"; return 1; fi
+  python3 "$src/verify.py" "$dest/refresh" > "$dest/refresh/verify.log" 2>&1; rc=$?
+  stage "$src" "$dest/stale"
+  sed -i 's/^law = nodeshift$/law = nodeshift\nskip-bc-metrics-refresh = true/' "$dest/stale/input.ini"
+  solve "$dest/stale" "$NTHREADS"
+  python3 "$src/verify.py" "$dest/stale" > "$dest/stale/verify.log" 2>&1; rcr=$?
+  KEYNUM="pairing $(grep -F -m1 '(pair)' "$dest/refresh/verify.log" | awk '{print $9}') of q_scale (<= 1e-12); stale metrics $(grep -F -m1 '(pair)' "$dest/stale/verify.log" | awk '{print $9}') (must fail)"
+  if [ "$rcr" -eq 0 ]; then KEYNUM="$KEYNUM -- the red control PASSED: the check cannot see stale metrics"; return 1; fi
+  return $rc
+}
+
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad conjugate_two_layer receding residual_convergence pyrolysis
+CASES=(freestream conservation bc303_qrad conjugate_two_layer conjugate_receding receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010

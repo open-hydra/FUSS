@@ -26,6 +26,8 @@ BASE="$ROOT/test/moving-mesh/receding/N040"
 BASE_PYRO="$ROOT/test/pyrolysis/energy_audit"
 BASE_ABL="$ROOT/test/pyrolysis/ablation/demo_base"
 BASE_ABL_PYRO="$ROOT/test/pyrolysis/ablation/demo_base_pyro"
+BASE_ABL_2BLK="$ROOT/test/pyrolysis/ablation/demo_base_2blk"
+BASE_R5="$ROOT/test/moving-mesh/conjugate_receding"
 WORK="${TMPDIR:-/tmp}/fuss-guard-demos.$$"
 
 while test $# -gt 0; do
@@ -204,6 +206,8 @@ q = 0.0"
 #   DELKEY:<key>                    delete every `key = ...` line of input.ini
 #   PYROADD:<line>                  append a line to INPUT/pyrolysis.dat
 #   FILE:<path>:<text>              replace a file of the copy with <text> (plan 08: env rows, B' rows)
+#   BCBLK:<block>:<face>:<type>:<line2>  as BCFACE, for one block's records only
+#   PY:<python code>                run in the copy's directory (an edit no other form can make)
 # A bare key=value that is not already in the ini goes to [FUSS-Pyrolysis].
 # Guard 8 (MPI, `mpi_size_ > 1`) has no demo: it needs -m 2 (documented).
 # demo_on BASE NAME ... is the same on another base (the ablating-wall bases).
@@ -226,6 +230,30 @@ demo_on () {
       RAW)  printf '\n%s\n' "${kv#RAW:}" >> "$d/input.ini"; continue ;;
       RM)   rm -f "$d/${kv#RM:}"; continue ;;
       FILE) rest=${kv#FILE:}; printf '%s\n' "${rest#*:}" > "$d/${rest%%:*}"; continue ;;
+      PY)   ( cd "$d" && python3 -c "${kv#PY:}" ) || echo "PY edit failed" >> "$d/edit.err"; continue ;;
+      BCBLK) python3 - "$d/INPUT/bc.txt" "${kv#BCBLK:}" <<'PYBB'
+import sys
+p, spec = sys.argv[1], sys.argv[2]
+blk, face, typ, line2 = spec.split(":", 3)
+blk, face, typ = int(blk), int(face), int(typ)
+lines = open(p).read().split("\n")
+out, i = [], 0
+WITH_LINE2 = {101, 103, 301, 302, 303, 304, 305, 306, 307}
+while i < len(lines):
+    f = lines[i].split()
+    if len(f) == 6 and all(t.lstrip("-").isdigit() for t in f):
+        rec = [int(t) for t in f]
+        has2 = rec[5] in WITH_LINE2
+        if rec[0] == blk and rec[4] == face:
+            out.append("%8d%8d%8d%8d%8d%8d" % (rec[0], rec[1], rec[2], rec[3], rec[4], typ))
+            if line2 != "-":
+                out.append(" " + line2)
+            i += 2 if has2 else 1
+            continue
+    out.append(lines[i]); i += 1
+open(p, "w").write("\n".join(out))
+PYBB
+            continue ;;
       DELKEY) sed -i "/^${kv#DELKEY:}[[:space:]]*=/d" "$d/input.ini"; continue ;;
       PYROADD) printf '%s\n' "${kv#PYROADD:}" >> "$d/INPUT/pyrolysis.dat"; continue ;;
       PYRO) python3 - "$d/INPUT/pyrolysis.dat" "${kv#PYRO:}" <<'PYEDIT'
@@ -451,9 +479,7 @@ levels = 2
 level1-iter = 3
 level2-iter = 3"
 demo_on "$BASE_ABL" abl_306_translation 1 "the ablating wall (306) cannot ride a translation mesh" \
-    "RAW:[FUSS-MeshMotion]
-law = translation
-vel = 1.0e-5 0.0 0.0"
+    "law=translation" "SEC:FUSS-MeshMotion:vel=1.0e-5 0.0 0.0"
 # [FUSS-Ablation] registry rules
 demo_on "$BASE_ABL" abl_bad_seb_tol      1 "seb-tol must be > 0"      "SEC:FUSS-Ablation:seb-tol=0.0"
 demo_on "$BASE_ABL" abl_bad_seb_max_iter 1 "seb-max-iter must be > 0" "SEC:FUSS-Ablation:seb-max-iter=0"
@@ -515,6 +541,40 @@ demo_on "$BASE_ABL_PYRO" seb_fail 3 "SEB did not converge" "SEC:FUSS-Ablation:se
     "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
 0.0 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0
 1.0e6 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0"
+
+# ---------------------------------------------------------------------------
+# Receding mesh (plan 08 stage B, law = nodeshift): the bc-level rules (Check_Ablation_BC_Topology), the node-map
+# rules (Setup_Recession: (a) a closed 306 patch, (b) equal receding lines across a 101 interface), and the stops of
+# a moving surface (exit 2). demo_base recedes at sdot-override 1e-5 m/s; demo_base_2blk is two blocks, the second
+# taller; conjugate_receding (R5) is two blocks that share their 101 face.
+# ---------------------------------------------------------------------------
+ABL_306_LINE="0.0, 300.0, none, env_demo.dat"
+demo_ok_on "$BASE_ABL_2BLK" abl_base_2blk_ok
+demo_on "$BASE_ABL" abl_two_faces      1 "carries 306 faces on two face ids" "BCFACE:3:306:$ABL_306_LINE"
+demo_on "$BASE_ABL" abl_opposite_306   1 "are opposite faces" "BCFACE:1:306:$ABL_306_LINE"
+demo_on "$BASE_ABL" abl_nodeshift_no306 1 "law = nodeshift moves the ablating faces (306), and bc.txt has none" \
+    "BCFACE:2:302:    3.000000E+02,"
+demo_on "$BASE_ABL" abl_receding_coupled 1 "recedes (law = nodeshift) and owns a coupled face 103" \
+    "BCFACE:1:103:       1       1       1       1       1       1       0       0       1"
+# a second material in the receding block: phase.txt, a copy of the properties zone, the last cell's matID
+demo_on "$BASE_ABL" abl_multimat       1 "holds more than one material" \
+    "PY:p = 'INPUT/phase.txt'; open(p, 'a').write('mat2 1\n'); s = open('INPUT/properties.dat').read().split('\n'); open('INPUT/properties.dat', 'a').write('\n'.join(['ZONE T=\"mat2\"'] + s[3:]) + '\n'); L = open('INPUT/ic.tec').read().rstrip('\n').split('\n'); L[-1] = ' 2.000000000000000E+00'; open('INPUT/ic.tec', 'w').write('\n'.join(L) + '\n')"
+# a volumetric source in the receding block: INPUT/st.tec from ic.tec's nodes, qvol 1e3 W/m3 in every cell
+demo_on "$BASE_ABL" abl_qvol           1 "has a volumetric source qvol" \
+    "PY:L = open('INPUT/ic.tec').read().split('\n'); nn = 21 * 2 * 2; out = [' VARIABLES =\"x\" \"y\" \"z\" qvol', L[1].replace('[4-5]=CELLCENTERED', '[4]=CELLCENTERED')] + L[2:2 + 3 * nn] + [' 1.000000000000000E+03'] * 20; open('INPUT/st.tec', 'w').write('\n'.join(out) + '\n')"
+# the node map on two blocks: the bottom of block 1 alone ablating leaves the shared corner in a block without 306;
+# both bottoms ablating make the corner end lines of 0.02 and 0.04 m
+demo_on "$BASE_ABL_2BLK" abl_open_patch     1 "has no 306 face containing it" \
+    "BCBLK:1:1:301:    0.000000E+00," "BCBLK:1:3:306:$ABL_306_LINE"
+demo_on "$BASE_ABL_2BLK" abl_lline_mismatch 1 "on lines of different length" \
+    "BCBLK:1:1:301:    0.000000E+00," "BCFACE:3:306:$ABL_306_LINE"
+# exit 2, the moving surface. 5.3e-3 m/s moves the 2.5 mm surface cell of demo_base by twice its size in the first
+# 0.9375 s step: the remap's sweep ratio stops it while 45 mm of the 50 mm line remain (min-thickness 25 mm).
+demo_on "$BASE_ABL" recession_too_fast 2 "the mesh moved too far in one time step" "sdot-override=5.3e-3"
+# min-thickness = the line itself: consumed at the first step, whatever the rate
+demo_on "$BASE_ABL" block_consumed     2 "ablating block consumed" "SEC:FUSS-Ablation:min-thickness=0.05"
+# R5 with the TEST ONLY perturbation of one shared node at step 2: the interface assertion stops it
+demo_on "$BASE_R5" abl_node_mismatch   2 "the mesh tore at a block interface" "SEC:FUSS-Ablation:perturb-interface-node=true"
 
 # the restart state (Setup_Ablation): a 5-step run of the kinematic base, OUTPUT/bc306-state.dat edited, newrun = false
 demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the state file (or RM)
