@@ -133,8 +133,9 @@ measured in 2D.
 
 With `vnn = 0.2` and no IRS, **the cycles are the only configuration that converges**: the
 baseline crawls to residual 7.3e-4 in 400 000 iterations (~39 min) with a flat tail and never
-reaches 1e-8, while v takes 8 362 iterations (108 s) and w 7 222 (97 s) — fields equal to
-2.6e-6 K. On this case the robustness ranking is inverted: cycles first, IRS last. The gains
+reaches 1e-8, while v takes 8 362 iterations (108 s) and w 7 222 (97 s). With no converged
+baseline to compare against, the evidence of equivalence is the two cycles themselves: the v and
+w fields agree to 2.6e-6 K, while the stalled baseline is still 1.4 K away from both. On this case the robustness ranking is inverted: cycles first, IRS last. The gains
 sit at the anisotropic end of the spectrum (squeezed cells + material jumps), far from the
 isotropic 200×, exactly as the AR-100 limit below predicts — but here the baseline does not
 converge at all, so the cycles are not an acceleration, they are the difference between an
@@ -175,8 +176,13 @@ case: use `w`, or enable IRS. Documented in
 ## Practical guidance
 
 - **`cycle = w` + IRS is the production choice**: textbook rates, N-independent iterations,
-  insensitive to `coarse-iter` on deep hierarchies, safe with chimera and at any depth. The
-  exception is strongly anisotropic cells (AR ≫ 1), where IRS alone is as fast (see above).
+  insensitive to `coarse-iter` on deep hierarchies, safe with chimera and at any depth. Two
+  exceptions follow.
+- Strongly anisotropic single-material cells (AR ≫ 1): IRS alone is as fast as any cycle
+  ([anisotropic cells](#anisotropic-cells-the-honest-limit)).
+- Multimaterial meshes with large conductivity jumps and squeezed cells: IRS can orbit with or
+  without cycles. Run `w` without IRS at a moderate `vnn` (0.2 on the
+  [liner](#stress-campaign)), the only configuration that converged there.
 - `coarse-iter = 10` (the default) is right for deep hierarchies; raise it only on 2-level
   hierarchies where the coarsest solve is the bottleneck.
 - `v` without IRS: 3 levels at most.
