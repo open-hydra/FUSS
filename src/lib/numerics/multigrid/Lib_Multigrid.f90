@@ -35,8 +35,7 @@ subroutine Check_Multigrid ( domain )
                        'divisible by '//trim(str(.true.,rap))//'; block '//trim(str(.true.,b))//' is not'
         error stop 'multigrid: block cells not divisible'
       endif
-      ! The coarsest level needs at least 2 cells per coarsened direction: a 1-cell-wide block
-      ! has degenerate extrapolated ghost metrics and Setup_Metrics stops on it ("det=0")
+      ! The coarsest level needs at least 2 cells per coarsened direction
       do d = 1, 3
         if ( domain % Blk(b) % Dim(d) > 1 .and. domain % Blk(b) % Dim(d) / rap < 2 ) then
           write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels leaves block '// &
@@ -235,7 +234,6 @@ subroutine Check_Multigrid ( domain )
   end subroutine coarse2fine_prim
 
 
-  !> FAS: h of the just-restricted coarse state, the reference the corrections are measured from
   subroutine fas_store_h0 ( cT, cmatID, h0, cDim )
     use FUSS_Global_m
     use FUSS_Lib_Solid, only: co_H
@@ -293,8 +291,7 @@ subroutine Check_Multigrid ( domain )
 
 
   !> FAS: prolong the coarse correction in h, delta = h(w_2h) - h0, with the trilinear weights of
-  !> coarse2fine_prim, and add it to the fine state. A correction that leaves the properties table
-  !> is halved (up to 10 times, else dropped), counted in fas_fallbacks.
+  !> coarse2fine_prim, and add it to the fine state.
   subroutine coarse2fine_corr ( fT, fmatID, cT, cmatID, h0, fDim, cDim )
     use FUSS_Global_m
     use FUSS_Config_Types_m, only: obj_table
@@ -409,10 +406,6 @@ subroutine Check_Multigrid ( domain )
   end subroutine coarse2fine_corr
 
 
-  !> Coarse-level material IDs for every block, by the same injection as
-  !> fine2coarse_prim. Called at setup, while every rank still holds the whole
-  !> fine field: the runtime Restriction only covers locally owned blocks, and
-  !> chimera needs matID on remote coarse donor blocks too.
   subroutine Coarse_matID ( Fine, Coarse )
     use FUSS_Advanced_Types_m
     implicit none

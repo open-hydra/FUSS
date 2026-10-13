@@ -289,7 +289,6 @@ contains
     end subroutine Check_Input
 
 
-    !> The FAS cycles (cycle /= none) are a steady, standalone, conservative-variables feature (v1)
     subroutine Check_FAS()
       implicit none
 

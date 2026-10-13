@@ -7,9 +7,6 @@ module FUSS_Mod_Explicit
 
 contains
 
-  !> One explicit iteration of the active multigrid level. inner = .true. (FAS coarse-level or
-  !> pre-smoothing visits) advances the level but touches no global counters, residual norm or
-  !> simulation-control flags; it must be uniform over the MPI ranks.
   subroutine Explicit_Step ( domain, External_Function, inner )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m

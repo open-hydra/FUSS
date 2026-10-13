@@ -151,8 +151,7 @@ contains
 
       ! Full compute+update without IRS. On a FAS coarse level (guarded = the level carries a
       ! forcing) an update that leaves the properties table is halved until admissible, like the
-      ! IRS fallback, instead of stopping the run: the forcing can push an explicit coarse update
-      ! outside the table during strong transients. Elsewhere the arithmetic is untouched.
+      ! IRS fallback, instead of stopping the run.
       subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k, guarded )
         implicit none
         real(R8), intent(inout) :: T, residual
