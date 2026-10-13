@@ -115,6 +115,7 @@ contains
       Tw = Ovar(1)
       bc%Tw_prev = Tw ; bc%qw_last = Ovar(2)
       bc%mdot_ch = 0.0d0 ; bc%sdot = 0.0d0 ; bc%Bprime = 0.0d0 ; bc%Bpg = 0.0d0 ; bc%Bch = 0.0d0 ; bc%hw = 0.0d0
+      if ( obj_ablation%sdot_override >= 0.0d0 ) bc%sdot = obj_ablation%sdot_override
       bc%seb = 0.0d0
       bc%seb(1) = G * ( Tw - Tc )
       bc%seb(2) = bc%hconv_env * ( bc%Tedge - Tw )
@@ -229,6 +230,7 @@ contains
     endif
     bc%sdot = 0.0d0
     if ( consume .and. pyro ) bc%sdot = mdot_ch / Blk%rho_s(Im,Jm,Km)
+    if ( obj_ablation%sdot_override >= 0.0d0 ) bc%sdot = obj_ablation%sdot_override   ! TEST ONLY
 
   contains
 

@@ -160,17 +160,23 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_mesh_motion
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
+    use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     real(R8),               intent(in)    :: t, dt
     ! Local
     integer  :: b, ci, cj, ck, si, sj, sk
-    logical  :: ok
+    logical  :: ok, nodeshift
     real(R8) :: gcl_rel, sweep_ratio
     character(len=256) :: message
 
     if ( .not. obj_mesh_motion%enabled ) return
+
+    ! Surface recession (plan 08 section 2.3): one displacement per surface
+    ! node, over every block that shares it, BEFORE any per-block law.
+    nodeshift = ( trim(obj_mesh_motion%law) == 'nodeshift' )
+    if ( nodeshift ) call Compute_Node_Recession ( domain, dt )
 
     do b = 1, domain%nb
       if (.not. is_local_block(b)) cycle
@@ -213,9 +219,14 @@ contains
       endif
     enddo
 
+    ! The shared nodes of every block interface must still coincide bitwise.
+    if ( nodeshift ) call Assert_Interface_Nodes ( domain )
+
     ! The ghost-cell metrics are functions of the geometry that has just moved,
-    ! so they have to be rebuilt too. See Setup_BC_Metrics.
-    call Setup_BC_Metrics ( domain )
+    ! so they have to be rebuilt too. See Setup_BC_Metrics. (TEST ONLY
+    ! skip-bc-metrics-refresh keeps the stale ones: the red control of the
+    ! receding conjugate case.)
+    if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) call Setup_BC_Metrics ( domain )
 
   end subroutine Update_Mesh
 

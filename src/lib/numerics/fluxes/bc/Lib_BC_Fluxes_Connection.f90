@@ -9,7 +9,7 @@ module FUSS_Lib_BC_Fluxes_Connection
 
 contains
 
-  subroutine BC_Connection ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg )
+  subroutine BC_Connection ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, q_out )
     use FUSS_Lib_Solid
     use FUSS_Lib_Diffusive
     implicit none
@@ -17,6 +17,7 @@ contains
     type(FUSS_tensor_3D_type), intent(in) :: Mg
     real(R8), intent(in)         :: Tg(6), matIDg
     type(FUSS_block_type), intent(inout) :: Blk
+    real(R8), intent(out), optional :: q_out     ! TEST ONLY: the flux put into the residual (dump-interface-flux)
     ! Local
     integer :: Dir, Face_im, Face_jm, Face_km, modfm2
     real(R8) :: T_loc, T_con, T_ip_loc, T_im_loc, T_jp_loc, T_jm_loc, T_kp_loc, T_km_loc
@@ -109,6 +110,7 @@ contains
 
     ! Residual update
     Blk % r(Im,Jm,Km) = Blk % r(Im,Jm,Km) - modfm2 * Flux
+    if ( present(q_out) ) q_out = modfm2 * Flux
     
   end subroutine BC_Connection
 

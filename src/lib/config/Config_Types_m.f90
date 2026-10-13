@@ -154,7 +154,7 @@ module FUSS_Config_Types_m
     character(len=llen) :: error_message
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
-    character(len=llen) :: law          ! static | prescribed | translation
+    character(len=llen) :: law          ! static | prescribed | translation | nodeshift
     real(R8)            :: vel(3)       ! rigid translation velocity [m/s]
     real(R8)            :: amp(3)       ! displacement amplitude per coordinate [m]
     real(R8)            :: kx(3)        ! spatial wavenumbers [1/m]
@@ -163,6 +163,7 @@ module FUSS_Config_Types_m
     real(R8)            :: omega        ! temporal angular frequency [1/s]
     real(R8)            :: gcl_tol      ! max acceptable relative GCL residual
     logical             :: taper        ! taper motion to zero on the block boundary
+    logical             :: skip_bc_metrics_refresh = .false.  ! TEST ONLY: keep the ghost metrics of the first step
     ! Useful variables
     logical             :: enabled      ! .true. unless law == 'static'
   end type mesh_motion_t
@@ -319,6 +320,10 @@ module FUSS_Config_Types_m
     integer  :: seb_max_iter = 50                    ! iteration cap -> error stop 3
     logical  :: no_char = .false.                    ! TEST ONLY: B'_ch = mdot_ch = 0
     character(len=llen) :: bprime_out_of_range = 'clamp'   ! clamp | abort
+    real(R8) :: min_thickness = 0.0d0                ! law = nodeshift: thinnest receding line [m]; 0 = min(10 x smallest cell, line/2)
+    real(R8) :: sdot_override = -1.0d0               ! TEST ONLY: every 306 face's recession rate [m/s]; < 0 = off
+    logical  :: dump_interface_flux = .false.        ! TEST ONLY: OUTPUT/<prefix>interface-flux.txt
+    logical  :: perturb_interface_node = .false.     ! TEST ONLY: move one shared 101 node by 1e-12 m at step 2
     ! Useful variables
     logical  :: enabled = .false.                    ! at least one 306 face (Read_BCfile)
     integer  :: n_faces = 0                          ! number of 306 faces of the finest grid

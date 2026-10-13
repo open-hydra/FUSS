@@ -24,6 +24,7 @@ module Morph_API
   use Morph_Motion_Static,     only: morph_motion_static_t
   use Morph_Motion_Prescribed, only: morph_motion_prescribed_t
   use Morph_Motion_Translation,only: morph_motion_translation_t
+  use Morph_Motion_Nodeshift,  only: morph_motion_nodeshift_t
 
   implicit none
   private
@@ -32,7 +33,7 @@ module Morph_API
   public :: morph_vec3_t, morph_tens3_t, morph_face_t, morph_dir_t
   public :: morph_geom_t, morph_status_t
   public :: morph_motion_t, morph_motion_static_t, morph_motion_prescribed_t
-  public :: morph_motion_translation_t
+  public :: morph_motion_translation_t, morph_motion_nodeshift_t
 
   ! Status codes
   public :: MORPH_OK, MORPH_ERR_SINGULAR, MORPH_ERR_NEGVOL, MORPH_ERR_JACOBIAN

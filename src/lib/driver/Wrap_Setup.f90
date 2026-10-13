@@ -29,7 +29,7 @@ contains
                                          Darcy_Is_Open
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
-    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation
+    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
@@ -90,7 +90,11 @@ contains
     ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so
     ! they are checked apart; then a restart reads the faces' state back.
     if (mpi_is_root .and. obj_ablation%enabled) call Check_Ablation ( simulation%domain(1) )
+    if (mpi_is_root .and. ( obj_ablation%enabled .or. trim(obj_mesh_motion%law) == 'nodeshift' )) &
+      call Check_Ablation_BC_Topology ( simulation%domain(1) )
     call Setup_Ablation ( simulation%domain(1), obj_sim_param%newrun )
+    ! law = nodeshift: the receding faces, the surface-node map and its rules
+    call Setup_Recession ( simulation%domain(1) )
     
     ! MPI: partition blocks and build ghost cell communication schedule
     do m = 1, obj_multigrid%MGL
@@ -695,6 +699,81 @@ contains
       if ( bad ) error stop 1
 
     end subroutine Check_Ablation
+
+
+    !> bc.txt-level rules of a RECEDING mesh (law = nodeshift, plan 08 section
+    !> 2.3), with or without pyrolysis (root, after Check_Ablation). The node-
+    !> map rules (a) and (b) need the surface-node map and are Setup_Recession's.
+    subroutine Check_Ablation_BC_Topology ( domain )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical :: bad
+      integer :: i, b, f, n306
+      integer, allocatable :: face_of(:)
+      real(R8) :: m0
+
+      bad = .false.
+      if ( trim(obj_mesh_motion%law) /= 'nodeshift' ) return
+
+      n306 = count( [( domain%bc(i)%type == 306, i = 1, domain%nbound )] )
+      if ( n306 == 0 ) then
+        write(*,'(A)') ' [ERROR] law = nodeshift moves the ablating faces (306), and bc.txt has none.'
+        error stop 1
+      endif
+
+      ! one receding face per block; its opposite face is not 306 as well
+      allocate( face_of(domain%nb) )
+      face_of = 0
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type /= 306 ) cycle
+        b = domain%bc(i)%b ; f = domain%bc(i)%f
+        if ( face_of(b) == 0 ) then
+          face_of(b) = f
+        elseif ( face_of(b) /= f ) then
+          if ( ( face_of(b) + 1 ) / 2 == ( f + 1 ) / 2 ) then
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ': its 306 faces ', face_of(b), ' and ', f, &
+              ' are opposite faces; under law = nodeshift the face opposite the receding one stays put.'
+          else
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ' carries 306 faces on two face ids (', face_of(b), &
+              ' and ', f, '); under law = nodeshift a block recedes from one face only.'
+          endif
+          bad = .true.
+          exit
+        endif
+      enddo
+
+      ! a receding block: no coupled face (MOSE does not move), one material, no qvol
+      do i = 1, domain%nbound
+        b = domain%bc(i)%b
+        if ( face_of(b) == 0 ) cycle
+        select case ( domain%bc(i)%type )
+          case ( 103, 104, 307 )
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and owns a coupled face ', &
+              domain%bc(i)%type, ' (bc.txt record ', i, '): the coupled solver''s mesh does not move.'
+            bad = .true.
+            exit
+        end select
+      enddo
+      do b = 1, domain%nb
+        if ( face_of(b) == 0 ) cycle
+        associate ( blk => domain%blk(b) )
+          m0 = blk%matID(1,1,1)
+          if ( any( blk%matID(1:blk%dim(1),1:blk%dim(2),1:blk%dim(3)) /= m0 ) ) then
+            write(*,'(A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and holds more than one material: '// &
+              'matID is not remapped, so a receding block must be single-material.'
+            bad = .true.
+          endif
+          if ( any( blk%qvol(1:blk%dim(1),1:blk%dim(2),1:blk%dim(3)) /= 0.0d0 ) ) then
+            write(*,'(A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and has a volumetric source qvol: '// &
+              'qvol stays attached to the cells and is not remapped.'
+            bad = .true.
+          endif
+        end associate
+      enddo
+
+      if ( bad ) error stop 1
+
+    end subroutine Check_Ablation_BC_Topology
 
 
     subroutine Check_BC()

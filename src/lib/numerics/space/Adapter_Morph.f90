@@ -54,6 +54,9 @@ module FUSS_Adapter_Morph
   type(morph_motion_static_t),                  save :: law_static_
   type(morph_motion_translation_t),             save :: law_trans_
   type(morph_motion_prescribed_t), allocatable, save :: law_pre_(:)
+  !> nodeshift (plan 08 section 2.3): one instance per block, holding that
+  !> block's receding face and this step's displacement of its nodes.
+  type(morph_motion_nodeshift_t),  allocatable, save :: law_shift_(:)
 
 contains
 
@@ -128,6 +131,7 @@ contains
   subroutine Adapter_Update_Mesh ( blk, nb, b, t, dt, gcl_rel, sweep_ratio, si, sj, sk, &
                                    ok, message, ci, cj, ck )
     use FUSS_Config_Types_m, only: obj_mesh_motion
+    use FUSS_Mod_Recession,  only: recede_dir, recede_side
     type(FUSS_block_type), intent(inout) :: blk
     integer(I4),           intent(in)    :: nb, b
     real(R8),              intent(in)    :: t, dt
@@ -140,7 +144,7 @@ contains
     ! Local
     type(morph_vec3_t), allocatable :: node(:,:,:), node_old(:,:,:)
     type(morph_status_t) :: status
-    integer(I4) :: i, j, k, d
+    integer(I4) :: i, j, k, d, a, c, lo(3), hi(3), sface
     real(R8)    :: gcl_abs
 
     gcl_rel     = 0.0_R8
@@ -160,6 +164,15 @@ contains
       enddo
       law_trans_%name = 'translation'
       law_trans_%vel  = obj_mesh_motion%vel
+      if ( trim(obj_mesh_motion%law) == 'nodeshift' ) then
+        allocate( law_shift_(1:nb) )
+        do i = 1, nb
+          law_shift_(i)%name = 'nodeshift'
+          if ( recede_dir(i) == 0 ) cycle
+          law_shift_(i)%dir  = recede_dir(i)
+          law_shift_(i)%side = recede_side(i)
+        enddo
+      endif
     endif
 
     call pack_nodes ( blk, node )
@@ -173,6 +186,33 @@ contains
       call Morph_Update ( node, node_old, blk%dim, t, dt, law_pre_(b), geom_(b), status )
     case ( 'translation' )
       call Morph_Update ( node, node_old, blk%dim, t, dt, law_trans_,  geom_(b), status )
+    case ( 'nodeshift' )
+      if ( recede_dir(b) > 0 ) then
+        ! this step's displacement of the receding face's nodes, computed per
+        ! node over every block that shares it (Compute_Node_Recession)
+        d = recede_dir(b)
+        sface = 0
+        if ( recede_side(b) == 2 ) sface = blk%dim(d)
+        lo = 0 ; hi = blk%dim
+        lo(d) = sface ; hi(d) = sface
+        if ( allocated(law_shift_(b)%disp) ) deallocate( law_shift_(b)%disp )
+        select case ( d )
+          case (1) ; allocate( law_shift_(b)%disp( 0:blk%dim(2), 0:blk%dim(3) ) )
+          case (2) ; allocate( law_shift_(b)%disp( 0:blk%dim(1), 0:blk%dim(3) ) )
+          case default ; allocate( law_shift_(b)%disp( 0:blk%dim(1), 0:blk%dim(2) ) )
+        end select
+        do k = lo(3), hi(3) ; do j = lo(2), hi(2) ; do i = lo(1), hi(1)
+          select case ( d )
+            case (1) ; a = j ; c = k
+            case (2) ; a = i ; c = k
+            case default ; a = i ; c = j
+          end select
+          law_shift_(b)%disp(a,c)%c = blk%node_disp(i,j,k)%c
+        enddo ; enddo ; enddo
+        call Morph_Update ( node, node_old, blk%dim, t, dt, law_shift_(b), geom_(b), status )
+      else
+        call Morph_Update ( node, node_old, blk%dim, t, dt, law_static_,   geom_(b), status )
+      endif
     case default
       call Morph_Update ( node, node_old, blk%dim, t, dt, law_static_,  geom_(b), status )
     end select
@@ -218,6 +258,7 @@ contains
   subroutine Adapter_Free ()
     if ( allocated(geom_)   ) deallocate( geom_ )
     if ( allocated(law_pre_) ) deallocate( law_pre_ )
+    if ( allocated(law_shift_) ) deallocate( law_shift_ )
   end subroutine Adapter_Free
 
 

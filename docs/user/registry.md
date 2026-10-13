@@ -63,7 +63,7 @@
 
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
-| law | static | static ,  prescribed ,  translation |  no | Mesh motion law |
+| law | static | static ,  prescribed ,  translation ,  nodeshift |  no | Mesh motion law (nodeshift: the ablating faces 306 recede, plan 08) |
 | vel | 0.0 | real |  no | Rigid-translation velocity [m/s] |
 | amp | 0.0 | >= 0 |  no | Prescribed-motion displacement amplitude per coordinate [m] |
 | kx | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying x [1/m] |
@@ -72,6 +72,7 @@
 | omega | 0.0 | real |  no | Prescribed-motion angular frequency [1/s] |
 | gcl-tolerance | 1.0e-10 | > 0 |  no | Max relative discrete-GCL residual before the run is stopped |
 | taper-to-boundary | .false. | logical |  no | Taper prescribed motion to zero on the block boundary |
+| skip-bc-metrics-refresh | .false. | logical |  no | TEST ONLY: do not rebuild the ghost-cell metrics after the mesh moves |
 
 ## FUSS-Pyrolysis
 
@@ -107,3 +108,7 @@
 | seb-max-iter | 50 | > 0 |  no | Iteration cap of the surface energy balance; reached -> error stop 3 |
 | no-char | .false. | logical |  no | TEST ONLY: B'_ch = mdot_ch = 0 on every 306 face; h_w is still read from the B' table |
 | bprime-out-of-range | clamp | clamp ,  abort |  no | A B' table query outside the table: clamp (PATO's behaviour, counted in seb.txt) or abort (error stop 3 at the first p or B'g outside) |
+| min-thickness | 0.0 | >= 0 |  no | law = nodeshift: a receding line shorter than this stops the run (error stop 2) [m]; 0 = 10 x the smallest initial cell on the receding lines, at most half the shortest line, resolved at a new run's setup and kept by a restart |
+| sdot-override | -1.0 | real |  no | TEST ONLY: the recession rate of every 306 face [m/s] (kinematic recession); < 0 = off |
+| dump-interface-flux | .false. | logical |  no | TEST ONLY: write the flux of every 101 face to OUTPUT/<prefix>interface-flux.txt at each output |
+| perturb-interface-node | .false. | logical |  no | TEST ONLY: at step 2 move the first shared 101 node of the lowest receding block by 1e-12 m in x (the interface-node assertion must stop the run) |

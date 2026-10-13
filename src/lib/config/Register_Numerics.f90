@@ -87,7 +87,8 @@ contains
     ! then move nothing -- a silently wrong run. Validate_Registry rejects any
     ! name not listed here, so keep this in sync with Adapter_Update_Mesh.
     call reg%add( trim(section), 'law', obj_mesh_motion%law, 'static', &
-                  'Mesh motion law', 'static ,  prescribed ,  translation', .false. )
+                  'Mesh motion law (nodeshift: the ablating faces 306 recede, plan 08)', &
+                  'static ,  prescribed ,  translation ,  nodeshift', .false. )
 
     call reg%add( trim(section), 'vel', obj_mesh_motion%vel, '0.0', &
                   'Rigid-translation velocity [m/s]', 'real', .false. )
@@ -114,6 +115,12 @@ contains
     ! result rather than an approximation.
     call reg%add( trim(section), 'taper-to-boundary', obj_mesh_motion%taper, '.false.', &
                   'Taper prescribed motion to zero on the block boundary', 'logical', .false. )
+
+    ! TEST ONLY red control of the receding conjugate case (plan 08 section 2.3
+    ! R5): the ghost metrics of the 101 faces stay those of the first step, so
+    ! the interface-flux pairing must fail.
+    call reg%add( trim(section), 'skip-bc-metrics-refresh', obj_mesh_motion%skip_bc_metrics_refresh, '.false.', &
+                  'TEST ONLY: do not rebuild the ghost-cell metrics after the mesh moves', 'logical', .false. )
 
   end subroutine Register_Mesh_Motion
 

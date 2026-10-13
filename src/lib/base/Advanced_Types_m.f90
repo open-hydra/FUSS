@@ -21,6 +21,8 @@ module FUSS_Advanced_Types_m
     real(R8), allocatable                  :: dV_swept(:,:,:,:)! (6,i,j,k) swept volumes
     type(FUSS_vector_3D_type), allocatable :: node(:,:,:)      ! Mesh grid points (including ghost)
     type(FUSS_vector_3D_type), allocatable :: node_old(:,:,:)  ! Mesh grid points at the previous step (moving mesh only)
+    type(FUSS_vector_3D_type), allocatable :: node_disp(:,:,:) ! law = nodeshift: this step's displacement of the receding
+                                                               ! face's nodes (Compute_Node_Recession; zero elsewhere)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
@@ -113,6 +115,10 @@ module FUSS_Advanced_Types_m
     real(R8) :: seb(8) = 0d0, beta = 1d0, hw = 0d0, Bpg = 0d0, Bch = 0d0, Bpg_lag = 0d0
     integer  :: seb_iter = 0, ibprime = 0, nclamp(4) = 0
     type(time_table_t) :: env
+    ! TEST ONLY dump of a 101 face (plan 08 section 2.3 R5): the conduction
+    ! flux BC_Connection put into the residual, and (type 2) the Darcy mass
+    ! and enthalpy fluxes of the face, written to interface-flux.txt
+    real(R8) :: q_if = 0d0, qm_if = 0d0, qh_if = 0d0
   end type FUSS_bc_type
   !! ------------------------------------------------------
   !! ------------------------------------------------------

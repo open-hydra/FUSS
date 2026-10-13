@@ -102,7 +102,7 @@ contains
     integer, intent(in)                  :: nijk(3)
     type(FUSS_block_type), intent(inout) :: blk
     ! Local
-    integer :: ni, nj, nk, fl
+    integer :: ni, nj, nk, fl, i, j, k
     type(field_entry_t) :: e
 
     ni = nijk(1) ; nj = nijk(2) ; nk = nijk(3)
@@ -119,6 +119,14 @@ contains
       allocate( blk % dV_swept ( 6, 1:ni, 1:nj, 1:nk ) )
       blk % vol_old  = 0.0_R8
       blk % dV_swept = 0.0_R8
+      ! law = nodeshift (plan 08 section 2.3): the per-step displacement of
+      ! the receding face's nodes, every incarnation of a shared node alike
+      if ( trim(obj_mesh_motion%law) == 'nodeshift' ) then
+        allocate( blk % node_disp ( 0:ni, 0:nj, 0:nk ) )
+        do k = 0, nk ; do j = 0, nj ; do i = 0, ni
+          blk % node_disp(i,j,k) % c = 0.0_R8
+        enddo ; enddo ; enddo
+      endif
     endif
 
     allocate( blk % M    ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
