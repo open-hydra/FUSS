@@ -111,3 +111,12 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     re-record; that is a project decision, left open.
   - **Gates:** all 23 physics gates pass on the new binary (`run_physics_gates.sh`, 8 min 55 s), the guard demos and the
     restart gate too.
+- **2026-10-13 (night), plan 08 stage B (the receding mesh, law = nodeshift): one demo base changes on purpose, two
+  cases added; no other row moved. 1700 rows.**
+  - **How measured:** `run_regression.sh -B -p 1 -k -o` on a scratch snapshot of the stage-B tree (fresh preset build,
+    binary `353f96f8`). 5 `<` lines, 16 `>` lines.
+  - **Changed on purpose, 5 rows:** `test/pyrolysis/ablation/demo_base` now recedes (`law = nodeshift`,
+    `sdot-override = 1e-5`), as plan 08 §2.10 specifies.
+  - **Added, 11 rows:** `test/moving-mesh/conjugate_receding` (6) and `test/pyrolysis/ablation/demo_base_2blk` (5).
+  - **The other 1684 rows are byte-identical.** Unlike stage A, these stage-B changes moved no type-1 bits.
+
