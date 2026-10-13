@@ -6,7 +6,7 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | newrun | true | true , false |  no | Start a new simulation (false = restart) |
-| res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold |
+| res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold (not used under law = nodeshift: a receding surface is never steady, the run ends on its time or iteration limit) |
 | time-threshold | 1e30 | > 0 |  no | Maximum simulation time |
 | iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations |
 

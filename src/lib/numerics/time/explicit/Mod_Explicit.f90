@@ -13,7 +13,7 @@ contains
     use FUSS_Global_m
     use FUSS_Mod_dt,         only: Set_Global_dt, Compute_dt
     use FUSS_Mod_Metrics,    only: Update_Mesh
-    use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE
+    use FUSS_Mod_ALE_Remap,  only: Remap_State_ALE, Remap_Pyrolysis_ALE
     use FUSS_Mod_Recession,  only: Ablation_Update_Env
     use FUSS_Lib_Ghost,      only: Fill_Ghost_Cell, Fill_Ghost_chi
     use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Stage, Pyrolysis_Residual, Pyrolysis_Budget_Rewind
@@ -83,12 +83,24 @@ contains
 
     !$omp parallel
 
+    ! T^(n-1) of the Darcy closure, shifted BEFORE the remap (plan 08 section
+    ! 2.9 phase 0): the remap moves the histories onto the new mesh, so they
+    ! must already hold this step's values. On a static mesh nothing between
+    ! here and Copy_State, where the shift used to be, touches TO or T_prev.
+    if ( obj_darcy%enabled ) call Darcy_Shift_History ( domain(level) )
+
     ! Conservative remap onto the moved mesh -- ONCE per step, before the RK
     ! stages. Ghost temperatures must be current for the upwind lookup at block
     ! interfaces, hence the fill. Both are no-ops when the mesh is static.
     if ( obj_mesh_motion%enabled ) then
-      call Fill_Ghost_Cell ( domain(level) )
-      call Remap_State_ALE ( domain(level) )
+      if ( obj_pyrolysis%enabled ) then
+        ! the pyrolysis state (plan 08 section 2.9; law = nodeshift): energy,
+        ! sub-phase masses and the type-2 gas state, no ghost read
+        call Remap_Pyrolysis_ALE ( domain(level) )
+      else
+        call Fill_Ghost_Cell ( domain(level) )
+        call Remap_State_ALE ( domain(level) )
+      endif
     endif
 
     call Copy_State ( domain(level) )
@@ -184,8 +196,12 @@ contains
 
     if (mpi_is_root) then
       if (level == 1) then
+        ! A receding surface (law = nodeshift, plan 08) is never steady: the
+        ! residual measures the stage update only, not the remap, and a uniform
+        ! flux-free state has none -- such a run ends on time or iterations.
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold .and. &
+                   trim(obj_mesh_motion%law) /= 'nodeshift' ) &
             .or. ( domain(1) % time >= obj_sim_param%time_threshold )
       else
         endmg = ( obj_sim_param%iter_from_call >= domain(level) % itermax ) &
@@ -233,22 +249,6 @@ contains
     ! Local
     integer :: i, j, k, b
 
-    ! T^(n-1) of the Darcy closure (plan 07), taken from TO before it is
-    ! overwritten -- not on the first step of a run, where TO is unset and
-    ! T_prev keeps what setup gave it (T on a new run, the file's on a restart)
-    if ( obj_darcy%enabled .and. domain % iter > 1 ) then
-      do b = 1, domain % nb
-        if (.not. is_local_block(b)) cycle
-        !$omp do collapse(3)
-        do k = 1, domain % blk(b) % dim(3)
-        do j = 1, domain % blk(b) % dim(2)
-        do i = 1, domain % blk(b) % dim(1)
-          domain % blk(b) % T_prev (i,j,k) = domain % blk(b) % TO (i,j,k)
-        enddo; enddo; enddo
-        !$omp end do
-      enddo
-    endif
-
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
       !$omp do collapse(3)
@@ -292,5 +292,34 @@ contains
     endif
 
   end subroutine Copy_State
+
+
+  !> T^(n-1) of the Darcy closure (plan 07; plan 08 section 2.9 phase 0),
+  !> taken from TO, which still holds the previous step's start temperature --
+  !> not on the first step of a run, where TO is unset and T_prev keeps what
+  !> setup gave it (T on a new run, the file's on a restart). Called before the
+  !> remap, so that a moving mesh remaps this step's history, and before
+  !> Copy_State overwrites TO. Inside the parallel region.
+  subroutine Darcy_Shift_History ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: i, j, k, b
+
+    if ( domain % iter <= 1 ) return
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3)
+      do k = 1, domain % blk(b) % dim(3)
+      do j = 1, domain % blk(b) % dim(2)
+      do i = 1, domain % blk(b) % dim(1)
+        domain % blk(b) % T_prev (i,j,k) = domain % blk(b) % TO (i,j,k)
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Darcy_Shift_History
 
 end module FUSS_Mod_Explicit

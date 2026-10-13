@@ -473,10 +473,11 @@ contains
         bad = .true.
       endif
 
-      ! 6. The reaction state is not remapped on a moving mesh yet.
-      if ( trim(obj_mesh_motion%law) /= 'static' ) then
-        write(*,'(A)') ' [ERROR] pyrolysis on a moving mesh is plan 08.'
-        write(*,'(A)') '         The reaction state is not remapped through the swept volumes. Use law = static.'
+      ! 6. The pyrolysis state is remapped through the swept volumes only for
+      !    the receding mesh of an ablating wall (plan 08 section 2.9).
+      if ( trim(obj_mesh_motion%law) /= 'static' .and. trim(obj_mesh_motion%law) /= 'nodeshift' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis on a moving mesh needs law = nodeshift.'
+        write(*,'(A)') '         Only the receding mesh of an ablating wall (306) remaps the pyrolysis state.'
         bad = .true.
       endif
 

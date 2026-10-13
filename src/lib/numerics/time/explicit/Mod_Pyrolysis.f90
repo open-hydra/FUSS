@@ -23,6 +23,7 @@ module FUSS_Mod_Pyrolysis
   private
   public :: Pyrolysis_Assign_Setup, Pyrolysis_Init_Cells, Pyrolysis_Stage, Write_Energy_Budget, Pyrolysis_Residual
   public :: Pyrolysis_Budget_Rewind
+  public :: Convert_T_To, Convert_T_From, Convert_Chi_To, Convert_Chi_From   ! plan 08: the pyrolysis remap
 
   ! Energy-budget accumulators (plan 06 §4.3): Q_out = int sum_cells R dt (net
   ! outgoing flux, conduction + BC + gas advection), Q_gas_out = int sum_lines
@@ -479,7 +480,7 @@ contains
   !> every solution write.
   subroutine Write_Energy_Budget ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_sim_param, obj_darcy
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_sim_param, obj_darcy, obj_ablation, obj_mesh_motion
     use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Lib_Pyrolysis,  only: Energy_Of, Energy_Of2
     use FUSS_Mod_MPI,        only: is_local_block
@@ -489,6 +490,12 @@ contains
     integer  :: b, i, j, k, m, u, ios
     real(R8) :: E_tot, M_s, V, M_g, G
     character(len=256) :: file
+    logical  :: abl
+
+    ! A receding ablating wall (plan 08 section 2.9) adds what its faces swept
+    ! out, so the balances still close on a moving surface; every other run
+    ! keeps its columns byte for byte.
+    abl = obj_ablation%enabled .and. trim(obj_mesh_motion%law) == 'nodeshift'
 
     ! Type 2 (plan 07): E with the stored gas, and an eighth column M_g = sum
     ! V G (the stored gas mass), so that the type-2 mass balance
@@ -512,7 +519,10 @@ contains
       if ( .not. budget_file_started ) then
         if ( obj_sim_param%newrun ) then
           open( newunit=u, file=trim(file), status='replace', action='write', iostat=ios )
-          if ( ios == 0 ) write(u,'(A)') '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src  M_g   (SI; Q_* count from the start of this run)'
+          if ( ios == 0 .and. abl ) write(u,'(A)') '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src  M_g  E_abl  M_abl  G_abl   '// &
+            '(SI; Q_* and *_abl count from the start of this run)'
+          if ( ios == 0 .and. .not. abl ) write(u,'(A)') &
+            '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src  M_g   (SI; Q_* count from the start of this run)'
         else
           open( newunit=u, file=trim(file), status='unknown', position='append', action='write', iostat=ios )
         endif
@@ -524,7 +534,12 @@ contains
         write(*,'(A)') ' [ERROR] pyrolysis: cannot open '//trim(file)
         error stop 1
       endif
-      write(u,'(8ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g
+      if ( abl ) then
+        write(u,'(11ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g, &
+          obj_ablation%E_abl, obj_ablation%M_abl, obj_ablation%G_abl
+      else
+        write(u,'(8ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g
+      endif
       close(u)
       return
     endif
@@ -546,7 +561,10 @@ contains
     if ( .not. budget_file_started ) then
       if ( obj_sim_param%newrun ) then
         open( newunit=u, file=trim(file), status='replace', action='write', iostat=ios )
-        if ( ios == 0 ) write(u,'(A)') '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src   (SI; Q_* count from the start of this run)'
+        if ( ios == 0 .and. abl ) write(u,'(A)') '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src  E_abl  M_abl   '// &
+          '(SI; Q_* and *_abl count from the start of this run)'
+        if ( ios == 0 .and. .not. abl ) write(u,'(A)') &
+          '# t  E_tot  M_s  Q_out  Q_gas_out  M_gas_out  Q_src   (SI; Q_* count from the start of this run)'
       else
         open( newunit=u, file=trim(file), status='unknown', position='append', action='write', iostat=ios )
       endif
@@ -558,7 +576,11 @@ contains
       write(*,'(A)') ' [ERROR] pyrolysis: cannot open '//trim(file)
       error stop 1
     endif
-    write(u,'(7ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src
+    if ( abl ) then
+      write(u,'(9ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, obj_ablation%E_abl, obj_ablation%M_abl
+    else
+      write(u,'(7ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src
+    endif
     close(u)
 
   end subroutine Write_Energy_Budget

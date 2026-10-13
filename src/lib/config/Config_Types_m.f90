@@ -327,6 +327,9 @@ module FUSS_Config_Types_m
     ! Useful variables
     logical  :: enabled = .false.                    ! at least one 306 face (Read_BCfile)
     integer  :: n_faces = 0                          ! number of 306 faces of the finest grid
+    ! material the receding 306 faces swept out since the start of this run
+    ! (the pyrolysis remap; energy-budget.txt columns E_abl M_abl G_abl)
+    real(R8) :: E_abl = 0.0d0, M_abl = 0.0d0, G_abl = 0.0d0
   end type ablation_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
