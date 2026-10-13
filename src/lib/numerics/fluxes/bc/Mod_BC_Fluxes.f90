@@ -76,7 +76,7 @@ contains
               call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                                  domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref )
             
-            case(103) ! Multi-Solver Coupling
+            case(103,104) ! Multi-Solver Coupling (104 = with chimera)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % ext_flux
           
           end select

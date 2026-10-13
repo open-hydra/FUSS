@@ -106,7 +106,7 @@ contains
       select case(ti)
       case(101,301,302,303,304,305,103)
         read( unitfile,*,iostat=ios )
-      case(102)
+      case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
         do c = 1, ci+cii
           read( unitfile,*,iostat=ios )
@@ -138,7 +138,7 @@ contains
     integer, intent(in)                             :: level
     integer, dimension(1:,1:), intent(inout)        :: n_bf
     ! Local
-    integer :: cc, i, s
+    integer :: cc, i, s, nzero_chim
     integer :: unitfile, ios, cios
     character(len=32) :: BCfile
     character(len=256) :: rec
@@ -168,6 +168,7 @@ contains
 
     ! Counter for number of cells per face in each block
     n_bf = 0
+    nzero_chim = 0
 
     ! Read file
     do i = 1, size(bc)
@@ -254,7 +255,7 @@ contains
             error stop 1
           endif
 
-        case(102)
+        case(102,104)
           if (level == 1) nchimera = nchimera + 1
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
           allocate(bc(i)%donorID(1:sum(bc(i)%ni),1:4))
@@ -265,6 +266,17 @@ contains
           do s = bc(i)%ni(1)+1, bc(i)%ni(1)+bc(i)%ni(2)
             read( unitfile,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
           enddo
+          if (bc(i)%type == 104) then
+            ! 104: coupled wall as for 103 (coupling flux, wall output)
+            obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
+            bc(i)%ext_flux = 0.0
+            ! Both ghost rows need MOSE donors, as checked on the MOSE side: without
+            ! them the blended fluid state is 0 and cons2prim divides by rho = 0
+            if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
+                sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
+              nzero_chim = nzero_chim + 1
+            endif
+          endif
 
         case(103)
           if (level == 1) ncoupled = ncoupled + 1
@@ -280,6 +292,17 @@ contains
     if (nwall > 0) obj_io % write_wall = .true.
 
     close( unitfile )
+
+    if (nzero_chim > 0) then
+      block
+        use FUSS_Mod_MPI, only: mpi_abort_all
+        character(len=256) :: msg
+        write(msg,'(I0,A,I0,A)') nzero_chim, ' coupled chimera (104) entries in the level-', level, &
+          ' BC file have MOSE donor volume fractions summing to ~0 (no donors found by the BC '// &
+          'builder). Their ghost states would be garbage; fix the BC file before running.'
+        call mpi_abort_all(trim(msg))
+      end block
+    endif
 
   end subroutine Read_BCfile
 
