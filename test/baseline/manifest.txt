@@ -85,6 +85,13 @@ test/pyrolysis/ablation/demo_base_pyro	OUTPUT/field.tec	2c6938cf6d3891d8a844e3c0
 test/pyrolysis/ablation/demo_base_pyro	OUTPUT/residual-history.dat	7714bc6e589565456a8386460b4392eb
 test/pyrolysis/ablation/demo_base_pyro	OUTPUT/seb.txt	131b52f82a4ac64ec97943f21755c98f
 test/pyrolysis/ablation/demo_base_pyro	OUTPUT/wall.tec	4bf71f41125da28b4d2c63d0217dd101
+test/pyrolysis/ablation/remap_uniform	OUTPUT/bc306-state.dat	fa480c0ae9a6edb7a9e42abf1157a702
+test/pyrolysis/ablation/remap_uniform	OUTPUT/darcy.txt	59d7497339d8fb0f5e73bad57ab2fbef
+test/pyrolysis/ablation/remap_uniform	OUTPUT/energy-budget.txt	e2674398e48745925f0536847ebb3064
+test/pyrolysis/ablation/remap_uniform	OUTPUT/field.tec	1c3a1a3119901cd8d2fce5ace21e7f4a
+test/pyrolysis/ablation/remap_uniform	OUTPUT/residual-history.dat	dfa44fdacd61abb186361600094e7018
+test/pyrolysis/ablation/remap_uniform	OUTPUT/seb.txt	aa1dfa13ddea1a4c0d69fe1eff96396f
+test/pyrolysis/ablation/remap_uniform	OUTPUT/wall.tec	ab61974e2ad443e6e301fc8822343ffb
 test/pyrolysis/ablation/seb_closure	OUTPUT/back.txt	9843768b85f0026e95b2198193cc871d
 test/pyrolysis/ablation/seb_closure	OUTPUT/bc306-state.dat	524a928951b7a850be4b8f2a54baaa7d
 test/pyrolysis/ablation/seb_closure	OUTPUT/d01hi.txt	765affac106c1f78dfe3940800b36030

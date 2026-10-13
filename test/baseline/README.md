@@ -119,4 +119,10 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     `sdot-override = 1e-5`), as plan 08 §2.10 specifies.
   - **Added, 11 rows:** `test/moving-mesh/conjugate_receding` (6) and `test/pyrolysis/ablation/demo_base_2blk` (5).
   - **The other 1684 rows are byte-identical.** Unlike stage A, these stage-B changes moved no type-1 bits.
+- **2026-10-13 (night), plan 08 stage C (pyrolysis on the receding mesh): one case added; no other row moved. 1707 rows.**
+  - **How measured:** `run_regression.sh -B -p 1 -k -o` on the stage-C tree (fresh preset build, binary `42dd54fa`).
+    0 `<` lines, 7 `>` lines.
+  - **Added, 7 rows:** `test/pyrolysis/ablation/remap_uniform` (gate V2). ATC22 and ATC23 are `.slow` and add no row.
+  - **The other 1700 rows are byte-identical.** The T_prev shift moved out of `Copy_State` (phase 0) and the remap,
+    budget and guard changes touch no pre-existing case.
 
