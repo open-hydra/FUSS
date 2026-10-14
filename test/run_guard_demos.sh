@@ -195,6 +195,23 @@ whatever = 1
 type = wall
 q = 0.0"
 
+# hydra's own sections pass too: a hydra case's input.ini carries [HYDRA-Parameters] and
+# [HYDRA-IO], which only hydra reads (until 2026-10-14 FUSS counted every HYDRA- section as
+# its own and refused these keys, so hydra-MF stopped at setup). [HYDRA-Multigrid] stays
+# FUSS's: FUSS reads its multigrid levels there under hydra, so a misspelt key is refused.
+demo_ok hydra_sections "[HYDRA-Parameters]
+N-coupling = 1
+FUSS-iter = 1
+MOSE-iter = 1
+time-accurate = false
+[HYDRA-IO]
+coupling-diter = 10
+coupling-wall = true"
+
+demo hydra_multigrid_typo 1 "unknown option in input.ini" \
+    "RAW:[HYDRA-Multigrid]
+levelz = 2"
+
 # ---------------------------------------------------------------------------
 # Pyrolysis guards (plan 06 section 3.7), on test/pyrolysis/energy_audit.
 # Same contract as demo(): both the text and the exit code (1 = input) are
