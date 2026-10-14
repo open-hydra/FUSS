@@ -129,7 +129,11 @@ measured in 2D.
    leave the properties table en masse and the fallback reverts them to raw explicit updates,
    unstable at that vnn. At `vnn = 1.0` plain IRS still orbits (~1e2 after 340 000 iterations),
    and the cycles inherit the orbit whenever IRS is on (`v`/`w` + IRS orbit at ~1e4 for
-   `vnn = 1.0` and ~2.4e4 for `vnn = 2.0`, with steady `FAS:` fallback reports).
+   `vnn = 1.0` and ~2.4e4 for `vnn = 2.0`, with steady `FAS:` fallback reports). Halving the
+   inadmissible smoothed update instead of reverting to the explicit one (the fallback since
+   `ae24248`) drops the orbit floor by about three orders of magnitude (vnn 2.0: ~75,
+   w + IRS vnn 1.0: ~2e2, flat over 60 000+ iterations) — a real improvement, but on this case
+   IRS still does not reach 1e-8 in any tested configuration.
 
 With `vnn = 0.2` and no IRS, **the cycles are the only configuration that converges**: the
 baseline crawls to residual 7.3e-4 in 400 000 iterations (~39 min) with a flat tail and never
