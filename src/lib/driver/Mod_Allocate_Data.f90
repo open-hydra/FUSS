@@ -64,7 +64,7 @@ contains
 
   subroutine Allocate_Block( blk, nijk )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_irs
+    use FUSS_Config_Types_m, only: obj_irs, obj_space_scheme
     use FUSS_Global_m
     implicit none
     integer, intent(in)                  :: nijk(3)
@@ -93,6 +93,11 @@ contains
     ! Temp storage for residuals in IRS
     if ( obj_irs%enabled ) then
       allocate( blk % RS1, blk % RS2, mold = blk % R )
+    end if
+
+    ! Per-cell conductivity cache (face-k = cell-mean)
+    if ( obj_space_scheme%cell_mean_k ) then
+      allocate( blk % kc, mold = blk % T )
     end if
 
   end subroutine Allocate_Block
@@ -137,6 +142,7 @@ contains
       if (allocated(domain%blk(b)%fas_h0))       deallocate(domain%blk(b)%fas_h0)
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
       if (allocated(domain%blk(b)%RS2))          deallocate(domain%blk(b)%RS2)
+      if (allocated(domain%blk(b)%kc))           deallocate(domain%blk(b)%kc)
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
       if (allocated(domain%blk(b)%Minv))         deallocate(domain%blk(b)%Minv)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)

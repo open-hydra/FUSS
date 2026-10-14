@@ -59,13 +59,20 @@ $\hat{\mathbf n}_f$ points from $L$ to $R$: $Q_f A_f$ enters $L$ and leaves $R$.
 
 ### Inside a block
 
-At an interior face the conductivity is evaluated at the mean temperature of the two cells,
+How the conductivity of an interior face is evaluated is selected by `face-k` in `[FUSS-Numerics]`:
 
-$$
-k_f = k\bigl(\tfrac12(T_L + T_R)\bigr),
-$$
+| `face-k` | Face conductivity | |
+|---|---|---|
+| `mean-T` (default) | $k_f = k\bigl(\tfrac12(T_L + T_R)\bigr)$, with the material of the lower-index cell $L$ | one lookup per face, up to $2\,n_\text{dir}$ per cell and stage |
+| `cell-mean` | $k_f = \tfrac12\bigl(k_L(T_L) + k_R(T_R)\bigr)$, each cell with its own material | one lookup per cell and stage, cached |
 
-with the material of the lower-index cell $L$.  The material of $R$ is not used, so a material change inside a block would not be represented: each material must fill whole blocks.
+With `mean-T` the material of $R$ is not used: at a material change inside a block the face takes
+the lower cell's conductivity one-sided (the interface is properly represented only across a 101
+block connection, below). `cell-mean` sees both materials and is symmetric at the interface, with
+fewer table lookups; it is a different discretisation — the mean of $k$ instead of $k$ at the mean
+temperature — so results differ from `mean-T` at the truncation level where $k$ depends on $T$,
+and by the one-sided bias where materials change inside a block. Walls always use the inner cell's
+conductivity, and connection/chimera faces always use the two-sided balance below, in both modes.
 
 ### Block connections (101) and chimera faces (102)
 

@@ -8,7 +8,8 @@ module FUSS_Lib_Diffusive
 contains
 
   subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, inverse_metric )
+                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, inverse_metric, &
+                              cell_mean_k, kappa_face )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
@@ -19,6 +20,8 @@ contains
     real(R8), intent(in) :: T6, T7, T8, T9, T10
     real(R8), intent(in), dimension(3,3) :: M1, M2   ! cell metrics, or their inverses (see inverse_metric)
     logical, intent(in) :: inverse_metric           ! M1, M2 are the cells' inverse metrics (diffusive-metric = inverse-mean)
+    logical, intent(in) :: cell_mean_k              ! face-k = cell-mean: kappa_face is the mean of the two cells' cached k
+    real(R8), intent(in) :: kappa_face
     real(R8), intent(inout) :: Res1, Res2
     ! Local
     real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
@@ -46,8 +49,14 @@ contains
     end if
     Gradient = matmul ( Gradient, M )
 
-    T = 0.5d0 * ( T1 + T2 )
-    call co_Kappa( matID, T, kappa )
+    ! Face conductivity: the mean of the two cells' own k (face-k = cell-mean), or the
+    ! lower cell's material interpolated at the mean face temperature (default)
+    if ( cell_mean_k ) then
+      kappa = kappa_face
+    else
+      T = 0.5d0 * ( T1 + T2 )
+      call co_Kappa( matID, T, kappa )
+    end if
 
     call Compute_Diffusive_Flux ( kappa, Gradient, area, normal, Flux )
 

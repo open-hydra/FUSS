@@ -43,6 +43,7 @@ module FUSS_Advanced_Types_m
     real(R8), dimension(:,:,:), allocatable :: T, TO           ! Primitive variables at time n and n-1
     real(R8), dimension(:,:,:), allocatable :: R               ! Residuals
     real(R8), dimension(:,:,:), allocatable :: RS1, RS2        ! Implicit smoothing residuals (temporary storage)
+    real(R8), dimension(:,:,:), allocatable :: kc              ! face-k = cell-mean: k of each interior cell, per stage
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
     real(R8), dimension(:,:,:), allocatable :: matID           ! ID of material for each cell

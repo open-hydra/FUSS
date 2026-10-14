@@ -61,6 +61,14 @@ contains
                   'mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r', &
                   'inverse-mean, mean', .false. )
 
+    ! Conductivity of the interior diffusive faces ------------------
+    call reg%add( trim(section), 'face-k', obj_space_scheme%face_k, 'mean-T', &
+                  'Conductivity of the interior diffusive faces: mean-T interpolates the lower cell''s material '// &
+                  'at the mean face temperature, once per face; cell-mean interpolates each cell once, at its own '// &
+                  'temperature and material, and averages the two cells at the face (symmetric at material '// &
+                  'interfaces, fewer lookups). Connection and chimera faces always use the two-sided interface '// &
+                  'balance; walls always use the inner cell', 'mean-T, cell-mean', .false. )
+
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)
 

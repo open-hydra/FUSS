@@ -52,6 +52,7 @@
 | irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |
 | irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
 | diffusive-metric | inverse-mean | inverse-mean, mean |  no | Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r |
+| face-k | mean-T | mean-T, cell-mean |  no | Conductivity of the interior diffusive faces: mean-T interpolates the lower cell's material at the mean face temperature, once per face; cell-mean interpolates each cell once, at its own temperature and material, and averages the two cells at the face (symmetric at material interfaces, fewer lookups). Connection and chimera faces always use the two-sided interface balance; walls always use the inner cell |
 
 ## FUSS-Multigrid
 

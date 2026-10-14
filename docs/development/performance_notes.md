@@ -30,7 +30,7 @@ This page lists what the code already does for speed and the known costs that ha
 
 ### Property look-ups
 
-- `Diffusive_Flux` calls `co_Kappa` once per interior face, at the mean of the two cell temperatures, so each cell's table is interpolated on up to $2\,n_\text{dir}$ faces per stage. Caching $k$ per cell and averaging it at the face would change the discretisation (mean of $k$ instead of $k$ at the mean temperature), and so the results.
+- `Diffusive_Flux` calls `co_Kappa` once per interior face, at the mean of the two cell temperatures, so each cell's table is interpolated on up to $2\,n_\text{dir}$ faces per stage. `face-k = cell-mean` caches $k$ per cell and averages it at the face — one lookup per cell and stage — as a different discretisation (mean of $k$ instead of $k$ at the mean temperature, see [face conductivity](../theory/numerics.md#face-conductivity)): the default keeps today's scheme and cost.
 - `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration.
 
 ### Flux loops
