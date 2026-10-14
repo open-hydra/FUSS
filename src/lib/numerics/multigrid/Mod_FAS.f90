@@ -88,7 +88,6 @@ contains
   !> own forcing) minus the coarse one at the restricted state.
   subroutine FAS_To_Coarse ( simulation, level )
     use FUSS_Advanced_Types_m, only: FUSS_simulation_type
-    use FUSS_Config_Types_m,   only: obj_multigrid
     use FUSS_Mod_Explicit,     only: Evaluate_Residual
     use FUSS_Mod_Multigrid,    only: Restriction
     use FUSS_Lib_Multigrid,    only: fas_store_h0, fas_build_forcing
@@ -99,7 +98,6 @@ contains
     ! Local
     integer :: b
 
-    obj_multigrid%MG_level = level
     call Evaluate_Residual ( simulation%domain(level) )
 
     simulation%domain(level+1)%fas_forcing = .false.
@@ -110,7 +108,6 @@ contains
                           simulation%domain(level+1)%blk(b)%fas_h0, simulation%domain(level+1)%blk(b)%dim )
     enddo
 
-    obj_multigrid%MG_level = level+1
     call Evaluate_Residual ( simulation%domain(level+1) )
 
     do b = 1, simulation%domain(level+1)%nb

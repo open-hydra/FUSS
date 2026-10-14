@@ -13,7 +13,8 @@ module FUSS_Lib_Newstate
   !> conservative path, which otherwise error-stops); reported and reset like irs_fallbacks.
   integer, public :: fas_update_fallbacks = 0
 
-  integer, parameter :: IRS_HALVINGS = 10   ! own update halved down to 2**-10, then not applied
+  integer, parameter, public :: IRS_HALVINGS = 10   ! an update is halved down to 2**-10, then not applied
+  public :: Admissible_T
 
 contains
 

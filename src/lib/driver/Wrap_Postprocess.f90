@@ -13,7 +13,7 @@ module FUSS_Wrap_Postprocess
   logical, private :: fas_setup_saved = .false.
   logical, private :: fas_cycle_warned = .false., fas_iters_warned = .false.
   character(len=8), private :: fas_cycle_setup = 'none'
-  integer, private :: fas_pre_setup = 2, fas_post_setup = 1, fas_coarse_setup = 4
+  integer, private :: fas_pre_setup = 2, fas_post_setup = 1, fas_coarse_setup = 10
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
   character(96), private :: RANS_shell_format_MG  = "('FUSS Grid Level', i2, ' | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"

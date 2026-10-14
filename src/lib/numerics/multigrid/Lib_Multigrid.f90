@@ -145,6 +145,21 @@ subroutine Check_Multigrid ( domain )
     integer, intent(in), dimension(3) :: fDim, cDim
     real(R8), intent(out), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fPrim
     real(R8), intent(in),  dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cPrim
+
+    call prolong_trilinear ( cPrim, fPrim, cDim, fDim, gc, gc )
+
+  end subroutine coarse2fine_prim
+
+
+  !> Trilinear prolongation of one coarse-cell field onto the fine interior cells, stencils
+  !> clamped at the block boundary; ch and fh are the halo widths of the two arrays. The
+  !> worksharing directive is inert when the caller is outside a parallel region.
+  subroutine prolong_trilinear ( c, f, cDim, fDim, ch, fh )
+    implicit none
+    integer, intent(in), dimension(3) :: cDim, fDim
+    integer, intent(in) :: ch, fh
+    real(R8), intent(in),  dimension(1-ch:cDim(1)+ch,1-ch:cDim(2)+ch,1-ch:cDim(3)+ch) :: c
+    real(R8), intent(out), dimension(1-fh:fDim(1)+fh,1-fh:fDim(2)+fh,1-fh:fDim(3)+fh) :: f
     ! Local
     integer :: i, j, k, rap, i2, j2, k2, i2d, j2d, k2d, im, jm, km, ip, jp, kp
     integer :: ii, jj, kk, counter, mask(3), id(6)
@@ -214,24 +229,24 @@ subroutine Check_Multigrid ( domain )
           if (counter==8) mask(1:3) = [4,5,6]
         endif  
 
-        interp = coeffs(1) * cPrim(i,j,k) &
-               + coeffs(2) * cPrim(id(mask(1)),j,k) &
-               + coeffs(3) * cPrim(i,id(mask(2)),k)    &
-               + coeffs(4) * cPrim(i,j,id(mask(3)))    &
-               + coeffs(5) * cPrim(id(mask(1)),id(mask(2)),k)   &
-               + coeffs(6) * cPrim(id(mask(1)),j,id(mask(3)))   &
-               + coeffs(7) * cPrim(i,id(mask(2)),id(mask(3)))   &
-               + coeffs(8) * cPrim(id(mask(1)),id(mask(2)),id(mask(3)))
+        interp = coeffs(1) * c(i,j,k) &
+               + coeffs(2) * c(id(mask(1)),j,k) &
+               + coeffs(3) * c(i,id(mask(2)),k)    &
+               + coeffs(4) * c(i,j,id(mask(3)))    &
+               + coeffs(5) * c(id(mask(1)),id(mask(2)),k)   &
+               + coeffs(6) * c(id(mask(1)),j,id(mask(3)))   &
+               + coeffs(7) * c(i,id(mask(2)),id(mask(3)))   &
+               + coeffs(8) * c(id(mask(1)),id(mask(2)),id(mask(3)))
 
-        fPrim(ii,jj,kk) = interp
+        f(ii,jj,kk) = interp
 
-        counter = counter + 1          
-        
+        counter = counter + 1
+
       enddo; enddo; enddo
-    
+
     enddo; enddo; enddo
-      
-  end subroutine coarse2fine_prim
+
+  end subroutine prolong_trilinear
 
 
   subroutine fas_store_h0 ( cT, cmatID, h0, cDim )
@@ -294,8 +309,8 @@ subroutine Check_Multigrid ( domain )
   !> coarse2fine_prim, and add it to the fine state.
   subroutine coarse2fine_corr ( fT, fmatID, cT, cmatID, h0, fDim, cDim )
     use FUSS_Global_m
-    use FUSS_Config_Types_m, only: obj_table
     use FUSS_Lib_Solid, only: co_H, co_T
+    use FUSS_Lib_Newstate, only: Admissible_T, IRS_HALVINGS
     implicit none
     integer, intent(in), dimension(3) :: fDim, cDim
     real(R8), intent(inout), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fT
@@ -303,103 +318,32 @@ subroutine Check_Multigrid ( domain )
     real(R8), intent(in),    dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cT, cmatID
     real(R8), intent(in),    dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: h0
     ! Local
-    integer :: i, j, k, rap, i2, j2, k2, i2d, j2d, k2d, im, jm, km, ip, jp, kp
-    integer :: ii, jj, kk, counter, mask(3), id(6), n
-    real(R8) :: a1, a2, a3, a4, coeffs(8), interp, h, Tnew, theta
-    real(R8), dimension(0:cDim(1)+1,0:cDim(2)+1,0:cDim(3)+1) :: dh
+    integer :: i, j, k, n
+    real(R8) :: h, Tnew, theta
+    real(R8), dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: dh
+    real(R8), dimension(1:fDim(1),1:fDim(2),1:fDim(3)) :: dhf
 
-    ! Correction on the coarse cells, clamped stencils as in coarse2fine_prim
+    ! Correction on the coarse cells, prolongated with the weights of coarse2fine_prim
     do k = 1, cDim(3); do j = 1, cDim(2); do i = 1, cDim(1)
       call co_H ( cmatID(i,j,k), cT(i,j,k), h )
       dh(i,j,k) = h - h0(i,j,k)
     enddo; enddo; enddo
+    call prolong_trilinear ( dh, dhf, cDim, fDim, 0, 0 )
 
-    a1 = 27d0/64d0
-    a2 = 9d0/64d0
-    a3 = 3d0/64d0
-    a4 = 1d0/64d0
-    coeffs(1:8) = [ a1, a2, a2, a2, a3, a3, a3, a4 ]
-    rap = 2
+    do k = 1, fDim(3)
+    do j = 1, fDim(2)
+    do i = 1, fDim(1)
 
-    if ( fDim(3) == 1 ) then ! 2D
-      a1 = 9.d0/16.d0
-      a2 = 3.d0/16.d0
-      a3 = 1.d0/16.d0
-      a4 = 0d0
-      coeffs(1:8) = [ a1, a2, a2, a4, a3, a4, a4, a4 ]
-    end if
-
-    do k = 1, cDim(3)
-    do j = 1, cDim(2)
-    do i = 1, cDim(1)
-
-      i2 = rap*i
-      j2 = rap*j
-      k2 = rap*k
-      i2d = i2-(rap-1)
-      j2d = j2-(rap-1)
-      k2d = k2-(rap-1)
-
-      im = Max (1,i-1)
-      jm = Max (1,j-1)
-      km = Max (1,k-1)
-
-      ip = Min (cDim(1), i+1)
-      jp = Min (cDim(2), j+1)
-      kp = Min (cDim(3), k+1)
-
-      if ( fDim(3) == 1 ) then
-        k2 = 1
-        k2d = 1
-      end if ! 2D
-
-      id(1:6) = [ im, jm, km, ip, jp, kp ]
-
-      counter = 1
-
-      do kk = k2d, k2
-      do jj = j2d, j2
-      do ii = i2d, i2
-
-        if ( fDim(3) == 1 ) then ! 2D
-          if (counter==1) mask(1:3) = [1,2,3]
-          if (counter==2) mask(1:3) = [4,2,3]
-          if (counter==3) mask(1:3) = [1,5,3]
-          if (counter==4) mask(1:3) = [4,5,3]
-        else
-          if (counter==1) mask(1:3) = [1,2,3]
-          if (counter==2) mask(1:3) = [4,2,3]
-          if (counter==3) mask(1:3) = [1,5,3]
-          if (counter==4) mask(1:3) = [4,5,3]
-          if (counter==5) mask(1:3) = [1,2,6]
-          if (counter==6) mask(1:3) = [4,2,6]
-          if (counter==7) mask(1:3) = [1,5,6]
-          if (counter==8) mask(1:3) = [4,5,6]
-        endif
-
-        interp = coeffs(1) * dh(i,j,k) &
-               + coeffs(2) * dh(id(mask(1)),j,k) &
-               + coeffs(3) * dh(i,id(mask(2)),k)    &
-               + coeffs(4) * dh(i,j,id(mask(3)))    &
-               + coeffs(5) * dh(id(mask(1)),id(mask(2)),k)   &
-               + coeffs(6) * dh(id(mask(1)),j,id(mask(3)))   &
-               + coeffs(7) * dh(i,id(mask(2)),id(mask(3)))   &
-               + coeffs(8) * dh(id(mask(1)),id(mask(2)),id(mask(3)))
-
-        call co_H ( fmatID(ii,jj,kk), fT(ii,jj,kk), h )
-        theta = 1d0
-        do n = 0, 10
-          call co_T ( fmatID(ii,jj,kk), h + theta*interp, Tnew )
-          if ( Tnew >= obj_table%Tmin .and. Tnew < real(obj_table%Tmax, R8) ) exit
-          theta = 0.5d0 * theta
-          if (n == 10) Tnew = fT(ii,jj,kk)
-        enddo
-        if (theta < 1d0) fas_fallbacks = fas_fallbacks + 1
-        fT(ii,jj,kk) = Tnew
-
-        counter = counter + 1
-
-      enddo; enddo; enddo
+      call co_H ( fmatID(i,j,k), fT(i,j,k), h )
+      theta = 1d0
+      do n = 0, IRS_HALVINGS
+        call co_T ( fmatID(i,j,k), h + theta*dhf(i,j,k), Tnew )
+        if ( Admissible_T( Tnew ) ) exit
+        theta = 0.5d0 * theta
+        if (n == IRS_HALVINGS) Tnew = fT(i,j,k)
+      enddo
+      if (theta < 1d0) fas_fallbacks = fas_fallbacks + 1
+      fT(i,j,k) = Tnew
 
     enddo; enddo; enddo
 
