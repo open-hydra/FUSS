@@ -116,7 +116,8 @@ measured in 2D.
 
 **Realistic liner (4 material layers, squeezed cells, hard BCs).** 64 × 128 cells, 0.3 × 3.9 mm
 (AR 12.5), layers k = 5 / 300 / 15 / 150 W/mK on all-level grid lines, convective 303 walls
-(hot side Tref 3000 → 1500 K along the wall, cold side h = 10⁴). Two honest findings:
+(hot side Tref 3000 → 1500 K along the wall, cold side h = 10⁴). Two findings, both measured
+on the uncorrected time step (`dt-face-k = false`) and resolved by it below:
 
 1. **The explicit baseline is the fragile one.** With `vnn = 0.5` (stable everywhere else) the
    *baseline* run dies at the k 300 → 15 interface in a few steps (T < 0 K): the local dt uses
@@ -135,15 +136,25 @@ measured in 2D.
    w + IRS vnn 1.0: ~2e2, flat over 60 000+ iterations) — a real improvement, but on this case
    IRS still does not reach 1e-8 in any tested configuration.
 
-With `vnn = 0.2` and no IRS, **the cycles are the only configuration that converges**: the
-baseline crawls to residual 7.3e-4 in 400 000 iterations (~39 min) with a flat tail and never
-reaches 1e-8, while v takes 8 362 iterations (108 s) and w 7 222 (97 s). With no converged
-baseline to compare against, the evidence of equivalence is the two cycles themselves: the v and
-w fields agree to 2.6e-6 K, while the stalled baseline is still 1.4 K away from both. On this case the robustness ranking is inverted: cycles first, IRS last. The gains
-sit at the anisotropic end of the spectrum (squeezed cells + material jumps), far from the
-isotropic 200×, exactly as the AR-100 limit below predicts — but here the baseline does not
-converge at all, so the cycles are not an acceleration, they are the difference between an
-answer and none.
+With `vnn = 0.2` and no IRS, **the cycles were the only configuration that converged**: the
+baseline needs 1 259 270 iterations, v takes 8 362 (108 s) and w 7 222 (97 s), fields agreeing
+to 2.6e-6 K. On the uncorrected time step the robustness ranking was inverted — cycles first,
+IRS last — and the cycles were not an acceleration but the difference between an answer and none.
+
+**Root cause, and the resolution: `dt-face-k`.** Both findings above are the *same* defect seen
+twice: the face between the liner and the jacket carries the copper-side conductivity
+(k = 300, lower-cell material) while the jacket cell's time step is built on its own k = 15 —
+the explicit update violates the face stability bound, as a crash without IRS and as the
+admissibility orbit with it (the fallback was the symptom, not the cause). With
+`dt-face-k = true` (the local dt takes each direction's severest face conductivity, evaluated
+as the flux evaluates it) the liner becomes a normal case: the orbit is gone with **zero**
+fallback reports, `w` + IRS at `vnn = 1.0` converges in **2 882** iterations (67 s), `w` alone
+in 1 746 (`vnn = 1.0`) and 1 480 (`vnn = 1.2`), plain IRS descends cleanly, and even the
+single-grid baseline reaches 1e-8 in 239 377 iterations at `vnn = 1.2` (ceiling ≈ 1.25). With
+`face-k = cell-mean` the key is needed even sooner — the coat-side face then carries
+(5+300)/2 = 30× the coat's own k, which kills the uncorrected dt already at `vnn = 0.2` — and
+with it `vnn = 1.2` converges in 233 645 iterations, fields equal to the mean-T runs within
+3.2e-6 K. The key costs +4 % per iteration on one material, +8 % on the liner.
 
 ## Anisotropic cells: the honest limit
 
@@ -184,9 +195,10 @@ case: use `w`, or enable IRS. Documented in
   exceptions follow.
 - Strongly anisotropic single-material cells (AR ≫ 1): IRS alone is as fast as any cycle
   ([anisotropic cells](#anisotropic-cells-the-honest-limit)).
-- Multimaterial meshes with large conductivity jumps and squeezed cells: IRS can orbit with or
-  without cycles. Run `w` without IRS at a moderate `vnn` (0.2 on the
-  [liner](#stress-campaign)), the only configuration that converged there.
+- Multimaterial meshes with large conductivity jumps: turn on `dt-face-k`. Without it the cell
+  time step violates the face stability bound at the interfaces (crashes without IRS, bounded
+  residual orbits with it); with it the [liner](#stress-campaign) runs `w` + IRS at `vnn = 1.0`
+  like any other case.
 - `coarse-iter = 10` (the default) is right for deep hierarchies; raise it only on 2-level
   hierarchies where the coarsest solve is the bottleneck.
 - `v` without IRS: 3 levels at most.
