@@ -232,10 +232,13 @@ contains
   !> never reads. Both runs completed happily.
   !>
   !> SCOPE. Only sections belonging to this solver are checked -- those prefixed
-  !> `<codename>-` or `HYDRA-`. A FUSS input.ini also carries [GRIB-*], [GPB-*],
-  !> [ICB-*], [BCB-*] and arbitrarily named per-BC blocks such as [Twall-hot],
-  !> which belong to ATLAS and which FUSS never reads. Checking those would
-  !> reject every existing case.
+  !> `<codename>-`, and [HYDRA-Multigrid], where FUSS reads its multigrid levels
+  !> when hydra drives it (Register_Multigrid_Levels). A FUSS input.ini also carries
+  !> [GRIB-*], [GPB-*], [ICB-*], [BCB-*] and arbitrarily named per-BC blocks such as
+  !> [Twall-hot], which belong to ATLAS and which FUSS never reads. Checking those
+  !> would reject every existing case. The other [HYDRA-*] sections ([HYDRA-Parameters],
+  !> [HYDRA-IO]) are hydra's: until 2026-10-14 every HYDRA- section counted as FUSS's,
+  !> so FUSS refused each key of a hydra case's input.ini (hydra-MF stopped at setup).
   subroutine Check_Unknown_Options ( fini, out )
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg
@@ -319,7 +322,7 @@ contains
     !> another tool's business.
     logical function Section_Is_Ours ( name ) result ( ours )
       character(len=*), intent(in) :: name
-      ours = ( index(name, trim(codename)//'-') == 1 ) .or. ( index(name, 'HYDRA-') == 1 )
+      ours = ( index(name, trim(codename)//'-') == 1 ) .or. Same(name, 'HYDRA-Multigrid')
     end function Section_Is_Ours
 
     !> Trimmed, case-insensitive comparison. Case-insensitive on purpose: a
