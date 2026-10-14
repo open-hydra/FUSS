@@ -94,6 +94,7 @@ module FUSS_Config_Types_m
     character(len=llen) :: solver_type      ! Solver type (explicit/implicit)
     real(R8)            :: vnn              ! Diffusion number (von Neumann)
     integer             :: rampa_vnn_iter   ! Iterations of the vnn ramp
+    logical             :: dt_face_k        ! dt from the largest face conductivity per direction (Mod_dt)
     logical             :: time_accurate    ! Time-accurate (global dt) run
     integer             :: n_RK
     character(len=llen) :: integration_variables ! Integration variables (cons/prim)

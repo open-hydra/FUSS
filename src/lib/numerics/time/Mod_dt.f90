@@ -1,15 +1,26 @@
 module FUSS_Mod_dt
-  use iso_fortran_env, only: I4 => int32, R8 => real64
+  use iso_fortran_env, only: I1 => int8, I4 => int32, R8 => real64
 
   implicit none
   private
   public :: Compute_dt, Set_Global_dt
+
+  ! dt-face-k: the faces of each local cell that are block connections (101) or chimera faces
+  ! (102), bit f-1 for face f, per multigrid level; built at the first call on the level
+  type :: conn_blk_t
+    integer(I1), allocatable :: f(:,:,:)
+  end type conn_blk_t
+  type :: conn_level_t
+    type(conn_blk_t), allocatable :: blk(:)
+  end type conn_level_t
+  type(conn_level_t), allocatable :: conn(:)
 
 contains
 
   subroutine Compute_dt ( domain, vnn, rampa_iter )
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
+    use FUSS_Config_Types_m, only: obj_time_scheme
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_min_r8
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -46,6 +57,9 @@ contains
       enddo; enddo; enddo
       !$omp end parallel
     enddo ! end of loop over blocks
+
+    ! dt-face-k: the cells whose face conductivities differ from their own get the face step
+    if ( obj_time_scheme%dt_face_k ) call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
 
     ! MPI: global minimum across all ranks
     call mpi_allreduce_min_r8(dtglobal, dtglobal_mpi)
@@ -84,6 +98,175 @@ contains
       end subroutine compute
 
   end subroutine Compute_dt
+
+
+  !> dt-face-k = true: second pass of Compute_dt. The interior fluxes take k at the face: with
+  !> face-k = mean-T the lower cell's material at the mean temperature, so at a material jump the
+  !> first cells above it exchange heat through their neighbour's k, which the cell k of Compute_dt
+  !> does not see (k 20 times the cell's makes the explicit update diverge); with cell-mean the mean
+  !> of the two cells' k, half the jump. Here direction d of the cell sum takes the larger
+  !> conductivity k_d of its two faces, each evaluated as its flux evaluates it:
+  !>   dt = vnn rho cp / (2 sum_d k_d |grad xi_d|^2)
+  !> A cell whose k_d all equal its own k keeps the step of the cell loop untouched, so one material
+  !> at constant k runs bit for bit as with the key off. dtglobal is recomputed over the final steps
+  !> (a face step is longer than the cell one where both faces of a direction carry less k).
+  subroutine Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_multigrid
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    real(R8), intent(in)  :: vnn
+    integer, intent(in)   :: rampa_iter
+    real(R8), intent(out) :: dtglobal
+    ! Local
+    integer  :: i, j, k, b, level
+    real(R8) :: dtcell
+    logical  :: face
+
+    level = domain % mg_level
+    if ( .not. allocated(conn) ) allocate( conn(obj_multigrid%MGL) )
+    if ( .not. allocated(conn(level)%blk) ) call Connection_Faces ( domain, conn(level) )
+
+    dtglobal = domain % dtglobal
+
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
+      !$omp parallel
+      !$omp do collapse(3) private ( dtcell, face ), reduction ( min : dtglobal )
+      do k = 1, domain % blk(b) % dim(3)
+      do j = 1, domain % blk(b) % dim(2)
+      do i = 1, domain % blk(b) % dim(1)
+
+        call Face_k_Cell_dt ( domain % blk(b), conn(level) % blk(b) % f(i,j,k), i, j, k, vnn, dtcell, face )
+
+        if ( face ) then
+          if ( domain%iter < rampa_iter ) dtcell = dtcell * domain%iter / rampa_iter
+          domain % blk(b) % dtlocal(i,j,k) = dtcell
+        else
+          dtcell = domain % blk(b) % dtlocal(i,j,k)
+        endif
+        dtglobal = min ( dtcell, dtglobal )
+
+      enddo; enddo; enddo
+      !$omp end parallel
+    enddo
+
+  end subroutine Face_k_dt
+
+
+  !> Face-conductivity step of cell (i,j,k); face = .false. (dtmin not set) when every k_d equals
+  !> the cell k. Interior faces as Fluxes takes them, at the current T (cell-mean: the cell k the
+  !> first stage will cache). Block-boundary faces: a connection (101) or chimera (102) face takes
+  !> the k of BC_Connection's flux, the harmonic mean of the two sides' k, the neighbour's from the
+  !> first ghost (its T and matID, which BC_Connection reads as Tg(1) and matIDg); every other face
+  !> (walls, symmetry, coupling) the cell k, as the wall fluxes do.
+  subroutine Face_k_Cell_dt ( blk, cf, i, j, k, vnn, dtmin, face )
+    use FUSS_Advanced_Types_m
+    use FUSS_Global_m
+    use FUSS_Config_Types_m, only: obj_space_scheme
+    use FUSS_Lib_Solid
+    implicit none
+    type(FUSS_block_type), intent(in) :: blk
+    integer(I1), intent(in) :: cf               ! connection faces of the cell (Connection_Faces)
+    integer, intent(in)     :: i, j, k
+    real(R8), intent(in)    :: vnn
+    real(R8), intent(out)   :: dtmin
+    logical, intent(out)    :: face
+    ! Local
+    integer  :: d, c(3), n(3)
+    real(R8) :: kappa, rho, cp, Gk, dt, kd(3), klo, kup, kn
+
+    call co_Kappa( blk%matID(i,j,k), blk%T(i,j,k), kappa )
+
+    c = [i, j, k]
+    do d = 1, ndir
+      ! Lower face (2d-1). mean-T: the lower cell's material at the mean temperature
+      n = c; n(d) = c(d) - 1
+      if ( n(d) < 1 ) then
+        klo = boundary_k ( 2*d-1 )
+      elseif ( obj_space_scheme%cell_mean_k ) then
+        call co_Kappa( blk%matID(n(1),n(2),n(3)), blk%T(n(1),n(2),n(3)), kn )
+        klo = 0.5d0 * ( kn + kappa )
+      else
+        call co_Kappa( blk%matID(n(1),n(2),n(3)), 0.5d0*( blk%T(n(1),n(2),n(3)) + blk%T(i,j,k) ), klo )
+      endif
+      ! Upper face (2d). mean-T: the cell's own material at the mean temperature
+      n = c; n(d) = c(d) + 1
+      if ( n(d) > blk%dim(d) ) then
+        kup = boundary_k ( 2*d )
+      elseif ( obj_space_scheme%cell_mean_k ) then
+        call co_Kappa( blk%matID(n(1),n(2),n(3)), blk%T(n(1),n(2),n(3)), kn )
+        kup = 0.5d0 * ( kappa + kn )
+      else
+        call co_Kappa( blk%matID(i,j,k), 0.5d0*( blk%T(i,j,k) + blk%T(n(1),n(2),n(3)) ), kup )
+      endif
+      kd(d) = max ( klo, kup )
+    enddo
+
+    face = .not. all ( kd(1:ndir) == kappa )
+    if ( .not. face ) return
+
+    call co_Rho( blk%matID(i,j,k), blk%T(i,j,k), rho )
+    call co_Cp( blk%matID(i,j,k), blk%T(i,j,k), cp )
+
+    dtmin = 1d8
+    Gk = 0.0d0
+    do d = 1, ndir
+      Gk = Gk + kd(d) * ( blk%M(i,j,k)%c(d,1)**2 + blk%M(i,j,k)%c(d,2)**2 + blk%M(i,j,k)%c(d,3)**2 )
+    enddo
+    dt = 0.5d0 * vnn * rho * cp / Gk
+    dtmin = min ( dt, dtmin )
+
+  contains
+
+    ! k of block-boundary face f, whose first ghost is n
+    real(R8) function boundary_k ( f )
+      integer, intent(in) :: f
+      real(R8) :: kg
+
+      if ( btest ( cf, f-1 ) ) then
+        call co_Kappa( blk%matID(n(1),n(2),n(3)), blk%T(n(1),n(2),n(3)), kg )
+        if ( kg == kappa ) then
+          boundary_k = kappa
+        else
+          boundary_k = 2d0 * kappa * kg / ( kappa + kg )
+        endif
+      else
+        boundary_k = kappa
+      endif
+
+    end function boundary_k
+
+  end subroutine Face_k_Cell_dt
+
+
+  !> Mark the block-connection (101) and chimera (102) faces of the local cells of one level
+  subroutine Connection_Faces ( domain, lev )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    type(conn_level_t), intent(inout)  :: lev
+    ! Local
+    integer :: b, ii, i
+
+    allocate( lev%blk(domain%nb) )
+    do b = 1, domain%nb
+      if (.not. is_local_block(b)) cycle
+      allocate( lev%blk(b)%f( domain%blk(b)%dim(1), domain%blk(b)%dim(2), domain%blk(b)%dim(3) ) )
+      lev%blk(b)%f = 0_I1
+    enddo
+
+    do ii = 1, domain%n_local_bc
+      i = domain%local_bc_idx(ii)
+      if ( domain%bc(i)%type /= 101 .and. domain%bc(i)%type /= 102 ) cycle
+      associate ( cf => lev%blk(domain%bc(i)%b)%f(domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k) )
+        cf = ibset ( cf, domain%bc(i)%f - 1 )
+      end associate
+    enddo
+
+  end subroutine Connection_Faces
 
 
   subroutine Set_Global_dt ( domain )
