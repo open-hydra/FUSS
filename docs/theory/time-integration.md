@@ -52,11 +52,26 @@ On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete 
 
 Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.5$, and now above 1.
 
+**Material jumps inside a block (`dt-face-k`).** The step above uses the conductivity of the cell, but an interior face carries the conductivity of its flux (see [Face Conductivity](numerics.md#face-conductivity)): with `face-k = mean-T` that of the lower-index cell's material at the mean temperature of the two cells, with `cell-mean` the mean of the two cells' conductivities. Where a block holds a material jump, the first cells of the low-$k$ material therefore exchange heat through up to $k_\text{high}/k_\text{low}$ times their own conductivity (`mean-T`, cells above a high → low jump along the index direction) or $(1 + k_\text{high}/k_\text{low})/2$ times (`cell-mean`, both sides), and the cell step overstates their stable step by up to that ratio. On the four-layer liner of the FAS stress campaign ($k$ = 5 / 300 / 15 / 150 W/(m K) through the thickness in one 64 × 128 block, ratio 20 at the 300 → 15 jump; the `multimat_liner` test case is the same wall split into two blocks along it) the run at VNN = 0.5 leaves the properties table at the first jacket cell ($T = -9.9$ K) after 5 iterations; at VNN = 0.2 it runs, slowly.
+
+With `dt-face-k = true` (default `false`) direction $d$ of the sum takes the larger conductivity of the cell's two faces in that direction, each evaluated as its flux evaluates it:
+
+$$
+\Delta t_i = \frac{\text{VNN}\,\rho c_p}{2\sum_{d} k_d\,\lvert\nabla\xi_d\rvert_i^{2}},
+\qquad k_d = \max\bigl(k_{d-1/2},\,k_{d+1/2}\bigr).
+$$
+
+A block-connection or chimera face takes the harmonic mean $2k_Pk_N/(k_P+k_N)$ of the two sides, the one-dimensional conductivity of its flux (the neighbour's from the first ghost cell); walls, symmetry and coupling faces take the cell's own $k$, as the wall fluxes do. A cell whose $k_d$ all equal its own $k$ keeps the cell step unchanged, so on one material at constant $k$ the key changes no bit of a run (CTest `DtFaceKInertWalls`, `DtFaceKInertChimera`). The key adds a second pass over the cells, with up to nine property lookups per cell and iteration (seven in 2-D): +4 % per iteration on one material, +8 % on the liner. It is re-read at runtime.
+
+On the liner the key gives back the whole RK3 range: the run is stable up to VNN = 1.25 (at 1.3 it diverges inside the 300 W/(m K) layer: the RK3 limit of the uniform mesh) and reaches $10^{-8}$ in 239 377 iterations at VNN = 1.2, against 1 259 270 at VNN = 0.2 without the key; the converged field agrees with the W-cycle reference to $4\times10^{-6}$ K. The same mismatch held the IRS and W + IRS runs of the [FAS stress campaign](../vv/fas-cycles.md) in their residual orbits: with the key, `cycle = w` reaches $10^{-8}$ in 1 746 iterations at VNN = 1.0 (7 222 at VNN = 0.2 without it), W + IRS in 2 882 with no admissibility fallback, and IRS alone runs at VNN = 2 without fallbacks. With `face-k = cell-mean` the last coat cell sees $(5 + 300)/2 = 30$ times its own conductivity: without the key the run leaves the table there within 5 iterations already at VNN = 0.2 (it needs 0.1), with it the liner converges in 233 645 iterations at VNN = 1.2, to the `cell-mean` W-cycle field within $4\times10^{-6}$ K.
+
+Taking the larger of the two face conductivities is conservative. The row sum of the explicit operator (Gershgorin's bound, which the cell formula meets with equality on a uniform mesh) needs only their mean, which at the 300 → 15 jump would allow a 1.9 times longer step to the first jacket cell; on the liner the mean saves 3 % of the iterations (231 619 against 239 377), so the safer bound is kept.
+
 With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ iterations $n$.
 
 !!! tip "Choosing VNN"
 
-    The default is 0.3. Without IRS stay below the limit of the scheme (1 for euler and RK2, 1.25 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 2 with `irs-beta = 0.5` (3 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
+    The default is 0.3. Without IRS stay below the limit of the scheme (1 for euler and RK2, 1.25 for RK3), with a margin where the mesh varies quickly. Blocks that hold a material jump need `dt-face-k = true` for these limits to apply. With IRS, steady runs can use larger values: the test cases run at 2 with `irs-beta = 0.5` (3 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
 
 ---
 
