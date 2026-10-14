@@ -58,7 +58,6 @@ contains
                                     domain%blk(b)%dtlocal(i,j,k), &
                                     domain%blk(b)%vol(i,j,k),     &
                                     domain%blk(b)%qvol(i,j,k)      )
-          domain%blk(b)%RS0(i,j,k) = domain%blk(b)%R(i,j,k)      ! the cell's own update, kept
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -77,7 +76,6 @@ contains
                                       domain%blk(b)%TO(i,j,k),    &
                                       domain%blk(b)%matID(i,j,k), &
                                       domain%blk(b)%R(i,j,k),     &
-                                      domain%blk(b)%RS0(i,j,k),   &
                                       irk, n_rk, b, i, j, k       )
         enddo; enddo; enddo
         !$omp end do
@@ -117,12 +115,15 @@ contains
         residual = ( - residual/volume + qvol) * dt
       end subroutine Scale_Residual_Cons
 
-      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table is replaced
-      ! by the cell's own update (residual_own), halved until admissible, else by none.
-      subroutine Update_State_Cons_IRS( T, TO, matID, residual, residual_own, irk, n_rk, b, i, j, k )
+      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table is
+      ! halved until admissible, else not applied: falling back to the cell's own explicit
+      ! update (the behaviour until d730ef8) reintroduced exactly the unsmoothed update IRS
+      ! exists to stabilise, and on a stiff multimaterial mesh it locked the run into a
+      ! bounded residual orbit.
+      subroutine Update_State_Cons_IRS( T, TO, matID, residual, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T, residual
-        real(R8), intent(in)    :: TO, matID, residual_own
+        real(R8), intent(in)    :: TO, matID
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
         ! Local
         real(R8) :: hO, h, Tnew, theta
@@ -136,9 +137,9 @@ contains
         if ( .not. Admissible_T( Tnew ) ) then
           !$omp atomic
           irs_fallbacks = irs_fallbacks + 1
-          theta = 1d0
-          do n = 0, IRS_HALVINGS
-            call co_T( matID, RK_stage ( irk, n_rk, h, hO, theta * residual_own ), Tnew )
+          theta = 0.5d0
+          do n = 1, IRS_HALVINGS
+            call co_T( matID, RK_stage ( irk, n_rk, h, hO, theta * residual ), Tnew )
             if ( Admissible_T( Tnew ) ) exit
             theta = 0.5d0 * theta
           enddo
@@ -235,7 +236,6 @@ contains
                                       domain%blk(b)%R(i,j,k),       &
                                       domain%blk(b)%dtlocal(i,j,k), &
                                       domain%blk(b)%vol(i,j,k)      )
-          domain%blk(b)%RS0(i,j,k) = domain%blk(b)%R(i,j,k)      ! the cell's own update, kept
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -252,7 +252,6 @@ contains
           call Update_State_Prim_IRS( domain%blk(b)%T(i,j,k),   &
                                       domain%blk(b)%TO(i,j,k),  &
                                       domain%blk(b)%R(i,j,k),   &
-                                      domain%blk(b)%RS0(i,j,k), &
                                       irk, n_rk, b, i, j, k     )
         enddo; enddo; enddo
         !$omp end do
@@ -299,11 +298,11 @@ contains
 
       end subroutine Compute_Prim_Residual
 
-      ! Apply the RK stage after IRS smoothing, with the fallback of Update_State_Cons_IRS
-      subroutine Update_State_Prim_IRS ( T, TO, residual, residual_own, irk, n_rk, b, i, j, k )
+      ! Apply the RK stage after IRS smoothing, with the halving fallback of Update_State_Cons_IRS
+      subroutine Update_State_Prim_IRS ( T, TO, residual, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T
-        real(R8), intent(in)    :: TO, residual, residual_own
+        real(R8), intent(in)    :: TO, residual
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
         ! Local
         real(R8) :: Tnew, theta
@@ -314,9 +313,9 @@ contains
         if ( .not. Admissible_T( Tnew ) ) then
           !$omp atomic
           irs_fallbacks = irs_fallbacks + 1
-          theta = 1d0
-          do n = 0, IRS_HALVINGS
-            Tnew = RK_stage ( irk, n_rk, T, TO, theta * residual_own )
+          theta = 0.5d0
+          do n = 1, IRS_HALVINGS
+            Tnew = RK_stage ( irk, n_rk, T, TO, theta * residual )
             if ( Admissible_T( Tnew ) ) exit
             theta = 0.5d0 * theta
           enddo

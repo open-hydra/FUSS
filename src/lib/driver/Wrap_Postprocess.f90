@@ -258,8 +258,8 @@ contains
     if ( obj_irs%at_setup .and. mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
       nfall = real(irs_fallbacks, R8)
       call mpi_reduce_sum_r8( nfall )
-      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: fallback to the own update in ', &
-        nint(nfall), ' cell updates since the last report, level ', level
+      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: ', &
+        nint(nfall), ' smoothed updates halved or dropped since the last report, level ', level
       irs_fallbacks = 0
     endif
 

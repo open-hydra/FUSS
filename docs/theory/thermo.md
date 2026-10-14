@@ -105,7 +105,7 @@ Where the properties are evaluated:
 
 !!! warning "Temperature range"
 
-    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked: without IRS a temperature outside this range, or NaN, stops the run with an error naming the cell; with IRS the cell falls back to its own update (see [Admissible updates](time-integration.md#admissible-updates)).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
+    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked: without IRS a temperature outside this range, or NaN, stops the run with an error naming the cell; with IRS the cell's smoothed update is halved until admissible (see [Admissible updates](time-integration.md#admissible-updates)).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
 
 ---
 

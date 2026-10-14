@@ -92,7 +92,7 @@ contains
 
     ! Temp storage for residuals in IRS
     if ( obj_irs%enabled ) then
-      allocate( blk % RS0, blk % RS1, blk % RS2, mold = blk % R )
+      allocate( blk % RS1, blk % RS2, mold = blk % R )
     end if
 
   end subroutine Allocate_Block
@@ -133,7 +133,6 @@ contains
       ! Computation arrays — free on all ranks
       if (allocated(domain%blk(b)%TO))           deallocate(domain%blk(b)%TO)
       if (allocated(domain%blk(b)%R))            deallocate(domain%blk(b)%R)
-      if (allocated(domain%blk(b)%RS0))          deallocate(domain%blk(b)%RS0)
       if (allocated(domain%blk(b)%fas_f))        deallocate(domain%blk(b)%fas_f)
       if (allocated(domain%blk(b)%fas_h0))       deallocate(domain%blk(b)%fas_h0)
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
