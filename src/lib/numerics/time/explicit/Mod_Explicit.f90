@@ -22,6 +22,7 @@ contains
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
+    use FUSS_Lib_RK,         only: RK_stage_time
     use FUSS_Mod_Diagnostic, only: Compute_Residual
     use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
@@ -35,6 +36,7 @@ contains
     logical  :: endsim, iosim, endmg, advance_time
     integer  :: i_rk, b, level
     real(R8) :: average
+    real(R8) :: t_start   ! time at the start of the step (the stage times of the time-file BCs)
 
     call timer_iter_begin()
 
@@ -73,6 +75,7 @@ contains
     ! Outside the OpenMP region below -- the geometry kernels open their own.
     call Update_Mesh ( domain(level), domain(level)%time, domain(level)%dtglobal )
 
+    t_start = domain(level) % time
     if ( advance_time ) then
       domain(level) % time = domain(level) % time + domain(level) % dtglobal
     endif
@@ -120,7 +123,7 @@ contains
           call Fill_Ghost_Cell ( domain(level) )
           call Fill_Ghost_chi ( domain(level) )
           call Fluxes ( domain(level) )
-          call BC_Fluxes ( domain(level) )
+          call BC_Fluxes ( domain(level), Stage_Time(i_rk) )
           call Pyrolysis_Stage ( domain(level), i_rk )
           call External_Function ( domain(level) )
           call RK_Newstate ( domain(level), i_rk )
@@ -137,7 +140,7 @@ contains
       call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
       if ( obj_pyrolysis%enabled ) call Fill_Ghost_chi ( domain(level) )   ! mirror chi at wall faces (plan 06 section 3.1)
       call Fluxes ( domain(level) )                        ! Diffusive fluxes 
-      call BC_Fluxes ( domain(level) )                     ! Boundary fluxes
+      call BC_Fluxes ( domain(level), Stage_Time(i_rk) )   ! Boundary fluxes (time files at the stage's time)
       if ( obj_pyrolysis%enabled ) call Pyrolysis_Stage ( domain(level), i_rk )   ! kinetics, gas outflow, advection flux, budget
 
       call External_Function ( domain(level) )             ! External function (e.g. source terms)
@@ -236,6 +239,19 @@ contains
       if ( mod (domain(level) % iter, obj_io%timer_diter) == 0 ) &
         call timer_report ( level, domain(level) % iter )
     endif
+
+  contains
+
+    !> The time a stage's boundary values belong to. In a time-accurate step the clock
+    !> is already at t^(n+1) when the stages run, and every stage used to read the
+    !> 301/302 time files there: a first-order treatment of the boundary data, whatever
+    !> the order of the scheme. Now stage k reads them at t^n + c_k dt, the time of the
+    !> state it evaluates (Lib_RK). A run that does not advance the clock keeps its time.
+    real(R8) function Stage_Time ( irk ) result ( t )
+      integer, intent(in) :: irk
+      t = domain(level) % time
+      if ( advance_time ) t = t_start + RK_stage_time(irk, obj_time_scheme%n_RK) * domain(level) % dtglobal
+    end function Stage_Time
 
   end subroutine Explicit_Step
 

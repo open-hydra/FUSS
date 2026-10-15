@@ -7,7 +7,9 @@ module FUSS_Mod_BC_Fluxes
 
 contains
 
-  subroutine BC_Fluxes ( domain )
+  !> t_bc: the time the 301/302 time files are evaluated at, the stage's time in a
+  !> time-accurate step (default domain%time).
+  subroutine BC_Fluxes ( domain, t_bc )
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block
     use FUSS_Lib_BC_Fluxes_Connection
@@ -22,8 +24,10 @@ contains
     use FUSS_Mod_Darcy, only: Darcy_First_Step_Pending
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    real(R8), intent(in), optional :: t_bc
     ! Local
     integer  :: f, lower, upper, i, b
+    real(R8) :: t_eval   ! time of the 301/302 time files
     integer  :: Bm, Im, Jm, Km, Fm
     real(R8) :: Ovar(2)    ! wall temperature and flux of the face (Compute_Wall_Properties)
     logical  :: count_clamps
@@ -31,6 +35,8 @@ contains
     ! BC fluxes are computed in order of block and face type. A wall BC
     ! (301-306) also leaves its wall temperature in bc%Tw_face, which the
     ! type-2 gas-enthalpy flux of an open face reads later in the same stage.
+    t_eval = domain % time
+    if ( present(t_bc) ) t_eval = t_bc
     upper = 0
     ! The ablating wall counts its B' table clamps only once per stage: not in
     ! the first pass of a new type-2 run's first step, which is discarded.
@@ -74,7 +80,7 @@ contains
 
             case (301) ! wall: prescribed heat flux
               if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
+                domain % bc(i) % qw = domain % bc(i) % BCtime % update(t_eval)
               Ovar = 0.0d0
               call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                   domain % bc(i) % qw, Ovar )
@@ -82,7 +88,7 @@ contains
 
             case (302) ! wall: prescribed temperature
               if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
+                domain % bc(i) % Tw = domain % bc(i) % BCtime % update(t_eval)
               call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
                                          domain % bc(i) % Tw, Ovar )
               domain % bc(i) % Tw_face = Ovar(1)

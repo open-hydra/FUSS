@@ -150,6 +150,7 @@ contains
     ! Local
     real(R8), dimension(2) :: Ovar
     real(R8), dimension(7) :: Ow
+    real(R8) :: BCval                 ! a 301/302 value at the output time
     integer :: f, lower, upper, i, b, bb, Bm, Im, Jm, Km, Fm, Is, Js, Ks
     integer :: n_wall_total, wall_i, nv
     real(R8), allocatable :: wall_buf(:)
@@ -186,13 +187,17 @@ contains
           Ovar = 0d0
           select case ( domain % bc(i) % type )
 
+            ! A time-file BC is reported at the output time: the stages leave the
+            ! value of the last stage's time (t^n + dt/2 under RK3) in bc%qw / bc%Tw.
             case (301) ! wall: prescribed heat flux
-              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                  domain % bc(i) % qw, Ovar )
+              BCval = domain % bc(i) % qw
+              if ( domain % bc(i) % BCtime % exists ) BCval = domain % bc(i) % BCtime % update(domain % time)
+              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), BCval, Ovar )
 
             case (302) ! wall: prescribed temperature
-              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
-                                         domain % bc(i) % Tw, Ovar )
+              BCval = domain % bc(i) % Tw
+              if ( domain % bc(i) % BCtime % exists ) BCval = domain % bc(i) % BCtime % update(domain % time)
+              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), BCval, Ovar )
 
             case (303) ! wall: prescribed hconv, Tref, qrad
               call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
