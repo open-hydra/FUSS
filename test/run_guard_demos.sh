@@ -127,7 +127,10 @@ demo irs        1 "not compatible with implicit residual smoothing" "irs=true"
 # `irs-beta > 0` alone also enables IRS (Assign_Setup promotes
 # it), but that promotion used to run AFTER Check_Input, so this exact input
 # passed the guard above and smoothed the ALE-remapped residual anyway.
-demo irs_beta   1 "not compatible with implicit residual smoothing" "SEC:FUSS-Numerics:irs-beta=0.5"
+# The base says `irs = false`, which beside irs-beta > 0 is refused as a contradiction
+# (irs_contradiction below), so this demo deletes it: what it tests is the promotion.
+demo_on "$BASE" irs_beta 1 "not compatible with implicit residual smoothing" \
+    "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo multigrid  1 "not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
@@ -344,7 +347,7 @@ PYINI
 }
 
 demo_pyro pyro_irs          1 "pyrolysis is not compatible with implicit residual smoothing" "irs=true"
-demo_pyro pyro_irs_beta     1 "pyrolysis is not compatible with implicit residual smoothing" "SEC:FUSS-Numerics:irs-beta=0.5"
+demo_pyro pyro_irs_beta     1 "pyrolysis is not compatible with implicit residual smoothing" "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo_pyro pyro_multigrid    1 "pyrolysis is not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
@@ -657,6 +660,71 @@ demo_abl_restart abl_restart_dup_row  "a second row for the same face" \
     "$ABL_ROWS; open(p, 'w').write('\n'.join(h + r + r) + '\n')"
 demo_abl_restart abl_restart_no_row   "no row for the 306 face of bc.txt record" \
     "$ABL_ROWS; open(p, 'w').write('\n'.join(h) + '\n')"
+
+# ---------------------------------------------------------------------------
+# Plan 10 (2026-10-15): latent defects closed. Same contract (text and exit code).
+# ---------------------------------------------------------------------------
+BASE_RAD="$ROOT/test/steady-state/radiative_Rod"
+BASE_PROBE="$ROOT/test/transient/oscillating_Rod"
+
+# D12: a wall radiating far above Tref (Tref = 1 K) behind a weak solid link
+# (k = 0.005: G = 2k/dx = 10 W/m2/K). The wall-temperature fixed point has slope
+# -1.39 at the first call, the iterates oscillate with growing amplitude and the
+# cap of 100 is reached. Until 2026-10-15 both loops (304, 305) warned and the run
+# continued on the unconverged flux, exit 0.
+RAD_K='p = "INPUT/properties.dat"; L = open(p).read().split("\n")
+for n, l in enumerate(L):
+    f = l.split()
+    if len(f) == 5 and f[0][0].isdigit(): f[3] = "0.005"; L[n] = " ".join(f)
+open(p, "w").write("\n".join(L))'
+demo_on "$BASE_RAD" radiation_noconv     3 "BC_Wall_Radiation: no convergence in 100 iterations" \
+    "BCFACE:2:304:   0.980000E+00,    0.100000E+01," "PY:$RAD_K" "SEC:FUSS-Parameters:iter-threshold=3"
+demo_on "$BASE_RAD" radiation_noconv_305 3 "BC_Wall_RadiationConvection: no convergence in 100 iterations" \
+    "BCFACE:2:305:   0.000000E+00,    0.980000E+00,    0.100000E+01," "PY:$RAD_K" "SEC:FUSS-Parameters:iter-threshold=3"
+
+# D13 follow-up: an explicit irs = false beside irs-beta > 0 (the base says irs = false).
+demo irs_contradiction 1 "irs = false contradicts irs-beta > 0" "SEC:FUSS-Numerics:irs-beta=0.5"
+
+# D5: without TecIO (USE_TECIO = false, this build) ORION stops at the first binary
+# Tecplot write or read with a bare stop, exit 0, after the setup.
+demo binary_without_tecio    1 "sol-format = tecplot binary needs TecIO" "sol-format=tecplot binary"
+demo binary_ic_without_tecio 1 "ic-format = tecplot binary needs TecIO"  "SEC:FUSS-IO:ic-format=tecplot binary"
+
+# D18: a string longer than its variable was cut without a message. A 17-character
+# probe name became 16 characters, its own section was looked up under the cut name,
+# and the run stopped later on "unknown probe variable". Now refused by name.
+PROBE_NAME='s = open("input.ini").read(); s = s.replace("probe1 = p1", "probe1 = NAME").replace("[p1]", "[NAME]")
+s = s.replace("time-threshold = 160.0", "time-threshold = 1.0"); open("input.ini", "w").write(s)'
+demo_on "$BASE_PROBE" probe_name_long 1 "[FUSS-Probes] probe1 has 17 characters, the limit is 16" \
+    "PY:${PROBE_NAME//NAME/abcdefghijklmnopq}"
+# ... and up to 16 characters are written in full (OUTPUT/<name>.txt; before, the
+# path itself was cut at 16: `d01_lo` wrote OUTPUT/d01_lo.tx), with any number of
+# variables (a ninth used to write past an 8-element array): 9 x T -> 10 columns.
+PROBE_NINE='import re; s = open("input.ini").read()
+s = re.sub(r"(\[abcdefghijklmnop\][^\[]*?variables = )T", r"\1T T T T T T T T T", s, flags=re.S); open("input.ini", "w").write(s)'
+demo_on "$BASE_PROBE" probe_name_16 0 "Elapsed" "PY:${PROBE_NAME//NAME/abcdefghijklmnop}" "PY:$PROBE_NINE"
+f="$WORK/probe_name_16/OUTPUT/abcdefghijklmnop.txt"
+if [ -s "$f" ] && [ "$(awk 'NR == 1 {print NF}' "$f")" = "10" ]; then
+  pass "probe_name_16 -> OUTPUT/abcdefghijklmnop.txt written in full, 9 variables + time"
+else
+  bad "probe_name_16: OUTPUT/abcdefghijklmnop.txt missing or not 10 columns ($(ls "$WORK/probe_name_16/OUTPUT" | tr '\n' ' '))"
+fi
+
+# D19's sibling: a 301/302 time file in a steady run, whose time stays -1 (before the
+# file's first row: the series returned an undefined value there). Refused unless a
+# clock runs (FUSS or hydra time-accurate).
+demo_on "$BASE_PROBE" tfile_steady 1 "needs a time-accurate run" "time-accurate=false"
+
+# D23: a bc.txt record that names a face or block that does not exist indexed n_bf and
+# the blocks out of bounds; an unreadable record printed a line and went on.
+BC_FACE7='p = "INPUT/bc.txt"; L = open(p).read().split("\n"); f = L[0].split(); f[4] = "7"
+L[0] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
+demo_on "$BASE" bc_face_out_of_range 1 "bc.txt record 1: block 1, face 7" "PY:$BC_FACE7"
+BC_CONN9='p = "INPUT/bc.txt"; L = open(p).read().split("\n")
+k = next(n for n, l in enumerate(L) if l.split()[-1:] == ["101"]); f = L[k + 1].split(); f[0] = "9"
+L[k + 1] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
+demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_range 1 \
+    "a 101 line is \"bs is js ks fs d11 d12 d21 d22\" with a block and face of this mesh" "PY:$BC_CONN9"
 
 echo
 if [ "$fail" -eq 0 ]; then

@@ -392,6 +392,52 @@ run_case "test/pyrolysis/ablation/smoothing/w5" 6
 # cross the restart; 50 steps per half
 run_case "test/moving-mesh/conjugate_receding_t2" 50
 
+# A two-level multigrid restart (plan 10 D15). Only level 1 reads the restart file, and every level used to take
+# its start time and iteration from its own IOfield, which nothing assigns above level 1: a restarted two-level run
+# numbered its iterations from 1 again (measured 2026-10-15 on 2982fc7: 30050 -> 1). Its fields cannot be compared
+# with a continuous run -- a restart starts the multigrid schedule over on the coarse level, by design -- so this
+# checks the numbering: after N + N iterations the iteration column of residual-history.dat runs 1 .. 2N without a
+# break, and field.tec's SOLUTIONTIME is 2N. $2 = coarse iterations, $3 = fine iterations per leg.
+run_label_case () {
+  local case_rel=$1 coarse=$2 fine=$3
+  local src="$ROOT/$case_rel"
+  local name; name=$(echo "$case_rel" | tr '/' '_')
+  local d="$WORK/$name.mg" n=$(( 2 * (coarse + fine) ))
+  rm -rf "$d"; mkdir -p "$d"
+  cp -r "$src/INPUT" "$src/input.ini" "$src/FUSS.sh" "$d/"
+  [ -d "$src/MESH" ] && cp -r "$src/MESH" "$d/"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  mkdir -p "$d/OUTPUT" "$d/bin"
+  sed -i "s/^level1-iter = .*/level1-iter = $fine/; s/^level2-iter = .*/level2-iter = $coarse/; \
+          s/^res-threshold = .*/res-threshold = 1e-30/; s/^newrun = .*/newrun = true/" "$d/input.ini"
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run1.log" 2>&1 || { bad "$case_rel: first leg failed (see $d/run1.log)"; return; }
+  sed -i "s/^newrun = .*/newrun = false/" "$d/input.ini"
+  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run2.log" 2>&1 || { bad "$case_rel: restarted leg failed (see $d/run2.log)"; return; }
+  local out rc
+  out=$(python3 - "$d/OUTPUT/residual-history.dat" "$d/OUTPUT/field.tec" "$n" <<'PY'
+import re, sys
+hist, field, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+its = [int(l.split()[0]) for l in open(hist) if l.strip() and not l.lstrip().startswith("#")]
+st = [float(x) for x in re.findall(r"SOLUTIONTIME=([-+0-9.Ee]+)", open(field).read())]
+ok = its == list(range(1, n + 1)) and st and all(abs(t - n) < 0.5 for t in st)
+brk = next((k for k in range(1, len(its)) if its[k] != its[k - 1] + 1), None)
+print("%d iterations numbered %s .. %s%s; SOLUTIONTIME %s (expected 1 .. %d and %d)"
+      % (len(its), its[0] if its else "-", its[-1] if its else "-",
+         "" if brk is None else ", break %d -> %d at row %d" % (its[brk - 1], its[brk], brk + 1),
+         sorted(set(st)), n, n))
+sys.exit(0 if ok else 1)
+PY
+)
+  rc=$?
+  printf '        %s\n' "$out"
+  if [ $rc -eq 0 ]; then
+    pass "$case_rel: a two-level restart continues the iteration count"
+  else
+    bad "$case_rel: a two-level restart does not continue the iteration count"
+  fi
+}
+run_label_case "test/numerics-features/residual_convergence/mg1" 20 100
+
 echo
 if [ "$fail" -eq 0 ]; then
   echo "restart gate passed"

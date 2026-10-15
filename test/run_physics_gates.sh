@@ -66,16 +66,22 @@
 #                                        ~205k iterations total -- this is the
 #                                        expensive one (see RUNTIME below).
 #
+#                 bc303_qrad            -- the BC's own identity qw - hconv*(Tref-Tw)
+#                                        = qrad on all 160 face cells of the WALL
+#                                        OUTPUT to 1e-9 rel: it sees the wall-output
+#                                        site of the 303 dispatch only (with the flux
+#                                        site reverted the interior moves 11.65 K and
+#                                        the identity still closes). Red on 6cad426
+#                                        (residual = qrad). 200 iterations.
+#                 bc303_qrad_1d         -- (plan 10 D14) a 1-D slab with a closed form
+#                                        (T_w = 700 K, q_w = 4e4 W/m2): the interior
+#                                        to 1e-6 K sees the FLUX site (48.75 K with
+#                                        it reverted), the wall output's Tw, qw see
+#                                        the output site (2.44 K). ~5k iterations.
+#
 #               Reserved for future groups -- append here as they land, do NOT
 #               start a second gate script: one physics gate for every group,
 #               not one per phase:
-#                 bc303_qrad            -- the radiative flux read for
-#                                        a type-303 face must reach both the flux
-#                                        and the wall output: verify.py checks the
-#                                        BC's own identity qw - hconv*(Tref-Tw) =
-#                                        qrad on all 160 face cells to 1e-9 rel.
-#                                        Red on 6cad426 (residual = qrad), green
-#                                        after the two-site fix. 200 iterations.
 #                 pyrolysis   -- plan 06 phase 2, six sub-checks: kinetics_isothermal
 #                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
 #                                energy_audit (energy and solid-mass balances 1e-10,
@@ -205,7 +211,7 @@ while test $# -gt 0; do
     -a | --all)      ALL=1; shift ;;
     -h | --help)
       echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]"
-      echo "  -c CASE   run only this case (freestream, conservation, bc303_qrad,"
+      echo "  -c CASE   run only this case (freestream, conservation, bc303_qrad, bc303_qrad_1d, radiation_equilibrium,"
       echo "            conjugate_two_layer, receding, residual_convergence, pyrolysis,"
       echo "            darcy_sealed_nosource, darcy_mass_balance_1d, darcy_sealed_profile,"
       echo "            darcy_tensor_linear_2d, darcy_0d, darcy_atc2_chemistry_off)"
@@ -362,6 +368,89 @@ gate_bc303_qrad () {
   KEYNUM=$(grep -F -m1 'worst residual' "$dest/verify.log" | sed 's/^ *//')
   [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
   return $rc
+}
+
+# ---------------------------------------------------------------------------
+# bc303_qrad_1d (plan 10 D14; verify.py imports the closed form from
+# generate.py, so both are copied). Selftest: the staged bc.txt carries qrad
+# 1.01e4 while verify.py keeps 1e4 -- the input reaching the flux must move the
+# answer (T_w by 0.5 K), so the gate fails on physics, not on a tolerance.
+# ---------------------------------------------------------------------------
+gate_bc303_qrad_1d () {
+  local src="$ROOT/test/numerics-features/bc303_qrad_1d" dest="$WORK/bc303_qrad_1d" rc
+  stage "$src" "$dest"
+  cp "$src/generate.py" "$src/verify.py" "$dest/"
+  if [ "$SELFTEST" = "1" ]; then
+    sed -i 's/1\.000000E+04,/1.010000E+04,/' "$dest/INPUT/bc.txt"
+  fi
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+  python3 "$dest/verify.py" "$dest" > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -E -m2 '\((1|2)\)' "$dest/verify.log" | sed 's/^ *//; s/ *(tol[^)]*)//' | paste -sd ';' -)
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# radiation_equilibrium (plan 10 D12; plan 04 item 4's `Tref == T` test). radiative_Rod
+# with the BC 304 reference temperature set to 1000 K, its initial and face-1 (302)
+# temperature: the exact state is 1000 K everywhere with no flux, and the BC's wall
+# iteration sits exactly on its removable singularity (T_wall^4 - Tref^4)/(T_wall -
+# Tref) = 0/0, which the release turned into NaN. Checks: every cell T = 1000 K to
+# 1e-9, the 304 face's qw = 0 to 1e-9 W/m2, no [WARNING]/[ERROR]/NaN in the log.
+# Selftest: Tref 1000.001 K moves the solution, so the 1e-9 check must fail.
+# ---------------------------------------------------------------------------
+gate_radiation_equilibrium () {
+  local src="$ROOT/test/steady-state/radiative_Rod" dest="$WORK/radiation_equilibrium" rc tref="0.100000E+04"
+  stage "$src" "$dest"
+  [ "$SELFTEST" = "1" ] && tref="0.100000100E+04"
+  sed -i "s/^    0.980000E+00,    0.300000E+03,$/    0.980000E+00,    $tref,/" "$dest/INPUT/bc.txt"
+  if ! grep -q "0.980000E+00,    $tref," "$dest/INPUT/bc.txt"; then
+    KEYNUM="the 304 records were not edited (see $dest/INPUT/bc.txt)"
+    return 1
+  fi
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+  KEYNUM=$(python3 - "$dest" <<'PY'
+import os, re, sys
+d = sys.argv[1]
+def zones(path):
+    txt = open(path).read()
+    names = [t.strip('",') for t in txt.split("\n", 1)[0].split("=", 1)[1].split() if t.strip('",')]
+    out = {}
+    for part in re.split(r"\n\s*ZONE", txt)[1:]:
+        head, body = part.split("\n", 1)
+        title = re.search(r"T\s*=\s*([\w-]+)", head).group(1)
+        I, J, K = (int(x) for x in re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", head).groups())
+        cc = re.search(r"\[(\d+)-(\d+)\]\s*=\s*CELLCENTERED", head)
+        lo, hi = (int(x) for x in cc.groups()) if cc else (0, -1)
+        vals = [float(x) for x in body.split()]
+        nn, nc = I * J * K, max(I - 1, 1) * max(J - 1, 1) * max(K - 1, 1)
+        off, z = 0, {}
+        for v, nm in enumerate(names, 1):
+            n = nc if lo <= v <= hi else nn
+            z[nm] = vals[off:off + n]; off += n
+        out[title] = z
+    return out
+T = [t for z in zones(os.path.join(d, "OUTPUT", "field.tec")).values() for t in z["T"]]
+w = zones(os.path.join(d, "OUTPUT", "wall.tec"))
+qw = [q for name, z in w.items() if name.endswith("F2") for q in z["qw"]]
+log = open(os.path.join(d, "run.log")).read()
+eT, eq = max(abs(t - 1000.0) for t in T), max(abs(q) for q in qw)
+flags = [k for k in ("[WARNING]", "[ERROR]", "NaN") if k in log]
+ok = eT <= 1e-9 and eq <= 1e-9 and qw and not flags
+print("%s max|T - 1000| %.3e K, max|qw| %.3e W/m2 on %d face cells%s"
+      % ("ok" if ok else "BAD", eT, eq, len(qw), ("; log: " + " ".join(flags)) if flags else ""))
+PY
+)
+  case "$KEYNUM" in ok*) return 0 ;; *) return 1 ;; esac
 }
 
 # ---------------------------------------------------------------------------
@@ -1023,7 +1112,7 @@ gate_conjugate_receding_t2 () {
 }
 
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
+CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
