@@ -42,16 +42,17 @@ $\hat{\mathbf n}_f$ points from $L$ to $R$: $Q_f A_f$ enters $L$ and leaves $R$.
 
 !!! info "Face metric"
 
-    How $M_f$ is built from the metrics of the two cells is selected by `diffusive-metric` in `[FUSS-Numerics]`:
+    The face metric is built from the inverse metrics of the two cells (their edge vectors),
 
-    | `diffusive-metric` | Face metric | |
-    |---|---|---|
-    | `inverse-mean` (default) | $M_f = \left[\tfrac12\left(A_L + A_R\right)\right]^{-T}$ | the normal difference is divided by the centre-to-centre distance: a linear field is reproduced exactly on stretched orthogonal meshes |
-    | `mean` | $M_f = \tfrac12\left(M_L + M_R\right)$ | faster; biased on stretched meshes |
+    $$
+    M_f = \left[\tfrac12\left(A_L + A_R\right)\right]^{-T},
+    $$
 
-    In one dimension $M = 1/h$, so `mean` multiplies $T_R - T_L$ by the mean of $1/h_L$ and $1/h_R$, i.e. divides it by their harmonic mean instead of the centre-to-centre distance $\tfrac12(h_L + h_R)$. With a cell-size ratio $r = h_R/h_L$ it overstates the heat flux by $(1+r)^2/(4r)$: $+0.2\,\%$ at $r = 1.1$, $+0.8\,\%$ at $1.2$, $+4.2\,\%$ at $1.5$, $+8.9\,\%$ at $1.8$. The bias does not decrease with grid refinement at a fixed growth ratio and is present in the steady solution; `mean` is adequate where adjacent cells grow by about 1.2 or less. With `inverse-mean` FUSS stores $A^{T}$ per cell (9 values), so each face needs one $3\times 3$ inversion.
+    so the normal difference is divided by the centre-to-centre distance and a linear field is reproduced exactly on stretched orthogonal meshes. FUSS stores $A^{T}$ per cell (9 values), so each face needs one $3\times 3$ inversion.
 
-    The choice applies to interior faces only. Block-connection and wall faces use the metric of each cell over half a cell (below).
+    Until October 2026 a second choice, `diffusive-metric = mean`, averaged the metrics themselves, $M_f = \tfrac12(M_L + M_R)$. In one dimension $M = 1/h$, so that divides $T_R - T_L$ by the harmonic mean of $h_L$ and $h_R$ instead of the centre-to-centre distance $\tfrac12(h_L + h_R)$ and overstates the heat flux by $(1+r)^2/(4r)$ at a cell-size ratio $r = h_R/h_L$ ($+4.2\,\%$ at $r = 1.5$, $+8.9\,\%$ at $1.8$), a bias that does not decrease with grid refinement. The option was removed.
+
+    This applies to interior faces only. Block-connection and wall faces use the metric of each cell over half a cell (below).
 
 ---
 
@@ -161,7 +162,7 @@ $$
 \begin{pmatrix}\Delta\xi \\ \Delta\eta \\ \Delta\zeta\end{pmatrix}
 $$
 
-Each cell stores the metric tensor $M = A^{-T}$, computed from the cofactors of $A$ (and, with `inverse-mean`, $A^{T}$); the rows of $M$ are $\nabla\xi$, $\nabla\eta$, $\nabla\zeta$, and it maps index differences of the temperature to its Cartesian gradient.  At an interior face the metrics of the two cells are combined as described in [Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces); the time step uses the cell metric (see [Time Integration](time-integration.md#diffusive-stability-condition-vnn)).
+Each cell stores the metric tensor $M = A^{-T}$, computed from the cofactors of $A$ (and $A^{T}$, for the face metric); the rows of $M$ are $\nabla\xi$, $\nabla\eta$, $\nabla\zeta$, and it maps index differences of the temperature to its Cartesian gradient.  At an interior face the metrics of the two cells are combined as described in [Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces); the time step uses the cell metric (see [Time Integration](time-integration.md#diffusive-stability-condition-vnn)).
 
 The face area vector $A_f\,\hat{\mathbf{n}}_f$ is half the cross product of the two diagonals of the face, oriented towards increasing index.  The cell volume is the sum of the volumes of five tetrahedra into which the hexahedron is split.  A degenerate cell (zero determinant of $A$) stops the run.
 

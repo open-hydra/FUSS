@@ -17,7 +17,7 @@ This page lists what the code already does for speed and the known costs that ha
 | Item | Where |
 |------|-------|
 | `RELEASE` flags: CMake's default optimisation plus the first accepted of each list: loop unrolling (`-funroll-loops` / `-unroll`), inlining (`-finline-functions` / `-inline`), interprocedural optimisation (`-ipo` / `-flto`); host architecture in every build type (`-march=native` for GNU, `-xHost` for Intel). No `-ffast-math`. | `cmake/SetFortranFlags.cmake` |
-| `diffusive-metric = inverse-mean` stores the inverse metric of each cell (`Minv`) at set-up, so a face needs one 3×3 inversion instead of three. `mean` needs none. | `Mod_Metrics`, `Lib_Diffusive` |
+| The inverse metric of each cell (`Minv`) is stored at set-up, so a face needs one 3×3 inversion instead of three. | `Mod_Metrics`, `Lib_Diffusive` |
 | One OpenMP parallel region per iteration around all Runge–Kutta stages, with orphaned `!$omp do` loops inside. | `Mod_Explicit` |
 | MPI ghost and chimera-donor exchange with persistent, non-blocking requests; the local boundary conditions are processed while the messages are in flight. | `Lib_Ghost` (`Fill_Ghost_Cell`), `Mod_GhostExchange` |
 | After set-up each rank frees the large arrays of the blocks it does not own (keeping the chimera donors it needs). | `Mod_Allocate_Data` (`deallocate_remote_computation_data`) |

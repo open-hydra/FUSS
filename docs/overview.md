@@ -73,7 +73,7 @@ $\dot{q}_\text{vol}$ is a cell field read from `INPUT/st.tec` when that file exi
 |-|-|
 | Grid | Structured multi-block hexahedral grids (1-D and 2-D cases have one cell in the unused directions), two ghost layers per block |
 | Diffusive flux | Cell-centred finite volume; face gradient from the difference across the face plus tangential central differences |
-| Face metric | `diffusive-metric = inverse-mean` (default) or `mean` |
+| Face metric | Inverse of the mean of the two cells' inverse metrics: exact for linear fields on stretched orthogonal meshes |
 | Face conductivity | $k$ at the mean of the two cell temperatures; at block connections the interface temperature follows from heat-flux continuity, each side with its own conductivity |
 | Walls | Ghost cells $2T_w - T$; boundary flux from the wall model |
 

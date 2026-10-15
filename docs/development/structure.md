@@ -235,7 +235,7 @@ flowchart LR
     A["Stencil<br/>2 cells across the face<br/>+ 8 tangential neighbours"] --> D["Computational gradient<br/>normal: T₂ − T₁<br/>tangential: central differences"]
     A --> B["Face temperature<br/>½(T₁ + T₂)"]
     B --> C["k = co_Kappa(matID, T)<br/>(material of cell 1)"]
-    D --> E["Face metric<br/>inverse of mean M⁻¹ (inverse-mean)<br/>or mean M (mean)"]
+    D --> E["Face metric<br/>inverse of mean M⁻¹"]
     E --> G["∇T = Σ_d ∂T/∂ξ_d ∇ξ_d"]
     C --> F["Flux = k A ∇T·n<br/>R₁ −= Flux, R₂ += Flux"]
     G --> F
@@ -292,7 +292,7 @@ classDiagram
 | `qvol`, `matID` | `1-gc:n+gc` | Volumetric source; material index (stored as real) |
 | `dtlocal` | `1:n` | Local time step |
 | `RS0`, `RS1`, `RS2` | `1-gc:n+gc` | IRS work arrays (allocated with IRS only) |
-| `M`, `Minv`, `dl`, `vol` | `1-gc:n+gc` | Metric (rows ∇ξ_d), its inverse (`inverse-mean` only), cell lengths, volume |
+| `M`, `Minv`, `dl`, `vol` | `1-gc:n+gc` | Metric (rows ∇ξ_d), its inverse (edge vectors, for the face metric), cell lengths, volume |
 | `node` | `0:n` | Grid nodes |
 | `dir(d)%f` | faces normal to `d` | Unit normal `N` and area `A` |
 

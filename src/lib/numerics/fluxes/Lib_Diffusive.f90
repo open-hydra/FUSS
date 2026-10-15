@@ -8,7 +8,7 @@ module FUSS_Lib_Diffusive
 contains
 
   subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, inverse_metric, &
+                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, &
                               cell_mean_k, kappa_face )
     use FUSS_Global_m
     use FUSS_Lib_Solid
@@ -18,8 +18,7 @@ contains
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
-    real(R8), intent(in), dimension(3,3) :: M1, M2   ! cell metrics, or their inverses (see inverse_metric)
-    logical, intent(in) :: inverse_metric           ! M1, M2 are the cells' inverse metrics (diffusive-metric = inverse-mean)
+    real(R8), intent(in), dimension(3,3) :: M1, M2   ! inverse metrics of the two cells (blk%Minv)
     logical, intent(in) :: cell_mean_k              ! face-k = cell-mean: kappa_face is the mean of the two cells' cached k
     real(R8), intent(in) :: kappa_face
     real(R8), intent(inout) :: Res1, Res2
@@ -35,18 +34,12 @@ contains
 
     if (ndir==2) Gradient(cc) = 0.0
     
-    ! Metric tensor at the face.
-    ! inverse-mean: the mean of the two inverse metrics (cell edge vectors, stored
-    ! per cell in blk%Minv), inverted, so that the one-index difference across the
-    ! face is divided by the centre-to-centre distance.
-    ! mean: averaging M itself divides it by the mean of 1/h instead, which
-    ! overstates the gradient by (1+r)^2/(4r) for a cell-size ratio r across the
-    ! face (+4% at r = 1.5, +9% at 1.8), at any mesh resolution.
-    if ( inverse_metric ) then
-      M = Inverse3 ( 0.5d0 * ( M1 + M2 ) )
-    else
-      M = 0.5d0 * ( M1 + M2 )
-    end if
+    ! Metric tensor at the face: the mean of the two inverse metrics (cell edge
+    ! vectors), inverted, so that the one-index difference across the face is
+    ! divided by the centre-to-centre distance. Averaging the metrics themselves
+    ! (the mean metric, removed in October 2026) divides it by the mean of 1/h
+    ! instead and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r.
+    M = Inverse3 ( 0.5d0 * ( M1 + M2 ) )
     Gradient = matmul ( Gradient, M )
 
     ! Face conductivity: the mean of the two cells' own k (face-k = cell-mean), or the

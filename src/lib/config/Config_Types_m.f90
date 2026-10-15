@@ -109,10 +109,8 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
   type :: space_scheme_t
     ! USER-DEFINED INPUTS
-    character(len=llen) :: diffusive_metric     ! Face metric of the interior diffusive fluxes (inverse-mean/mean)
     character(len=llen) :: face_k               ! Conductivity of the interior diffusive faces (mean-T/cell-mean)
     ! Useful variables
-    logical             :: inverse_metric = .true.  ! diffusive_metric == inverse-mean
     logical             :: cell_mean_k    = .false. ! face_k == cell-mean
   end type space_scheme_t
   !! ------------------------------------------------------

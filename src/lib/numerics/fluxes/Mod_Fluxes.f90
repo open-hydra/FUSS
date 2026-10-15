@@ -25,28 +25,15 @@ contains
         call Fill_Cell_K ( domain % blk(b) % T, domain % blk(b) % matID, &
                            domain % blk(b) % kc, domain % blk(b) % dim )
       end if
-      ! Cell metrics for the diffusive face metric: inverse metrics (inverse-mean) or metrics (mean)
-      if ( obj_space_scheme % inverse_metric ) then
-        call Fluxes_blk ( domain % blk(b) % T,   &
-                          domain % blk(b) % matID, &
-                          domain % blk(b) % r,   &
-                          domain % blk(b) % dir, &
-                          domain % blk(b) % Minv, &
-                          domain % blk(b) % dim, &
-                          .true., &
-                          merge_kc ( domain % blk(b), obj_space_scheme % cell_mean_k ), &
-                          obj_space_scheme % cell_mean_k )
-      else
-        call Fluxes_blk ( domain % blk(b) % T,   &
-                          domain % blk(b) % matID, &
-                          domain % blk(b) % r,   &
-                          domain % blk(b) % dir, &
-                          domain % blk(b) % m,   &
-                          domain % blk(b) % dim, &
-                          .false., &
-                          merge_kc ( domain % blk(b), obj_space_scheme % cell_mean_k ), &
-                          obj_space_scheme % cell_mean_k )
-      end if
+      ! The inverse metrics of the cells build the diffusive face metric
+      call Fluxes_blk ( domain % blk(b) % T,   &
+                        domain % blk(b) % matID, &
+                        domain % blk(b) % r,   &
+                        domain % blk(b) % dir, &
+                        domain % blk(b) % Minv, &
+                        domain % blk(b) % dim, &
+                        merge_kc ( domain % blk(b), obj_space_scheme % cell_mean_k ), &
+                        obj_space_scheme % cell_mean_k )
     enddo
 
   contains
@@ -88,7 +75,7 @@ contains
   end subroutine Fill_Cell_K
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n, inverse_metric, kc, cell_mean_k )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, Minv, n, kc, cell_mean_k )
     use FUSS_Base_Types_m
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
@@ -98,8 +85,7 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in)  :: T
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
-    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M   ! cell metrics, or their inverses
-    logical, intent(in) :: inverse_metric   ! M holds the inverse metrics (diffusive-metric = inverse-mean)
+    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: Minv   ! inverse cell metrics
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: kc   ! per-cell k (face-k = cell-mean; otherwise never read)
     logical, intent(in) :: cell_mean_k
     ! Local
@@ -131,11 +117,11 @@ contains
                             T(i  ,j,k+1),      &
                             T(i+1,j,k-1),      &
                             T(i+1,j,k+1),      &
-                            M(i  ,j,k) % c,    &
-                            M(i+1,j,k) % c,    &
+                            Minv(i  ,j,k) % c,    &
+                            Minv(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
-                            1, 2, 3, inverse_metric, &
+                            1, 2, 3, &
                             cell_mean_k, 0.5d0 * ( kc(i,j,k) + kc(i+1,j,k) ) )
     enddo; enddo; enddo
 
@@ -156,11 +142,11 @@ contains
                             T(i,j  ,k+1),      &
                             T(i,j+1,k-1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j  ,k) % c,    &
-                            M(i,j+1,k) % c,    &
+                            Minv(i,j  ,k) % c,    &
+                            Minv(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
-                            2, 1, 3, inverse_metric, &
+                            2, 1, 3, &
                             cell_mean_k, 0.5d0 * ( kc(i,j,k) + kc(i,j+1,k) ) )
     enddo; enddo; enddo
 
@@ -181,11 +167,11 @@ contains
                             T(i,j+1,k  ),      &
                             T(i,j-1,k+1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j,k  ) % c,    &
-                            M(i,j,k+1) % c,    &
+                            Minv(i,j,k  ) % c,    &
+                            Minv(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
-                            3, 1, 2, inverse_metric, &
+                            3, 1, 2, &
                             cell_mean_k, 0.5d0 * ( kc(i,j,k) + kc(i,j,k+1) ) )
     enddo; enddo; enddo
 

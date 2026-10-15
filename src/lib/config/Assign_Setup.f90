@@ -27,9 +27,6 @@ contains
     obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
 
-    ! Space: face metric of the interior diffusive fluxes
-    obj_space_scheme%inverse_metric = ( trim(obj_space_scheme%diffusive_metric) /= 'mean' )
-
     ! Space: conductivity of the interior diffusive faces
     obj_space_scheme%cell_mean_k = ( trim(obj_space_scheme%face_k) == 'cell-mean' )
 
