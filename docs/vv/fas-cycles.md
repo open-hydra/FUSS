@@ -77,7 +77,8 @@ Fields equal to the `none` fields within 3e-9 K at threshold.
 
 New verification case `numerics-features/chimera_mg`: two genuinely overlapping blocks
 (112 × 16 and 104 × 12 cells, 0.09 m overlap, different spacing in both directions), chimera
-donors on all 3 levels built by ATLAS BCB (`BC-chimera = true`, `MG-levels = 3`). The FAS
+donors on all 3 levels built by ATLAS BCB (`BC-chimera = true`, `MG-levels = 3`; the files
+of ATLAS main `7d35c3a`, whose sampled overlap weights close every receiver to 1). The FAS
 transfers never read a chimera receiver: restriction, forcing and correction sums run over
 interior cells only, the receivers are ghost cells refreshed by each level's own chimera fill,
 and (with IRS) the ghost residual at a 102 face is already zero-gradient — the same policy IRS
@@ -89,7 +90,7 @@ applies to every non-connection ghost.
 | `v` / `w`: 1 process vs 2 ranks (one block per rank, donors cross ranks on all levels) | bit-identical |
 | Field vs `none` at 1e-8 | v: 3.0e-7 K, w: 3.0e-7 K |
 | Admissibility fallbacks (`FAS:` reports) | none |
-| Iterations (wall): none 13 367 (20 s) | v 2 619 (3.3 s; 5.1× / 6.2×), **w 1 700 (1.2 s; 7.9× / 17×)** (iterations / wall) |
+| Iterations (wall): none 13 367 (37 s) | v 2 613 (7.3 s; 5.1× / 5.1×), **w 1 700 (2.7 s; 7.9× / 14×)** (iterations / wall, busy node) |
 
 **W is safe with chimera.** The study provisioned a V-only constraint near 102 boundaries
 (CFL3D practice); the data shows W converging faster than V, bit-reproducibly across ranks and

@@ -1,56 +1,224 @@
  Volume division succesful
-  - Receiver ID           =            1          30           2           1
-  - Receiver total volume =   5.000000000000004E-006
-  - Receiver real volume  =   5.000000000000005E-006
+  - Receiver ID           =            1         113           1           1
+  - Receiver total volume =   3.125000000000002E-007
+  - Receiver real volume  =   3.125000000000003E-007
  Volume division succesful
-  - Receiver ID           =            1          29           1           1
-  - Receiver total volume =   5.000000000000004E-006
-  - Receiver real volume  =   5.000000000000005E-006
+  - Receiver ID           =            1         114           1           1
+  - Receiver total volume =   3.125000000000004E-007
+  - Receiver real volume  =   3.125000000000003E-007
  Volume division succesful
-  - Receiver ID           =            1          30           4           1
-  - Receiver total volume =   5.000000000000001E-006
-  - Receiver real volume  =   5.000000000000002E-006
+  - Receiver ID           =            1         113           2           1
+  - Receiver total volume =   3.125000000000001E-007
+  - Receiver real volume  =   3.125000000000003E-007
  Volume division succesful
-  - Receiver ID           =            1          30           3           1
-  - Receiver total volume =   5.000000000000006E-006
-  - Receiver real volume  =   5.000000000000006E-006
+  - Receiver ID           =            1         114           2           1
+  - Receiver total volume =   3.125000000000005E-007
+  - Receiver real volume  =   3.125000000000003E-007
  Volume division succesful
-  - Receiver ID           =            1          30           1           1
-  - Receiver total volume =   5.000000000000005E-006
-  - Receiver real volume  =   5.000000000000005E-006
+  - Receiver ID           =            1         113           3           1
+  - Receiver total volume =   3.125000000000002E-007
+  - Receiver real volume  =   3.125000000000002E-007
  Volume division succesful
-  - Receiver ID           =            1          29           4           1
-  - Receiver total volume =   5.000000000000001E-006
-  - Receiver real volume  =   5.000000000000002E-006
+  - Receiver ID           =            1         114           3           1
+  - Receiver total volume =   3.125000000000004E-007
+  - Receiver real volume  =   3.125000000000002E-007
  Volume division succesful
-  - Receiver ID           =            1          29           2           1
-  - Receiver total volume =   5.000000000000004E-006
-  - Receiver real volume  =   5.000000000000005E-006
+  - Receiver ID           =            1         113           4           1
+  - Receiver total volume =   3.125000000000003E-007
+  - Receiver real volume  =   3.125000000000004E-007
  Volume division succesful
-  - Receiver ID           =            1          29           3           1
-  - Receiver total volume =   5.000000000000006E-006
-  - Receiver real volume  =   5.000000000000006E-006
+  - Receiver ID           =            1         114           4           1
+  - Receiver total volume =   3.125000000000005E-007
+  - Receiver real volume  =   3.125000000000004E-007
  Volume division succesful
-  - Receiver ID           =            2           0           2           1
-  - Receiver total volume =   6.794871794871831E-006
-  - Receiver real volume  =   6.794871794871814E-006
- Chimera volume division failed
+  - Receiver ID           =            1         113           5           1
+  - Receiver total volume =   3.125000000000002E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         114           5           1
+  - Receiver total volume =   3.125000000000003E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         113           6           1
+  - Receiver total volume =   3.125000000000011E-007
+  - Receiver real volume  =   3.125000000000009E-007
+ Volume division succesful
+  - Receiver ID           =            1         114           6           1
+  - Receiver total volume =   3.125000000000011E-007
+  - Receiver real volume  =   3.125000000000009E-007
+ Volume division succesful
+  - Receiver ID           =            1         113           7           1
+  - Receiver total volume =   3.124999999999991E-007
+  - Receiver real volume  =   3.124999999999995E-007
+ Volume division succesful
+  - Receiver ID           =            1         114           7           1
+  - Receiver total volume =   3.124999999999993E-007
+  - Receiver real volume  =   3.124999999999995E-007
+ Volume division succesful
+  - Receiver ID           =            1         113           8           1
+  - Receiver total volume =   3.125000000000005E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         114           8           1
+  - Receiver total volume =   3.125000000000007E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         113           9           1
+  - Receiver total volume =   3.125000000000002E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         114           9           1
+  - Receiver total volume =   3.125000000000003E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          10           1
+  - Receiver total volume =   3.124999999999999E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          10           1
+  - Receiver total volume =   3.125000000000003E-007
+  - Receiver real volume  =   3.125000000000002E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          11           1
+  - Receiver total volume =   3.125000000000005E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          11           1
+  - Receiver total volume =   3.125000000000007E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          12           1
+  - Receiver total volume =   3.125000000000007E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          12           1
+  - Receiver total volume =   3.125000000000007E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          13           1
+  - Receiver total volume =   3.124999999999997E-007
+  - Receiver real volume  =   3.124999999999999E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          13           1
+  - Receiver total volume =   3.124999999999998E-007
+  - Receiver real volume  =   3.124999999999999E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          14           1
+  - Receiver total volume =   3.125000000000008E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          14           1
+  - Receiver total volume =   3.125000000000008E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          15           1
+  - Receiver total volume =   3.124999999999995E-007
+  - Receiver real volume  =   3.124999999999999E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          15           1
+  - Receiver total volume =   3.124999999999997E-007
+  - Receiver real volume  =   3.124999999999999E-007
+ Volume division succesful
+  - Receiver ID           =            1         113          16           1
+  - Receiver total volume =   3.125000000000005E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
+  - Receiver ID           =            1         114          16           1
+  - Receiver total volume =   3.125000000000006E-007
+  - Receiver real volume  =   3.125000000000006E-007
+ Volume division succesful
   - Receiver ID           =            2          -1           1           1
-  - Receiver total volume =   7.927350427350448E-006
-  - Receiver real volume  =   6.794871794871814E-006
- Chimera volume division failed
-  - Receiver ID           =            2          -1           3           1
-  - Receiver total volume =   7.927350427350449E-006
-  - Receiver real volume  =   6.794871794871815E-006
- Chimera volume division failed
-  - Receiver ID           =            2           0           3           1
-  - Receiver total volume =   7.927350427350461E-006
-  - Receiver real volume  =   6.794871794871815E-006
+  - Receiver total volume =   4.246794871794835E-007
+  - Receiver real volume  =   4.246794871794838E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           1           1
+  - Receiver total volume =   4.246794871794837E-007
+  - Receiver real volume  =   4.246794871794838E-007
  Volume division succesful
   - Receiver ID           =            2          -1           2           1
-  - Receiver total volume =   6.794871794871814E-006
-  - Receiver real volume  =   6.794871794871814E-006
- Chimera volume division failed
-  - Receiver ID           =            2           0           1           1
-  - Receiver total volume =   7.927350427350461E-006
-  - Receiver real volume  =   6.794871794871814E-006
+  - Receiver total volume =   4.246794871794837E-007
+  - Receiver real volume  =   4.246794871794840E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           2           1
+  - Receiver total volume =   4.246794871794839E-007
+  - Receiver real volume  =   4.246794871794840E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           3           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           3           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           4           1
+  - Receiver total volume =   4.246794871794834E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           4           1
+  - Receiver total volume =   4.246794871794836E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           5           1
+  - Receiver total volume =   4.246794871794838E-007
+  - Receiver real volume  =   4.246794871794841E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           5           1
+  - Receiver total volume =   4.246794871794843E-007
+  - Receiver real volume  =   4.246794871794841E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           6           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           6           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           7           1
+  - Receiver total volume =   4.246794871794839E-007
+  - Receiver real volume  =   4.246794871794841E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           7           1
+  - Receiver total volume =   4.246794871794841E-007
+  - Receiver real volume  =   4.246794871794841E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           8           1
+  - Receiver total volume =   4.246794871794830E-007
+  - Receiver real volume  =   4.246794871794834E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           8           1
+  - Receiver total volume =   4.246794871794833E-007
+  - Receiver real volume  =   4.246794871794834E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1           9           1
+  - Receiver total volume =   4.246794871794839E-007
+  - Receiver real volume  =   4.246794871794844E-007
+ Volume division succesful
+  - Receiver ID           =            2           0           9           1
+  - Receiver total volume =   4.246794871794843E-007
+  - Receiver real volume  =   4.246794871794844E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1          10           1
+  - Receiver total volume =   4.246794871794834E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0          10           1
+  - Receiver total volume =   4.246794871794836E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1          11           1
+  - Receiver total volume =   4.246794871794833E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0          11           1
+  - Receiver total volume =   4.246794871794835E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2          -1          12           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
+ Volume division succesful
+  - Receiver ID           =            2           0          12           1
+  - Receiver total volume =   4.246794871794831E-007
+  - Receiver real volume  =   4.246794871794837E-007
