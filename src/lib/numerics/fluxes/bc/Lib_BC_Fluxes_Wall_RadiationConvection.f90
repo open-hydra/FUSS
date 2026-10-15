@@ -81,13 +81,14 @@ contains
       qw = q_wall
       ! Update T_wall
       T_wall = Tref - 1/(H*(K + hconv)) * (Tref - T)
+      ! Reaching the cap is fatal, as in BC 304
       if ( iter_qw >= iter_qw_max ) then
-        write(*,'(A,I0,A,3(1X,I0))') &
-          '[WARNING] BC_Wall_RadiationConvection: no convergence in ', iter_qw_max, &
-          ' iterations at cell i,j,k =', Im, Jm, Km
-        write(*,'(A,ES12.5,A,ES12.5)') &
-          '          |dq| = ', err_qw, '  tol = ', tol_qw
-        exit
+        write(*,'(A,I0,A,4(1X,I0))') &
+          ' [ERROR] BC_Wall_RadiationConvection: no convergence in ', iter_qw_max, &
+          ' iterations at cell i,j,k, face =', Im, Jm, Km, Fm
+        write(*,'(A,ES12.5,A,ES12.5,A,ES14.6,A,ES14.6,A,ES14.6)') &
+          '         |dq| = ', err_qw, '  tol = ', tol_qw, '  T_wall = ', T_wall, '  T = ', T, '  Tref = ', Tref
+        error stop 3
       endif
     enddo
 

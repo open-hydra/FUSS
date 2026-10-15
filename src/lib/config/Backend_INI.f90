@@ -2,7 +2,7 @@ module FUSS_Backend_INI
   use iso_fortran_env, only: R8 => real64
   implicit none
   private
-  public :: Load_Ini, Scan_Ini, Check_Unknown_Options, Reload_Runtime_Ini
+  public :: Load_Ini, Scan_Ini, Check_Unknown_Options, Check_Value_Lengths, Reload_Runtime_Ini
 
   !> Parameters that MAY be changed while a run is in progress.
   !>
@@ -343,6 +343,47 @@ contains
     end function Same
 
   end subroutine Check_Unknown_Options
+
+
+  !> A string value longer than the variable it is read into is cut by FiNeR
+  !> without a message. Measured 2026-10-15: a 21-character probe name became 16
+  !> characters, the probe's own section was then looked up under the cut name,
+  !> and the run stopped later on an unrelated "unknown probe variable". Every
+  !> string key is checked; its limit is the length of its target.
+  subroutine Check_Value_Lengths ( fini, out )
+    use Finer,               only: file_ini
+    use FUSS_Input_Registry, only: reg
+    implicit none
+    type(file_ini),   intent(inout) :: fini
+    character(len=*), intent(out)   :: out
+    ! Local
+    character(len=4096) :: buf
+    character(len=16)   :: sn, sl
+    integer :: i, error, n, limit, nbad
+
+    out  = ''
+    nbad = 0
+    do i = 1, reg%size
+      if ( .not. associated(reg%params(i)%value%s) ) cycle
+      buf = ''
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=buf, error=error)
+      if ( error /= 0 ) cycle
+      n     = len_trim(adjustl(buf))
+      limit = len(reg%params(i)%value%s)
+      if ( n <= limit ) cycle
+      nbad = nbad + 1
+      write(sn,'(I0)') n
+      write(sl,'(I0)') limit
+      if ( nbad == 1 ) then
+        out = '[ERROR] value too long in input.ini: ['//trim(reg%params(i)%section)//'] '// &
+              trim(reg%params(i)%name)//' has '//trim(sn)//' characters, the limit is '//trim(sl)
+      else
+        out = trim(out)//' ; ['//trim(reg%params(i)%section)//'] '//trim(reg%params(i)%name)// &
+              ' has '//trim(sn)//', limit '//trim(sl)
+      endif
+    enddo
+
+  end subroutine Check_Value_Lengths
 
 
   subroutine Load_Ini(fini)

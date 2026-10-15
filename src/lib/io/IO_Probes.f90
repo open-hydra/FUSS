@@ -42,17 +42,23 @@ contains
     type(FUSS_domain_type), intent(in)  :: domain
     logical, intent(in)                 :: newrun
     ! Local
-    integer             :: i, ii, error
-    character(len=clen) :: string(8)
+    integer             :: i, ii, error, ntok
+    character(len=clen), allocatable :: string(:)
 
     nprobes = size(obj_io_probes)
     allocate(probe(1:nprobes))
 
     do i = 1, nprobes
 
-      obj_io_probes(i)%file = 'OUTPUT/'//trim(obj_io_probes(i)%file)//'.txt'
+      ! The path has its own component: written into the 16-character name it
+      ! was cut (`d01_lo` wrote OUTPUT/d01_lo.tx).
+      obj_io_probes(i)%path = 'OUTPUT/'//trim(obj_io_probes(i)%file)//'.txt'
 
-      ! Vars name
+      ! Vars name. parse writes one element per token without a bound check, so
+      ! the array is sized from the count (a fixed 8 let a ninth name write past it).
+      ntok = Count_Tokens(obj_io_probes(i)%varnames)
+      if ( allocated(string) ) deallocate(string)
+      allocate(string(max(ntok, 1)))
       string = ''
       probe(i)%nvar = 0
       call parse(obj_io_probes(i)%varnames,' ',string)
@@ -87,7 +93,7 @@ contains
       call Assign_Variables(probe(i), domain)
 
       if (.not.newrun) then
-        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='OLD',iostat=error)
+        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='OLD',iostat=error)
         if (error/=0) then
           obj_io_probes(i)%error_message = "[ERROR] You restarted from an old solution but the probes files were not found."
           return
@@ -96,12 +102,31 @@ contains
         do while ( error == 0 ); read (probe(i)%unit, *, iostat=error); enddo
         backspace (probe(i)%unit)
       else
-        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='REPLACE',iostat=error)
+        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='REPLACE',iostat=error)
       endif
   
     enddo
 
   end subroutine Setup_Probes
+
+
+  !> Number of blank-separated tokens of a string.
+  pure integer function Count_Tokens ( text ) result ( n )
+    implicit none
+    character(len=*), intent(in) :: text
+    integer :: k
+    logical :: inside
+    n = 0
+    inside = .false.
+    do k = 1, len_trim(text)
+      if ( text(k:k) /= ' ' .and. text(k:k) /= char(9) ) then
+        if ( .not. inside ) n = n + 1
+        inside = .true.
+      else
+        inside = .false.
+      endif
+    enddo
+  end function Count_Tokens
 
 
   subroutine Place (self, domain)

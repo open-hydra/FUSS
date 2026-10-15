@@ -67,7 +67,8 @@ module FUSS_Config_Types_m
     ! USER-DEFINED INPUTS
     real(R8)            :: dtime
     integer             :: diter
-    character(len=clen) :: file
+    character(len=clen) :: file                ! probe name, the registry's target
+    character(len=llen) :: path                ! OUTPUT/<name>.txt, set by Setup_Probes
     character(len=hlen) :: varnames
     integer             :: iloc(4)
     real(R8)            :: loc(3)

@@ -30,10 +30,12 @@ contains
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
     use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
+    use FUSS_Input_Registry,       only: Registry_Is_Set
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
     integer :: m, ios
+    logical :: irs_off_explicit     ! input.ini says irs = false (read before the promotion below)
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -52,6 +54,9 @@ contains
     ! Assign_Setup, which runs after Check_Input, so `irs-beta = 0.5` with no
     ! `irs` key passed the mesh-motion IRS guard and smoothed the remapped
     ! residual anyway. Guard demo: run_guard_demos.sh irs_beta.
+    ! An explicit `irs = false` beside `irs-beta > 0` is overridden by it: remember
+    ! what the file said, so Check_Input can refuse the contradiction.
+    irs_off_explicit = Registry_Is_Set( trim(codename)//'-Numerics', 'irs' ) .and. .not. obj_irs%enabled
     if (obj_irs%beta > 0d0) obj_irs%enabled = .true.
     ! Same reason, plan 07: the Darcy closure is selected by a [FUSS-Pyrolysis]
     ! key; every guard, the table checks and Assign_Setup read this flag.
@@ -165,11 +170,14 @@ contains
             endif
             obj_sim_param%iter_general = 0
           else
+            ! Every level restarts from the time (or iteration) of the restart file,
+            ! which only level 1 reads: IOfield(m > 1)%solutiontime is never assigned,
+            ! and a two-level restart used to number its iterations from 1 again.
             if (obj_time_scheme%time_accurate) then
-              simulation%domain(m)%time = simulation%IOfield(m)%solutiontime
+              simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
               obj_sim_param%iter_general = 0
             else
-              obj_sim_param%iter_general = int(simulation%IOfield(m)%solutiontime)
+              obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
               simulation%domain(m)%time = -1.d0
             endif
           endif
@@ -273,7 +281,7 @@ contains
 
     subroutine Check_Input()
       use FUSS_Input_Registry
-      use FUSS_Read_Ini, only: unknown_options_message
+      use FUSS_Read_Ini, only: unknown_options_message, long_values_message
       implicit none
       character(len=hlen) :: out
 
@@ -290,6 +298,13 @@ contains
         error stop 1
       endif
 
+      if ( len_trim(long_values_message) > 0 ) then
+        write(*,'(A,T35,A)') '   Input file', 'FAIL'
+        write(*,'(4X,A)') trim(long_values_message)
+        write(*,'(4X,A)') 'The value would be cut to the limit without a message.'
+        error stop 1
+      endif
+
       out = Validate_Registry()
       if (index(out,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
@@ -299,10 +314,46 @@ contains
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
 
+      call Check_Input_Consistency()
       call Check_Mesh_Motion_Compatibility()
       call Check_Pyrolysis_Compatibility()
 
     end subroutine Check_Input
+
+
+    !> Keys that are each valid but contradict one another, or the build.
+    subroutine Check_Input_Consistency()
+      implicit none
+      logical :: bad
+
+      bad = .false.
+
+      ! irs-beta > 0 turns IRS on (the promotion in FUSS_setup), so an explicit
+      ! irs = false beside it was silently overridden.
+      if ( irs_off_explicit .and. obj_irs%beta > 0d0 ) then
+        write(*,'(A)') ' [ERROR] irs = false contradicts irs-beta > 0, which turns implicit residual smoothing on.'
+        write(*,'(A)') '         Set irs-beta = 0 to run without smoothing, or remove irs = false.'
+        bad = .true.
+      endif
+
+#ifdef FUSS_NO_TECIO
+      ! Without TecIO, ORION cannot write or read a binary Tecplot file and ends the
+      ! run there with a bare stop: exit status 0, after the setup.
+      if ( index(obj_io%sol_format, 'binary') > 0 .and. index(obj_io%sol_format, 'tecplot') > 0 ) then
+        write(*,'(A)') ' [ERROR] sol-format = tecplot binary needs TecIO, and this FUSS is built without it'
+        write(*,'(A)') '         (USE_TECIO = false). Use tecplot ascii, or rebuild with USE_TECIO = true.'
+        bad = .true.
+      endif
+      if ( index(obj_io%ic_format, 'binary') > 0 .and. index(obj_io%ic_format, 'tecplot') > 0 ) then
+        write(*,'(A)') ' [ERROR] ic-format = tecplot binary needs TecIO, and this FUSS is built without it'
+        write(*,'(A)') '         (USE_TECIO = false). Use tecplot ascii, or rebuild with USE_TECIO = true.'
+        bad = .true.
+      endif
+#endif
+
+      if ( bad ) error stop 1
+
+    end subroutine Check_Input_Consistency
 
 
     !> Reject combinations of moving mesh with convergence-acceleration features

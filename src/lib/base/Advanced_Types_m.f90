@@ -34,14 +34,16 @@ module FUSS_Advanced_Types_m
     integer                    :: bs, is, js, ks, fs, d11, d12, d21, d22    ! BC 1 (connection) specifications
     type(FUSS_tensor_3D_type)  :: Mg(2)                                     ! Ghost cell metric tensor
     type(FUSS_vector_3D_type)  :: dlg(2)                                    ! Ghost cell average cell length
-    real(R8)                   :: volg(2)                                   ! Ghost cell volume
-    real(R8)                   :: Tg(6), matIDg                             ! Ghost cell primitive stencil
+    ! The reals default to 0: a stencil or a flux that no branch filled reads 0,
+    ! not whatever the heap held (BC 303's never-assigned qw was such a read).
+    real(R8)                   :: volg(2) = 0d0                             ! Ghost cell volume
+    real(R8)                   :: Tg(6) = 0d0, matIDg = 0d0                 ! Ghost cell primitive stencil
     real(R8), allocatable      :: chig(:)                                   ! Ghost chi stencil (nsub): allocated and zeroed with pyrolysis on, filled in plan 08
     real(R8)                   :: pg(6) = 0d0                               ! Ghost gas-pressure stencil (plan 07): filled by Fill_Ghost_p as Tg is
     integer                    :: ni(2)                                     ! BC chimera
     integer, allocatable       :: donorID(:,:)                              ! BC chimera
     real(R8), allocatable      :: volume_fraction(:)                        ! BC chimera
-    real(R8)                   :: ext_flux                                  ! Multi-Solver Coupling              
+    real(R8)                   :: ext_flux = 0d0                            ! Multi-Solver Coupling
   end type bc_type
   !! ------------------------------------------------------
   !! ------------------------------------------------------

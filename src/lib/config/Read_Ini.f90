@@ -7,6 +7,9 @@ module FUSS_Read_Ini
   !> that the input report lists every problem in one pass instead of one per
   !> run.
   character(len=1024), public :: unknown_options_message = ''
+  !> Set by Read_Inifile when a string value is longer than its variable (it would be
+  !> cut without a message). Reported by Check_Input.
+  character(len=1024), public :: long_values_message = ''
 
 contains
 
@@ -18,7 +21,7 @@ contains
     use FUSS_Read_Pyrolysis, only: Register_Pyrolysis
     use FUSS_Register_Darcy, only: Register_Darcy
     use FUSS_Register_Ablation, only: Register_Ablation
-    use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini, Check_Unknown_Options
+    use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini, Check_Unknown_Options, Check_Value_Lengths
     use FUSS_Input_Registry
     implicit none
     ! Local
@@ -49,6 +52,7 @@ contains
     ! stale key, and either way it is NOT being applied. Recorded here, reported
     ! by Check_Input.
     call Check_Unknown_Options(fini, unknown_options_message)
+    call Check_Value_Lengths(fini, long_values_message)
 
   end subroutine Read_Inifile
 

@@ -26,6 +26,12 @@ IF(USE_MPI)
     target_link_libraries(FUSSL PUBLIC MPI::MPI_Fortran)
 ENDIF(USE_MPI)
 
+# The TecIO switch is ORION's (USE_TECIO). Without TecIO ORION stops with exit
+# status 0 at the first binary Tecplot read or write, so FUSS refuses the input.
+IF(DEFINED USE_TECIO AND NOT USE_TECIO)
+    target_compile_definitions(FUSSL PUBLIC FUSS_NO_TECIO)
+ENDIF()
+
 
 # # Install library
 # install(TARGETS FUSSL
