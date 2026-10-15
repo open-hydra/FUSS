@@ -145,3 +145,25 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     `test/moving-mesh/conjugate_receding_t2` (8).
   - **The other 1201 pre-existing rows are byte-identical.**
 
+- **2026-10-15, plan 10 (latent defects): three result-moving changes, each in its own commit; one case added. 1775 rows.**
+  - **How measured:** every commit's tree regressed on its own snapshot (`git archive` + the submodules, a fresh preset
+    build, `run_regression.sh -B -p 1`) on sprop2 (gfortran 12.2.1), and the rows compared commit to commit
+    (`plan-bucket/records/2026-10-15-plan10/attribution.txt`). The final tree `356b190` gives this manifest (binary
+    `55bb8081` in its snapshot).
+  - **Inert, 0 rows:** `3a39ca0` (refusals, error stop 3 in the radiation walls, the multigrid restart time, the probe
+    path, bc_type defaults: its tree's regression reproduced all 1771 rows) and `75d54ca` (time files before their first
+    row and in steady runs, bc.txt range checks).
+  - **`70f5a77`, the 301/302 time files at the RK stage times (D19): 13 rows.** `pyrolysis/energy_audit` (8, T 1.8e-3
+    relative) and `transient/oscillating_Rod` (5, T 8.9e-3): the two time-file cases of the default suite. A
+    first-order-in-time treatment of the boundary data becomes the scheme's order (energy_audit's vnn ladder: ratio
+    1.75 -> 4.26 on its 1 s ramp).
+  - **`a780ac5`, type-1 gas enthalpy at the face temperatures (D21): 415 rows.** `pyrolysis/lit/zhang2010/N050` (404,
+    T 8.6e-4), `pyrolysis/energy_audit` (8, T 2.3e-2: 40 cells of 1 mm, where the donor-cell error was largest) and
+    `pyrolysis/adiabatic0d/T1000` (3, round-off: h 6.6e-15). Type-1 cases with gas flow only.
+  - **`66f4920`, the Darcy correction groups (D22): 8 rows,** `moving-mesh/conjugate_receding_t2` (T 7.6e-8: another
+    iterate inside the solver tolerance; 13.6 sweeps a step instead of ~26k).
+  - **Added, 4 rows:** `test/numerics-features/bc303_qrad_1d` (`ddbc763`).
+  - **The other 1343 pre-existing rows are byte-identical** (428 distinct rows moved: energy_audit's 8 moved under D19 and D21). References outside the manifest re-recorded with the same
+    attribution: `pyrolysis/ATC1/expected.json` (re-anchored: the 100/200/400 ladder on `a780ac5`, f* unchanged to
+    0.01 K, the 100-cell error 7.4 K -> 1.9 K at 1 mm, 1 s) and `pyrolysis/energy_audit/expected.json` ((iv)
+    measured 13.08 K -> 1.00 K, budget 2.00 K).

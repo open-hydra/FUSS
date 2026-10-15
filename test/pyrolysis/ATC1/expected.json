@@ -1,6 +1,6 @@
 {
  "gate": "for every point: |(T_FUSS(depth, t) - f_star) - f100_minus_fstar| <= band_K, i.e. the 100-cell discretisation error measured on 2026-10-08 may move by at most band_K; f_star is the Richardson limit of FUSS's own model (plan 06 type 1), p the observed order",
- "anchor": "Richardson extrapolation of FUSS on 100/200/400 graded cells (last/first 0.1, L = 0.05 m), vnn 0.5, linear-in-x sampling between the bracketing cell centres on every mesh, build 144d8f3 + tools of 2026-10-08; tables and runs in plan-bucket/records/2026-10-08-verification (points where the three meshes are not asymptotic, p outside [0.5, 3], are not gated: 2 mm at 1 s, 16 and 50 mm before the wave arrives)",
+ "anchor": "Richardson extrapolation of FUSS on 100/200/400 graded cells (last/first 0.1, L = 0.05 m), vnn 0.5, linear-in-x sampling between the bracketing cell centres on every mesh, build a780ac5 (plan 10 D19 + D21; ATC1 to 60 s on sprop2, 2026-10-15); f_star with the observed order p where 0.5 <= p <= 3, else the 400-cell value (p > 3 or a non-monotone sequence at the 0.01 K level: its distance to the limit is below f200 - f400, <= 0.1 K at those points); records in plan-bucket/records/2026-10-15-plan10. The 2026-10-08 anchor (build 144d8f3, first-order type-1 gas enthalpy) is kept as measured_2026-10-08.",
  "band_K": 1.0,
  "measured_2026-10-08": {
   "max_abs_f100_minus_fstar_K": 7.414,
@@ -11,330 +11,336 @@
   "f_star_minus_PATO100_K": "+2.6 to +4.1 at every probe and time behind the front (PATO 3.1, 100 cells, ref/pato-298K)",
   "type2_minus_type1_exact_K": "-2.1 at 1000 K, -2.5 at 1250 K, -3.0 at 1500 K, -0.8 at 700 K (0-D heated oracle, 1 atm; PATO's p <= 102.1 kPa in ATC1)"
  },
- "note": "Set on 2026-10-08 (verification record): the previous budget (26.7 K vs FIAT, with the 5-11.5 K FUSS-PATO offset attributed to the gas storage type 1 omits) is withdrawn: the exact 0-D oracles put the type-2 gas-storage shift at 2-4 K, the PATO-table hbar data difference at 0.15 K, and the Richardson sequence puts 2.5-7.4 K of the offset in FUSS's own first-order mesh error. FIAT's remaining 4-17 K deficit during each front passage is neither (sign and magnitude), cannot be attributed without running FIAT, and is reported, not gated. Re-derive f_star when the model changes (plan 07 type 2, plan 08) or the mesh/probe layout changes.",
+ "note": "Set on 2026-10-08 (verification record): the previous budget (26.7 K vs FIAT, with the 5-11.5 K FUSS-PATO offset attributed to the gas storage type 1 omits) is withdrawn: the exact 0-D oracles put the type-2 gas-storage shift at 2-4 K, the PATO-table hbar data difference at 0.15 K, and the Richardson sequence puts 2.5-7.4 K of the offset in FUSS's own first-order mesh error. FIAT's remaining 4-17 K deficit during each front passage is neither (sign and magnitude), cannot be attributed without running FIAT, and is reported, not gated. Re-derive f_star when the model changes (plan 07 type 2, plan 08) or the mesh/probe layout changes. Re-anchored 2026-10-15 for plan 10 D19 (the 302 ramp read at the RK stage times) and D21 (type-1 gas enthalpy at the face temperatures): the 100-cell error fell from 7.4 K to 1.9 K at (1 mm, 1 s); f_star itself is unchanged to 0.01 K.",
  "window": "t = 1..60 s, depths 1, 2, 4, 8, 16, 50 mm (FIAT's instants)",
  "points": [
   {
    "depth_mm": 1,
    "t": 1,
-   "f_star": 966.986,
-   "p": 0.93,
-   "f100_minus_fstar": 7.414
+   "f_star": 966.992,
+   "p": 1.54,
+   "f100_minus_fstar": -1.868
   },
   {
    "depth_mm": 1,
    "t": 2,
-   "f_star": 1134.674,
-   "p": 0.88,
-   "f100_minus_fstar": 6.746
+   "f_star": 1134.845,
+   "p": 1.58,
+   "f100_minus_fstar": -0.917
   },
   {
    "depth_mm": 1,
    "t": 3,
-   "f_star": 1214.166,
-   "p": 0.94,
-   "f100_minus_fstar": 5.718
+   "f_star": 1214.236,
+   "p": 1.28,
+   "f100_minus_fstar": -0.569
   },
   {
    "depth_mm": 1,
    "t": 4,
-   "f_star": 1263.427,
-   "p": 0.96,
-   "f100_minus_fstar": 4.767
+   "f_star": 1263.466,
+   "p": 1.1,
+   "f100_minus_fstar": -0.438
   },
   {
    "depth_mm": 1,
    "t": 5,
-   "f_star": 1298.053,
-   "p": 0.96,
-   "f100_minus_fstar": 4.073
+   "f_star": 1298.075,
+   "p": 1.15,
+   "f100_minus_fstar": -0.327
   },
   {
    "depth_mm": 1,
    "t": 10,
-   "f_star": 1388.012,
-   "p": 0.96,
-   "f100_minus_fstar": 2.405
-  },
-  {
-   "depth_mm": 1,
-   "t": 20,
-   "f_star": 1455.385,
-   "p": 0.99,
-   "f100_minus_fstar": 1.34
-  },
-  {
-   "depth_mm": 1,
-   "t": 30,
-   "f_star": 1486.398,
+   "f_star": 1388.035,
    "p": 1.0,
-   "f100_minus_fstar": 0.925
+   "f100_minus_fstar": -0.16
+  },
+  {
+   "depth_mm": 1,
+   "t": 20,
+   "f_star": 1455.382,
+   "p": 1.04,
+   "f100_minus_fstar": -0.072
+  },
+  {
+   "depth_mm": 1,
+   "t": 30,
+   "f_star": 1486.395,
+   "p": 0.87,
+   "f100_minus_fstar": -0.048
   },
   {
    "depth_mm": 1,
    "t": 60,
-   "f_star": 1528.144,
-   "p": 1.02,
-   "f100_minus_fstar": 0.449
+   "f_star": 1528.133,
+   "p": -0.58,
+   "f100_minus_fstar": -0.01
   },
   {
    "depth_mm": 2,
    "t": 2,
-   "f_star": 770.071,
-   "p": 0.71,
-   "f100_minus_fstar": 6.593
+   "f_star": 770.88,
+   "p": 3.15,
+   "f100_minus_fstar": -0.989
   },
   {
    "depth_mm": 2,
    "t": 3,
-   "f_star": 887.089,
-   "p": 0.78,
-   "f100_minus_fstar": 6.446
+   "f_star": 887.657,
+   "p": 3.3,
+   "f100_minus_fstar": -0.714
   },
   {
    "depth_mm": 2,
    "t": 4,
-   "f_star": 963.323,
-   "p": 0.77,
-   "f100_minus_fstar": 5.736
+   "f_star": 963.857,
+   "p": 3.52,
+   "f100_minus_fstar": -0.563
   },
   {
    "depth_mm": 2,
    "t": 5,
-   "f_star": 1019.289,
-   "p": 0.78,
-   "f100_minus_fstar": 5.211
+   "f_star": 1019.72,
+   "p": 3.49,
+   "f100_minus_fstar": -0.44
   },
   {
    "depth_mm": 2,
    "t": 10,
-   "f_star": 1170.538,
-   "p": 0.86,
-   "f100_minus_fstar": 3.94
+   "f_star": 1170.718,
+   "p": 3.2,
+   "f100_minus_fstar": -0.193
   },
   {
    "depth_mm": 2,
    "t": 20,
-   "f_star": 1287.935,
-   "p": 0.88,
-   "f100_minus_fstar": 2.457
+   "f_star": 1288.044,
+   "p": 6.46,
+   "f100_minus_fstar": -0.089
   },
   {
    "depth_mm": 2,
    "t": 30,
-   "f_star": 1343.979,
-   "p": 0.87,
-   "f100_minus_fstar": 1.747
+   "f_star": 1344.064,
+   "p": null,
+   "f100_minus_fstar": -0.052
   },
   {
    "depth_mm": 2,
    "t": 60,
-   "f_star": 1421.155,
-   "p": 0.88,
-   "f100_minus_fstar": 0.911
+   "f_star": 1421.196,
+   "p": null,
+   "f100_minus_fstar": -0.018
   },
   {
    "depth_mm": 4,
    "t": 1,
-   "f_star": 314.421,
-   "p": 1.72,
-   "f100_minus_fstar": 0.591
+   "f_star": 314.393,
+   "p": 2.17,
+   "f100_minus_fstar": 0.255
   },
   {
    "depth_mm": 4,
    "t": 2,
-   "f_star": 396.288,
-   "p": 1.23,
-   "f100_minus_fstar": 1.619
+   "f_star": 396.208,
+   "p": 4.81,
+   "f100_minus_fstar": 0.058
   },
   {
    "depth_mm": 4,
    "t": 3,
-   "f_star": 487.872,
-   "p": 1.03,
-   "f100_minus_fstar": 2.559
+   "f_star": 487.836,
+   "p": 1.53,
+   "f100_minus_fstar": -0.194
   },
   {
    "depth_mm": 4,
    "t": 4,
-   "f_star": 566.526,
-   "p": 0.99,
-   "f100_minus_fstar": 3.349
-  },
-  {
-   "depth_mm": 4,
-   "t": 5,
-   "f_star": 631.762,
-   "p": 0.98,
-   "f100_minus_fstar": 3.966
-  },
-  {
-   "depth_mm": 4,
-   "t": 10,
-   "f_star": 831.341,
-   "p": 0.99,
-   "f100_minus_fstar": 4.762
-  },
-  {
-   "depth_mm": 4,
-   "t": 20,
-   "f_star": 1006.979,
-   "p": 0.98,
-   "f100_minus_fstar": 2.997
-  },
-  {
-   "depth_mm": 4,
-   "t": 30,
-   "f_star": 1099.593,
-   "p": 0.97,
-   "f100_minus_fstar": 2.469
-  },
-  {
-   "depth_mm": 4,
-   "t": 60,
-   "f_star": 1230.045,
-   "p": 0.99,
-   "f100_minus_fstar": 1.652
-  },
-  {
-   "depth_mm": 8,
-   "t": 1,
-   "f_star": 298.002,
-   "p": 2.28,
-   "f100_minus_fstar": 0.001
-  },
-  {
-   "depth_mm": 8,
-   "t": 2,
-   "f_star": 298.8,
-   "p": 2.03,
-   "f100_minus_fstar": 0.061
-  },
-  {
-   "depth_mm": 8,
-   "t": 3,
-   "f_star": 304.366,
+   "f_star": 566.516,
    "p": 1.8,
-   "f100_minus_fstar": 0.211
+   "f100_minus_fstar": -0.23
+  },
+  {
+   "depth_mm": 4,
+   "t": 5,
+   "f_star": 631.763,
+   "p": 1.79,
+   "f100_minus_fstar": -0.243
+  },
+  {
+   "depth_mm": 4,
+   "t": 10,
+   "f_star": 831.355,
+   "p": 1.69,
+   "f100_minus_fstar": -0.103
+  },
+  {
+   "depth_mm": 4,
+   "t": 20,
+   "f_star": 1006.982,
+   "p": 0.15,
+   "f100_minus_fstar": -0.019
+  },
+  {
+   "depth_mm": 4,
+   "t": 30,
+   "f_star": 1099.606,
+   "p": 3.0,
+   "f100_minus_fstar": -0.018
+  },
+  {
+   "depth_mm": 4,
+   "t": 60,
+   "f_star": 1230.052,
+   "p": 2.25,
+   "f100_minus_fstar": 0.024
+  },
+  {
+   "depth_mm": 8,
+   "t": 1,
+   "f_star": 298.002,
+   "p": null,
+   "f100_minus_fstar": 0.0
+  },
+  {
+   "depth_mm": 8,
+   "t": 2,
+   "f_star": 298.799,
+   "p": 2.32,
+   "f100_minus_fstar": 0.044
+  },
+  {
+   "depth_mm": 8,
+   "t": 3,
+   "f_star": 304.356,
+   "p": 2.4,
+   "f100_minus_fstar": 0.111
   },
   {
    "depth_mm": 8,
    "t": 4,
-   "f_star": 316.408,
-   "p": 1.59,
-   "f100_minus_fstar": 0.4
+   "f_star": 316.384,
+   "p": 2.51,
+   "f100_minus_fstar": 0.145
   },
   {
    "depth_mm": 8,
    "t": 5,
-   "f_star": 333.493,
-   "p": 1.44,
-   "f100_minus_fstar": 0.613
+   "f_star": 333.455,
+   "p": 2.6,
+   "f100_minus_fstar": 0.152
   },
   {
    "depth_mm": 8,
    "t": 10,
-   "f_star": 445.545,
-   "p": 1.12,
-   "f100_minus_fstar": 1.796
+   "f_star": 445.483,
+   "p": 4.5,
+   "f100_minus_fstar": 0.071
   },
   {
    "depth_mm": 8,
    "t": 20,
-   "f_star": 634.413,
-   "p": 1.02,
-   "f100_minus_fstar": 3.424
+   "f_star": 634.386,
+   "p": 0.24,
+   "f100_minus_fstar": -0.024
   },
   {
    "depth_mm": 8,
    "t": 30,
-   "f_star": 749.633,
-   "p": 1.01,
-   "f100_minus_fstar": 3.83
+   "f_star": 749.621,
+   "p": null,
+   "f100_minus_fstar": 0.003
   },
   {
    "depth_mm": 8,
    "t": 60,
-   "f_star": 920.127,
-   "p": 1.06,
-   "f100_minus_fstar": 2.451
+   "f_star": 920.091,
+   "p": 2.86,
+   "f100_minus_fstar": 0.093
   },
   {
    "depth_mm": 16,
    "t": 2,
    "f_star": 298.0,
-   "p": 1.36,
+   "p": null,
    "f100_minus_fstar": 0.0
   },
   {
    "depth_mm": 16,
    "t": 3,
    "f_star": 298.0,
-   "p": 2.15,
+   "p": null,
    "f100_minus_fstar": 0.0
   },
   {
    "depth_mm": 16,
    "t": 4,
    "f_star": 298.002,
-   "p": 1.98,
+   "p": null,
    "f100_minus_fstar": 0.001
   },
   {
    "depth_mm": 16,
    "t": 5,
    "f_star": 298.026,
-   "p": 1.89,
-   "f100_minus_fstar": 0.004
+   "p": null,
+   "f100_minus_fstar": 0.003
   },
   {
    "depth_mm": 16,
    "t": 10,
-   "f_star": 300.941,
-   "p": 1.56,
-   "f100_minus_fstar": 0.088
+   "f_star": 300.938,
+   "p": 1.89,
+   "f100_minus_fstar": 0.051
   },
   {
    "depth_mm": 16,
    "t": 20,
-   "f_star": 334.041,
-   "p": 1.22,
-   "f100_minus_fstar": 0.497
+   "f_star": 334.025,
+   "p": 1.75,
+   "f100_minus_fstar": 0.115
   },
   {
    "depth_mm": 16,
    "t": 30,
-   "f_star": 388.446,
-   "p": 1.1,
-   "f100_minus_fstar": 1.049
+   "f_star": 388.427,
+   "p": 1.73,
+   "f100_minus_fstar": 0.119
   },
   {
    "depth_mm": 16,
    "t": 60,
    "f_star": 555.785,
-   "p": 1.01,
-   "f100_minus_fstar": 2.567
+   "p": 1.42,
+   "f100_minus_fstar": 0.038
   },
   {
    "depth_mm": 50,
    "t": 20,
    "f_star": 298.0,
-   "p": 1.06,
+   "p": null,
    "f100_minus_fstar": 0.0
   },
   {
    "depth_mm": 50,
    "t": 30,
    "f_star": 298.0,
-   "p": 2.04,
+   "p": null,
    "f100_minus_fstar": 0.0
   },
   {
    "depth_mm": 50,
    "t": 60,
    "f_star": 298.305,
-   "p": 1.81,
-   "f100_minus_fstar": 0.015
+   "p": 2.17,
+   "f100_minus_fstar": 0.012
   }
- ]
+ ],
+ "measured_2026-10-15": {
+  "max_abs_f100_minus_fstar_K": 1.868,
+  "where": "1 mm, 1 s",
+  "observed_order": "1.0-1.6 at 1 mm, 2-3.8 at 2 mm, 1.5-2.8 at 4-16 mm (the type-1 gas enthalpy at the face temperatures, plan 10 D21; with the donor-cell flux 0.7-1.0 behind the front)",
+  "f_star_change_since_2026-10-08_K": "+0.007 at (1 mm, 1 s): the limit is a property of the model, the two schemes converge to it"
+ }
 }
