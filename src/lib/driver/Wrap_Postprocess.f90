@@ -291,10 +291,11 @@ contains
       else
         simulation%domain(1)%itermax = obj_sim_param%iter_threshold
       endif
-      ! IRS arrays exist only if IRS was on at setup
+      ! IRS follows irs-beta, but its arrays exist only if IRS was on at setup
+      obj_irs%enabled = ( obj_irs%beta > 0d0 )
       if ( obj_irs%enabled .and. .not. obj_irs%at_setup ) then
         if ( mpi_is_root .and. .not. irs_runtime_warned ) write(*,'(A)') &
-          ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
+          ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs-beta ignored'
         irs_runtime_warned = .true.
         obj_irs%enabled = .false.
       endif

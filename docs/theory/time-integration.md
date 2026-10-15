@@ -124,11 +124,10 @@ Without IRS nothing is replaced: a temperature outside the table, or NaN, stops 
 
 ```ini
 [FUSS-Numerics]
-irs      = true
 irs-beta = 0.5
 ```
 
-IRS is switched on at setup, by `irs = true` or by `irs-beta > 0`; only then are its arrays allocated. During the run `irs-beta` and `irs = false` take effect at the next re-read of `input.ini` (every `ini-diter` iterations), while `irs = true` added to a run started without IRS is ignored with a warning. The default is no smoothing.
+`irs-beta > 0` switches IRS on at setup; only then are its arrays allocated. During the run a new `irs-beta` takes effect at the next re-read of `input.ini` (every `ini-diter` iterations), and `irs-beta = 0` switches the smoothing off; a positive value in a run started without IRS is ignored with a warning. The default, 0, is no smoothing. Until October 2026 a separate key `irs = true` switched IRS on as well, with `irs-beta = 0` a smoothing that changed nothing; it was removed.
 
 ---
 

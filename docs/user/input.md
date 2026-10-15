@@ -13,7 +13,6 @@ time-scheme = RK3
 vnn = 2.0               ; inline comment after a value
 time-accurate = false
 integration-variables = cons
-irs = true
 irs-beta = 0.5
 ```
 
@@ -54,8 +53,8 @@ The other sections of the test-case files are not read by FUSS; they are the inp
 - A key that is not set takes its default, except `time-accurate`, which is required: without it the run stops at set-up.
 - FUSS looks up only the keys it knows: a misspelled key or section is ignored without a message, and the default is used. Check the spelling against the [registry](registry.md).
 - Values are checked at set-up against the allowed values and ranges of the registry. A value out of range stops the run with `[ERROR] <key> must be ...` under `Input file FAIL`. Text values are case-sensitive: `time-scheme = rk3` is rejected.
-- IRS is switched on by `irs = true` or by `irs-beta > 0`.
+- IRS is switched on by `irs-beta > 0`.
 
 ## Changes During a Run
 
-FUSS reads `input.ini` again every `ini-diter` iterations (default 10000). Keys used during the iterations take effect from then on, for example `vnn`, `res-threshold`, `time-threshold`, `iter-threshold`, `level<m>-iter` and the output frequencies. IRS cannot be switched on at runtime: `irs = true` in a run started without it is ignored with a warning (see [Time Integration](../theory/time-integration.md#implicit-residual-smoothing-irs)). The values read at runtime are not checked against the registry.
+FUSS reads `input.ini` again every `ini-diter` iterations (default 10000). Keys used during the iterations take effect from then on, for example `vnn`, `res-threshold`, `time-threshold`, `iter-threshold`, `level<m>-iter` and the output frequencies. IRS cannot be switched on at runtime: `irs-beta > 0` in a run started without it is ignored with a warning, while `irs-beta = 0` switches it off (see [Time Integration](../theory/time-integration.md#implicit-residual-smoothing-irs)). The values read at runtime are not checked against the registry.

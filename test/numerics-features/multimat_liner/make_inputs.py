@@ -38,7 +38,6 @@ time-scheme = RK3
 vnn = 1.0
 time-accurate = false
 integration-variables = cons
-irs = false
 
 [FUSS-IO]
 sol-diter     = 100000000

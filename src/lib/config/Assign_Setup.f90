@@ -23,7 +23,7 @@ contains
     else
       obj_time_scheme%n_rk = 1
     end if
-    if (obj_irs%beta>0d0) obj_irs%enabled = .true. 
+    obj_irs%enabled = ( obj_irs%beta > 0d0 )
     obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
 

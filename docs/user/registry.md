@@ -49,8 +49,7 @@
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
-| irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |
-| irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
+| irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; the value is re-read at runtime) |
 
 ## FUSS-Multigrid
 
