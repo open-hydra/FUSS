@@ -60,6 +60,8 @@ All wall BCs in the INI file use `type = wall`. The **physical behaviour is sele
 | `eps`, `Tref` | Pure radiation (Stefan–Boltzmann) | `304` |
 | `hconv`, `eps`, `Tref` | Combined convection + radiation | `305` |
 
+The radiative walls (304, 305) solve their wall temperature by a fixed-point iteration capped at 100 iterations; reaching the cap stops the run (`error stop 3`, cell and face named) instead of continuing on an unconverged flux. It can happen only for a wall radiating far above `Tref` behind a weak solid link.
+
 !!! warning "Choose one parameter family per section"
     Each named section is interpreted by the parameters it carries. Mixing keys from different families in the same section (for example `T` together with `hconv`) is not allowed and leads to an invalid translation.
 
@@ -115,7 +117,7 @@ type   = wall
 T-time = Tw_time.dat
 ```
 
-`Tw_time.dat` is a two-column ASCII file: `time(s)  T(K)`. The file can optionally begin with the keyword `periodic`, in which case the table is repeated cyclically for the entire simulation. Linear interpolation is used between table entries.
+`Tw_time.dat` is a two-column ASCII file: `time(s)  T(K)`. The file can optionally begin with the keyword `periodic`, in which case the table is repeated cyclically for the entire simulation. Linear interpolation is used between table entries; before the first row the first value holds, after the last row the last. Each Runge–Kutta stage reads the table at its own time (`t^n + c_k Δt`: RK3 `0, 1, ½`), so time-dependent boundary data keep the order of the scheme; the wall output reports the value at the output time. A time file needs a clock: it is refused at setup in a run with `time-accurate = false` (unless hydra drives the time).
 
 **Convection:**
 

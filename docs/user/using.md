@@ -171,7 +171,7 @@ Controlled by `sol-format` in `[FUSS-IO]`:
 | Value | Format |
 |-------|--------|
 | `tecplot ascii` | Tecplot ASCII (`.tec`) — default |
-| `tecplot binary` | Tecplot binary (`.szplt`) — requires TecIO |
+| `tecplot binary` | Tecplot binary (`.szplt`) — requires TecIO: refused at setup (for `sol-format` and `ic-format`) when FUSS is built with `USE_TECIO = false` |
 | `vtk ascii` | VTK ASCII (`.vts`) |
 | `vtk raw` | VTK binary (`.vts`) |
 
@@ -209,7 +209,7 @@ dtime = 1.0e-1
 | `dtime` | Output time interval (s) |
 | `diter` | Output iteration interval |
 
-Each probe writes a text file `OUTPUT/p1.txt` with columns for time and the requested variables.
+Each probe writes a text file `OUTPUT/p1.txt` with columns for time and the requested variables (any number of them). A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
 
 ---
 
