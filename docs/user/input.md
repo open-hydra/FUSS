@@ -54,6 +54,7 @@ The other sections of the test-case files are not read by FUSS; they are the inp
 - FUSS looks up only the keys it knows: a misspelled key or section is ignored without a message, and the default is used. Check the spelling against the [registry](registry.md).
 - Values are checked at set-up against the allowed values and ranges of the registry. A value out of range stops the run with `[ERROR] <key> must be ...` under `Input file FAIL`. Text values are case-sensitive: `time-scheme = rk3` is rejected.
 - IRS is switched on by `irs-beta > 0`.
+- With more than one multigrid level `iter-threshold` has no effect: each level stops at its `level<m>-iter`. A run that sets it anyway gets a `WARNING` line under `Input file OK`.
 
 ## Changes During a Run
 

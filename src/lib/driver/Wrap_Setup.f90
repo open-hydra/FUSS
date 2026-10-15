@@ -274,8 +274,10 @@ contains
 
     subroutine Check_Input()
       use FUSS_Input_Registry
+      use FUSS_Read_Ini, only: input_warnings
       implicit none
       character(len=hlen) :: out
+      integer :: r
 
       out = Validate_Registry()
       if (index(out,'ERROR')>0) then
@@ -284,6 +286,11 @@ contains
         call mpi_abort_all('input file error (see above)')
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
+      endif
+      if (allocated(input_warnings)) then
+        do r = 1, size(input_warnings)
+          write(*,'(4X,A)') 'WARNING: '//trim(input_warnings(r))
+        enddo
       endif
 
     end subroutine Check_Input
