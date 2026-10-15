@@ -155,7 +155,7 @@ def save_colormap(x_cc, y_cc, T_2d, point_B, svg_path):
     )
 
     cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
-    cbar.set_label("Temperature (°C)", fontsize=11)
+    cbar.set_label("Temperature (degC)", fontsize=11)
     cbar.ax.tick_params(labelsize=9)
 
     # Boundary outline
@@ -179,7 +179,7 @@ def save_colormap(x_cc, y_cc, T_2d, point_B, svg_path):
     ax.set_ylabel("y (m)", fontsize=11)
     ax.set_title(
         "Steady State Temperature Distribution\n"
-        r"Volumetric heat generation $\dot{q} = 10^6$ W/m³",
+        r"Volumetric heat generation $\dot{q} = 10^6$ W/m$^3$",
         fontsize=11,
         fontweight="bold"
     )
@@ -191,7 +191,7 @@ def save_colormap(x_cc, y_cc, T_2d, point_B, svg_path):
     fig.tight_layout()
     fig.savefig(svg_path, format="svg", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Colourmap saved → {svg_path}")
+    print(f"  Colourmap saved -> {svg_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +201,7 @@ def save_colormap(x_cc, y_cc, T_2d, point_B, svg_path):
 def main():
 
     if not os.path.isfile(FIELD_TEC):
-        print(f"ERROR: file not found – {FIELD_TEC}")
+        print(f"ERROR: file not found - {FIELD_TEC}")
         sys.exit(1)
 
     variables, zones = parse_tec(FIELD_TEC)
@@ -240,7 +240,7 @@ def main():
     print(" 2-D STEADY STATE THERMAL ANALYSIS ")
     print(" NAFEMS Benchmark T9 (ii) ")
     print(sep)
-    print(f"  {'Quantity':<20} {'Value (K)':>10}  {'Value (°C)':>10}")
+    print(f"  {'Quantity':<20} {'Value (K)':>10}  {'Value (degC)':>12}")
     print(sep)
     print(f"  {'NAFEMS Reference':<20} "
           f"{REFERENCE_T:>10.3f}  {REFERENCE_T - 273.15:>10.3f}")

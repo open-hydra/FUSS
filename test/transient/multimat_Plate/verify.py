@@ -22,14 +22,14 @@ TARGET_FILES = [
 SVG_OUT = os.path.join(BASE_DIR, "2D-transient-multimat-plate-comparison.svg")
 
 # Simulation BC values (used for normalisation)
-T_HOT  = 101.0   # K – hot wall (y = 0,  face3)
-T_COLD = 100.0   # K – cold wall (y = 2, face4)
+T_HOT  = 101.0   # K - hot wall (y = 0,  face3)
+T_COLD = 100.0   # K - cold wall (y = 2, face4)
 
 # Analytical solution parameters (matches analytical.py)
 T_0     = 1.0        # normalised hot-wall temperature
 T_L     = 0.0        # normalised cold-wall temperature
 L       = 2.0        # domain height [m]
-ALPHA   = 1.0        # thermal diffusivity [m²/s]
+ALPHA   = 1.0        # thermal diffusivity [m^2/s]
 N_TERMS = 100        # Fourier series terms
 
 # Colour cycle (one per time snapshot)
@@ -55,7 +55,7 @@ def analytical_T(y_arr, t):
 
 
 # ---------------------------------------------------------------------------
-# Tecplot parser – Block 2 T profile along J at central I
+# Tecplot parser - Block 2 T profile along J at central I
 # ---------------------------------------------------------------------------
 
 def parse_block2_profile(filepath, i_central=None):
@@ -180,7 +180,7 @@ def save_comparison_plot(results, svg_path):
     fig.tight_layout()
     fig.savefig(svg_path, format="svg", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Comparison plot saved → {svg_path}")
+    print(f"  Comparison plot saved -> {svg_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +196,7 @@ def main():
             missing.append(fp)
     if missing:
         for p in missing:
-            print(f"ERROR: file not found – {p}")
+            print(f"ERROR: file not found - {p}")
         print("Run ./FUSS.sh solve first.")
         sys.exit(1)
 
@@ -205,7 +205,7 @@ def main():
     print()
     print(sep)
     print(" 2-D TRANSIENT THERMAL ANALYSIS ")
-    print(" Multi-Material Plate – Verification")
+    print(" Multi-Material Plate - Verification")
     print(sep)
     print(f"  {'File':<14} {'t_nominal':>10} {'t_file':>10} "
           f"{'L-inf err':>12} {'L2 err':>12}")
