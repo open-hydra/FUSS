@@ -27,7 +27,7 @@ irs-beta = 0.5
 | Section | Content | Keys |
 |---------|---------|------|
 | `[FUSS-Parameters]` | New run or restart, stop criteria | [registry](registry.md#fuss-parameters) |
-| `[FUSS-Numerics]` | Time scheme, VNN, IRS, integration variables, face metric | [registry](registry.md#fuss-numerics) |
+| `[FUSS-Numerics]` | Time scheme, VNN, IRS, integration variables | [registry](registry.md#fuss-numerics) |
 | `[FUSS-Multigrid]` | Grid levels and iterations per level | [registry](registry.md#fuss-multigrid) |
 | `[FUSS-IO]` | Formats and frequencies of the output | [registry](registry.md#fuss-io) |
 | `[FUSS-Probes]` and one section per probe | Probes | [registry](registry.md#fuss-probes), [Running FUSS](using.md#probes) |
