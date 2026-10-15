@@ -9,8 +9,15 @@
 !>   (b) the type-1 line integral of the gas production along the outflow
 !>       direction (blk%mdot_pg), serial along each line and parallel across
 !>       lines, so the result does not depend on the thread count,
-!>   (c) the donor-cell gas-advection flux added to blk%R, which telescopes
-!>       over the interior faces of a line,
+!>   (c) the gas-advection flux added to blk%R, which telescopes over the
+!>       interior faces of a line: the gas crosses an interior face at the
+!>       mean temperature of its two cells and leaves through the outflow face
+!>       at that face's wall temperature (bc%Tw_face). Until 2026-10-15 it took
+!>       the upstream cell's temperature at every face (donor cell): first order,
+!>       ATC1's 100-cell mesh 7 K too hot at (1 mm, 1 s); now 1.9 K (plan 10 D21;
+!>       type 2's interior faces were central already). Central differencing of the
+!>       advection holds while the cell Peclet number mdot c_pg dx / k stays below
+!>       2 (TACOT on mm cells: ~0.1),
 !>   (d) the energy-budget sums, single-threaded in a fixed order, folded into
 !>       the (a, a_n) accumulators with the scheme's own RK_stage weights, so
 !>       the discrete balances of gate 4.3 are identities of the update.
@@ -37,6 +44,10 @@ module FUSS_Mod_Pyrolysis
   real(R8), save :: M_gas_out = 0.0d0, M_gas_out_n = 0.0d0
   real(R8), save :: Q_src = 0.0d0,     Q_src_n = 0.0d0
   logical,  save :: budget_file_started = .false.
+  ! The bc entry of every line's outflow face (0 = none), by the line's two
+  ! transverse indices and the block; built at the first stage (the BC file is
+  ! read after Pyrolysis_Init_Cells).
+  integer, allocatable, save :: exit_bc(:,:,:)
 
 contains
 
@@ -227,13 +238,17 @@ contains
     ! Local
     integer  :: b, i, j, k, r, m, d, sg, t1, t2, nd, n1, n2, s, c, b1, b2, ic(3), id(3), n_rk
     real(R8) :: dt, kap, T, pi_tot, Mdot, Mdot_new, h_prev, W, h_pg, mu, A, p_gas
-    real(R8) :: sumR, sumS, sumQg, sumMg
+    real(R8) :: sumR, sumS, sumQg, sumMg, Tf
 
     ! Type 2 (plan 07): its own routine, so that this one stays plan 06's text
     if ( obj_darcy%enabled ) then
       call Pyrolysis_Stage2( domain, i_rk )
       return
     endif
+
+    !$omp single
+    if ( .not. allocated(exit_bc) ) call Build_Exit_Map ( domain )
+    !$omp end single
 
     n_rk  = obj_time_scheme%n_RK
     p_gas = obj_pyrolysis%p_gas
@@ -269,7 +284,7 @@ contains
       nd = domain%blk(b)%dim(d)
       n1 = domain%blk(b)%dim(t1)
       n2 = domain%blk(b)%dim(t2)
-      !$omp do collapse(2) schedule(static) private(b1,b2,s,c,ic,id,i,j,k,m,dt,pi_tot,r,Mdot,Mdot_new,h_prev,W,h_pg,mu,A)
+      !$omp do collapse(2) schedule(static) private(b1,b2,s,c,ic,id,i,j,k,m,dt,pi_tot,r,Mdot,Mdot_new,h_prev,W,h_pg,mu,A,Tf)
       do b2 = 1, n2
       do b1 = 1, n1
         Mdot   = 0.0d0
@@ -290,7 +305,15 @@ contains
           enddo
           pi_tot   = pi_tot / dt
           Mdot_new = Mdot + pi_tot * domain%blk(b)%vol(i,j,k)
-          call Gas_State( m, p_gas, domain%blk(b)%T(i,j,k), W, h_pg, mu, [b, i, j, k] )
+          ! the face the gas leaves this cell by: an interior face at the mean of
+          ! its two cells' temperatures, the outflow face at its wall temperature
+          if ( s < nd ) then
+            id = ic ; id(d) = c + sg
+            Tf = 0.5d0 * ( domain%blk(b)%T(i,j,k) + domain%blk(b)%T(id(1),id(2),id(3)) )
+          else
+            Tf = Exit_Temperature( domain, b, b1, b2, i, j, k )
+          endif
+          call Gas_State( m, p_gas, Tf, W, h_pg, mu, [b, i, j, k] )
           id = ic
           if ( sg < 0 ) id(d) = c - 1
           A = Face_Area( domain%blk(b), d, id(1), id(2), id(3) )
@@ -334,7 +357,8 @@ contains
         A  = Face_Area( domain%blk(b), d, id(1), id(2), id(3) )
         m  = nint( domain%blk(b)%matID(i,j,k) )
         dt = domain%blk(b)%dtlocal(i,j,k)
-        call Gas_State( m, p_gas, domain%blk(b)%T(i,j,k), W, h_pg, mu, [b, i, j, k] )
+        Tf = Exit_Temperature( domain, b, b1, b2, i, j, k )
+        call Gas_State( m, p_gas, Tf, W, h_pg, mu, [b, i, j, k] )
         Mdot  = domain%blk(b)%mdot_pg(i,j,k) * A
         sumQg = sumQg + Mdot * h_pg * dt
         sumMg = sumMg + Mdot * dt
@@ -350,6 +374,54 @@ contains
     !$omp end single
 
   end subroutine Pyrolysis_Stage
+
+
+  !> exit_bc: the bc entry of the outflow face of every line (single-block type 1,
+  !> guard 9; the map is sized for every block all the same).
+  subroutine Build_Exit_Map ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: ii, b, d, t1, t2, fout, n1, n2, ic(3)
+
+    d  = obj_pyrolysis%out_dir
+    t1 = mod( d, 3 ) + 1
+    t2 = mod( d + 1, 3 ) + 1
+    fout = merge( 2*d, 2*d - 1, obj_pyrolysis%out_sign > 0 )
+    n1 = 1 ; n2 = 1
+    do b = 1, domain%nb
+      n1 = max( n1, domain%blk(b)%dim(t1) ) ; n2 = max( n2, domain%blk(b)%dim(t2) )
+    enddo
+    allocate( exit_bc(n1, n2, domain%nb) )
+    exit_bc = 0
+    do ii = 1, domain%nbound
+      if ( domain%bc(ii)%f /= fout ) cycle
+      ic = [ domain%bc(ii)%i, domain%bc(ii)%j, domain%bc(ii)%k ]
+      exit_bc( ic(t1), ic(t2), domain%bc(ii)%b ) = ii
+    enddo
+
+  end subroutine Build_Exit_Map
+
+
+  !> The temperature the gas leaves a line at: its outflow face's wall temperature
+  !> of this stage, the exit cell's where no wall BC set one.
+  real(R8) function Exit_Temperature ( domain, b, b1, b2, i, j, k ) result ( Tf )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer, intent(in) :: b, b1, b2, i, j, k
+    ! Local
+    integer :: ii
+
+    Tf = domain%blk(b)%T(i,j,k)
+    ii = exit_bc(b1, b2, b)
+    if ( ii > 0 ) then
+      if ( domain%bc(ii)%Tw_face > 0.0d0 ) Tf = domain%bc(ii)%Tw_face
+    endif
+
+  end function Exit_Temperature
 
 
   !> Type-2 stage work (plan 07 section 3.5): (a) the kinetics increments as
