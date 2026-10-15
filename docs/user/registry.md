@@ -47,7 +47,6 @@
 | time-scheme | euler | euler, RK2, RK3 |  no | Time integration solver |
 | vnn | 0.3 | > 0 |  no | VNN parameter |
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
-| dt-face-k | .false. | logical |  no | Cell time step from the larger face conductivity of each direction, evaluated as the fluxes evaluate it, instead of the cell k: needed where a block holds a material jump, at which the first cells of the less conductive material exchange heat through up to their neighbour's k. Changes no step on one material at constant k; a second pass over the cells with up to 9 property lookups each (re-read at runtime) |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
 | irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |

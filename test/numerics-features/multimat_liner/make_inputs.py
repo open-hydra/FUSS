@@ -1,4 +1,4 @@
-"""Inputs of the multimat_liner case: the dt-face-k test, a 4-layer liner wall in 2 blocks.
+"""Inputs of the multimat_liner case: a 4-layer liner wall in 2 blocks, material jumps inside both.
 
 Slab of 64 x 128 cells on [0, 0.02] x [0, 0.5] (x through the thickness, cells 0.3125 mm x 3.9 mm),
 four material layers through x: coat 2.5 mm (k = 5), liner 7.5 mm (k = 300), jacket 5 mm
@@ -7,11 +7,11 @@ four material layers through x: coat 2.5 mm (k = 5), liner 7.5 mm (k = 300), jac
 adiabatic. The slab is split along y into two 64 x 64 blocks joined by a block connection (101),
 so on 2 ranks each owns a block and all material jumps lie inside the blocks.
 
-At the liner -> jacket jump (cells i = 32 | 33) the interior face takes the k of the lower cell,
-300, so the first jacket cell exchanges heat through 20 times its own k: with the cell-k time step
-(dt-face-k = false) the run dies within a few iterations at vnn 0.5 (T < 0 K at i = 33), while
-with dt-face-k = true it runs at vnn up to the RK3 limit. Derived from the FAS stress-campaign
-liner (fuss-deps/vfy/liner_case.py), single block there.
+The interior faces between two materials carry the series conductivity of their half cells and
+the time step takes the face conductivities: the run goes at vnn 1.0. Before October 2026 the face
+took the k of the lower cell (300 at the liner -> jacket jump, cells i = 32 | 33, 20 times the
+jacket's own) and with the cell-k time step the run died within a few iterations at vnn 0.5.
+Derived from the FAS stress-campaign liner (fuss-deps/vfy/liner_case.py), single block there.
 """
 import os
 
@@ -36,7 +36,6 @@ iter-threshold = 1500000
 [FUSS-Numerics]
 time-scheme = RK3
 vnn = 1.0
-dt-face-k = true
 time-accurate = false
 integration-variables = cons
 irs = false

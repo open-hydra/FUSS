@@ -5,13 +5,15 @@ module FUSS_Mod_dt
   private
   public :: Compute_dt, Set_Global_dt
 
-  ! dt-face-k: the faces of each local cell that are block connections (101) or chimera faces
-  ! (102), bit f-1 for face f, per multigrid level; built at the first call on the level
+  ! Face-conductivity pass, per multigrid level, built at the first call on the level: the faces
+  ! of each local cell that are block connections (101) or chimera faces (102), bit f-1 for face f,
+  ! and the blocks the pass leaves alone (one material at constant k, connected only to itself)
   type :: conn_blk_t
     integer(I1), allocatable :: f(:,:,:)
   end type conn_blk_t
   type :: conn_level_t
     type(conn_blk_t), allocatable :: blk(:)
+    logical, allocatable          :: uniform(:)
   end type conn_level_t
   type(conn_level_t), allocatable :: conn(:)
 
@@ -20,7 +22,6 @@ contains
   subroutine Compute_dt ( domain, vnn, rampa_iter )
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
-    use FUSS_Config_Types_m, only: obj_time_scheme
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_min_r8
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -58,8 +59,8 @@ contains
       !$omp end parallel
     enddo ! end of loop over blocks
 
-    ! dt-face-k: the cells whose face conductivities differ from their own get the face step
-    if ( obj_time_scheme%dt_face_k ) call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
+    ! The cells whose face conductivities differ from their own get the face step
+    call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
 
     ! MPI: global minimum across all ranks
     call mpi_allreduce_min_r8(dtglobal, dtglobal_mpi)
@@ -100,15 +101,17 @@ contains
   end subroutine Compute_dt
 
 
-  !> dt-face-k = true: second pass of Compute_dt. The fluxes take k at the face: at a material
-  !> jump the face conductivity is the series value of the two half cells, up to twice the k of
-  !> the less conductive cell, which the cell k of Compute_dt does not see. Here direction d of
-  !> the cell sum takes the larger conductivity k_d of its two faces, each evaluated as its flux
-  !> evaluates it:
+  !> Second pass of Compute_dt. The fluxes take k at the face: at a material jump the face
+  !> conductivity is the series value of the two half cells, up to twice the k of the less
+  !> conductive cell, which the cell k of the first pass does not see (with the face k of the
+  !> lower cell, before October 2026, 20 times it on a 300 -> 15 jump made the explicit update
+  !> diverge). Here direction d of the cell sum takes the larger conductivity k_d of its two faces,
+  !> each evaluated as its flux evaluates it:
   !>   dt = vnn rho cp / (2 sum_d k_d |grad xi_d|^2)
-  !> A cell whose k_d all equal its own k keeps the step of the cell loop untouched, so one material
-  !> at constant k runs bit for bit as with the key off. dtglobal is recomputed over the final steps
-  !> (a face step is longer than the cell one where both faces of a direction carry less k).
+  !> A cell whose k_d all equal its own k keeps the step of the cell loop untouched, and a block of
+  !> one material at constant k connected only to itself is not visited at all, so such meshes get
+  !> the cell step bit for bit. dtglobal is recomputed over the final steps (a face step is longer
+  !> than the cell one where both faces of a direction carry less k).
   subroutine Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_multigrid
@@ -131,6 +134,17 @@ contains
 
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
+      if ( conn(level) % uniform(b) ) then
+        !$omp parallel
+        !$omp do collapse(3) reduction ( min : dtglobal )
+        do k = 1, domain % blk(b) % dim(3)
+        do j = 1, domain % blk(b) % dim(2)
+        do i = 1, domain % blk(b) % dim(1)
+          dtglobal = min ( domain % blk(b) % dtlocal(i,j,k), dtglobal )
+        enddo; enddo; enddo
+        !$omp end parallel
+        cycle
+      endif
       !$omp parallel
       !$omp do collapse(3) private ( dtcell, face ), reduction ( min : dtglobal )
       do k = 1, domain % blk(b) % dim(3)
@@ -253,28 +267,39 @@ contains
   end subroutine Face_k_Cell_dt
 
 
-  !> Mark the block-connection (101) and chimera (102) faces of the local cells of one level
+  !> Mark the block-connection (101) and chimera (102) faces of the local cells of one level, and
+  !> the uniform blocks: one material with a constant k column, every connection and chimera face
+  !> to that same material. All their face conductivities equal the cell k exactly (co_Kappa of a
+  !> constant column), so the second pass would change none of their steps.
   subroutine Connection_Faces ( domain, lev )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_table
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     type(conn_level_t), intent(inout)  :: lev
     ! Local
-    integer :: b, ii, i
+    integer :: b, ii, i, n(3), m0
 
-    allocate( lev%blk(domain%nb) )
+    allocate( lev%blk(domain%nb), lev%uniform(domain%nb) )
+    lev%uniform = .false.
     do b = 1, domain%nb
       if (.not. is_local_block(b)) cycle
-      allocate( lev%blk(b)%f( domain%blk(b)%dim(1), domain%blk(b)%dim(2), domain%blk(b)%dim(3) ) )
+      n = domain%blk(b)%dim
+      allocate( lev%blk(b)%f( n(1), n(2), n(3) ) )
       lev%blk(b)%f = 0_I1
+      m0 = nint( domain%blk(b)%matID(1,1,1) )
+      lev%uniform(b) = all( domain%blk(b)%matID(1:n(1),1:n(2),1:n(3)) == domain%blk(b)%matID(1,1,1) ) &
+                       .and. all( obj_table%kappa(m0,:) == obj_table%kappa(m0,obj_table%Tmin) )
     enddo
 
     do ii = 1, domain%n_local_bc
       i = domain%local_bc_idx(ii)
       if ( domain%bc(i)%type /= 101 .and. domain%bc(i)%type /= 102 ) cycle
-      associate ( cf => lev%blk(domain%bc(i)%b)%f(domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k) )
-        cf = ibset ( cf, domain%bc(i)%f - 1 )
+      associate ( b => domain%bc(i)%b )
+        lev%blk(b)%f(domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k) = &
+          ibset ( lev%blk(b)%f(domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k), domain%bc(i)%f - 1 )
+        if ( domain%bc(i)%matIDg /= domain%blk(b)%matID(1,1,1) ) lev%uniform(b) = .false.
       end associate
     enddo
 

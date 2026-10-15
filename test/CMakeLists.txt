@@ -39,12 +39,9 @@ fuss_add_test(TimeConvergence  numerics-features/time_convergence/simdir 300 "sm
 # must reproduce the plain multigrid run byte for byte
 fuss_add_test(MultigridNoneInert numerics-features/residual_convergence/mg3 300 "smoke" --iters 300 --none-inert)
 
-# dt-face-k: the multimaterial liner runs on the face-conductivity time step (with the cell k it
-# dies within a few iterations), and on one material at constant k the key must not change a byte
-# (walls 301-305 on the skewed plate, chimera faces on three multigrid levels)
-fuss_add_test(MultimatLiner        numerics-features/multimat_liner 300 "smoke" --iters 300)
-fuss_add_test(DtFaceKInertWalls    steady-state/skewed_Plate        300 "smoke" --dt-face-k-inert)
-fuss_add_test(DtFaceKInertChimera  numerics-features/chimera_mg     300 "smoke" --iters 300 --dt-face-k-inert)
+# Material jumps inside a block: the 4-layer liner at vnn 1.0 (series face conductivities and the
+# face-conductivity time step)
+fuss_add_test(MultimatLiner    numerics-features/multimat_liner     300 "smoke" --iters 300)
 
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)

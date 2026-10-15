@@ -32,12 +32,6 @@ contains
     ! Stability coefficients and related options
     call reg%add( trim(section), 'vnn', obj_time_scheme%vnn, '0.3', 'VNN parameter', '> 0', .false. )
     call reg%add( trim(section), 'vnn-rise-threshold', obj_time_scheme%rampa_vnn_iter, '0', 'VNN rise threshold', '>= 0', .false. )
-    call reg%add( trim(section), 'dt-face-k', obj_time_scheme%dt_face_k, '.false.', &
-                  'Cell time step from the larger face conductivity of each direction, evaluated as the fluxes '// &
-                  'evaluate it, instead of the cell k: needed where a block holds a material jump, at which '// &
-                  'the first cells of the less conductive material exchange heat through up to their neighbour''s k. '// &
-                  'Changes no step on one material at constant k; a second pass over the cells with up to 9 property '// &
-                  'lookups each (re-read at runtime)', 'logical', .false. )
 
     ! Time-accurate switch
     call reg%add( trim(section), 'time-accurate', obj_time_scheme%time_accurate, '.false.', 'Time accurate switch', 'logical', .true. )

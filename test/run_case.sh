@@ -1,24 +1,20 @@
 #!/bin/bash
 # run_case.sh <case dir> <work dir> <FUSS binary> [--iters N] [--verify] [--mpi N] [--none-inert]
-#             [--dt-face-k-inert]
 # Runs a test case in a fresh copy (the source tree is not written), 1 thread.
 #   --iters N     stop after N iterations (iter-threshold and every level<m>-iter)
 #   --verify      then run the case's verify.py
 #   --mpi N       run serial and on N ranks, and require identical output files
 #   --none-inert  run again with every FAS key spelled out under cycle = none, and require
 #                 identical output files: the FAS keys must be inert outside a cycle
-#   --dt-face-k-inert  run again with dt-face-k = true and require identical output files: on one
-#                 material at constant k the face conductivities equal the cell's, so must the dt
 set -u
 case_dir=$(cd "$1" && pwd); work=$2; bin=$3; shift 3
-iters=""; verify=0; np=0; none_inert=0; dtk_inert=0
+iters=""; verify=0; np=0; none_inert=0
 while [[ $# -gt 0 ]]; do
   case $1 in
     --iters) iters=$2; shift 2 ;;
     --verify) verify=1; shift ;;
     --mpi) np=$2; shift 2 ;;
     --none-inert) none_inert=1; shift ;;
-    --dt-face-k-inert) dtk_inert=1; shift ;;
     *) echo "run_case.sh: unknown option $1"; exit 2 ;;
   esac
 done
@@ -64,16 +60,6 @@ if [[ $none_inert -eq 1 ]]; then
     cmp -s "$work/OUTPUT/$f" "$work-none/OUTPUT/$f" || { echo "FAIL: $f differs when the FAS keys are set under cycle = none"; exit 1; }
   done
   echo "FAS keys inert under cycle = none: identical output files"
-fi
-if [[ $dtk_inert -eq 1 ]]; then
-  prepare "$work-dtk"
-  sed -i -E '/^dt-face-k[[:space:]]*=/d' "$work-dtk/input.ini"
-  sed -i -E 's/^\[FUSS-Numerics\]/[FUSS-Numerics]\ndt-face-k = true/' "$work-dtk/input.ini"
-  run "$work-dtk" 1
-  for f in $(cd "$work/OUTPUT" && ls); do
-    cmp -s "$work/OUTPUT/$f" "$work-dtk/OUTPUT/$f" || { echo "FAIL: $f differs with dt-face-k = true"; exit 1; }
-  done
-  echo "dt-face-k inert on one material at constant k: identical output files"
 fi
 if [[ $verify -eq 1 ]]; then
   (cd "$work" && python3 -B verify.py) || exit 1
