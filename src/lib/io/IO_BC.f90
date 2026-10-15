@@ -179,7 +179,18 @@ contains
 
       ! First line is equal for every BC type
       read( unitfile,*,iostat=ios ) bc(i)%b, bc(i)%i, bc(i)%j, bc(i)%k, bc(i)%f, bc(i)%type
-      if (ios/=0) write(*,'(A)') '  Error in BC file'
+      ! A record that cannot be read, or names a block or face that does not exist,
+      ! is refused here: it would index n_bf, and later the blocks, out of bounds.
+      ! (An unreadable record used to print a line and go on with garbage.)
+      if (ios/=0) then
+        write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': cannot read "b i j k f type"'
+        error stop 1
+      endif
+      if (bc(i)%b < 1 .or. bc(i)%b > size(n_bf,1) .or. bc(i)%f < 1 .or. bc(i)%f > 6) then
+        write(*,'(A,I0,A,I0,A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': block ', bc(i)%b, ', face ', bc(i)%f, &
+          ' (blocks 1..', size(n_bf,1), ', faces 1..6)'
+        error stop 1
+      endif
 
       ! n_bf update
       n_bf( bc(i) % b, bc(i) % f ) = n_bf( bc(i) % b, bc(i) % f ) + 1
@@ -194,6 +205,11 @@ contains
           if (level == 1) nconnect = nconnect + 1
           read( unitfile,*,iostat=ios ) &
           bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22
+          if (ios /= 0 .or. bc(i)%bs < 1 .or. bc(i)%bs > size(n_bf,1) .or. bc(i)%fs < 1 .or. bc(i)%fs > 6) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 101 line is "bs is js ks fs d11 d12 d21 d22"'// &
+              ' with a block and face of this mesh'
+            error stop 1
+          endif
 
         case(300)
           if (level == 1) nsym = nsym + 1
@@ -207,6 +223,7 @@ contains
           if (cios/=0) then
             call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
             has_tdep_bc = .true.
+            call Refuse_Steady_Time_File ( i, BCfile )
           endif
         
         case(302)
@@ -218,6 +235,7 @@ contains
           if (cios/=0) then
             call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
             has_tdep_bc = .true.
+            call Refuse_Steady_Time_File ( i, BCfile )
           endif
 
         case(303)
@@ -386,6 +404,21 @@ contains
     endif
 
   end subroutine Read_BCfile
+
+
+  !> A 301/302 time file is read at the run's time; a steady solve has none (its time
+  !> stays -1, before every file's first row). Refused unless FUSS or hydra advances
+  !> a clock.
+  subroutine Refuse_Steady_Time_File ( i, file )
+    use FUSS_Config_Types_m, only: obj_time_scheme, obj_sim_param
+    implicit none
+    integer, intent(in) :: i
+    character(len=*), intent(in) :: file
+    if ( obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate ) return
+    write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the time file "'//trim(file)//'" needs a time-accurate run'
+    write(*,'(A)')      '         (time-accurate = false: a steady solve has no time to read it at).'
+    error stop 1
+  end subroutine Refuse_Steady_Time_File
 
 
   subroutine Print_BC_Summary ()

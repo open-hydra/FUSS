@@ -189,13 +189,16 @@ contains
     integer              :: i
 
     associate( time_ => self%time , var_ => self%var)
+    varout = var_(size(var_))    ! a time no branch below takes (NaN): the last value
     t_ = time
     if (self%periodic) then
       period = time_(self%n) - time_(1)
       if (period > 0d0) t_ = time_(1) + modulo(t_ - time_(1), period)
     endif
 
-    if (t_ == time_(1)) then
+    ! At or before the first time: the first value (before it the result was
+    ! left undefined), as after the last time the last value.
+    if (t_ <= time_(1)) then
         varout = var_(1)
         return
     endif
