@@ -5,7 +5,11 @@ four material layers through x: coat 2.5 mm (k = 5), liner 7.5 mm (k = 300), jac
 (k = 15), shell 5 mm (k = 150) W/m/K. Hot side x = 0: convection 303, h = 2000, Tref falling
 3000 -> 1500 K along y; cold side x = 0.02: convection 303, h = 10000, Tref = 300 K; y ends
 adiabatic. The slab is split along y into two 64 x 64 blocks joined by a block connection (101),
-so on 2 ranks each owns a block and all material jumps lie inside the blocks.
+so on 2 ranks each owns a block and all material jumps lie inside the blocks. bc<m>.txt is written
+for m = 1..4 (LEVELS), the boundary conditions of each multigrid level sampled at its own face
+centres: the blocks coarsen to 8 x 8 and the layer boundaries (8, 32, 48 cells through x) stay on
+grid lines of every level. The shipped input.ini runs one level; the FAS figure campaign
+(convergence_figure/) runs the case on 4.
 
 The interior faces between two materials carry the series conductivity of their half cells and
 the time step takes the face conductivities: the run goes at vnn 1.0. Before October 2026 the face
@@ -15,7 +19,7 @@ Derived from the FAS stress-campaign liner (fuss-deps/vfy/liner_case.py), single
 """
 import os
 
-NX, NY, NB = 64, 128, 2
+NX, NY, NB, LEVELS = 64, 128, 2, 4
 NYB = NY // NB
 LX, LY, LZ = 0.02, 0.5, 0.01
 MATS = [  # name, x_end / LX, rho, cp, k
@@ -89,24 +93,26 @@ def main():
     open(os.path.join(here, 'MESH', 'mesh.tec'), 'w').write(''.join(mesh))
     open(os.path.join(here, 'INPUT', 'ic.tec'), 'w').write(''.join(ic))
 
-    lines = []
-    for b in range(1, NB + 1):
-        for j in range(1, NYB + 1):  # face 1: hot gas, Tref falls along y
-            yh = ((b - 1) * NYB + j - .5) / NY
-            lines += [iv(b, 1, j, 1, 1, 303), rv(H_HOT, 0.0, TREF_HOT0 + (TREF_HOT1 - TREF_HOT0) * yh)]
-        for j in range(1, NYB + 1):  # face 2: coolant
-            lines += [iv(b, NX, j, 1, 2, 303), rv(H_COLD, 0.0, TREF_COLD)]
-        for f, jj in ((3, 1), (4, NYB)):  # y ends adiabatic, the block interface a connection
-            for i in range(1, NX + 1):
-                if f == 4 and b < NB:
-                    lines += [iv(b, i, jj, 1, f, 101), iv(b + 1, i, 1, 1, 3, 1, 0, 0, 1)]
-                elif f == 3 and b > 1:
-                    lines += [iv(b, i, jj, 1, f, 101), iv(b - 1, i, NYB, 1, 4, 1, 0, 0, 1)]
-                else:
-                    lines += [iv(b, i, jj, 1, f, 0)]
-        for f in (5, 6):
-            lines += [iv(b, i, j, 1, f, 0) for j in range(1, NYB + 1) for i in range(1, NX + 1)]
-    open(os.path.join(here, 'INPUT', 'bc.txt'), 'w').write('\n'.join(lines) + '\n')
+    for m in range(1, LEVELS + 1):  # bc<m>.txt: level m, its own cell counts and face centres
+        nx, nyb, ny = NX >> (m - 1), NYB >> (m - 1), NY >> (m - 1)
+        lines = []
+        for b in range(1, NB + 1):
+            for j in range(1, nyb + 1):  # face 1: hot gas, Tref falls along y
+                yh = ((b - 1) * nyb + j - .5) / ny
+                lines += [iv(b, 1, j, 1, 1, 303), rv(H_HOT, 0.0, TREF_HOT0 + (TREF_HOT1 - TREF_HOT0) * yh)]
+            for j in range(1, nyb + 1):  # face 2: coolant
+                lines += [iv(b, nx, j, 1, 2, 303), rv(H_COLD, 0.0, TREF_COLD)]
+            for f, jj in ((3, 1), (4, nyb)):  # y ends adiabatic, the block interface a connection
+                for i in range(1, nx + 1):
+                    if f == 4 and b < NB:
+                        lines += [iv(b, i, jj, 1, f, 101), iv(b + 1, i, 1, 1, 3, 1, 0, 0, 1)]
+                    elif f == 3 and b > 1:
+                        lines += [iv(b, i, jj, 1, f, 101), iv(b - 1, i, nyb, 1, 4, 1, 0, 0, 1)]
+                    else:
+                        lines += [iv(b, i, jj, 1, f, 0)]
+            for f in (5, 6):
+                lines += [iv(b, i, j, 1, f, 0) for j in range(1, nyb + 1) for i in range(1, nx + 1)]
+        open(os.path.join(here, 'INPUT', 'bc.txt' if m == 1 else f'bc{m}.txt'), 'w').write('\n'.join(lines) + '\n')
 
     open(os.path.join(here, 'INPUT', 'phase.txt'), 'w').write(
         'solid-bulk\n' + ''.join(f'{n} 1\n' for n, *_ in MATS))
