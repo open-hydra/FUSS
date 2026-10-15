@@ -61,6 +61,17 @@ module FUSS_Mod_Darcy
   integer,  save :: nsweep = 0
   logical,  save :: done = .false., diag_started = .false.
 
+  ! Correction groups (plan 10 D22): line-implicit blocks joined through 101
+  ! faces and laid out along one line coordinate, whose line-uniform correction
+  ! is solved together. grp(b): the block's group (0: the block's own
+  ! correction); its cells at line position s sit at the group position
+  ! goff(b) + s (gsgn = +1) or goff(b) + n_b - s + 1 (gsgn = -1); gnpos(g):
+  ! positions of group g. ccon(ii): the conductance of 101 entry ii's
+  ! connection row (Assemble).
+  integer,  allocatable, save :: grp(:), goff(:), gsgn(:), gnpos(:)
+  integer,  save :: ngrp = 0
+  real(R8), allocatable, save :: ccon(:)
+
 contains
 
   ! ---------------------------------------------------------------------------
@@ -131,8 +142,9 @@ contains
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
-    integer :: b, i, d, nd, ni, nj, nk
-    logical :: hasdir(3)
+    integer :: b, i, d, nd, ni, nj, nk, it, bs
+    logical :: hasdir(3), changed
+    integer, allocatable :: nopen(:)
 
     if ( allocated(obj_darcy%blk_dir) ) deallocate( obj_darcy%blk_dir )
     allocate( obj_darcy%blk_dir( domain%nb ) )
@@ -142,6 +154,7 @@ contains
     allocate( wk( domain%nb ), resb( domain%nb ) )
     resb = 0.0d0
 
+    allocate( nopen(domain%nb) )
     do b = 1, domain%nb
       hasdir = .false.
       do i = 1, domain%nbound
@@ -149,11 +162,39 @@ contains
         if ( Darcy_Is_Open( domain%bc(i)%type ) ) hasdir( ( domain%bc(i)%f + 1 ) / 2 ) = .true.
       enddo
       nd = count( hasdir )
+      nopen(b) = nd
       if ( trim(obj_darcy%solver) == 'tridiag' .and. nd == 1 ) then
         do d = 1, 3
           if ( hasdir(d) ) obj_darcy%blk_dir(b) = d
         enddo
       endif
+    enddo
+
+    ! A block with no open face whose 101 face ends the lines of a line-implicit
+    ! block continues them: its lines start at the connection. Until 2026-10-15
+    ! it fell to the damped Jacobi sweep, and R5's type-2 variant (two blocks in
+    ! a row, the second sealed) took 12k-28k sweeps a step (plan 10 D22).
+    if ( trim(obj_darcy%solver) == 'tridiag' ) then
+      do it = 1, domain%nb
+        changed = .false.
+        do i = 1, domain%nbound
+          if ( domain%bc(i)%type /= 101 ) cycle
+          b = domain%bc(i)%b ; bs = domain%bc(i)%bs
+          if ( obj_darcy%blk_dir(b) /= 0 .or. nopen(b) /= 0 .or. obj_darcy%blk_dir(bs) == 0 ) cycle
+          if ( ( domain%bc(i)%fs + 1 ) / 2 /= obj_darcy%blk_dir(bs) ) cycle
+          obj_darcy%blk_dir(b) = ( domain%bc(i)%f + 1 ) / 2
+          changed = .true.
+        enddo
+        if ( .not. changed ) exit
+      enddo
+    endif
+
+    call Setup_Groups ( domain )
+    if ( allocated(ccon) ) deallocate( ccon )
+    allocate( ccon( max(domain%nbound, 1) ) )
+    ccon = 0.0d0
+
+    do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
       ni = domain%blk(b)%dim(1) ; nj = domain%blk(b)%dim(2) ; nk = domain%blk(b)%dim(3)
       allocate( wk(b)%res(ni,nj,nk), wk(b)%dgl(ni,nj,nk), wk(b)%dga(ni,nj,nk), wk(b)%rhs(ni,nj,nk), &
@@ -785,6 +826,7 @@ contains
             call Connection_Terms( domain%blk(b), domain%bc(ii), domain%blk(b)%gam_pg(:,Im,Jm,Km), &
                                    domain%blk(domain%bc(ii)%bs)%gam_pg(:,domain%bc(ii)%is,domain%bc(ii)%js, &
                                    domain%bc(ii)%ks), Cw, Ew, A )
+            ccon(ii) = Cw
           else
             cycle
           endif
@@ -870,7 +912,7 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer  :: b, i, j, k, ni, nj, nk, bd
+    integer  :: b, i, j, k, ni, nj, nk, bd, g
     real(R8) :: om
 
     om = obj_darcy%pseudo_vnn
@@ -885,27 +927,33 @@ contains
             call Thomas_Line( domain%blk(b), wk(b), 1, j, k )
           enddo ; enddo
           !$omp end do
-          !$omp single
-          call Line_Uniform_Correction( domain%blk(b), wk(b), 1 )
-          !$omp end single
+          if ( grp(b) == 0 ) then
+            !$omp single
+            call Line_Uniform_Correction( domain%blk(b), wk(b), 1 )
+            !$omp end single
+          endif
         case (2)
           !$omp do collapse(2) schedule(static) private(i,k)
           do k = 1, nk ; do i = 1, ni
             call Thomas_Line( domain%blk(b), wk(b), 2, i, k )
           enddo ; enddo
           !$omp end do
-          !$omp single
-          call Line_Uniform_Correction( domain%blk(b), wk(b), 2 )
-          !$omp end single
+          if ( grp(b) == 0 ) then
+            !$omp single
+            call Line_Uniform_Correction( domain%blk(b), wk(b), 2 )
+            !$omp end single
+          endif
         case (3)
           !$omp do collapse(2) schedule(static) private(i,j)
           do j = 1, nj ; do i = 1, ni
             call Thomas_Line( domain%blk(b), wk(b), 3, i, j )
           enddo ; enddo
           !$omp end do
-          !$omp single
-          call Line_Uniform_Correction( domain%blk(b), wk(b), 3 )
-          !$omp end single
+          if ( grp(b) == 0 ) then
+            !$omp single
+            call Line_Uniform_Correction( domain%blk(b), wk(b), 3 )
+            !$omp end single
+          endif
         case default
           !$omp do collapse(3) schedule(static) private(i,j,k)
           do k = 1, nk ; do j = 1, nj ; do i = 1, ni
@@ -917,6 +965,21 @@ contains
           enddo ; enddo ; enddo
           !$omp end do
       end select
+    enddo
+
+    ! the correction of every group, once all its blocks are solved (the
+    ! copy below comes after it: the group's residual reads p_pg)
+    if ( ngrp > 0 ) then
+      !$omp single
+      do g = 1, ngrp
+        call Group_Uniform_Correction( domain, g )
+      enddo
+      !$omp end single
+    endif
+
+    do b = 1, domain%nb
+      if ( .not. is_local_block(b) ) cycle
+      ni = domain%blk(b)%dim(1) ; nj = domain%blk(b)%dim(2) ; nk = domain%blk(b)%dim(3)
       !$omp do collapse(3) schedule(static) private(i,j,k) reduction(max: dp_max)
       do k = 1, nk ; do j = 1, nj ; do i = 1, ni
         dp_max = max( dp_max, abs( domain%blk(b)%p_new(i,j,k) - domain%blk(b)%p_pg(i,j,k) ) / obj_darcy%p_ref )
@@ -1048,6 +1111,245 @@ contains
     enddo
 
   end subroutine Line_Uniform_Correction
+
+
+  !> The correction groups (plan 10 D22). Line-implicit blocks joined through 101
+  !> faces share one line-uniform correction when every such face either ends both
+  !> blocks' lines (the lines continue: positions follow on) or runs along both
+  !> (the blocks lie side by side: the same positions), consistently over all its
+  !> entries. A group's correction solves the summed system over all its blocks:
+  !> a connection along the lines couples consecutive positions with its summed
+  !> conductance, one across them drops out of the summed diagonal as an interior
+  !> cross face does, and the change of the neighbour's pressure enters the
+  !> residual through both. A lone block keeps Line_Uniform_Correction, so a
+  !> single-block run is unchanged. Before, every block corrected alone and blocks
+  !> coupled by block Jacobi through the ghost layer: a domain cut into blocks
+  !> converged to the tolerance, not to round-off, and slowly. One rank only (the
+  !> groups are not built under MPI).
+  subroutine Setup_Groups ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_darcy
+    use FUSS_Mod_MPI,        only: mpi_size_
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: nb, b, a, bb, ii, head, tail, g, da, db, sa, sb, pa, pb, dirA, sg, off, lo, nmem
+    integer :: queue(domain%nb)
+    logical :: ok
+
+    nb = domain%nb
+    if ( allocated(grp) ) deallocate( grp, goff, gsgn, gnpos )
+    allocate( grp(nb), goff(nb), gsgn(nb), gnpos(nb) )
+    grp = 0 ; goff = 0 ; gsgn = 1 ; gnpos = 0 ; ngrp = 0
+    if ( mpi_size_ > 1 ) return
+
+    do b = 1, nb
+      if ( obj_darcy%blk_dir(b) == 0 .or. grp(b) /= 0 ) cycle
+      g = ngrp + 1
+      grp(b) = g ; goff(b) = 0 ; gsgn(b) = 1
+      queue(1) = b ; head = 1 ; tail = 1 ; ok = .true.
+      do while ( head <= tail )
+        a  = queue(head) ; head = head + 1
+        da = obj_darcy%blk_dir(a)
+        do ii = 1, domain%nbound
+          if ( domain%bc(ii)%type /= 101 .or. domain%bc(ii)%b /= a ) cycle
+          bb = domain%bc(ii)%bs
+          db = obj_darcy%blk_dir(bb)
+          if ( db == 0 ) cycle
+          sa = Cell_S( domain%bc(ii)%i, domain%bc(ii)%j, domain%bc(ii)%k, da )
+          sb = Cell_S( domain%bc(ii)%is, domain%bc(ii)%js, domain%bc(ii)%ks, db )
+          pa = Group_Pos( domain, a, sa )
+          if ( ( domain%bc(ii)%f + 1 ) / 2 == da .and. ( domain%bc(ii)%fs + 1 ) / 2 == db ) then
+            ! the lines continue across the face: the partner is the next position
+            dirA = merge( 1, -1, mod(domain%bc(ii)%f, 2) == 0 ) * gsgn(a)
+            pb = pa + dirA
+            sg = merge( dirA, -dirA, mod(domain%bc(ii)%fs, 2) == 1 )
+          elseif ( ( domain%bc(ii)%f + 1 ) / 2 /= da .and. ( domain%bc(ii)%fs + 1 ) / 2 /= db ) then
+            ! side by side: the same position
+            pb = pa
+            sg = Side_Orientation( domain, ii, da, db ) * gsgn(a)
+          else
+            ok = .false.                          ! ends one block's lines, runs along the other's
+            cycle
+          endif
+          off = pb - merge( sb, domain%blk(bb)%dim(db) - sb + 1, sg > 0 )
+          if ( grp(bb) == 0 ) then
+            grp(bb) = g ; goff(bb) = off ; gsgn(bb) = sg
+            tail = tail + 1 ; queue(tail) = bb
+          elseif ( grp(bb) /= g .or. goff(bb) /= off .or. gsgn(bb) /= sg ) then
+            ok = .false.
+          endif
+        enddo
+      enddo
+      nmem = count( grp == g )
+      if ( .not. ok .or. nmem < 2 ) then
+        where ( grp == g ) grp = 0                ! each keeps its own correction
+        cycle
+      endif
+      lo = huge(1)
+      do a = 1, nb
+        if ( grp(a) == g ) lo = min( lo, goff(a) )
+      enddo
+      do a = 1, nb
+        if ( grp(a) /= g ) cycle
+        goff(a) = goff(a) - lo
+        gnpos(g) = max( gnpos(g), goff(a) + domain%blk(a)%dim( obj_darcy%blk_dir(a) ) )
+      enddo
+      ngrp = g
+    enddo
+
+  end subroutine Setup_Groups
+
+
+  !> +1 when the partner's line position grows with this block's along a side-by-
+  !> side 101 face (from two of its entries), -1 when it falls; +1 for one entry.
+  integer function Side_Orientation ( domain, ii, da, db ) result ( o )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer, intent(in) :: ii, da, db
+    ! Local
+    integer :: jj, sa0, sb0, sa, sb
+
+    o = 1
+    sa0 = Cell_S( domain%bc(ii)%i, domain%bc(ii)%j, domain%bc(ii)%k, da )
+    sb0 = Cell_S( domain%bc(ii)%is, domain%bc(ii)%js, domain%bc(ii)%ks, db )
+    do jj = 1, domain%nbound
+      if ( domain%bc(jj)%type /= 101 .or. domain%bc(jj)%b /= domain%bc(ii)%b .or. domain%bc(jj)%f /= domain%bc(ii)%f &
+           .or. domain%bc(jj)%bs /= domain%bc(ii)%bs ) cycle
+      sa = Cell_S( domain%bc(jj)%i, domain%bc(jj)%j, domain%bc(jj)%k, da )
+      if ( sa == sa0 ) cycle
+      sb = Cell_S( domain%bc(jj)%is, domain%bc(jj)%js, domain%bc(jj)%ks, db )
+      o = merge( 1, -1, ( sb - sb0 ) * ( sa - sa0 ) > 0 )
+      return
+    enddo
+
+  end function Side_Orientation
+
+
+  !> The group position of line position s of block b.
+  integer function Group_Pos ( domain, b, s ) result ( pos )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_darcy
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer, intent(in) :: b, s
+    if ( gsgn(b) > 0 ) then
+      pos = goff(b) + s
+    else
+      pos = goff(b) + domain%blk(b)%dim( obj_darcy%blk_dir(b) ) - s + 1
+    endif
+  end function Group_Pos
+
+
+  !> Index of cell (i, j, k) along direction d.
+  pure integer function Cell_S ( i, j, k, d ) result ( s )
+    implicit none
+    integer, intent(in) :: i, j, k, d
+    select case ( d )
+      case (1) ; s = i
+      case (2) ; s = j
+      case default ; s = k
+    end select
+  end function Cell_S
+
+
+  !> Line_Uniform_Correction over the blocks of group g (Setup_Groups). Serial
+  !> (inside an omp single), after every block's line solves, before the copy.
+  subroutine Group_Uniform_Correction ( domain, g )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_darcy
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: g
+    ! Local
+    integer  :: b, bb, d, n, s, t1, t2, n1, n2, c1, c2, q, ic(3), jc(3), ip, ipb, ii, np
+    real(R8) :: r, den, dl, dp
+    real(R8), allocatable :: sL(:), sD(:), sH(:), sR(:), cp(:), rp(:)
+
+    np = gnpos(g)
+    allocate( sL(np), sD(np), sH(np), sR(np), cp(np), rp(np) )
+    sL = 0.0d0 ; sD = 0.0d0 ; sH = 0.0d0 ; sR = 0.0d0
+    do b = 1, domain%nb
+      if ( grp(b) /= g ) cycle
+      d  = obj_darcy%blk_dir(b)
+      n  = domain%blk(b)%dim(d)
+      c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
+      n1 = domain%blk(b)%dim(c1) ; n2 = domain%blk(b)%dim(c2)
+      do s = 1, n
+        ip = Group_Pos( domain, b, s )
+        do t2 = 1, n2 ; do t1 = 1, n1
+          call Line_Index( d, s, t1, t2, ic )
+          r = 0.0d0
+          do q = 1, 4
+            if ( wk(b)%cx(q,ic(1),ic(2),ic(3)) == 0.0d0 ) cycle
+            jc = ic
+            select case ( q )
+              case (1) ; jc(c1) = ic(c1) - 1
+              case (2) ; jc(c1) = ic(c1) + 1
+              case (3) ; jc(c2) = ic(c2) - 1
+              case (4) ; jc(c2) = ic(c2) + 1
+            end select
+            r = r + wk(b)%cx(q,ic(1),ic(2),ic(3)) &
+                  * ( domain%blk(b)%p_new(jc(1),jc(2),jc(3)) - domain%blk(b)%p_pg(jc(1),jc(2),jc(3)) )
+          enddo
+          sR(ip) = sR(ip) + r
+          sD(ip) = sD(ip) + ( wk(b)%dgl(ic(1),ic(2),ic(3)) - wk(b)%dgx(ic(1),ic(2),ic(3)) )
+          if ( gsgn(b) > 0 ) then
+            sL(ip) = sL(ip) + wk(b)%lo(ic(1),ic(2),ic(3)) ; sH(ip) = sH(ip) + wk(b)%hi(ic(1),ic(2),ic(3))
+          else
+            sL(ip) = sL(ip) + wk(b)%hi(ic(1),ic(2),ic(3)) ; sH(ip) = sH(ip) + wk(b)%lo(ic(1),ic(2),ic(3))
+          endif
+        enddo ; enddo
+      enddo
+    enddo
+    ! the group's own connections
+    do ii = 1, domain%nbound
+      if ( domain%bc(ii)%type /= 101 ) cycle
+      b = domain%bc(ii)%b ; bb = domain%bc(ii)%bs
+      if ( grp(b) /= g .or. grp(bb) /= g ) cycle
+      ip  = Group_Pos( domain, b,  Cell_S( domain%bc(ii)%i,  domain%bc(ii)%j,  domain%bc(ii)%k,  obj_darcy%blk_dir(b) ) )
+      ipb = Group_Pos( domain, bb, Cell_S( domain%bc(ii)%is, domain%bc(ii)%js, domain%bc(ii)%ks, obj_darcy%blk_dir(bb) ) )
+      dp = domain%blk(bb)%p_new(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks) &
+         - domain%blk(bb)%p_pg(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks)
+      sR(ip) = sR(ip) + ccon(ii) * dp
+      if ( ipb == ip ) then
+        sD(ip) = sD(ip) - ccon(ii)
+      elseif ( ipb == ip + 1 ) then
+        sH(ip) = sH(ip) - ccon(ii)
+      elseif ( ipb == ip - 1 ) then
+        sL(ip) = sL(ip) - ccon(ii)
+      endif
+    enddo
+    ! Thomas on the group's summed line; a singular system skips the correction
+    if ( sD(1) == 0.0d0 ) return
+    cp(1) = sH(1) / sD(1) ; rp(1) = sR(1) / sD(1)
+    do ip = 2, np
+      den = sD(ip) - sL(ip) * cp(ip-1)
+      if ( den == 0.0d0 ) return
+      cp(ip) = sH(ip) / den
+      rp(ip) = ( sR(ip) - sL(ip) * rp(ip-1) ) / den
+    enddo
+    do ip = np - 1, 1, -1
+      rp(ip) = rp(ip) - cp(ip) * rp(ip+1)
+    enddo
+    do b = 1, domain%nb
+      if ( grp(b) /= g ) cycle
+      d  = obj_darcy%blk_dir(b)
+      n  = domain%blk(b)%dim(d)
+      c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
+      n1 = domain%blk(b)%dim(c1) ; n2 = domain%blk(b)%dim(c2)
+      do s = 1, n
+        dl = rp( Group_Pos( domain, b, s ) )
+        if ( dl == 0.0d0 ) cycle
+        do t2 = 1, n2 ; do t1 = 1, n1
+          call Line_Index( d, s, t1, t2, ic )
+          domain%blk(b)%p_new(ic(1),ic(2),ic(3)) = domain%blk(b)%p_new(ic(1),ic(2),ic(3)) + dl
+        enddo ; enddo
+      enddo
+    enddo
+
+  end subroutine Group_Uniform_Correction
 
 
   !> Cell (i,j,k) of position s along direction d at transverse (t1, t2):
