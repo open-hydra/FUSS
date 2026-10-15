@@ -20,6 +20,7 @@ fuss_add_test(TemperaturePlate   steady-state/temperature_Plate   300 "fast;vali
 fuss_add_test(RadiativeRod       steady-state/radiative_Rod       300 "fast;validation" --verify)
 fuss_add_test(ConvectiveQradRod  steady-state/convective_qrad_Rod 300 "fast;validation" --verify)
 fuss_add_test(SkewedPlate        steady-state/skewed_Plate        300 "fast;validation" --verify)
+fuss_add_test(MultilayerSlab     steady-state/multilayer_Slab     300 "fast;validation" --verify)
 fuss_add_test(MultimatPlate      transient/multimat_Plate         300 "fast;validation" --verify)
 fuss_add_test(VariableCpPlate    transient/variable_cp_Plate      300 "fast;validation" --verify)
 fuss_add_test(OscillatingRod     transient/oscillating_Rod        300 "fast;validation" --verify)

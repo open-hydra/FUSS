@@ -3,24 +3,21 @@ module FUSS_Lib_Diffusive
 
   implicit none
   private
-  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3
+  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa
 
 contains
 
-  subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc, &
-                              cell_mean_k, kappa_face )
+  subroutine Diffusive_Flux ( matID1, matID2, normal, area, T1, T2, T3, T4, T5, T6, T7, &
+                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
-    real(R8), intent(in) :: matID
+    real(R8), intent(in) :: matID1, matID2          ! materials of the two cells
     integer, intent(in) :: aa, bb, cc
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
     real(R8), intent(in), dimension(3,3) :: M1, M2   ! inverse metrics of the two cells (blk%Minv)
-    logical, intent(in) :: cell_mean_k              ! face-k = cell-mean: kappa_face is the mean of the two cells' cached k
-    real(R8), intent(in) :: kappa_face
     real(R8), intent(inout) :: Res1, Res2
     ! Local
     real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
@@ -42,13 +39,14 @@ contains
     M = Inverse3 ( 0.5d0 * ( M1 + M2 ) )
     Gradient = matmul ( Gradient, M )
 
-    ! Face conductivity: the mean of the two cells' own k (face-k = cell-mean), or the
-    ! lower cell's material interpolated at the mean face temperature (default)
-    if ( cell_mean_k ) then
-      kappa = kappa_face
-    else
+    ! Face conductivity. One material: k at the mean face temperature. A material jump
+    ! inside the block: the two half cells in series, as at a block connection
+    if ( matID1 == matID2 ) then
       T = 0.5d0 * ( T1 + T2 )
-      call co_Kappa( matID, T, kappa )
+      call co_Kappa( matID1, T, kappa )
+    else
+      kappa = Series_Kappa ( matID1, T1, dot_product ( M1(:,aa), normal ), &
+                             matID2, T2, dot_product ( M2(:,aa), normal ) )
     end if
 
     call Compute_Diffusive_Flux ( kappa, Gradient, area, normal, Flux )
@@ -57,6 +55,30 @@ contains
     Res2 = Res2 + Flux
 
   end subroutine Diffusive_Flux
+
+
+  !> Conductivity of a face between two materials: the two half cells in series, each with its
+  !> own material at its own temperature, k = (h1 + h2) / (h1/k1 + h2/k2), h the cell widths
+  !> normal to the face (column of the inverse metric dotted with the face normal). Over the
+  !> centre-to-centre distance (h1 + h2)/2 this is the 1-D flux of two layers in series, the
+  !> one BC_Connection balances at a block connection; for h1 = h2 the harmonic mean of k.
+  !> A non-conducting side (k = 0) gives 0.
+  function Series_Kappa ( matID1, T1, h1, matID2, T2, h2 ) result ( kappa )
+    use FUSS_Lib_Solid
+    implicit none
+    real(R8), intent(in) :: matID1, T1, h1, matID2, T2, h2
+    real(R8)             :: kappa
+    real(R8) :: k1, k2
+
+    call co_Kappa( matID1, T1, k1 )
+    call co_Kappa( matID2, T2, k2 )
+    if ( k1 <= 0d0 .or. k2 <= 0d0 ) then
+      kappa = 0d0
+    else
+      kappa = ( h1 + h2 ) * k1 * k2 / ( h1 * k2 + h2 * k1 )
+    end if
+
+  end function Series_Kappa
 
 
   !> Inverse of a 3x3 matrix by its adjugate (transposed cofactors). Works for M

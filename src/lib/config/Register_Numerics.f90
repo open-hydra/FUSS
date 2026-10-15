@@ -34,7 +34,7 @@ contains
     call reg%add( trim(section), 'vnn-rise-threshold', obj_time_scheme%rampa_vnn_iter, '0', 'VNN rise threshold', '>= 0', .false. )
     call reg%add( trim(section), 'dt-face-k', obj_time_scheme%dt_face_k, '.false.', &
                   'Cell time step from the larger face conductivity of each direction, evaluated as the fluxes '// &
-                  'evaluate it (face-k), instead of the cell k: needed where a block holds a material jump, at which '// &
+                  'evaluate it, instead of the cell k: needed where a block holds a material jump, at which '// &
                   'the first cells of the less conductive material exchange heat through up to their neighbour''s k. '// &
                   'Changes no step on one material at constant k; a second pass over the cells with up to 9 property '// &
                   'lookups each (re-read at runtime)', 'logical', .false. )
@@ -56,18 +56,6 @@ contains
     !! ------------------------------------------------------
     !! ------------------------------------------------------
 
-
-    !! ------------------------------------------------------
-    !! Space Scheme ------------------------------------------
-    !! ------------------------------------------------------
-
-    ! Conductivity of the interior diffusive faces ------------------
-    call reg%add( trim(section), 'face-k', obj_space_scheme%face_k, 'mean-T', &
-                  'Conductivity of the interior diffusive faces: mean-T interpolates the lower cell''s material '// &
-                  'at the mean face temperature, once per face; cell-mean interpolates each cell once, at its own '// &
-                  'temperature and material, and averages the two cells at the face (symmetric at material '// &
-                  'interfaces, fewer lookups). Connection and chimera faces always use the two-sided interface '// &
-                  'balance; walls always use the inner cell', 'mean-T, cell-mean', .false. )
 
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)

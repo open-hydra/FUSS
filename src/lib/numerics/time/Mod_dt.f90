@@ -100,12 +100,11 @@ contains
   end subroutine Compute_dt
 
 
-  !> dt-face-k = true: second pass of Compute_dt. The interior fluxes take k at the face: with
-  !> face-k = mean-T the lower cell's material at the mean temperature, so at a material jump the
-  !> first cells above it exchange heat through their neighbour's k, which the cell k of Compute_dt
-  !> does not see (k 20 times the cell's makes the explicit update diverge); with cell-mean the mean
-  !> of the two cells' k, half the jump. Here direction d of the cell sum takes the larger
-  !> conductivity k_d of its two faces, each evaluated as its flux evaluates it:
+  !> dt-face-k = true: second pass of Compute_dt. The fluxes take k at the face: at a material
+  !> jump the face conductivity is the series value of the two half cells, up to twice the k of
+  !> the less conductive cell, which the cell k of Compute_dt does not see. Here direction d of
+  !> the cell sum takes the larger conductivity k_d of its two faces, each evaluated as its flux
+  !> evaluates it:
   !>   dt = vnn rho cp / (2 sum_d k_d |grad xi_d|^2)
   !> A cell whose k_d all equal its own k keeps the step of the cell loop untouched, so one material
   !> at constant k runs bit for bit as with the key off. dtglobal is recomputed over the final steps
@@ -156,16 +155,17 @@ contains
 
 
   !> Face-conductivity step of cell (i,j,k); face = .false. (dtmin not set) when every k_d equals
-  !> the cell k. Interior faces as Fluxes takes them, at the current T (cell-mean: the cell k the
-  !> first stage will cache). Block-boundary faces: a connection (101) or chimera (102) face takes
-  !> the k of BC_Connection's flux, the harmonic mean of the two sides' k, the neighbour's from the
-  !> first ghost (its T and matID, which BC_Connection reads as Tg(1) and matIDg); every other face
-  !> (walls, symmetry, coupling) the cell k, as the wall fluxes do.
+  !> the cell k. Interior faces as Diffusive_Flux takes them, at the current T (one material: k at
+  !> the mean temperature; two: Series_Kappa). Block-boundary faces: a connection (101) or chimera
+  !> (102) face takes the k of BC_Connection's flux for equal half cells, the harmonic mean of the
+  !> two sides' k, the neighbour's from the first ghost (its T and matID, which BC_Connection reads
+  !> as Tg(1) and matIDg); every other face (walls, symmetry, coupling) the cell k, as the wall
+  !> fluxes do.
   subroutine Face_k_Cell_dt ( blk, cf, i, j, k, vnn, dtmin, face )
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
-    use FUSS_Config_Types_m, only: obj_space_scheme
     use FUSS_Lib_Solid
+    use FUSS_Lib_Diffusive, only: Series_Kappa
     implicit none
     type(FUSS_block_type), intent(in) :: blk
     integer(I1), intent(in) :: cf               ! connection faces of the cell (Connection_Faces)
@@ -175,31 +175,25 @@ contains
     logical, intent(out)    :: face
     ! Local
     integer  :: d, c(3), n(3)
-    real(R8) :: kappa, rho, cp, Gk, dt, kd(3), klo, kup, kn
+    real(R8) :: kappa, rho, cp, Gk, dt, kd(3), klo, kup
 
     call co_Kappa( blk%matID(i,j,k), blk%T(i,j,k), kappa )
 
     c = [i, j, k]
     do d = 1, ndir
-      ! Lower face (2d-1). mean-T: the lower cell's material at the mean temperature
+      ! Lower face (2d-1), between n and the cell
       n = c; n(d) = c(d) - 1
       if ( n(d) < 1 ) then
         klo = boundary_k ( 2*d-1 )
-      elseif ( obj_space_scheme%cell_mean_k ) then
-        call co_Kappa( blk%matID(n(1),n(2),n(3)), blk%T(n(1),n(2),n(3)), kn )
-        klo = 0.5d0 * ( kn + kappa )
       else
-        call co_Kappa( blk%matID(n(1),n(2),n(3)), 0.5d0*( blk%T(n(1),n(2),n(3)) + blk%T(i,j,k) ), klo )
+        klo = interior_k ( n, c )
       endif
-      ! Upper face (2d). mean-T: the cell's own material at the mean temperature
+      ! Upper face (2d), between the cell and n
       n = c; n(d) = c(d) + 1
       if ( n(d) > blk%dim(d) ) then
         kup = boundary_k ( 2*d )
-      elseif ( obj_space_scheme%cell_mean_k ) then
-        call co_Kappa( blk%matID(n(1),n(2),n(3)), blk%T(n(1),n(2),n(3)), kn )
-        kup = 0.5d0 * ( kappa + kn )
       else
-        call co_Kappa( blk%matID(i,j,k), 0.5d0*( blk%T(i,j,k) + blk%T(n(1),n(2),n(3)) ), kup )
+        kup = interior_k ( c, n )
       endif
       kd(d) = max ( klo, kup )
     enddo
@@ -219,6 +213,24 @@ contains
     dtmin = min ( dt, dtmin )
 
   contains
+
+    ! k of the interior face in direction d between cells lo and up = lo + e_d, as Diffusive_Flux
+    ! evaluates it (lower cell first)
+    real(R8) function interior_k ( lo, up )
+      integer, intent(in) :: lo(3), up(3)
+
+      if ( blk%matID(lo(1),lo(2),lo(3)) == blk%matID(up(1),up(2),up(3)) ) then
+        call co_Kappa( blk%matID(lo(1),lo(2),lo(3)), &
+                       0.5d0*( blk%T(lo(1),lo(2),lo(3)) + blk%T(up(1),up(2),up(3)) ), interior_k )
+      else
+        interior_k = Series_Kappa ( &
+          blk%matID(lo(1),lo(2),lo(3)), blk%T(lo(1),lo(2),lo(3)), &
+          dot_product ( blk%Minv(lo(1),lo(2),lo(3))%c(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ), &
+          blk%matID(up(1),up(2),up(3)), blk%T(up(1),up(2),up(3)), &
+          dot_product ( blk%Minv(up(1),up(2),up(3))%c(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ) )
+      endif
+
+    end function interior_k
 
     ! k of block-boundary face f, whose first ghost is n
     real(R8) function boundary_k ( f )

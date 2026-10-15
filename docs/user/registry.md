@@ -47,12 +47,11 @@
 | time-scheme | euler | euler, RK2, RK3 |  no | Time integration solver |
 | vnn | 0.3 | > 0 |  no | VNN parameter |
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
-| dt-face-k | .false. | logical |  no | Cell time step from the larger face conductivity of each direction, evaluated as the fluxes evaluate it (face-k), instead of the cell k: needed where a block holds a material jump, at which the first cells of the less conductive material exchange heat through up to their neighbour's k. Changes no step on one material at constant k; a second pass over the cells with up to 9 property lookups each (re-read at runtime) |
+| dt-face-k | .false. | logical |  no | Cell time step from the larger face conductivity of each direction, evaluated as the fluxes evaluate it, instead of the cell k: needed where a block holds a material jump, at which the first cells of the less conductive material exchange heat through up to their neighbour's k. Changes no step on one material at constant k; a second pass over the cells with up to 9 property lookups each (re-read at runtime) |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
 | irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |
 | irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
-| face-k | mean-T | mean-T, cell-mean |  no | Conductivity of the interior diffusive faces: mean-T interpolates the lower cell's material at the mean face temperature, once per face; cell-mean interpolates each cell once, at its own temperature and material, and averages the two cells at the face (symmetric at material interfaces, fewer lookups). Connection and chimera faces always use the two-sided interface balance; walls always use the inner cell |
 
 ## FUSS-Multigrid
 

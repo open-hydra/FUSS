@@ -60,20 +60,21 @@ $\hat{\mathbf n}_f$ points from $L$ to $R$: $Q_f A_f$ enters $L$ and leaves $R$.
 
 ### Inside a block
 
-How the conductivity of an interior face is evaluated is selected by `face-k` in `[FUSS-Numerics]`:
+Between two cells of the same material the conductivity is evaluated at the mean temperature of the two cells,
 
-| `face-k` | Face conductivity | |
-|---|---|---|
-| `mean-T` (default) | $k_f = k\bigl(\tfrac12(T_L + T_R)\bigr)$, with the material of the lower-index cell $L$ | one lookup per face, up to $2\,n_\text{dir}$ per cell and stage |
-| `cell-mean` | $k_f = \tfrac12\bigl(k_L(T_L) + k_R(T_R)\bigr)$, each cell with its own material | one lookup per cell and stage, cached |
+$$
+k_f = k\bigl(\tfrac12(T_L + T_R)\bigr).
+$$
 
-With `mean-T` the material of $R$ is not used: at a material change inside a block the face takes
-the lower cell's conductivity one-sided (the interface is properly represented only across a 101
-block connection, below). `cell-mean` sees both materials and is symmetric at the interface, with
-fewer table lookups; it is a different discretisation — the mean of $k$ instead of $k$ at the mean
-temperature — so results differ from `mean-T` at the truncation level where $k$ depends on $T$,
-and by the one-sided bias where materials change inside a block. Walls always use the inner cell's
-conductivity, and connection/chimera faces always use the two-sided balance below, in both modes.
+Between two materials (a material jump inside a block) the two half cells are in series, each with its own material at its own temperature:
+
+$$
+k_f = \frac{h_L + h_R}{\dfrac{h_L}{k_L(T_L)} + \dfrac{h_R}{k_R(T_R)}},
+$$
+
+where $h_L$, $h_R$ are the widths of the two cells normal to the face (the edge vector of each cell across the face, i.e. the corresponding column of its inverse metric, projected on $\hat{\mathbf n}_f$). Since the face gradient divides $T_R - T_L$ by the centre-to-centre distance $\tfrac12(h_L + h_R)$, the flux is the one of two layers in series, the same one a block connection balances (below): for equal cells $k_f$ is the harmonic mean $2k_Lk_R/(k_L + k_R)$. In one dimension, with $k$ constant within each material, a field that is linear in each layer is then reproduced exactly; a side with $k = 0$ makes the face adiabatic.
+
+Until October 2026 the face took the material of the lower-index cell only: at a jump from 300 to 15 W/(m K) that is 10.5 times the series value, and the steady temperatures near the interface depended on the index orientation of the block.
 
 ### Block connections (101) and chimera faces (102)
 

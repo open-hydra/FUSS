@@ -8,6 +8,7 @@ The test cases compare FUSS with analytical solutions and benchmark values, and 
 |---|---|---|---|---|---|
 | [Radiative Rod](1D-steady-state-radiative-rod.md) | 1D | Steady | Conduction + radiation (BC 304) | Free-end temperature, 927 K | NAFEMS T9 (iii) |
 | [Convective Rod with Imposed Flux](1D-steady-state-convective-qrad-rod.md) | 1D | Steady | Convection + prescribed flux (BC 303) | Closed-form linear solution | Internal |
+| [Multilayer Slab](1D-steady-state-multilayer-slab.md) | 1D | Steady | Three materials in series inside one block, unequal cells | Piecewise-linear exact solution, to round-off | Internal |
 | [Oscillating Rod](1D-transient-oscillating-rod.md) | 1D | Transient | Oscillating wall temperature | Peak temperature rise at x = 0.09 m, 94.69 K | NAFEMS T5 |
 | [Skewed Plate](2D-steady-state-skewed-plate.md) | 2D | Steady | Walls 301, 302, 303, 305 on a 45° sheared mesh | Linear patch test, exact to round-off | Internal |
 | [Temperature Plate](2D-steady-state-temperature-plate.md) | 2D | Steady | Prescribed temperatures | Temperature at one point, 260.5 °C | NAFEMS T9 (i) |
