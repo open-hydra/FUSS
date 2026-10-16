@@ -69,24 +69,6 @@ contains
       end select
     enddo
 
-    ! Compute Tg(3:6) for type-1 connections where source block is local.
-    ! This only reads local blk%T data, so it can run before the MPI exchange.
-    !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
-    do ii = 1, domain % n_local_bs
-      i  = domain % local_bs_idx(ii)
-      Bs = domain % bc(i) % bs
-      Is = domain % bc(i) % is 
-      Js = domain % bc(i) % js 
-      Ks = domain % bc(i) % ks 
-      Fs = domain % bc(i) % fs
-      d11s = domain % bc(i) % d11
-      d12s = domain % bc(i) % d12
-      d21s = domain % bc(i) % d21
-      d22s = domain % bc(i) % d22
-      call Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, &
-                                      domain % blk(Bs), domain % bc(i) % Tg )
-    enddo
-
     ! Compute Tg for chimera (666) connections where Bm is local.
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
     do ii = 1, domain % n_local_bc
@@ -124,6 +106,30 @@ contains
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
       call Ghost_Interrank(Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg)
+    enddo
+
+    ! Compute Tg(3:6) for type-1 connections where source block is local: the source
+    ! cell's tangential neighbours, which the connection flux reads for its cross-
+    ! diffusion term. Only AFTER the inter-rank ghost cells above have arrived: at a
+    ! block edge a tangential neighbour is the source block's ghost cell, and one that
+    ! faces a block of another rank is filled by the unpack. Computed before it (as it
+    ! was), such a value lagged by a stage; invisible on an orthogonal mesh, where the
+    ! cross term vanishes, it moved a deforming 2x2 split on 4 ranks by 1.5e-5 K
+    ! against 1 rank (found 2026-10-17, plan 11 stage 2).
+    !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
+    do ii = 1, domain % n_local_bs
+      i  = domain % local_bs_idx(ii)
+      Bs = domain % bc(i) % bs
+      Is = domain % bc(i) % is 
+      Js = domain % bc(i) % js 
+      Ks = domain % bc(i) % ks 
+      Fs = domain % bc(i) % fs
+      d11s = domain % bc(i) % d11
+      d12s = domain % bc(i) % d12
+      d21s = domain % bc(i) % d21
+      d22s = domain % bc(i) % d22
+      call Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, &
+                                      domain % blk(Bs), domain % bc(i) % Tg )
     enddo
 
     ! Wait for P sends to complete before reusing buffers
