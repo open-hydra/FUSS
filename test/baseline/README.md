@@ -177,3 +177,15 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     -k`). The first stage-1 build moved 512 rows of 12 type-2 cases by round-off: code generation changed through a new
     argument of `Check_And_Fix_State`. That change was dropped, which was bisected to that file alone
     (`plan-bucket/records/2026-10-16-plan11/stage1/bisect.md`).
+- **2026-10-17, plan 11 stage 2 (a moving mesh under MPI): 8 rows moved, each attributed to `dec4a44`; 9 added. 1788
+  rows.**
+  - **How measured:** `git archive 8afd640` plus the submodules, a fresh preset build and `run_regression.sh -B -p 1`
+    on sprop2 (gfortran 12.2.1). 1771 rows are byte-identical.
+  - **`dec4a44`, the wall output follows a moving mesh: 8 rows.** These are the wall*.tec of the 8 moving cases with a
+    wall output: moving-mesh/{conjugate_receding, conjugate_receding_t2, freestream, receding/N040, receding/N080}
+    and pyrolysis/ablation/{demo_base, demo_base_2blk, remap_uniform}. Their wall patches carried the setup surface.
+    conservation's moving faces are tapered to zero, so its row is unchanged.
+  - **Measured per tree, not by exclusion:** a fresh build at `2acdcda` (before `dec4a44`) reproduces all 261 rows of
+    these 8 cases and of 4 type-2 cases. So `114f520` (the Tg(3:6) ordering) and `2acdcda` (the MPI moving mesh) are
+    serially neutral, and `dec4a44` owns the 8 rows.
+  - **Added, 9 rows:** `moving-mesh/{freestream_4blk, conservation_4blk, receding_4blk}` (`8afd640`).
