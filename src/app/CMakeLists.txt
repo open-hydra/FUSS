@@ -24,5 +24,11 @@ endfunction()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
+# Every build tree writes into bin/: the suffix keeps two trees from overwriting one
+# executable (the mpi preset: bin/FUSS-mpi; the default tree keeps bin/FUSS).
+set(FUSS_EXE_SUFFIX "" CACHE STRING "Suffix of the executables built by this tree (mpi preset: -mpi)")
+
 add_fortran_executable(${solver} "main.f90")
 add_fortran_executable(DocGen "docgen.f90")
+set_target_properties(${solver} PROPERTIES OUTPUT_NAME ${solver}${FUSS_EXE_SUFFIX})
+set_target_properties(DocGen PROPERTIES OUTPUT_NAME DocGen${FUSS_EXE_SUFFIX})

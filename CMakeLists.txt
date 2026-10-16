@@ -85,7 +85,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   # ORION
   if (NOT TARGET ORION)
-    set ( orionD "${ORION_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/build/lib/ORION/")
+    # The binary dir of a subproject belongs to THIS build tree: a fixed path under
+    # the source tree made every second tree write its ORION and FiNeR objects into
+    # build/ (plan 10 D9).
+    set ( orionD "${ORION_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/lib/ORION")
     add_subdirectory(${orionD})
   endif()
 
@@ -96,7 +99,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         message(FATAL_ERROR "FiNeR dependency ${_dep} is missing under ${FINER_PATH}/src/third_party/: run ./install.sh update (or build), which clones the five dependencies at their pinned commits")
       endif()
     endforeach()
-    set ( finerD "${FINER_PATH}" "${CMAKE_CURRENT_SOURCE_DIR}/build/lib/third_party/FiNeR/")
+    set ( finerD "${FINER_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/lib/third_party/FiNeR")
     add_subdirectory(${finerD})
   endif()
 

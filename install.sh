@@ -59,9 +59,42 @@ task() {
 
 # Create default CMakePresets.json if it doesn't exist
 function write_presets() {
-  FC=$(grep '^CMAKE_Fortran_COMPILER:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
-  CC=$(grep '^CMAKE_C_COMPILER:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
-  CXX=$(grep '^CMAKE_CXX_COMPILER:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  FC=$(grep -E '^CMAKE_Fortran_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  CC=$(grep -E '^CMAKE_C_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  CXX=$(grep -E '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+
+  # The mpi preset (plan 11 section 2.1): a second tree, build-mpi/, with its own executable
+  # bin/FUSS-mpi. gfortran + Intel MPI with the compiler wrapper bypassed: Intel's mpif90
+  # maps gfortran 12 to no module directory and `use mpi` reads the ifx mpi.mod; the gfortran
+  # 11.1 modules load under gfortran 12 (measured 2026-10-06 and 2026-10-15 on sprop2; FUSS
+  # needs `use mpi` only: include/ itself holds the ifx modules, never on the path). Written
+  # only with gfortran and an Intel MPI ($I_MPI_ROOT) that ships them.
+  MPI_PRESET=""
+  if [[ -n "${I_MPI_ROOT:-}" && -d "$I_MPI_ROOT/include/gfortran/11.1.0" && "$FC" == *gfortran* ]]; then
+    MPI_PRESET=$(cat <<EOM
+,
+    {
+      "name": "mpi",
+      "description": "MPI preset: Intel MPI, wrapper bypassed (build-mpi/, bin/FUSS-mpi)",
+      "inherits": "default",
+      "binaryDir": "\${sourceDir}/build-mpi",
+      "cacheVariables": {
+        "USE_MPI": "true",
+        "FUSS_EXE_SUFFIX": "-mpi",
+        "MPI_SKIP_COMPILER_WRAPPER": "TRUE",
+        "MPI_Fortran_ADDITIONAL_INCLUDE_DIRS": "$I_MPI_ROOT/include/gfortran/11.1.0",
+        "MPI_Fortran_LIB_NAMES": "mpifort;mpi",
+        "MPI_mpifort_LIBRARY": "$I_MPI_ROOT/lib/libmpifort.so",
+        "MPI_mpi_LIBRARY": "$I_MPI_ROOT/lib/release/libmpi.so",
+        "MPIEXEC_EXECUTABLE": "$I_MPI_ROOT/bin/mpiexec",
+        "CMAKE_BUILD_RPATH": "$I_MPI_ROOT/lib/release;$I_MPI_ROOT/lib"
+      }
+    }
+EOM
+)
+  else
+    log "No mpi preset: it needs gfortran and an Intel MPI (I_MPI_ROOT) with include/gfortran/11.1.0"
+  fi
 
   cat <<EOF > CMakePresets.json
 {
@@ -86,7 +119,7 @@ function write_presets() {
         "USE_OPENMP": "${USE_OPENMP}",
         "USE_MPI": "${USE_MPI}"
       }
-    }
+    }${MPI_PRESET}
   ]
 }
 EOF
@@ -138,6 +171,7 @@ BUILD_TYPE="RELEASE"
 CMD=("build" "compile" "update")
 CMD_OPTIONS_build=("--compilers --include-orion --include-finer --use-openmp --use-mpi --use-tecio")
 CMD_OPTIONS_update=("--remote")
+CMD_OPTIONS_compile=("--preset=NAME")
 
 # Parse global options
 while getopts "hv-:" opt; do
@@ -205,6 +239,10 @@ while [[ $# -gt 0 ]]; do
             [[ "$COMMAND" == "update" ]] || { error " --remote is only valid for 'update' command"; exit 1; }
             REMOTE="true"
             ;;
+        --preset=*)
+            [[ "$COMMAND" == "compile" ]] || { error " --preset is only valid for 'compile' command"; exit 1; }
+            PRESET="${1#*=}"
+            ;;
         *)
             eval "opts=(\"\${CMD_OPTIONS_${COMMAND}[@]}\")"
             error "Unknown option '$1' for command '$COMMAND'. Valid options: ${opts[@]}"
@@ -258,9 +296,12 @@ case "$COMMAND" in
         log "[OK] CMakePresets.json created"
         ;;
     compile)
-        task "Compiling $project using CMakePresets"
-        cmake --preset default || exit 1
-        cmake --build $BUILD_DIR || exit 1
+        task "Compiling $project using CMakePresets (preset ${PRESET:-default})"
+        # each preset its own tree: default -> build/, mpi -> build-mpi/
+        PDIR=$BUILD_DIR
+        [[ "${PRESET:-default}" == "mpi" ]] && PDIR="$DIR/build-mpi"
+        cmake --preset ${PRESET:-default} || exit 1
+        cmake --build $PDIR || exit 1
         log "[OK] Compilation successful"
         ;;
     update)

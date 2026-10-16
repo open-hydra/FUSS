@@ -126,12 +126,18 @@ cd test/steady-state/temperature_Plate
 # Run with OpenMP (4 threads)
 ./FUSS.sh -p 4 solve
 
-# Run with MPI (2 ranks)
-./FUSS.sh -m 2 solve
+# Run with MPI (2 ranks): the mpi preset's executable through Intel MPI's own launcher
+FUSS_EXE=FUSS-mpi FUSS_MPIRUN=$I_MPI_ROOT/bin/mpirun ./FUSS.sh -m 2 solve
 
 # Compare results against reference
 python3 verify.py
 ```
+
+`FUSS_EXE` selects the executable a case copies from `bin/` (default `FUSS`; `FUSS-mpi` for the `mpi` preset, which
+`./FUSS.sh compile` then builds with `install.sh compile --preset=mpi`), `FUSS_MPIRUN` the launcher (default the first
+`mpirun` on `PATH`). The regression runner does both itself: `test/run_regression.sh -m N` runs every case with
+`bin/FUSS-mpi` on N ranks (N = 1: one process, no launcher; N > 1 under `timeout 900`) and writes its manifest to
+`test/.regression/omp<threads>-mpi<N>/`.
 
 ### Numerics-features cases
 

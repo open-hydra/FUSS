@@ -121,6 +121,25 @@ cmake --build build
 
 or using the `compile` command of the install script as described above.
 
+### The `mpi` preset: a second build tree
+
+With gfortran and an Intel MPI in the environment (`I_MPI_ROOT` set, the gfortran modules in
+`$I_MPI_ROOT/include/gfortran/11.1.0`), `install.sh build` writes a second preset, `mpi`. It inherits `default`,
+configures its own tree, `build-mpi/`, and builds executables of its own, `bin/FUSS-mpi` and `bin/DocGen-mpi`
+(cache variable `FUSS_EXE_SUFFIX`), so the serial `bin/FUSS` and the MPI binary coexist:
+
+```bash
+./install.sh compile --preset=mpi     # or: cmake --preset mpi && cmake --build build-mpi
+```
+
+- The preset bypasses Intel's `mpif90` wrapper, which gives gfortran 12 no module directory, and links Intel MPI's
+  Fortran library directly. `CMAKE_BUILD_RPATH` lets `bin/FUSS-mpi` find it without `LD_LIBRARY_PATH`.
+- With MPI the Fortran sources are compiled without `-fno-underscoring` (the MPI library exports the underscored
+  names) and with `-fallow-argument-mismatch` (gfortran 10 and later reject one MPI routine called with a scalar and
+  with an array).
+- `test/check_build_config.sh --preset mpi` checks `build-mpi/` against the preset; without `--preset` it checks
+  `build/` against `default`.
+
 ## Optional components
 
 ### TecIO

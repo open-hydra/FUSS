@@ -1,9 +1,11 @@
 build
+build-mpi
 bin
 CMakePresets.json
 site
 
 OUTPUT
+test/.regression
 __pycache__
 .claude-context
 
