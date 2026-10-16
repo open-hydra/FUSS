@@ -167,3 +167,13 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     attribution: `pyrolysis/ATC1/expected.json` (re-anchored: the 100/200/400 ladder on `a780ac5`, f* unchanged to
     0.01 K, the 100-cell error 7.4 K -> 1.9 K at 1 mm, 1 s) and `pyrolysis/energy_audit/expected.json` ((iv)
     measured 13.08 K -> 1.00 K, budget 2.00 K).
+- **2026-10-17, plan 11 stages 0 and 1 (the mpi build tree; MPI keeps the exit codes): 0 rows moved, one case added.
+  1779 rows.**
+  - **How measured:** a snapshot of `3495928` without the not-yet-committed split cases of stage 2, then a fresh preset
+    build and `run_regression.sh -B -p 1` on sprop2 (gfortran 12.2.1). All 1775 pre-existing rows are byte-identical.
+  - **Added, 4 rows:** `test/numerics-features/conjugate_two_layer_fixed` (`3495928`): conjugate_two_layer for a fixed
+    5000 iterations, the 1-vs-2-ranks gate's case.
+  - The mpi preset's `bin/FUSS-mpi` at one rank reproduces the 1775 pre-existing rows too (`run_regression.sh -m 1
+    -k`). The first stage-1 build moved 512 rows of 12 type-2 cases by round-off: code generation changed through a new
+    argument of `Check_And_Fix_State`. That change was dropped, which was bisected to that file alone
+    (`plan-bucket/records/2026-10-16-plan11/stage1/bisect.md`).

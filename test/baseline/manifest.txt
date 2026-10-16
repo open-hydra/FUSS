@@ -40,6 +40,10 @@ test/numerics-features/conjugate_two_layer	OUTPUT/diagnostic.tec	92371c73de14e60
 test/numerics-features/conjugate_two_layer	OUTPUT/field.tec	f3b8726819177de94ebdf42f9b3419ed
 test/numerics-features/conjugate_two_layer	OUTPUT/residual-history.dat	04de7e977bf685374ae5c90a9f7b9639
 test/numerics-features/conjugate_two_layer	OUTPUT/wall.tec	10fd0486ef08c757edb10dc7bc917f01
+test/numerics-features/conjugate_two_layer_fixed	OUTPUT/diagnostic.tec	788f98240cb1ea94b4e0317a7da08758
+test/numerics-features/conjugate_two_layer_fixed	OUTPUT/field.tec	7e917a72ab5d51564f3492941ed98f66
+test/numerics-features/conjugate_two_layer_fixed	OUTPUT/residual-history.dat	198d0d8951dccced8f4c9e3a78f9d04d
+test/numerics-features/conjugate_two_layer_fixed	OUTPUT/wall.tec	d23681fa9701588b78bffbfb4453c30d
 test/numerics-features/residual_convergence/irs	OUTPUT/diagnostic.tec	ad3c1f50fb06c52e46770d3fb10b8249
 test/numerics-features/residual_convergence/irs	OUTPUT/field.tec	d4ddd211ec304959ec0ea1de8600e27e
 test/numerics-features/residual_convergence/irs	OUTPUT/residual-history.dat	d59293bc4fb1e102f1eb258d193d9dd6
