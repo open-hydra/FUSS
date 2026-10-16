@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_regression.sh
-#        USAGE: ./test/run_regression.sh [-p N] [-o OUTDIR] [-c CASE]...
+#        USAGE: ./test/run_regression.sh [-p N] [-o OUTDIR] [-m NRANKS] [-c CASE]...
 #  DESCRIPTION: Run the FUSS test cases and record a fingerprint manifest of
 #               their solution files, so two builds can be compared exactly.
 #
@@ -19,6 +19,7 @@ set -u
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
+NMPI=0
 export LC_ALL=C   # `find | sort` below orders the manifest rows; a shell with another collation moves rows (multimat_Plate field1/field10/field2) and -k reports a false difference
 OUTDIR=""
 ALL=0
@@ -35,8 +36,12 @@ while test $# -gt 0; do
     -a | --all)      ALL=1; shift ;;
     -B | --fresh-build)    FRESH=1; shift ;;
     -k | --check-baseline) CHECK=1; shift ;;
+    -m | --mpi)      NMPI=$2; shift 2 ;;
     -h | --help)
-      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-a] [-B] [-k] [-c CASE]..."
+      echo "usage: $0 [-p NTHREADS] [-o OUTDIR] [-a] [-B] [-k] [-m NRANKS] [-c CASE]..."
+      echo "  -m N runs the mpi preset's executable (bin/FUSS-mpi, tree build-mpi/) on N ranks"
+      echo "     through \$I_MPI_ROOT/bin/mpirun (N = 1: one process, no launcher);"
+      echo "     every run with N > 1 under timeout 900"
       echo "  with no -c, every test/**/FUSS.sh case is run"
       echo "  -a also runs cases marked .slow (grid-convergence studies);"
       echo "     without it they are skipped, so keep -a consistent between"
@@ -62,10 +67,19 @@ done
 # other, and an incremental one may not. So a baseline is recorded only from a
 # fresh build, and this script can do that itself so nobody has to remember.
 # ---------------------------------------------------------------------------
+# -m: the mpi preset's tree and executable (plan 11); the launcher is Intel MPI's own,
+# never whatever mpirun comes first on PATH.
+PRESET=default ; TREE=build
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  PRESET=mpi ; TREE=build-mpi
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+fi
+
 if [ "$FRESH" -eq 1 ]; then
-  echo "fresh build requested: wiping build/ and configuring from the preset"
-  ( cd "$ROOT" && rm -rf build && cmake --preset default > /dev/null 2>&1 \
-      && cmake --build build -j 8 > /dev/null 2>&1 ) \
+  echo "fresh build requested: wiping $TREE/ and configuring from the preset $PRESET"
+  ( cd "$ROOT" && rm -rf $TREE && cmake --preset $PRESET > /dev/null 2>&1 \
+      && cmake --build $TREE -j 8 > /dev/null 2>&1 ) \
     || { echo "fresh build FAILED"; exit 1; }
 fi
 
@@ -87,13 +101,14 @@ fi
 # CMakePresets.json says. A mis-configured build is silent -- it compiles, runs,
 # and agrees with the baseline on all but one artefact -- so this has to be
 # checked rather than remembered. See test/check_build_config.sh.
-if ! "$ROOT/test/check_build_config.sh"; then
+if ! "$ROOT/test/check_build_config.sh" --preset $PRESET; then
   echo
   echo "refusing to record a manifest from a build that does not match the preset"
   exit 1
 fi
 
-[ -n "$OUTDIR" ] || OUTDIR="$ROOT/test/.regression/omp${NTHREADS}"
+SUFFIX="" ; [ "$NMPI" -gt 0 ] && SUFFIX="-mpi${NMPI}"
+[ -n "$OUTDIR" ] || OUTDIR="$ROOT/test/.regression/omp${NTHREADS}${SUFFIX}"
 mkdir -p "$OUTDIR"
 MANIFEST="$OUTDIR/manifest.txt"
 : > "$MANIFEST"
@@ -101,6 +116,7 @@ MANIFEST="$OUTDIR/manifest.txt"
 echo "FUSS regression run"
 echo "  root     : $ROOT"
 echo "  threads  : $NTHREADS"
+[ "$NMPI" -gt 0 ] && echo "  ranks    : $NMPI  (bin/FUSS-mpi, $FUSS_MPIRUN)"
 echo "  cases    : ${#CASES[@]}"
 echo "  manifest : $MANIFEST"
 echo
@@ -124,7 +140,9 @@ for case_dir in "${CASES[@]}"; do
 
   printf '%-52s' "RUN   $case_dir"
   log="$OUTDIR/$(echo "$case_dir" | tr '/' '_').log"
-  if ( cd "$abs" && ./FUSS.sh -p "$NTHREADS" solve ) > "$log" 2>&1; then
+  MPIOPT="" ; TMO=""
+  if [ "$NMPI" -gt 0 ]; then MPIOPT="-m $NMPI"; [ "$NMPI" -gt 1 ] && TMO="timeout 900"; fi
+  if ( cd "$abs" && $TMO ./FUSS.sh -p "$NTHREADS" $MPIOPT solve ) > "$log" 2>&1; then
     printf 'ok\n'
   else
     printf 'FAILED (see %s)\n' "$log"

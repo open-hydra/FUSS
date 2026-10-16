@@ -25,8 +25,11 @@ function print_usage {
 
 # Directories and files definition
 MASTERDIR=../../..
-MASTER=$MASTERDIR/bin/FUSS
-LOCAL=./bin/FUSS
+# FUSS_EXE selects the executable of a build tree (plan 11: FUSS-mpi for the mpi preset),
+# FUSS_MPIRUN the MPI launcher (the gates set the Intel MPI one, never the first on PATH).
+FUSS_EXE=${FUSS_EXE:-FUSS}
+MASTER=$MASTERDIR/bin/$FUSS_EXE
+LOCAL=./bin/$FUSS_EXE
 
 # Default Options
 BG=0
@@ -73,7 +76,7 @@ if [[ $1 == compile ]]; then
   mkdir -p bin
   rm -f $LOCAL
   cd $MASTERDIR
-  ./install.sh compile
+  if [[ $FUSS_EXE == FUSS-mpi ]]; then ./install.sh compile --preset=mpi; else ./install.sh compile; fi
   cd $DIR
   cp $MASTER $LOCAL
 fi
@@ -98,10 +101,10 @@ if [[ $1 == solve ]]; then
     fi
   else
     if [[ $BG == 0 ]]; then
-      mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL
+      ${FUSS_MPIRUN:-mpirun} -np $NMPI --map-by socket --bind-to socket $LOCAL
       RC=$?
     else
-      mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL 2>errors_file >logfile &
+      ${FUSS_MPIRUN:-mpirun} -np $NMPI --map-by socket --bind-to socket $LOCAL 2>errors_file >logfile &
       echo $! > .ID
     fi
   fi
