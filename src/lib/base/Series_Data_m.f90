@@ -1,4 +1,5 @@
 module FUSS_Series_Data_m
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -52,7 +53,7 @@ contains
     open( newunit=u, file=trim(file), status='old', action='read', iostat=ios )
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] env table '//trim(file)//': cannot open'
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     allocate( rows(n+1, 64) )
     k = 0 ; ln = 0
@@ -78,7 +79,7 @@ contains
     close( u )
     if ( k < 2 ) then
       write(*,'(A)') ' [ERROR] env table '//trim(file)//': fewer than two rows'
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     self%n = n
     self%nrow = k
@@ -93,7 +94,7 @@ contains
     subroutine Fail ( reason )
       character(len=*), intent(in) :: reason
       write(*,'(A)') ' [ERROR] env table '//trim(file)//' line '//Itoa(ln)//': '//reason
-      error stop 1
+      call fuss_abort ( 1 )
     end subroutine Fail
 
     subroutine Grow ()

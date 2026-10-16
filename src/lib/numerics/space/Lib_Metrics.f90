@@ -19,6 +19,7 @@
 !>     agreeing, so the duplication is at least mechanically observed;
 !>   * the duplication disappears when the BC_*_Metrics routines move into MORPH.
 module FUSS_Lib_Metrics
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Base_Types_m
   use FUSS_Advanced_Types_m
@@ -305,7 +306,8 @@ contains
 
     if ( abs(det) == 0d0 ) then
       write(*,'(A90)') ' [ERROR] Metric tensor det=0. Should not happen, but going on with M==I'
-      error stop 2
+      call fuss_abort_in_thread ( 2, can_continue = .true. )
+      ! a worker thread of a multi-rank run (plan 11): M = I, below
 
       M % c = 0d0
       do h = 1, 3
@@ -372,7 +374,9 @@ contains
   
     if( vol <= 0d0 ) then
       write(*,'(A90)') ' [ERROR] Negative volume'
-      error stop 2
+      call fuss_abort_in_thread ( 2, can_continue = .true. )
+      ! a worker thread of a multi-rank run (plan 11): this region computes geometry
+      ! only, and the master stops the run right after it
     endif
 
     contains

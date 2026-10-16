@@ -1,4 +1,5 @@
 module FUSS_Mod_Allocate_Data
+  use FUSS_Mod_MPI, only: fuss_abort
   use, intrinsic :: iso_fortran_env, only : iostat_end
   
   implicit none
@@ -37,7 +38,7 @@ contains
     if ( size(IOfield%block(1)%vars, 1) < 3 ) then
       write(*,'(A)')         '[ERROR] Number of variables in IOfield does not match FUSS expectation.'
       write(*,'(A,I0,A,I0)') '        Expected: ', 3, ', Found: ', size(IOfield%block(1)%vars, 1)
-      error stop 1
+      call fuss_abort ( 1 )
     end if
 
     do b = 1, nblocks
@@ -245,7 +246,7 @@ contains
           blk % T_prev = 0.0_R8
         case default
           write(*,'(A)') ' [ERROR] Allocate_Block: no handler for the managed field '//trim(e%name)
-          error stop 1
+          call fuss_abort ( 1 )
       end select
     enddo
 
@@ -316,7 +317,7 @@ contains
           case ('T_prev') ; if (allocated(domain%blk(b)%T_prev))  deallocate(domain%blk(b)%T_prev)
           case default
             write(*,'(A)') ' [ERROR] deallocate_remote_computation_data: no handler for the managed field '//trim(e%name)
-            error stop 1
+            call fuss_abort ( 1 )
         end select
       enddo
 

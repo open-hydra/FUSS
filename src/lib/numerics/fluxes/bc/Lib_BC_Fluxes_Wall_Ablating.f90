@@ -36,6 +36,7 @@
 !> The flux into the residual is BC 302's at the converged T_w. The face keeps
 !> its last converged state in bc (seb.txt, the wall output, the restart file).
 module FUSS_Lib_BC_Fluxes_Wall_Ablating
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
@@ -197,6 +198,9 @@ contains
       write(*,'(A,8ES12.4)') '         terms (cond, conv, adv_pg, adv_ch, alpha q, eps T_inf^4, -eps T_w^4, F):', terms
       if ( abs(dbeta) > tol ) write(*,'(A,ES14.6,A,ES12.4)') '         the blowing correction did not settle: beta = ', &
         beta, '  last change ', dbeta
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
 
@@ -204,6 +208,9 @@ contains
       write(*,'(A,I0,A)') ' [ERROR] BC ', bc%type, ': the B'' table query left the table (bprime-out-of-range = abort)'
       write(*,'(A,4I6)') '         face (i, j, k, f) =', Im, Jm, Km, Fm
       write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         p_w = ', bc%pw, '  B''g = ', Bpg, '  T_w = ', Tw
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
     if ( count_clamps ) then

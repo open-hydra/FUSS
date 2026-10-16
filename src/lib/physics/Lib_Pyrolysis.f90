@@ -16,6 +16,7 @@
 !> the intersection of every table range a lookup touches (computed once by
 !> the loader), so no lookup can read outside its table.
 module FUSS_Lib_Pyrolysis
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
   use FUSS_Parameters_m,   only: R_univ
@@ -120,6 +121,9 @@ contains
         write(*,'(A,I0,A,I0,A,ES14.6,A,ES14.6)') '         table: T in [', mt%Tlo_g, ', ', mt%Thi_g, ') K, p in [', &
           mt%p_lev(1), ', ', mt%p_lev(mt%Np)
         if ( present(cell) ) write(*,'(A,4I6)') '         at b, i, j, k =', cell
+#ifdef USE_MPI
+        call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
         error stop 3
       endif
       if ( mt%Np == 1 ) then
@@ -211,6 +215,9 @@ contains
     Eb  = Energy_Tau( m, Tb, tau )
     if ( E < Ea .or. E > Eb ) then
       call Report( 'energy outside table range' )
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
 
@@ -255,6 +262,9 @@ contains
 
     if ( .not. converged ) then
       call Report( 'Newton did not converge' )
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
     if ( .false. ) T = T + 0.0d0 * p
@@ -450,6 +460,9 @@ contains
     Eb  = Energy_Full2( m, Tb, tau, p, G )
     if ( E < Ea .or. E > Eb ) then
       call Report( 'energy outside table range' )
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
 
@@ -487,6 +500,9 @@ contains
 
     if ( .not. converged ) then
       call Report( 'Newton did not converge' )
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
 

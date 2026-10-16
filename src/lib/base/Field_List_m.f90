@@ -15,6 +15,7 @@
 !> procedure-pointer components; FUSS_Mod_Pyrolysis fills them through
 !> Field_List_Set_Converters right after Field_List_Init.
 module FUSS_Field_List_m
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: R8 => real64
   use FUSS_Advanced_Types_m, only: FUSS_block_type
 
@@ -161,7 +162,7 @@ contains
     i = Field_List_Lookup(name)
     if ( i == 0 ) then
       write(*,'(A)') ' [ERROR] Field_List_Set_Converters: no field called '//trim(name)
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     list(i)%to_conserved   => to
     list(i)%from_conserved => from

@@ -1,4 +1,5 @@
 module FUSS_IO_Solution
+  use FUSS_Mod_MPI, only: fuss_abort
 
   implicit none
 
@@ -499,7 +500,7 @@ contains
                 endif
               case default
                 write(*,'(A)') ' [ERROR] Write_vtk_tec: no handler for the output field '//trim(e%name)
-                error stop 1
+                call fuss_abort ( 1 )
             end select
           enddo
         else

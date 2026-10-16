@@ -1,4 +1,5 @@
 module FUSS_Lib_Ghost
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Parameters_m
@@ -170,6 +171,9 @@ contains
           domain % bc(i) % chig = domain % blk(Bm) % chi(:, Im - guide(Fm,1), Jm - guide(Fm,2), Km - guide(Fm,3))
         case (102)
           write(*,'(A)') ' [ERROR] pyrolysis: chimera (102) faces are refused'
+#ifdef USE_MPI
+          call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
+#endif
           error stop 1
         case default
           do g = 1, gc

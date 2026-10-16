@@ -1,4 +1,5 @@
 module FUSS_IO_Probes
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Parameters_m
   use FUSS_Base_Types_m, only: FUSS_vector_3D_type
@@ -175,12 +176,12 @@ contains
           ! the gas pressure of the type-2 closure (plan 07)
           if ( .not. allocated(domain%blk(b)%p_pg) ) then
             write(*,'(A)') ' [ERROR] probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           probe%variables(v)%p => domain%blk(b)%p_pg(i,j,k)
         case default
           write(*,'(A)') ' [ERROR] unknown probe variable "'//trim(probe%names(v))//'" (known: T, p_pg)'
-          error stop 1
+          call fuss_abort ( 1 )
       end select
     enddo
 

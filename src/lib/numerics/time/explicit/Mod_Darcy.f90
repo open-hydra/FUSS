@@ -22,6 +22,8 @@
 !> region executes on the one thread). No MPI halo exchange exists for p_pg:
 !> plan 11 §2.2; pyrolysis is refused with mpi_size_ > 1 (guard 8).
 module FUSS_Mod_Darcy
+  use FUSS_Mod_MPI, only: fuss_abort
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -91,7 +93,7 @@ contains
     call Parse_Open_Codes( obj_darcy%open_bc_types, obj_darcy%open_codes, obj_darcy%n_open, ok, bad )
     if ( .not. ok ) then
       write(*,'(A)') ' [ERROR] [FUSS-Darcy] open-bc-types: bad token "'//trim(bad)//'"'
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     obj_darcy%description = 'type-2 gas closure: Darcy pressure equation, solver '//trim(obj_darcy%solver)
 
@@ -411,6 +413,9 @@ contains
             write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         stored G = ', G, ' kg/m3, realised - predicted = ', dm, &
               ' kg/m3, decomposable solid left = ', avail
             write(*,'(A)') '         (reduce the time step, or smooth the kinetics near its threshold temperature)'
+#ifdef USE_MPI
+            call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
             error stop 3
           endif
           do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
@@ -506,6 +511,9 @@ contains
           enddo
         case (102)
           write(*,'(A)') ' [ERROR] Darcy: chimera (102) faces are refused under gas-closure = type2'
+#ifdef USE_MPI
+          call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
+#endif
           error stop 1
         case default
           do g = 1, gc
@@ -664,6 +672,9 @@ contains
       write(*,'(A,ES12.4,A,ES12.4,A,ES12.4,A)') '         max |r| = ', rw, ' kg/s, R_ref = ', rref_max, &
         ' kg/s, round-off floor = ', floor_max, ' kg/s'
       write(*,'(A,4I6)') '         worst cell b, i, j, k =', bw, iw, jw, kw
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     endif
     if ( rref_max > 0.0d0 ) then
@@ -1032,6 +1043,9 @@ contains
       integer, intent(in) :: ic(3)
       write(*,'(A)') ' [ERROR] Darcy: singular line system (a sealed, quasi-steady line has no unique pressure)'
       write(*,'(A,3I6)') '         at i, j, k =', ic
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 3
     end subroutine Singular
 

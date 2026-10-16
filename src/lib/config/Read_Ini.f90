@@ -67,6 +67,8 @@ contains
     use FUSS_Backend_INI,    only: Reload_Runtime_Ini
     use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Input_Registry
+    use FUSS_Config_Types_m, only: obj_sim_param, obj_io
+    use FUSS_Mod_MPI,        only: mpi_is_root, mpi_bcast_integer, mpi_bcast_real
     implicit none
     integer, intent(in) :: iter
     ! Local
@@ -74,20 +76,37 @@ contains
     character(len=4096) :: report
     integer :: u
 
-    call fini%load(filename='input.ini')
+    ! Under MPI only root reads and validates the file, and the seven runtime-
+    ! mutable values are broadcast (plan 11 section 2.4). Two of them decide on
+    ! every rank whether a collective runs (res-diter the residual reduction,
+    ! ini-diter this routine and its broadcasts), so ranks that saw a mid-run edit
+    ! at different moments would deadlock. The report is written by root and read
+    ! by no other rank, so it is not broadcast.
+    if ( mpi_is_root ) then
+      call fini%load(filename='input.ini')
 
-    call Reload_Runtime_Ini(fini, iter, report)
+      call Reload_Runtime_Ini(fini, iter, report)
 
-    ! The file is created ONLY when something was actually ignored, so its mere
-    ! existence after a run is the signal that input.ini was edited mid-flight
-    ! and part of the edit did not take. A line in a log nobody reads would not
-    ! carry that.
-    if ( len_trim(report) > 0 ) then
-      open(newunit=u, file='OUTPUT/'//trim(FUSS_phase_prefix)//'runtime-ini-ignored.txt', &
-           status='unknown', position='append', action='write')
-      write(u,'(A)') trim(report)
-      close(u)
+      ! The file is created ONLY when something was actually ignored, so its mere
+      ! existence after a run is the signal that input.ini was edited mid-flight
+      ! and part of the edit did not take. A line in a log nobody reads would not
+      ! carry that.
+      if ( len_trim(report) > 0 ) then
+        open(newunit=u, file='OUTPUT/'//trim(FUSS_phase_prefix)//'runtime-ini-ignored.txt', &
+             status='unknown', position='append', action='write')
+        write(u,'(A)') trim(report)
+        close(u)
+      endif
     endif
+
+    ! RUNTIME_MUTABLE (Backend_INI.f90), in its order
+    call mpi_bcast_real    ( obj_sim_param%res_threshold  )
+    call mpi_bcast_real    ( obj_sim_param%time_threshold )
+    call mpi_bcast_integer ( obj_io%sol_diter   )
+    call mpi_bcast_real    ( obj_io%sol_dtime   )
+    call mpi_bcast_integer ( obj_io%res_diter   )
+    call mpi_bcast_integer ( obj_io%shell_diter )
+    call mpi_bcast_integer ( obj_io%ini_diter   )
 
   end subroutine Read_Inifile_Runtime
 

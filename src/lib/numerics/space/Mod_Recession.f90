@@ -48,6 +48,7 @@
 !> The surface-node map is built once, at setup, by exact coordinate equality
 !> of the block-boundary nodes (they come from one MESH/ file).
 module FUSS_Mod_Recession
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Series_Data_m, only: time_table_t
 
@@ -124,7 +125,7 @@ contains
               ': no exchange values (p_w = 0) at this step.'
             write(*,'(A)') '         hydra writes them before every FUSS step; a standalone run needs '// &
               '[FUSS-Ablation] coupled-env-file.'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           domain%bc(i)%pw        = domain%bc(i)%env_now(1)
           domain%bc(i)%rhoeUeCH0 = domain%bc(i)%env_now(2)
@@ -159,7 +160,7 @@ contains
     if ( trim(obj_ablation%coupled_env_file) /= 'none' ) then
       if ( obj_ablation%n_coupled == 0 ) then
         write(*,'(A)') ' [ERROR] [FUSS-Ablation] coupled-env-file is set, but bc.txt has no coupled ablating wall (307).'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
       call coupled_env%load( 'INPUT/'//trim(obj_ablation%coupled_env_file), 4 )
       do i = 1, coupled_env%nrow
@@ -167,7 +168,7 @@ contains
         if ( .not. ( v(1) > 0.0d0 ) .or. v(2) < 0.0d0 .or. v(4) < 0.0d0 ) then
           write(*,'(A,I0,A)') ' [ERROR] coupled-env-file INPUT/'//trim(obj_ablation%coupled_env_file)//' row ', i, &
             ': needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0'
-          error stop 1
+          call fuss_abort ( 1 )
         endif
       enddo
     endif
@@ -180,7 +181,7 @@ contains
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] restart with ablating faces (306): '//trim(file)//' is missing'
       write(*,'(A)') '         it holds each face''s recession, wall temperature, recession rate and Picard start'
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     allocate( seen(domain%nbound) )
     seen = .false.
@@ -219,7 +220,7 @@ contains
       if ( ( domain%bc(i)%type == 306 .or. domain%bc(i)%type == 307 ) .and. .not. seen(i) ) then
         write(*,'(A,I0,A)') ' [ERROR] '//trim(file)//': no row for the 306 face of bc.txt record ', i, &
           ' (written by a run with another bc.txt?)'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
     enddo
 
@@ -228,7 +229,7 @@ contains
     subroutine Fail ( reason )
       character(len=*), intent(in) :: reason
       write(*,'(A,I0,A)') ' [ERROR] '//trim(file)//' line ', ln, ': '//reason
-      error stop 1
+      call fuss_abort ( 1 )
     end subroutine Fail
 
   end subroutine Setup_Ablation
@@ -263,7 +264,7 @@ contains
     endif
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] ablating wall: cannot open '//trim(file)
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     do i = 1, domain%nbound
       if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
@@ -280,7 +281,7 @@ contains
     open( newunit=u, file=trim(file), status='replace', action='write', iostat=ios )
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] ablating wall: cannot open '//trim(file)
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     write(u,'(A)') '# b i j k f s_total Tw_prev sdot beta Bpg_lag'
     write(u,'(A,ES24.16)') '# min-thickness ', min_thick
@@ -427,7 +428,7 @@ contains
         if ( bad ) exit
       enddo
     endif
-    if ( bad ) error stop 1
+    if ( bad ) call fuss_abort ( 1 )
 
     ! min-thickness: the key, else the value a restart carried, else 10 x the
     ! smallest cell on the receding lines of this (new) run's mesh, capped at
@@ -541,7 +542,7 @@ contains
             inc(2), ',', inc(3), ',', inc(4), ')'
           write(*,'(A,ES12.4,A,ES12.4,A)') '         the receding line would keep ', L - norm2( disp ), &
             ' m, at or below min-thickness ', min_thick, ' m'
-          error stop 2
+          call fuss_abort ( 2 )
         endif
       enddo
     enddo
@@ -613,7 +614,7 @@ contains
       if ( any( nbr(1:nnb(u), u) == v ) ) return
       if ( nnb(u) == MAXNB ) then
         write(*,'(A,I0,A)') ' [ERROR] smoothing: surface node ', u, ' has too many neighbours (not a quad surface)'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
       nnb(u) = nnb(u) + 1
       nbr(nnb(u), u) = v
@@ -719,7 +720,7 @@ contains
             write(*,'(A,3ES24.16)') '         block side: ', xa(:,pa(q))
             write(*,'(A,3ES24.16)') '         other side: ', xb(:,pb(q))
             write(*,'(A,4(I0,A))')  '         bc.txt record ', i, ', cell (', bc%i, ',', bc%j, ',', bc%k, ')'
-            error stop 2
+            call fuss_abort ( 2 )
           endif
         enddo
       end associate
@@ -753,7 +754,7 @@ contains
     if_file_started = .true.
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] cannot open '//trim(file)
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     do i = 1, domain%nbound
       if ( domain%bc(i)%type /= 101 ) cycle

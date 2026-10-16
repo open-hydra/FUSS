@@ -30,6 +30,7 @@
 !> The registry is filled at setup and only read afterwards, so the lookup is
 !> thread-safe.
 module FUSS_Lib_Bprime
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -291,7 +292,7 @@ contains
     open( newunit=u, file=trim(path), status='old', action='read', iostat=ios )
     if ( ios /= 0 ) then
       write(*,'(A)') ERR//trim(path)//': cannot open'
-      error stop 1
+      call fuss_abort ( 1 )
     endif
 
     ! Pass 1: header lines and the row count
@@ -401,7 +402,7 @@ contains
       else
         write(*,'(A)') ERR//trim(path)//': '//reason
       endif
-      error stop 1
+      call fuss_abort ( 1 )
     end subroutine Fail
 
     !> rows (p, B'g, B'c, T, h_w) in file order -> the block structure

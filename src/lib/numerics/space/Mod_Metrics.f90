@@ -1,4 +1,5 @@
 module FUSS_Mod_Metrics
+  use FUSS_Mod_MPI, only: fuss_abort, fuss_abort_check
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -46,7 +47,7 @@ contains
         write(*,'(A)')            ' [ERROR] mesh geometry is invalid'
         write(*,'(A,A)')          '         ', trim(message)
         write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
-        error stop 2
+        call fuss_abort ( 2 )
       endif
     enddo
 
@@ -153,6 +154,8 @@ contains
       end select
     enddo
     !$omp end parallel
+    ! a fatal error that a worker thread recorded in the region (plan 11)
+    call fuss_abort_check ()
 
   end subroutine Setup_BC_Metrics
 
@@ -202,7 +205,7 @@ contains
         write(*,'(A)')         ' [ERROR] mesh update failed'
         write(*,'(A,A)')       '         ', trim(message)
         write(*,'(A,4(I0,A))') '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
-        error stop 2
+        call fuss_abort ( 2 )
       endif
 
       ! Assert the discrete GCL every step. A violation means the geometry and
@@ -213,7 +216,7 @@ contains
         write(*,'(A,ES12.4,A,ES12.4)') '         relative residual ', gcl_rel, &
                                        ' exceeds tolerance ', obj_mesh_motion%gcl_tol
         write(*,'(A,I0)')       '         block ', b
-        error stop 2
+        call fuss_abort ( 2 )
       endif
 
       ! Moving-mesh stability. The GCL says the geometry is self-consistent; it
@@ -228,7 +231,7 @@ contains
         write(*,'(A)')          '         the conservative remap is unstable at or above 1.'
         write(*,'(A,4(I0,A))')  '         worst at block ', b, ', cell (', si, ',', sj, ',', sk, ')'
         write(*,'(A)')          '         Reduce the mesh velocity or the time step (lower vnn).'
-        error stop 2
+        call fuss_abort ( 2 )
       endif
     enddo
 

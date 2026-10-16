@@ -6,7 +6,8 @@ module FUSS_Mod_MPI
 #ifdef USE_MPI
   use mpi
 #endif
-  use iso_fortran_env, only: R8 => real64, I4 => int32
+  use iso_fortran_env, only: R8 => real64, I4 => int32, output_unit
+  !$ use omp_lib, only: omp_get_thread_num
 
   implicit none
   private
@@ -30,9 +31,16 @@ module FUSS_Mod_MPI
   public :: mpi_allreduce_sum_r8_array
   public :: mpi_reduce_sum_r8, mpi_reduce_sum_r8_array
   public :: mpi_allreduce_norm2
-  public :: mpi_bcast_logical, mpi_bcast_integer
+  public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_real
   public :: mpi_abort_all
   public :: check_mpi_error
+  public :: fuss_abort, fuss_abort_in_thread, fuss_abort_check
+  public :: mpi_barrier_all
+
+  ! --- Fatal stops (plan 11 section 2.6) ---
+  !> The code a worker thread recorded in an OpenMP region (fuss_abort_in_thread);
+  !> the master stops the run after the region (fuss_abort_check). 0 = none.
+  integer :: fuss_abort_code = 0
 
 contains
 
@@ -302,6 +310,29 @@ contains
   end subroutine mpi_bcast_integer
 
 
+  !> MPI_BARRIER of every rank; nothing in serial or on one rank.
+  subroutine mpi_barrier_all()
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ > 1) then
+      call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+      call check_mpi_error(ierr)
+    end if
+#endif
+  end subroutine mpi_barrier_all
+
+
+  !> Broadcast a real(R8) value from root (rank 0) to all ranks.
+  subroutine mpi_bcast_real(val)
+    real(R8), intent(inout) :: val
+#ifdef USE_MPI
+    integer :: ierr
+    call MPI_BCAST(val, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_bcast_real
+
+
   !> Check MPI return code. Abort all ranks on error.
   subroutine check_mpi_error(ierr)
     integer, intent(in) :: ierr
@@ -327,6 +358,72 @@ contains
     error stop
 #endif
   end subroutine mpi_abort_all
+
+
+  !> Stop the run with exit code `code`: 1 input, 2 geometry or mesh, 3 numerical.
+  !> The caller prints its own message first; `message` adds one line.
+  !>
+  !> With more than one rank it ends every rank through MPI_ABORT, which keeps the
+  !> code. A plain `error stop` on only some of the ranks (a root-only check, a
+  !> failure in one rank's blocks) makes Intel MPI's launcher report 255 instead;
+  !> on every rank alike, or with one process, it keeps the code (measured,
+  !> plan-bucket/records/2026-10-16-plan11/stage1/probe).
+  !>
+  !> MASTER THREAD ONLY with more than one rank: MPI is initialised
+  !> MPI_THREAD_FUNNELED. Inside an OpenMP region use fuss_abort_in_thread.
+  subroutine fuss_abort(code, message)
+    integer, intent(in) :: code
+    character(len=*), intent(in), optional :: message
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ > 1) then
+      if (present(message)) write(*,'(A,I0,A,A)') ' [RANK ', mpi_rank_, '] ABORT: ', trim(message)
+      flush(output_unit)
+      call MPI_ABORT(MPI_COMM_WORLD, code, ierr)
+    end if
+#endif
+    if (present(message)) write(*,'(A,A)') ' ABORT: ', trim(message)
+    error stop code
+  end subroutine fuss_abort
+
+
+  !> A fatal error found where the caller may be a worker thread of an OpenMP region.
+  !> The caller prints its message first.
+  !> - serial build, one rank, or the master thread: stop now (fuss_abort);
+  !> - a worker thread with more than one rank may not call MPI (FUNNELED). A site
+  !>   that can finish the region safely passes can_continue = .true. and continues
+  !>   after this call: the code is recorded and the master stops the run after the
+  !>   region (fuss_abort_check). Any other site stops this process with `error stop`:
+  !>   the launcher still ends the job, but reports 255.
+  subroutine fuss_abort_in_thread(code, can_continue)
+    integer, intent(in) :: code
+    logical, intent(in), optional :: can_continue
+#ifdef USE_MPI
+    integer :: tid
+    tid = 0
+    !$ tid = omp_get_thread_num()
+    if (mpi_size_ > 1 .and. tid /= 0) then
+      if (present(can_continue)) then
+        if (can_continue) then
+          !$omp critical (fuss_abort_lock)
+          if (fuss_abort_code == 0) fuss_abort_code = code
+          !$omp end critical (fuss_abort_lock)
+          return
+        end if
+      end if
+      error stop code
+    end if
+#endif
+    call fuss_abort(code)
+  end subroutine fuss_abort_in_thread
+
+
+  !> The master, after an OpenMP region whose worker threads may have recorded a
+  !> fatal error (fuss_abort_in_thread): stop the run with that code.
+  subroutine fuss_abort_check()
+    if (fuss_abort_code /= 0) call fuss_abort(fuss_abort_code, &
+      'a worker thread stopped the step above; ending the run after the parallel region')
+  end subroutine fuss_abort_check
 
 
 end module FUSS_Mod_MPI

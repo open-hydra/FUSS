@@ -1,4 +1,5 @@
 module FUSS_Mod_Explicit
+  use FUSS_Mod_MPI, only: fuss_abort_check
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -153,6 +154,8 @@ contains
     ! predicted production goes into the stored gas, T re-inverted at constant E
     if ( obj_darcy%enabled ) call Darcy_Mass_Correction ( domain(level) )
     !$omp end parallel
+    ! a fatal error that a worker thread recorded in the region (plan 11)
+    call fuss_abort_check ()
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then

@@ -38,6 +38,7 @@
 !>   Inert when the mesh does not move: dV == 0 and V_new == V_old give
 !>   h_new = h_old, bit-for-bit.
 module FUSS_Mod_ALE_Remap
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -354,6 +355,9 @@ contains
     if ( allocated(map306) ) return
     if ( nq > QM - 1 + MAXSUB ) then
       write(*,'(A,I0,A,I0)') ' [ERROR] pyrolysis remap: more than ', MAXSUB, ' sub-phases (reactions): ', nq - QM + 1
+#ifdef USE_MPI
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
+#endif
       error stop 1
     endif
     n = 0
@@ -435,6 +439,9 @@ contains
           trim(adjustl(itoa(b)))//' does not balance its block-boundary sweeps'
         write(*,'(A,ES12.4,A,ES12.4,A,ES12.4)') '         sum q_new V_new - sum q_old V_old = ', lhs(a), &
           ', sum of boundary sweeps = ', rhs(a), ', tolerance ', tol
+#ifdef USE_MPI
+        call fuss_abort_in_thread ( 2 )   ! with MPI (plan 11); the line below is then not reached
+#endif
         error stop 2
       endif
     enddo

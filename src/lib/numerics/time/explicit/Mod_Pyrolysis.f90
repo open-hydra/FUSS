@@ -24,6 +24,7 @@
 !> (d) must read blk%R AFTER (c) and BEFORE RK_Newstate (Compute_Cons_NoIRS
 !> overwrites R in place with the scaled residual).
 module FUSS_Mod_Pyrolysis
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -103,14 +104,14 @@ contains
         m = nint( domain%blk(b)%matID(i,j,k) )
         if ( m < 1 .or. m > obj_pyrolysis%nmat ) then
           write(*,'(A,4I6)') ' [ERROR] pyrolysis: matID outside the material list at b, i, j, k =', b, i, j, k
-          error stop 1
+          call fuss_abort ( 1 )
         endif
         if ( domain%blk(b)%T(i,j,k) < obj_pyrolysis%mat(m)%T_brk_lo .or. &
              domain%blk(b)%T(i,j,k) > obj_pyrolysis%mat(m)%T_brk_hi ) then
           write(*,'(A)') ' [ERROR] pyrolysis: initial temperature outside the Newton bracket of its material'
           write(*,'(A,4I6,A,F10.3,A,I0,A,I0,A)') '         b, i, j, k =', b, i, j, k, '  T = ', domain%blk(b)%T(i,j,k), &
             '  bracket [', obj_pyrolysis%mat(m)%T_brk_lo, ', ', obj_pyrolysis%mat(m)%T_brk_hi, '] K'
-          error stop 1
+          call fuss_abort ( 1 )
         endif
         call Solid_State( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), &
                           domain%blk(b)%rho_s(i,j,k), domain%blk(b)%cp_s(i,j,k), domain%blk(b)%k_s(i,j,k), tau, eps_pg )
@@ -129,7 +130,7 @@ contains
         if ( dT > 1.0d-9 .or. dchi > 1.0d-14 ) then
           write(*,'(A)') ' [ERROR] pyrolysis: field-list round trip does not reproduce the state'
           write(*,'(A,4I6,A,ES12.4,A,ES12.4)') '         b, i, j, k =', b, i, j, k, '  |dT| = ', dT, '  |dchi| = ', dchi
-          error stop 3
+          call fuss_abort ( 3 )
         endif
         domain%blk(b)%T(i,j,k)     = T0
         domain%blk(b)%chi(:,i,j,k) = chi0
@@ -604,7 +605,7 @@ contains
       endif
       if ( ios /= 0 ) then
         write(*,'(A)') ' [ERROR] pyrolysis: cannot open '//trim(file)
-        error stop 1
+        call fuss_abort ( 1 )
       endif
       if ( abl ) then
         write(u,'(11ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g, &
@@ -646,7 +647,7 @@ contains
     endif
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] pyrolysis: cannot open '//trim(file)
-      error stop 1
+      call fuss_abort ( 1 )
     endif
     if ( abl ) then
       write(u,'(9ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, obj_ablation%E_abl, obj_ablation%M_abl

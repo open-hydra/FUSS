@@ -1,4 +1,5 @@
 module FUSS_Wrap_Setup
+  use FUSS_Mod_MPI, only: fuss_abort, mpi_size_, mpi_barrier_all
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -20,7 +21,7 @@ contains
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
     use FUSS_IO_Probes,            only: Setup_Probes
-    use FUSS_IO_Wall,              only: Initialize_Wall_File
+    use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_
     use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
@@ -45,6 +46,10 @@ contains
     ! Load tables (thermo, transport)
     call Load_Table ()
     if (mpi_is_root) call Check_Table ()
+    ! Root-only checks above: every rank waits for root's verdict. A refusal there
+    ! ends all ranks with its code (fuss_abort); without the wait the others ran on
+    ! into work on the refused input and failed first, the job reporting 255 (plan 11)
+    call mpi_barrier_all ()
 
     ! Read input.ini
     call Read_Inifile ()
@@ -62,11 +67,13 @@ contains
     ! key; every guard, the table checks and Assign_Setup read this flag.
     obj_darcy%enabled = obj_pyrolysis%enabled .and. ( trim(obj_pyrolysis%gas_closure) == 'type2' )
     if (mpi_is_root) call Check_Input ()
+    call mpi_barrier_all ()   ! root-only checks above (plan 11)
 
     ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank
     ! once the input is validated, value-checked and reported on root.
     if (obj_pyrolysis%enabled) call Load_Pyrolysis_Tables ()
     if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_Tables ()
+    call mpi_barrier_all ()   ! root-only checks above (plan 11)
 
     ! Allocate container objects Domain and IOfield.
     allocate ( simulation%domain  ( obj_multigrid%MGL ) )
@@ -79,6 +86,7 @@ contains
     ! Read file for initial solution.
     call Read_IC ( simulation%IOfield(1) )
     if (mpi_is_root) call Check_IC ()
+    call mpi_barrier_all ()   ! root-only checks above (plan 11)
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
@@ -97,6 +105,7 @@ contains
     if (mpi_is_root .and. obj_ablation%enabled) call Check_Ablation ( simulation%domain(1) )
     if (mpi_is_root .and. ( obj_ablation%enabled .or. trim(obj_mesh_motion%law) == 'nodeshift' )) &
       call Check_Ablation_BC_Topology ( simulation%domain(1) )
+    call mpi_barrier_all ()   ! root-only checks above (plan 11)
     call Setup_Ablation ( simulation%domain(1), obj_sim_param%newrun )
     ! law = nodeshift: the receding faces, the surface-node map and its rules
     call Setup_Recession ( simulation%domain(1) )
@@ -130,7 +139,9 @@ contains
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
 
-    ! Initialize Wall file
+    ! Initialize Wall file: its variables on every rank (they size the wall values'
+    ! reduction), the file and its patch mesh on root
+    if (obj_io % write_wall) call Set_Wall_Variables ()
     if (mpi_is_root .and. obj_io % write_wall) &
       call Initialize_Wall_File ( simulation%domain(1), simulation%IOfield(1)%tec%extension)
 
@@ -214,6 +225,7 @@ contains
 
     ! If errors are found, print error messages and stop the simulation.
     if (mpi_is_root) call Stop_Simulation()
+    call mpi_barrier_all ()   ! root-only checks above (plan 11)
 
     ! Set-up is over: start the solver clock
     call timer_run_begin()
@@ -260,7 +272,7 @@ contains
         write(*,'(A,T35,A)') '   Properties', 'OK'
       endif
 
-      if (has_error) error stop 1
+      if (has_error) call fuss_abort ( 1 )
 
     end subroutine Check_Table
 
@@ -271,7 +283,7 @@ contains
       if (index(obj_io%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io%error_message)
-        error stop 1
+        call fuss_abort ( 1 )
       else
         write(*,'(A,T35,A)') '   Initial conditions', 'OK'
       endif
@@ -295,21 +307,21 @@ contains
         write(*,'(4X,A)') 'This part of input.ini is not being applied. A misspelt key keeps'
         write(*,'(4X,A)') 'its default, and a repeated section header is ignored entirely --'
         write(*,'(4X,A)') 'in both cases the run would otherwise look completely normal.'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
 
       if ( len_trim(long_values_message) > 0 ) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(long_values_message)
         write(*,'(4X,A)') 'The value would be cut to the limit without a message.'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
 
       out = Validate_Registry()
       if (index(out,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-        error stop 1
+        call fuss_abort ( 1 )
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
@@ -351,7 +363,7 @@ contains
       endif
 #endif
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Input_Consistency
 
@@ -387,6 +399,15 @@ contains
       if ( trim(obj_mesh_motion%law) == 'static' ) return
 
       bad = .false.
+
+      ! No rank holds the current nodes of another rank's blocks: the ghost
+      ! metrics of a block connection between two ranks, the solution file and
+      ! the restart would all be built from the initial geometry (plan 11
+      ! stage 2 builds the node exchange and the gather).
+      if ( mpi_size_ > 1 ) then
+        write(*,'(A)') ' [ERROR] a moving mesh is OpenMP-only until plan 11 stage 2.'
+        bad = .true.
+      endif
 
       if ( obj_irs%enabled ) then
         write(*,'(A)') ' [ERROR] mesh motion is not compatible with implicit residual smoothing.'
@@ -454,7 +475,7 @@ contains
         bad = .true.
       endif
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Mesh_Motion_Compatibility
 
@@ -484,7 +505,7 @@ contains
       endif
 
       if ( .not. obj_pyrolysis%enabled ) then
-        if ( bad ) error stop 1
+        if ( bad ) call fuss_abort ( 1 )
         return
       endif
 
@@ -574,7 +595,7 @@ contains
         endif
       endif
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Pyrolysis_Compatibility
 
@@ -673,7 +694,7 @@ contains
         enddo
       endif
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Pyrolysis_BC_Topology
 
@@ -777,7 +798,7 @@ contains
         if ( bad ) exit
       enddo
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Ablation
 
@@ -799,7 +820,7 @@ contains
       n306 = count( [( domain%bc(i)%type == 306, i = 1, domain%nbound )] )
       if ( n306 == 0 ) then
         write(*,'(A)') ' [ERROR] law = nodeshift moves the ablating faces (306), and bc.txt has none.'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
 
       ! one receding face per block; its opposite face is not 306 as well
@@ -852,7 +873,7 @@ contains
         end associate
       enddo
 
-      if ( bad ) error stop 1
+      if ( bad ) call fuss_abort ( 1 )
 
     end subroutine Check_Ablation_BC_Topology
 
@@ -863,7 +884,7 @@ contains
       if (index(obj_io_bc%error_message,'ERROR')>0) then
         write(*,'(A,T35,A)') '   Boundary conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io_bc%error_message)
-        error stop 1
+        call fuss_abort ( 1 )
       else
         write(*,'(A,T35,A)') '   Boundary conditions', 'OK'
       endif
@@ -898,7 +919,7 @@ contains
         write(*,'(A)') obj_irs%error_message;          has_error = .true.
       endif
 
-      if (has_error) error stop 1
+      if (has_error) call fuss_abort ( 1 )
 
     end subroutine Stop_Simulation
 

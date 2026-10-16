@@ -1,4 +1,5 @@
 module FUSS_Lib_Solid
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Config_Types_m, only: obj_table
 
@@ -101,7 +102,16 @@ contains
     if ( Tm == -huge(Tm) .or. Tm < lbound(obj_table%h, 2) ) then
       write(*,'(A,F6.1,ES24.15,2I8)') ' [ERROR] enthalpy outside table range: matID, h, T_lo, T_hi = ', &
         matID, h, lbound(obj_table%h, 2), ubound(obj_table%h, 2)
-      error stop 3
+      call fuss_abort_in_thread ( 3, can_continue = .true. )
+      ! a worker thread of a multi-rank run (plan 11): the master stops the run after
+      ! the parallel region; until then T is the table's edge, so the property
+      ! lookups of the rest of the step stay inside the table
+      if ( Tm == -huge(Tm) ) then
+        T = real(ubound(obj_table%h, 2) - 1, R8)
+      else
+        T = real(lbound(obj_table%h, 2), R8)
+      endif
+      return
     endif
     hm = obj_table%h(matID, Tm)
     hp = obj_table%h(matID, Tp)

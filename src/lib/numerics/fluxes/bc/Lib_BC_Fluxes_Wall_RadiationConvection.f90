@@ -1,4 +1,5 @@
 module FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
@@ -88,7 +89,10 @@ contains
           ' iterations at cell i,j,k, face =', Im, Jm, Km, Fm
         write(*,'(A,ES12.5,A,ES12.5,A,ES14.6,A,ES14.6,A,ES14.6)') &
           '         |dq| = ', err_qw, '  tol = ', tol_qw, '  T_wall = ', T_wall, '  T = ', T, '  Tref = ', Tref
-        error stop 3
+        call fuss_abort_in_thread ( 3, can_continue = .true. )
+        ! a worker thread of a multi-rank run (plan 11): keep the last iterate; the master
+        ! stops the run after the parallel region
+        exit
       endif
     enddo
 

@@ -9,16 +9,14 @@ module FUSS_IO_Wall
 
 contains
 
-  subroutine Initialize_Wall_File ( domain, extension )
-    use FUSS_Advanced_Types_m
-    use IR_Precision
+  !> The wall output's variables. Set on EVERY rank: Extract_Properties_From_BC
+  !> sizes the reduction of the wall values with Onwall, while the wall file itself
+  !> is set up on root only (Initialize_Wall_File). Set on root alone, it left the
+  !> other ranks reducing zero values against root's Onwall per face cell -- a
+  !> collective with mismatched counts, which deadlocked the first wall output of
+  !> a multi-rank run (found 2026-10-16 by plan 11, multimat_Plate on 4 ranks).
+  subroutine Set_Wall_Variables ()
     implicit none
-    type(FUSS_domain_type), intent(in) :: domain
-    character(len=*), intent(in)       :: extension
-    ! Local
-    integer :: b, f, bb, i, j, k
-
-    IOwall%tec%extension = extension
     ! Two columns, unless the run has an ablating wall (306, plan 08 section
     ! 2.4): then seven, the extra five from the face's stored balance. A run
     ! without one keeps its wall.tec byte for byte.
@@ -29,6 +27,20 @@ contains
       obj_io%Onwall = 2
       obj_io%Owallnames = '"Tw" "qw"'
     endif
+  end subroutine Set_Wall_Variables
+
+
+  subroutine Initialize_Wall_File ( domain, extension )
+    use FUSS_Advanced_Types_m
+    use IR_Precision
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    character(len=*), intent(in)       :: extension
+    ! Local
+    integer :: b, f, bb, i, j, k
+
+    IOwall%tec%extension = extension
+    call Set_Wall_Variables ()
 
     allocate(IOwall%block(1:count(obj_io_bc%viscous_flag)))
 

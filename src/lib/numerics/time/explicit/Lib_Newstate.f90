@@ -1,4 +1,5 @@
 module FUSS_Lib_Newstate
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -421,6 +422,12 @@ contains
       write(*,'(A,4I4)') "Integration failed at b, i, j, k:", b, i, j, k
       write(*,*) T
       write(*,'(A)') " [ERROR] NaN or T<0 detected"
+      ! With MPI (plan 11): fuss_abort on the master thread or one rank keeps the code;
+      ! a worker thread of a multi-rank run stops its process (the launcher reports 255).
+      ! No continuation here: giving this routine the cell's previous temperature (an
+      ! intent(inout) T and a T_old argument) changed the code generated for the type-2
+      ! RK loop and moved 512 manifest rows by round-off (measured 2026-10-17).
+      call fuss_abort_in_thread ( 3 )
       error stop 3
     endif
 

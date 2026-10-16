@@ -1,4 +1,5 @@
 module FUSS_IO_BC
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -184,12 +185,12 @@ contains
       ! (An unreadable record used to print a line and go on with garbage.)
       if (ios/=0) then
         write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': cannot read "b i j k f type"'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
       if (bc(i)%b < 1 .or. bc(i)%b > size(n_bf,1) .or. bc(i)%f < 1 .or. bc(i)%f > 6) then
         write(*,'(A,I0,A,I0,A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': block ', bc(i)%b, ', face ', bc(i)%f, &
           ' (blocks 1..', size(n_bf,1), ', faces 1..6)'
-        error stop 1
+        call fuss_abort ( 1 )
       endif
 
       ! n_bf update
@@ -208,7 +209,7 @@ contains
           if (ios /= 0 .or. bc(i)%bs < 1 .or. bc(i)%bs > size(n_bf,1) .or. bc(i)%fs < 1 .or. bc(i)%fs > 6) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 101 line is "bs is js ks fs d11 d12 d21 d22"'// &
               ' with a block and face of this mesh'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
 
         case(300)
@@ -255,7 +256,7 @@ contains
             bc(i)%pw = obj_darcy%p_wall
           elseif ( bc(i)%pw <= 0.0d0 ) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 303 line (p_w) must be > 0'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
 
         case(304)
@@ -274,7 +275,7 @@ contains
             bc(i)%pw = obj_darcy%p_wall
           elseif ( bc(i)%pw <= 0.0d0 ) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 305 line (p_w) must be > 0'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
 
         case(306)
@@ -290,7 +291,7 @@ contains
           ! grid would need its own bc file before any setup check could run
           if ( obj_multigrid%MGL > 1 ) then
             write(*,'(A)') ' [ERROR] the ablating wall (306) is not compatible with multigrid.'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           ! One record, then an internal read: a list-directed read from the
           ! unit would run on into the next record when the line is short.
@@ -300,11 +301,11 @@ contains
           if ( ios /= 0 .or. len_trim(efile) == 0 ) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, &
               ': a 306 line is "lambda  T_inf  <bprime-file>  <env-file>" (bare names under INPUT/, or none for the table)'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           if ( bc(i)%lambda < 0.0d0 .or. bc(i)%Tinf <= 0.0d0 ) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 306 line needs lambda >= 0 and T_inf > 0'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           call bc(i)%env%load( 'INPUT/'//trim(efile), 7 )
           bc(i)%ibprime = 0
@@ -327,7 +328,7 @@ contains
           obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
           if ( obj_multigrid%MGL > 1 ) then
             write(*,'(A)') ' [ERROR] the ablating wall (306, 307) is not compatible with multigrid.'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           bfile = ''
           read(unitfile,'(A)',iostat=ios) line306
@@ -338,12 +339,12 @@ contains
           if ( ios /= 0 .or. ntok /= 11 ) then
             write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line is "bs is js ks fs d11 d12 d21 d22  T_inf  '// &
               '<bprime-file>" (11 values, ', ntok, ' read): a coupled face takes no lambda, it runs at lambda = 0'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           if ( bc(i)%Tinf <= 0.0d0 .or. trim(bfile) == 'none' ) then
             write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line needs T_inf > 0 and a B'' table '// &
               '(the chemistry of a coupled face is always on)'
-            error stop 1
+            call fuss_abort ( 1 )
           endif
           bc(i)%lambda = 0.0d0
           bc(i)%ext_flux = 0.0
@@ -417,7 +418,7 @@ contains
     if ( obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate ) return
     write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the time file "'//trim(file)//'" needs a time-accurate run'
     write(*,'(A)')      '         (time-accurate = false: a steady solve has no time to read it at).'
-    error stop 1
+    call fuss_abort ( 1 )
   end subroutine Refuse_Steady_Time_File
 
 

@@ -1,4 +1,5 @@
 module FUSS_Lib_Multigrid
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -28,7 +29,7 @@ subroutine Check_Multigrid ( domain )
       enddo
       if ( check < 3 ) then
         write(*,'(A90)') ' [ERROR] in Check_Multigrid, block: '//trim(str(.true.,b))
-        error stop 1
+        call fuss_abort ( 1 )
       endif
     enddo
 
