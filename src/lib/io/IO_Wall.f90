@@ -1,6 +1,6 @@
 module FUSS_IO_Wall
   use iso_fortran_env, only: I4 => int32, R8 => real64
-  use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_ablation
+  use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_ablation, obj_mesh_motion
   use FUSS_Global_m
   use FUSS_Parameters_m
   use Lib_ORION_data
@@ -100,6 +100,51 @@ contains
   end subroutine Initialize_Wall_File
 
 
+  !> Copy the current face nodes into the wall patches (root; the patches exist,
+  !> Initialize_Wall_File). A moving mesh calls it before every wall output.
+  subroutine Fill_Wall_Mesh ( domain )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: b, f, bb, i, j, k, ni, nj, nk
+
+    bb = 0
+    do b = 1, domain % nb; do f = 1, 6
+      if ( .not. obj_io_bc%viscous_flag( b , f ) ) cycle
+      bb = bb + 1
+      ni = domain%blk(b)%dim(1); nj = domain%blk(b)%dim(2); nk = domain%blk(b)%dim(3)
+      select case(f)
+      case(1)
+        do k = 0, nk; do j = 0, nj
+          IOwall % block(bb) % mesh(:,0,j,k) = domain % blk(b) % node(0,j,k) % c
+        enddo; enddo
+      case(2)
+        do k = 0, nk; do j = 0, nj
+          IOwall % block(bb) % mesh(:,0,j,k) = domain % blk(b) % node(ni,j,k) % c
+        enddo; enddo
+      case(3)
+        do k = 0, nk; do i = 0, ni
+          IOwall % block(bb) % mesh(:,i,0,k) = domain % blk(b) % node(i,0,k) % c
+        enddo; enddo
+      case(4)
+        do k = 0, nk; do i = 0, ni
+          IOwall % block(bb) % mesh(:,i,0,k) = domain % blk(b) % node(i,nj,k) % c
+        enddo; enddo
+      case(5)
+        do j = 0, nj; do i = 0, ni
+          IOwall % block(bb) % mesh(:,i,j,0) = domain % blk(b) % node(i,j,0) % c
+        enddo; enddo
+      case(6)
+        do j = 0, nj; do i = 0, ni
+          IOwall % block(bb) % mesh(:,i,j,0) = domain % blk(b) % node(i,j,nk) % c
+        enddo; enddo
+      end select
+    enddo; enddo
+
+  end subroutine Fill_Wall_Mesh
+
+
   !> Update the orion-field data and write them accordingly to the chosen format (vtk,tecplot)
   subroutine Write_Wall_Solution( domain, file )
     use Lib_VTK
@@ -107,7 +152,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Parameters_m
     use FUSS_Mod_MPI, only: mpi_is_root
-    use FUSS_Mod_GhostExchange, only: mpi_io_barrier
+    use FUSS_Mod_GhostExchange, only: mpi_io_barrier, gather_node_to_root
     use strings, only: parse
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -121,6 +166,15 @@ contains
     ! Each rank computes wall properties for its local blocks and reduces to root.
     ! (collective — all ranks must call)
     call Extract_Properties_From_BC( domain )
+
+    ! A moving mesh: the wall patches take the current nodes. The patch mesh was
+    ! built once at setup, so every wall.tec of a moving run carried the initial
+    ! surface, on one rank too (plan 11 stage 2); the nodes of other ranks' blocks
+    ! are gathered first (collective).
+    if ( obj_mesh_motion%enabled ) then
+      call gather_node_to_root ( domain )
+      if ( mpi_is_root ) call Fill_Wall_Mesh ( domain )
+    endif
 
     if (mpi_is_root) then
       path = 'OUTPUT/'
