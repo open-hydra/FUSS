@@ -105,6 +105,19 @@ for pass in A B; do
   if "$ROOT/test/run_regression.sh" -p "$NTHREADS" $MPIOPT $EXTRA -o "$WORK/$pass" \
        > "$WORK/$pass.log" 2>&1; then
     echo "done ($(wc -l < "$WORK/$pass/manifest.txt") artefacts)"
+  elif [ "$NMPI" -gt 1 ]; then
+    # On N ranks the cases MPI refuses as a whole (pyrolysis, the ablating wall, chimera, multigrid)
+    # exit 1 by name; any other case that did not run is a failure
+    crashed=0
+    for lg in $(grep -l . "$WORK/$pass"/*.log); do
+      grep -q "FAILED (see $lg)" "$WORK/$pass.log" || continue
+      if ! grep -qE "pyrolysis is OpenMP-only|the ablating wall \(306\) is OpenMP-only|chimera faces \(102\) are OpenMP-only|multigrid is OpenMP-only" "$lg"; then
+        echo; echo "  FAIL  $(basename "$lg" .log) did not run and was not refused by an MPI guard (see $lg)"
+        crashed=$((crashed+1))
+      fi
+    done
+    [ "$crashed" -eq 0 ] || exit 1
+    echo "done ($(wc -l < "$WORK/$pass/manifest.txt") artefacts; $(grep -c 'FAILED (see' "$WORK/$pass.log") cases refused by an MPI guard)"
   else
     echo "FAILED -- see $WORK/$pass.log"
     exit 1
