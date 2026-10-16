@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_determinism_gate.sh
-#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-a] [-x] [-X] [-c CASE]...
+#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]...
 #  DESCRIPTION: Run the whole suite TWICE with identical settings and require
 #               the two manifests to be identical.
 #
@@ -64,15 +64,17 @@ EXTRA=""
 XTHREAD=0
 XONLY=0
 XCASES=()
+NMPI=0
 
 while test $# -gt 0; do
   case $1 in
     -p | --parallel) NTHREADS=$2; shift 2 ;;
+    -m | --mpi)      NMPI=$2; shift 2 ;;
     -a | --all)      EXTRA="-a"; shift ;;
     -x | --cross-thread) XTHREAD=1; shift ;;
     -X | --cross-thread-only) XTHREAD=1; XONLY=1; shift ;;
     -c | --case) XTHREAD=1; XCASES+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-p NTHREADS] [-a] [-x] [-X] [-c CASE]..."; exit 1 ;;
+    -h | --help) echo "usage: $0 [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -81,15 +83,26 @@ done
 WORK="${TMPDIR:-/tmp}/fuss-determinism.$$"
 mkdir -p "$WORK"
 
+# -m N (plan 11): both passes and the cross-thread runs use the mpi preset's bin/FUSS-mpi on N ranks
+# through Intel MPI's own launcher (run_regression.sh -m does the same for the passes).
+EXE=FUSS ; MPIOPT="" ; TMO=""
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  EXE=FUSS-mpi ; MPIOPT="-m $NMPI"
+  [ "$NMPI" -gt 1 ] && TMO="timeout 900"
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+fi
+
 echo "FUSS determinism gate"
 echo "  threads : $NTHREADS"
+[ "$NMPI" -gt 0 ] && echo "  ranks   : $NMPI (bin/FUSS-mpi)"
 echo "  work    : $WORK"
 echo
 
 for pass in A B; do
   [ "$XONLY" -eq 1 ] && break
   printf '  pass %s ... ' "$pass"
-  if "$ROOT/test/run_regression.sh" -p "$NTHREADS" $EXTRA -o "$WORK/$pass" \
+  if "$ROOT/test/run_regression.sh" -p "$NTHREADS" $MPIOPT $EXTRA -o "$WORK/$pass" \
        > "$WORK/$pass.log" 2>&1; then
     echo "done ($(wc -l < "$WORK/$pass/manifest.txt") artefacts)"
   else
@@ -126,7 +139,7 @@ if [ "$XTHREAD" -eq 1 ]; then
   # and was observed CHURNING mid-run (same reasoning as
   # run_physics_gates.sh's BINSNAP; see that file's header for the failure it
   # was written to avoid).
-  cp "$ROOT/bin/FUSS" "$XWORK/FUSS.snapshot"
+  cp "$ROOT/bin/$EXE" "$XWORK/FUSS.snapshot"
 
   xfail=0
   for xc in "${XCASES[@]}"; do
@@ -148,11 +161,11 @@ if [ "$XTHREAD" -eq 1 ]; then
       # `-nt` copy check (which still points at the LIVE $ROOT/bin/FUSS via the
       # sedded MASTERDIR) is a guaranteed no-op and cannot overwrite the
       # snapshot with a possibly-different, possibly-mid-write binary.
-      cp "$XWORK/FUSS.snapshot" "$d/bin/FUSS"
-      touch -d '+1 hour' "$d/bin/FUSS"
+      cp "$XWORK/FUSS.snapshot" "$d/bin/$EXE"
+      touch -d '+1 hour' "$d/bin/$EXE"
 
       printf '    -p %d ... ' "$nt"
-      if ( cd "$d" && ./FUSS.sh -p "$nt" solve ) > "$d/run.log" 2>&1; then
+      if ( cd "$d" && $TMO ./FUSS.sh -p "$nt" $MPIOPT solve ) > "$d/run.log" 2>&1; then
         echo "done"
       else
         echo "FAILED -- see $d/run.log"

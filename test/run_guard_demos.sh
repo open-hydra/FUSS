@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_guard_demos.sh
-#        USAGE: ./test/run_guard_demos.sh [-w WORKDIR]
+#        USAGE: ./test/run_guard_demos.sh [-w WORKDIR] [-m NRANKS]
 #  DESCRIPTION: Every moving-mesh guard is run against the configuration it is
 #               supposed to reject, and must actually reject it.
 #
@@ -18,6 +18,15 @@
 #               were indistinguishable by status and only the text could be
 #               trusted. Checking both means a guard that stops for the WRONG
 #               reason no longer passes just because the message matches.
+#
+#               -m N (plan 11) runs every demo with the mpi preset's bin/FUSS-mpi on
+#               N ranks through $I_MPI_ROOT/bin/mpirun, under timeout 900: each
+#               demo must keep its text AND its code there too (a stop on only
+#               some of the ranks used to make the launcher report 255). A base
+#               that MPI refuses as a whole -- pyrolysis, the ablating wall, a
+#               moving mesh before plan 11 stage 2 -- is refused by name with code
+#               1 before the demo's own check; that outcome is counted apart
+#               ("MPI") and is the first demonstration of those refusals.
 #===============================================================================
 set -u
 
@@ -29,19 +38,50 @@ BASE_ABL_PYRO="$ROOT/test/pyrolysis/ablation/demo_base_pyro"
 BASE_ABL_2BLK="$ROOT/test/pyrolysis/ablation/demo_base_2blk"
 BASE_R5="$ROOT/test/moving-mesh/conjugate_receding"
 WORK="${TMPDIR:-/tmp}/fuss-guard-demos.$$"
+NMPI=0
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR]"; exit 1 ;;
+    -m | --mpi)  NMPI=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# How every demo runs the solver: the default executable, or (-m) the mpi preset's on N ranks
+# through Intel MPI's own launcher, never whatever mpirun comes first on PATH.
+SOLVE="./FUSS.sh -p 1 solve"
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+  SOLVE="timeout 900 ./FUSS.sh -p 1 -m $NMPI solve"
+fi
 
 mkdir -p "$WORK"
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
+
+# A helper called before it is defined, or a missing FUSS.sh, exits 127 and used to be
+# skipped without a FAIL (the irs_beta demo, found 2026-10-16): count it.
+set -E
+trap '[ $? -eq 127 ] && bad "line $LINENO: exit 127 -- a demo helper or the solver script was not found"' ERR
+
+# Under -m N > 1: a base that MPI refuses as a whole is stopped by name with code 1 before the demo's
+# own check. That is the expected outcome there; it is counted apart, never as a PASS.
+nmpi_ref=0
+MPI_REFUSALS=("pyrolysis is OpenMP-only until plan 11" "the ablating wall (306) is OpenMP-only until plan 11"
+              "a moving mesh is OpenMP-only until plan 11 stage 2")
+mpi_refused () {   # $1 = log, $2 = exit code: true when an MPI refusal stopped the run with code 1
+  [ "$NMPI" -gt 1 ] && [ "$2" -eq 1 ] || return 1
+  local t
+  for t in "${MPI_REFUSALS[@]}"; do
+    if grep -qF "$t" "$1"; then MPI_REF_TEXT=$t; return 0; fi
+  done
+  return 1
+}
+refused () { printf '  \033[0;33mMPI\033[0m   %s\n' "$1"; nmpi_ref=$((nmpi_ref+1)); }
 
 echo "FUSS guard demonstrations"
 echo "  base case : test/moving-mesh/receding/N040 (mesh motion), test/pyrolysis/energy_audit (pyrolysis),"
@@ -105,9 +145,12 @@ open(p, "w").write(s)
 PY
   done
 
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
 
+  if ! grep -qF "$expect" "$d/run.log" || [ "$rc" -ne "$expect_rc" ]; then
+    if mpi_refused "$d/run.log" "$rc"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
+  fi
   if ! grep -qF "$expect" "$d/run.log"; then
     bad "$name: expected \"$expect\", not found in $d/run.log"
     tail -4 "$d/run.log" | sed 's/^/          /'
@@ -124,13 +167,6 @@ PY
 # Input-validation guards (fire before the first step).
 # ---------------------------------------------------------------------------
 demo irs        1 "not compatible with implicit residual smoothing" "irs=true"
-# `irs-beta > 0` alone also enables IRS (Assign_Setup promotes
-# it), but that promotion used to run AFTER Check_Input, so this exact input
-# passed the guard above and smoothed the ALE-remapped residual anyway.
-# The base says `irs = false`, which beside irs-beta > 0 is refused as a contradiction
-# (irs_contradiction below), so this demo deletes it: what it tests is the promotion.
-demo_on "$BASE" irs_beta 1 "not compatible with implicit residual smoothing" \
-    "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo multigrid  1 "not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
@@ -182,8 +218,9 @@ demo_ok () {
   mkdir -p "$d/OUTPUT" "$d/bin"
   printf '\n%s\n' "$1" >> "$d/input.ini"
 
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
+  if [ "$rc" -ne 0 ] && mpi_refused "$d/run.log" "$rc"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
   if [ "$rc" -eq 0 ]; then
     pass "$name -> accepted, as it must be (exit 0)"
   else
@@ -331,9 +368,12 @@ open(p, "w").write(s)
 PYINI
   done
 
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
 
+  if ! grep -qF "$expect" "$d/run.log" || [ "$rc" -ne "$expect_rc" ]; then
+    if mpi_refused "$d/run.log" "$rc"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
+  fi
   if ! grep -qF "$expect" "$d/run.log"; then
     bad "$name: expected \"$expect\", not found in $d/run.log"
     tail -4 "$d/run.log" | sed 's/^/          /'
@@ -346,6 +386,15 @@ PYINI
   pass "$name -> exit $rc, $(grep -m1 -F "$expect" "$d/run.log" | sed 's/^ *//')"
 }
 
+# `irs-beta > 0` alone also enables IRS (Assign_Setup promotes
+# it), but that promotion used to run AFTER Check_Input, so this exact input
+# passed the `irs` guard (demo irs, above) and smoothed the ALE-remapped residual anyway.
+# The base says `irs = false`, which beside irs-beta > 0 is refused as a contradiction
+# (irs_contradiction below), so this demo deletes it: what it tests is the promotion.
+demo_on "$BASE" irs_beta 1 "not compatible with implicit residual smoothing" \
+    "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
+# (Until 2026-10-16 this call stood above demo_on's definition: bash ran nothing, exit 127, and
+# no FAIL was counted.)
 demo_pyro pyro_irs          1 "pyrolysis is not compatible with implicit residual smoothing" "irs=true"
 demo_pyro pyro_irs_beta     1 "pyrolysis is not compatible with implicit residual smoothing" "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo_pyro pyro_multigrid    1 "pyrolysis is not compatible with multigrid" \
@@ -443,8 +492,9 @@ demo_ok_on () {   # $1 = base, $2 = name: the base must run to completion (exit 
   cp -r "$base/INPUT" "$base/MESH" "$base/input.ini" "$base/FUSS.sh" "$d/"
   sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
+  if [ "$rc" -ne 0 ] && mpi_refused "$d/run.log" "$rc"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
   if [ "$rc" -ne 0 ] || grep -q '\[ERROR\]' "$d/run.log"; then
     bad "$name: the base itself does not run (exit $rc, see $d/run.log)"
     return
@@ -635,15 +685,23 @@ demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the
   cp -r "$BASE_ABL/INPUT" "$BASE_ABL/MESH" "$BASE_ABL/input.ini" "$BASE_ABL/FUSS.sh" "$d/"
   sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run1.log" 2>&1 || { bad "$name: the first leg failed (see $d/run1.log)"; return; }
+  ( cd "$d" && $SOLVE ) > "$d/run1.log" 2>&1
+  local rc1=$?
+  if [ "$rc1" -ne 0 ]; then
+    if mpi_refused "$d/run1.log" "$rc1"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
+    bad "$name: the first leg failed (see $d/run1.log)"; return
+  fi
   if [ "$edit" = "RM" ]; then
     rm -f "$d/OUTPUT/bc306-state.dat"
   else
     python3 -c "$edit" "$d/OUTPUT/bc306-state.dat" || { bad "$name: the state-file edit failed"; return; }
   fi
   sed -i 's/^newrun = .*/newrun = false/' "$d/input.ini"
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run.log" 2>&1
+  ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
+  if ! grep -qF "$expect" "$d/run.log" || [ "$rc" -ne 1 ]; then
+    if mpi_refused "$d/run.log" "$rc"; then refused "$name -> exit 1, $MPI_REF_TEXT"; return; fi
+  fi
   if ! grep -qF "$expect" "$d/run.log"; then
     bad "$name: expected \"$expect\", not found in $d/run.log"; tail -4 "$d/run.log" | sed 's/^/          /'; return
   fi
@@ -727,6 +785,7 @@ demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_
     "a 101 line is \"bs is js ks fs d11 d12 d21 d22\" with a block and face of this mesh" "PY:$BC_CONN9"
 
 echo
+[ "$NMPI" -gt 1 ] && echo "$nmpi_ref demo(s) refused as a whole by an MPI guard (pyrolysis, the ablating wall, a moving mesh), code 1"
 if [ "$fail" -eq 0 ]; then
   echo "all guards fired as intended"
 else

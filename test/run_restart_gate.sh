@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_restart_gate.sh
-#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR]
+#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL]]]...
 #  DESCRIPTION: A restarted run must reproduce a continuous one across the
 #               restart point (plan 05 section 6).
 #
@@ -143,14 +143,28 @@ set -u
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WORK="${TMPDIR:-/tmp}/fuss-restart-gate.$$"
+NMPI=0
+ONLY=()
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR]"; exit 1 ;;
+    -m | --mpi)  NMPI=$2; shift 2 ;;
+    -c | --case) ONLY+=("$2"); shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL]]]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# -m N (plan 11): every leg runs the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own
+# launcher, under timeout 900. -c runs only the cases named (path from the repo root, iterations per
+# half, tolerance), instead of the list below: the MPI restart gate is one multi-block case.
+SOLVE="./FUSS.sh -p 1 solve"
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+  SOLVE="timeout 900 ./FUSS.sh -p 1 -m $NMPI solve"
+fi
 
 mkdir -p "$WORK"
 fail=0
@@ -203,15 +217,15 @@ PY
   }
 
   set_iters "$cont" "$((2*half))" "true"
-  ( cd "$cont" && ./FUSS.sh -p 1 solve ) > "$cont/run.log" 2>&1 \
+  ( cd "$cont" && $SOLVE ) > "$cont/run.log" 2>&1 \
     || { bad "$case_rel: continuous run failed (see $cont/run.log)"; return; }
 
   set_iters "$rst" "$half" "true"
-  ( cd "$rst" && ./FUSS.sh -p 1 solve ) > "$rst/run1.log" 2>&1 \
+  ( cd "$rst" && $SOLVE ) > "$rst/run1.log" 2>&1 \
     || { bad "$case_rel: first leg failed (see $rst/run1.log)"; return; }
 
   set_iters "$rst" "$half" "false"
-  ( cd "$rst" && ./FUSS.sh -p 1 solve ) > "$rst/run2.log" 2>&1 \
+  ( cd "$rst" && $SOLVE ) > "$rst/run2.log" 2>&1 \
     || { bad "$case_rel: restarted leg failed (see $rst/run2.log)"; return; }
 
   local out rc
@@ -349,6 +363,12 @@ PY
   fi
 }
 
+if [ "${#ONLY[@]}" -gt 0 ]; then
+  for spec in "${ONLY[@]}"; do
+    IFS=: read -r c_rel c_half c_tol <<< "$spec"
+    run_case "$c_rel" "${c_half:-200}" "${c_tol:-1.0e-11}"
+  done
+else
 run_case "test/steady-state/qvol_Plate"      200
 run_case "test/moving-mesh/receding/N040"    200
 # pyrolysis (plan 06): the reaction state chi_* must travel through the restart
@@ -410,9 +430,9 @@ run_label_case () {
   mkdir -p "$d/OUTPUT" "$d/bin"
   sed -i "s/^level1-iter = .*/level1-iter = $fine/; s/^level2-iter = .*/level2-iter = $coarse/; \
           s/^res-threshold = .*/res-threshold = 1e-30/; s/^newrun = .*/newrun = true/" "$d/input.ini"
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run1.log" 2>&1 || { bad "$case_rel: first leg failed (see $d/run1.log)"; return; }
+  ( cd "$d" && $SOLVE ) > "$d/run1.log" 2>&1 || { bad "$case_rel: first leg failed (see $d/run1.log)"; return; }
   sed -i "s/^newrun = .*/newrun = false/" "$d/input.ini"
-  ( cd "$d" && ./FUSS.sh -p 1 solve ) > "$d/run2.log" 2>&1 || { bad "$case_rel: restarted leg failed (see $d/run2.log)"; return; }
+  ( cd "$d" && $SOLVE ) > "$d/run2.log" 2>&1 || { bad "$case_rel: restarted leg failed (see $d/run2.log)"; return; }
   local out rc
   out=$(python3 - "$d/OUTPUT/residual-history.dat" "$d/OUTPUT/field.tec" "$n" <<'PY'
 import re, sys
@@ -437,6 +457,7 @@ PY
   fi
 }
 run_label_case "test/numerics-features/residual_convergence/mg1" 20 100
+fi
 
 echo
 if [ "$fail" -eq 0 ]; then

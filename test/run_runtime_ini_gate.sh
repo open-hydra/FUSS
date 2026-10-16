@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_runtime_ini_gate.sh
-#        USAGE: ./test/run_runtime_ini_gate.sh [-w WORKDIR]
+#        USAGE: ./test/run_runtime_ini_gate.sh [-w WORKDIR] [-m NRANKS]
 #  DESCRIPTION: input.ini is re-read every `ini-diter` iterations WHILE THE RUN
 #               IS IN PROGRESS. This gates what that re-read is allowed to do
 #               (plan 10, D3).
@@ -38,14 +38,25 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BASE="$ROOT/test/moving-mesh/receding/N040"
 WORK="${TMPDIR:-/tmp}/fuss-runtime-ini.$$"
+NMPI=0
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR]"; exit 1 ;;
+    -m | --mpi)  NMPI=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# -m N (plan 11): the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own launcher. Only root
+# reads input.ini and broadcasts the mutable values, and only root writes the report: one copy of it.
+MPIOPT="" ; TMO=""
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+  MPIOPT="-m $NMPI" ; [ "$NMPI" -gt 1 ] && TMO="timeout 900"
+fi
 
 mkdir -p "$WORK"
 fail=0
@@ -73,7 +84,7 @@ start_case () {
   sed -i 's/^time-threshold = .*/time-threshold = 1e30/'      "$d/input.ini"
   sed -i 's/^ini-diter     = .*/ini-diter     = 20/'          "$d/input.ini"
 
-  ( cd "$d" && ./FUSS.sh -p 1 solve > run.log 2>&1 ) &
+  ( cd "$d" && $TMO ./FUSS.sh -p 1 $MPIOPT solve > run.log 2>&1 ) &
   local runner=$!
 
   # Wait until it is demonstrably past the first re-read, so the edit lands
@@ -115,6 +126,14 @@ if [ -f "$d/$REPORT" ] && grep -q "vnn" "$d/$REPORT"; then
   pass "an immutable change is ignored and named: $(grep -m1 vnn "$d/$REPORT" | sed 's/^ *//')"
 else
   bad "immutable_ignored: vnn change was not reported"
+fi
+if [ "$NMPI" -gt 1 ]; then
+  nvnn=$(grep -c "vnn" "$d/$REPORT" 2>/dev/null || echo 0)
+  if [ "$nvnn" -eq 1 ]; then
+    pass "...reported once on $NMPI ranks (root alone reads input.ini and writes the report)"
+  else
+    bad "immutable_ignored: the vnn line is in the report $nvnn times on $NMPI ranks (expected once)"
+  fi
 fi
 if grep -qE "Delta t = 0\.868029E-01" "$d/run.log"; then
   pass "...and the running value really was kept (dt unchanged)"
