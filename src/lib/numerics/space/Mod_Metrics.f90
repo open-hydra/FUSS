@@ -1,5 +1,5 @@
 module FUSS_Mod_Metrics
-  use FUSS_Mod_MPI, only: fuss_abort, fuss_abort_check
+  use FUSS_Mod_MPI, only: fuss_abort, fuss_abort_check, is_local_block
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -124,6 +124,11 @@ contains
       Jm = domain % bc(i) % j
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
+      ! the refresh of a moving mesh: each rank rebuilds the ghost metrics of its own
+      ! blocks only, with the neighbour planes exchange_node_planes brought (plan 11)
+      if ( is_refresh ) then
+        if ( .not. is_local_block(Bm) ) cycle
+      endif
       select case ( domain % bc(i) % type )
         case(101) ! block connection
           Bs = domain % bc(i) % bs
@@ -177,7 +182,7 @@ contains
     use FUSS_Config_Types_m, only: obj_mesh_motion
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
     use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
-    use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Mod_GhostExchange, only: exchange_node_planes
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     real(R8),               intent(in)    :: t, dt
@@ -237,6 +242,10 @@ contains
 
     ! The shared nodes of every block interface must still coincide bitwise.
     if ( nodeshift ) call Assert_Interface_Nodes ( domain )
+
+    ! A block connection between two ranks builds its ghost metric from the
+    ! neighbour's node planes: bring them to this rank first (plan 11 stage 2).
+    call exchange_node_planes ( domain )
 
     ! The ghost-cell metrics are functions of the geometry that has just moved,
     ! so they have to be rebuilt too. See Setup_BC_Metrics. (TEST ONLY

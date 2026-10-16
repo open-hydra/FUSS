@@ -102,9 +102,13 @@ contains
     do i = lbound(node,1), ubound(node,1)
       xr = self%node_ref(i,j,k)%c
 
-      ! Boundary taper. sin(pi*xi) is exactly zero at xi = 0 and 1, so nodes on
-      ! the block boundary do not move at all -- not "move a little", exactly
-      ! zero, which is what makes the conservation audit a clean statement.
+      ! Boundary taper. sin(pi*xi) is exactly zero at xi = 0; at xi = 1 the
+      ! computed value is not (sin(PI) = 1.2e-16; PI*30/30 rounds low, 5.7e-16),
+      ! so a node there moves by about 1e-18 m, which rounds away against
+      ! coordinates of order 0.1 m (measured margin in conservation_4blk: 4.2x
+      ! below half an ulp, plan 11 stage 2). Two blocks that share such a node
+      ! (one at xi = 1, the other at xi = 0) therefore agree bitwise by that
+      ! margin, not by construction.
       ! Degenerate directions (dim == 1, e.g. the k direction of a 2-D mesh) are
       ! skipped rather than tapered to zero everywhere.
       w = 1.0_R8

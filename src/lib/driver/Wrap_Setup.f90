@@ -400,15 +400,6 @@ contains
 
       bad = .false.
 
-      ! No rank holds the current nodes of another rank's blocks: the ghost
-      ! metrics of a block connection between two ranks, the solution file and
-      ! the restart would all be built from the initial geometry (plan 11
-      ! stage 2 builds the node exchange and the gather).
-      if ( mpi_size_ > 1 ) then
-        write(*,'(A)') ' [ERROR] a moving mesh is OpenMP-only until plan 11 stage 2.'
-        bad = .true.
-      endif
-
       if ( obj_irs%enabled ) then
         write(*,'(A)') ' [ERROR] mesh motion is not compatible with implicit residual smoothing.'
         write(*,'(A)') '         IRS smooths the residual after the ALE swept-volume flux has'

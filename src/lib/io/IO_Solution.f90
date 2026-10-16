@@ -383,7 +383,8 @@ contains
     use FUSS_Mod_Pyrolysis,  only: Write_Energy_Budget
     use FUSS_Mod_Recession,  only: Write_Ablation_Outputs, Write_Interface_Flux
     use FUSS_Mod_MPI, only: mpi_is_root
-    use FUSS_Mod_GhostExchange, only: gather_T_to_root, gather_qvol_to_root, gather_matID_to_root, mpi_io_barrier
+    use FUSS_Mod_GhostExchange, only: gather_T_to_root, gather_qvol_to_root, gather_matID_to_root, mpi_io_barrier, &
+                                      gather_node_to_root
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     type(ORION_data), intent(inout)       :: IOfield
@@ -400,6 +401,9 @@ contains
     call gather_T_to_root(domain)
     call gather_matID_to_root(domain)
     call gather_qvol_to_root(domain)
+    ! a moving mesh: root writes every block's CURRENT nodes (plan 11 stage 2); this
+    ! file is also the restart, which would otherwise carry the setup geometry
+    if ( obj_mesh_motion%enabled ) call gather_node_to_root(domain)
 
     if (mpi_is_root) then
       path = 'OUTPUT/'

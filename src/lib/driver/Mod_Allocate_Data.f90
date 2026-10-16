@@ -326,10 +326,18 @@ contains
         if (allocated(domain%blk(b)%T)) deallocate(domain%blk(b)%T)
       end if
 
+      ! The motion history of a moving mesh: only a block's own rank moves it and
+      ! remaps its cells (plan 11 stage 2)
+      if (allocated(domain%blk(b)%node_old)) deallocate(domain%blk(b)%node_old)
+      if (allocated(domain%blk(b)%vol_old))  deallocate(domain%blk(b)%vol_old)
+      if (allocated(domain%blk(b)%dV_swept)) deallocate(domain%blk(b)%dV_swept)
+
       ! Metrics — free on non-root ranks only (root needs them for wall I/O)
       ! Keep dir on blocks needed for manifold (BC_Manifold reads blk(Bs)%dir%f%A)
+      ! The nodes stay on every rank (plan 11 stage 2): a block connection between
+      ! two ranks builds its ghost metric from the neighbour's node planes, which
+      ! exchange_node_planes refreshes each step, and root gathers them for output.
       if (.not. mpi_is_root) then
-        if (allocated(domain%blk(b)%node)) deallocate(domain%blk(b)%node)
         if (allocated(domain%blk(b)%M))    deallocate(domain%blk(b)%M)
         if (allocated(domain%blk(b)%dl))   deallocate(domain%blk(b)%dl)
         if (allocated(domain%blk(b)%vol))  deallocate(domain%blk(b)%vol)

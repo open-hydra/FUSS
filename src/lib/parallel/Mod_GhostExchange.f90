@@ -77,6 +77,14 @@ module FUSS_Mod_GhostExchange
 
   type(ghost_schedule_type), public :: ghost_sched
 
+  ! Node planes of the block connections between two ranks (plan 11 stage 2), built at the first
+  ! exchange: transfer t sends the planes 0..gc of face np_face(t) of block np_block(t) from that
+  ! block's rank to rank np_to(t)
+  logical :: np_built = .false.
+  integer :: np_n = 0
+  integer, allocatable :: np_block(:), np_face(:), np_to(:)
+  integer, parameter :: NODE_GATHER_TAG = 70000, NODE_PLANE_TAG = 80000
+
   public :: build_ghost_schedule
   public :: build_local_bc_index
   public :: cleanup_ghost_schedule
@@ -86,6 +94,7 @@ module FUSS_Mod_GhostExchange
   public :: exchange_ghost_R
   public :: exchange_ghost_Tg
   public :: gather_T_to_root, gather_matID_to_root, gather_qvol_to_root
+  public :: gather_node_to_root, exchange_node_planes
   public :: gather_diagnostic_to_root
   public :: scatter_T_from_root
   public :: mpi_io_barrier
@@ -641,6 +650,191 @@ contains
     call exchange_R_field_end(domain)
 #endif
   end subroutine exchange_ghost_R
+
+
+  !> Gather every remote block's nodes to root (plan 11 stage 2). A moving mesh moves each
+  !> block on its own rank only, and root writes every block's geometry: in the solution
+  !> file, which is also the restart, and in the wall output. Root's copies of the remote
+  !> nodes (kept since setup) are overwritten. Collective: every rank calls it.
+  subroutine gather_node_to_root(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer :: b
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    block
+      use mpi
+      integer :: ierr, nreq, off, n, i, j, k
+      integer, allocatable :: reqs(:), stats(:,:), boff(:), bn(:)
+      real(R8), allocatable :: buf(:)
+
+      ! root holds the remote blocks, every other rank sends its own
+      allocate(boff(domain%nb), bn(domain%nb))
+      off = 0
+      do b = 1, domain%nb
+        bn(b) = 3 * (domain%blk(b)%dim(1)+1) * (domain%blk(b)%dim(2)+1) * (domain%blk(b)%dim(3)+1)
+        boff(b) = off
+        if (mpi_is_root .neqv. is_local_block(b)) off = off + bn(b)
+      end do
+      allocate(buf(max(off, 1)), reqs(domain%nb), stats(MPI_STATUS_SIZE, domain%nb))
+
+      nreq = 0
+      do b = 1, domain%nb
+        if (mpi_is_root .and. .not. is_local_block(b)) then
+          nreq = nreq + 1
+          call MPI_IRECV(buf(boff(b)+1), bn(b), MPI_DOUBLE_PRECISION, block_owner(b), &
+                         NODE_GATHER_TAG + b, MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        else if (.not. mpi_is_root .and. is_local_block(b)) then
+          n = boff(b)
+          do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 0, domain%blk(b)%dim(1)
+            buf(n+1:n+3) = domain%blk(b)%node(i,j,k)%c
+            n = n + 3
+          end do; end do; end do
+          nreq = nreq + 1
+          call MPI_ISEND(buf(boff(b)+1), bn(b), MPI_DOUBLE_PRECISION, 0, &
+                         NODE_GATHER_TAG + b, MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        end if
+      end do
+      if (nreq > 0) then
+        call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+
+      if (mpi_is_root) then
+        do b = 1, domain%nb
+          if (is_local_block(b)) cycle
+          n = boff(b)
+          do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 0, domain%blk(b)%dim(1)
+            domain%blk(b)%node(i,j,k)%c = buf(n+1:n+3)
+            n = n + 3
+          end do; end do; end do
+        end do
+      end if
+      deallocate(buf, reqs, stats, boff, bn)
+    end block
+#endif
+  end subroutine gather_node_to_root
+
+
+  !> The node planes of every block connection between two ranks (plan 11 stage 2).
+  !> BC_Connect_Metrics builds a 101 face's ghost metric from the neighbour block's node
+  !> planes beyond the shared one (gc of them, Lib_Metrics). With the neighbour on another
+  !> rank this rank's copy of those nodes would be the setup geometry, so after every mesh
+  !> update each rank sends, for every face of its own blocks that a block of another rank
+  !> connects to, the planes 0..gc of that face, and receives its neighbours' into its
+  !> copies of their nodes. One message per (block, face, receiving rank); both ends list
+  !> the transfers in the same order, from the full bc list every rank holds.
+  subroutine exchange_node_planes(domain)
+    use FUSS_Advanced_Types_m
+    use FUSS_Global_m, only: gc
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    block
+      use mpi
+      integer :: ierr, t, i, b, f, nreq, n, off, ii, jj, kk
+      integer :: lo(3), hi(3)
+      logical, allocatable :: seen(:,:,:)
+      integer, allocatable :: reqs(:), stats(:,:), toff(:), tn(:)
+      real(R8), allocatable :: buf(:)
+
+      if (.not. np_built) then
+        allocate(seen(6, domain%nb, 0:mpi_size_-1))
+        seen = .false.
+        do i = 1, domain%nbound
+          if (domain%bc(i)%type /= 101) cycle
+          b = domain%bc(i)%bs
+          f = domain%bc(i)%fs
+          if (block_owner(b) == block_owner(domain%bc(i)%b)) cycle
+          seen(f, b, block_owner(domain%bc(i)%b)) = .true.
+        end do
+        np_n = count(seen)
+        allocate(np_block(np_n), np_face(np_n), np_to(np_n))
+        t = 0
+        do b = 1, domain%nb; do f = 1, 6; do i = 0, mpi_size_-1
+          if (.not. seen(f, b, i)) cycle
+          t = t + 1
+          np_block(t) = b; np_face(t) = f; np_to(t) = i
+        end do; end do; end do
+        deallocate(seen)
+        np_built = .true.
+      end if
+      if (np_n == 0) return
+
+      allocate(toff(np_n), tn(np_n), reqs(np_n), stats(MPI_STATUS_SIZE, np_n))
+      off = 0
+      do t = 1, np_n
+        call plane_range(np_block(t), np_face(t), lo, hi)
+        tn(t) = 3 * (hi(1)-lo(1)+1) * (hi(2)-lo(2)+1) * (hi(3)-lo(3)+1)
+        toff(t) = off
+        if (block_owner(np_block(t)) == mpi_rank_ .or. np_to(t) == mpi_rank_) off = off + tn(t)
+      end do
+      allocate(buf(max(off, 1)))
+
+      nreq = 0
+      do t = 1, np_n
+        b = np_block(t)
+        if (np_to(t) == mpi_rank_) then
+          nreq = nreq + 1
+          call MPI_IRECV(buf(toff(t)+1), tn(t), MPI_DOUBLE_PRECISION, block_owner(b), &
+                         NODE_PLANE_TAG + 6*(b-1) + np_face(t), MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        else if (block_owner(b) == mpi_rank_) then
+          call plane_range(b, np_face(t), lo, hi)
+          n = toff(t)
+          do kk = lo(3), hi(3); do jj = lo(2), hi(2); do ii = lo(1), hi(1)
+            buf(n+1:n+3) = domain%blk(b)%node(ii,jj,kk)%c
+            n = n + 3
+          end do; end do; end do
+          nreq = nreq + 1
+          call MPI_ISEND(buf(toff(t)+1), tn(t), MPI_DOUBLE_PRECISION, np_to(t), &
+                         NODE_PLANE_TAG + 6*(b-1) + np_face(t), MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        end if
+      end do
+      if (nreq > 0) then
+        call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+
+      do t = 1, np_n
+        if (np_to(t) /= mpi_rank_) cycle
+        b = np_block(t)
+        call plane_range(b, np_face(t), lo, hi)
+        n = toff(t)
+        do kk = lo(3), hi(3); do jj = lo(2), hi(2); do ii = lo(1), hi(1)
+          domain%blk(b)%node(ii,jj,kk)%c = buf(n+1:n+3)
+          n = n + 3
+        end do; end do; end do
+      end do
+      deallocate(buf, toff, tn, reqs, stats)
+    end block
+#endif
+
+  contains
+
+    !> The node index ranges of the planes 0..gc of face f of block b (clamped to the block)
+    subroutine plane_range(b, f, lo, hi)
+      integer, intent(in)  :: b, f
+      integer, intent(out) :: lo(3), hi(3)
+      integer :: d
+      lo = 0
+      hi = domain%blk(b)%dim
+      d = (f + 1) / 2
+      if (mod(f, 2) == 1) then
+        hi(d) = min(gc, domain%blk(b)%dim(d))
+      else
+        lo(d) = max(0, domain%blk(b)%dim(d) - gc)
+      end if
+    end subroutine plane_range
+
+  end subroutine exchange_node_planes
 
 
   !> Gather all blocks' T interior data to rank 0 for I/O.

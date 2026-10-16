@@ -88,7 +88,8 @@ ulimit -s unlimited
 !!! note "MPI"
     - Build the MPI executable with the `mpi` preset (`bin/FUSS-mpi`, see [Installation](../getting-started/installation.md)) and run it with `FUSS_EXE=FUSS-mpi ./FUSS.sh -m N solve`; `FUSS_MPIRUN` names the launcher (default: the first `mpirun` on `PATH`).
     - Each rank owns whole blocks, so a case with fewer blocks than ranks leaves ranks idle.
-    - With more than one rank the setup refuses (exit code 1, the reason named) pyrolysis, the ablating wall (306, 307) and a moving mesh: they are OpenMP-only until plan 11 builds their exchanges.
+    - With more than one rank the setup refuses (exit code 1, the reason named) pyrolysis and the ablating wall (306, 307): they are OpenMP-only until plan 11 builds their exchanges.
+    - A moving mesh (`law = prescribed` or `translation`) runs on any number of ranks: each rank moves its own blocks, a block connection between two ranks receives the neighbour's node planes every step for its ghost metric, and rank 0 gathers every block's nodes before it writes the solution (which is also the restart) and the wall output.
     - The exit codes are the same as in a serial run (1 input, 2 geometry or mesh, 3 numerical): a stop on only some of the ranks ends the job through `MPI_ABORT` with its code.
     - A mid-run edit of `input.ini` is read by rank 0 alone, which sends the runtime-changeable values to the other ranks; only rank 0 writes `OUTPUT/runtime-ini-ignored.txt`.
 
