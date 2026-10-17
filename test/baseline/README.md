@@ -189,3 +189,20 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     these 8 cases and of 4 type-2 cases. So `114f520` (the Tg(3:6) ordering) and `2acdcda` (the MPI moving mesh) are
     serially neutral, and `dec4a44` owns the 8 rows.
   - **Added, 9 rows:** `moving-mesh/{freestream_4blk, conservation_4blk, receding_4blk}` (`8afd640`).
+- **2026-10-17, upstream `chimera-mpi` (`f760829`) merged (`a46d632`, `6a6d2c4`): 809 rows moved, every one attributed to
+  upstream `a24b17c`'s default `diffusive-metric = inverse-mean`; 4 added. 1792 rows.**
+  - **How measured:** a fresh preset build of `6a6d2c4` and `run_regression.sh -B -p 1` on sprop2 (gfortran 12.2.1); the
+    rows other than the added case equal the manifest of the merge battery (another fresh build) byte for byte, and an
+    independent fresh build of this commit's tree reproduces the manifest (`-k`: IDENTICAL).
+  - **`a24b17c`, the interior face metric `[½(A_L + A_R)]^-T` by default: 809 rows of 40 cases.** The merged tree with only
+    the registered default set back to `mean` reproduces all 1788 rows of the previous record: no other upstream commit,
+    and no code generation of the merged `Diffusive_Flux` interface, moves a row. Round-off on uniform meshes
+    (`Inverse3(½(A + A))` differs from `M` in the last bits); 1e-9 to 1e-7 in `diagnostic.tec` (E) of steady cases that
+    stop at another iteration; 2e-6 to 7e-5 on deforming or graded meshes (`conservation` 4.6e-6, `conservation_4blk`
+    2.4e-6, the receding ablation cases up to 0.025 K, `pyrolysis/conduction/graded100` 7.0e-5). The large relative
+    numbers of `u_pg_2` in 1-D cases are round-off of a component that is zero (|u_pg_2| <= 7e-11 m/s).
+  - **Added, 4 rows:** `test/numerics-features/chimera_fixed` (`6a6d2c4`): the chimera case on a fixed 2000 iterations,
+    the 1-vs-N-ranks gate's case.
+  - No reference outside the manifest is re-recorded; the physics gates moved inside their bounds (ATC 2.x by at most
+    0.06 K; `graded100` against the exact series 1.101 -> 1.139 K, tolerance 1.3). Record:
+    `plan-bucket/records/2026-10-17-chimera-merge/`.
