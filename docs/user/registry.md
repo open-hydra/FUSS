@@ -51,6 +51,7 @@
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
 | irs | .false. | logical |  no | Implicit Residual Smoothing |
 | irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
+| diffusive-metric | inverse-mean | inverse-mean, mean |  no | Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r |
 
 ## FUSS-Multigrid
 

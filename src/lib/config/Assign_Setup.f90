@@ -47,6 +47,9 @@ contains
     if ( obj_pyrolysis%enabled ) call Pyrolysis_Assign_Setup()
     if ( obj_darcy%enabled )     call Darcy_Assign_Setup()
 
+    ! Space: face metric of the interior diffusive fluxes
+    obj_space_scheme%inverse_metric = ( trim(obj_space_scheme%diffusive_metric) /= 'mean' )
+
     !! Descriptions, warnings and errors
 
     ! Time scheme

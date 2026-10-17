@@ -29,7 +29,8 @@ contains
     use FUSS_Mod_Darcy,            only: Darcy_Setup_Blocks, Fill_Ghost_p, Darcy_Update_Velocity, Darcy_Print_Setup, &
                                          Darcy_Is_Open
     use FUSS_Mod_Timers,           only: timer_run_begin
-    use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index
+    use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
+                                         allocate_exchange_schedules
     use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
     use FUSS_Input_Registry,       only: Registry_Is_Set
     implicit none
@@ -110,10 +111,15 @@ contains
     ! law = nodeshift: the receding faces, the surface-node map and its rules
     call Setup_Recession ( simulation%domain(1) )
     
-    ! MPI: partition blocks and build ghost cell communication schedule
+    ! MPI: partition blocks once on finest-level cell counts (restriction and
+    ! prolongation are block-local, so a block must live on the same rank at
+    ! every level), then build per-level ghost/chimera communication schedules.
+    call partition_blocks(simulation%domain(1)%nb, &
+      [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)])
+
+    call allocate_exchange_schedules(obj_multigrid%MGL)
     do m = 1, obj_multigrid%MGL
-      call partition_blocks(simulation%domain(m)%nb, &
-        [(product(simulation%domain(m)%blk(ios)%dim(1:3)), ios=1, simulation%domain(m)%nb)])
+      simulation%domain(m)%mg_level = m
       call build_ghost_schedule(simulation%domain(m))
       call build_local_bc_index(simulation%domain(m))
       call fill_matIDg (simulation%domain(m))
@@ -985,6 +991,9 @@ contains
       write(*,'(A)') ' ========================================================================================='
       write(*,'(A)') ' Numerical scheme'
       write(*,'(A)') ' ========================================================================================='
+      write(*,'(A,T35,A)') ' Space'
+      write(*,'(A,T35,A)') '   Diffusive face metric', trim(obj_space_scheme%diffusive_metric)
+      write(*,*)
       write(*,'(A,T35,A)') ' Time'
       write(*,'(A,T35,A)') '   Scheme', trim(obj_time_scheme%description)
       write(*,'(A,T35,A)') '   Integration variables', trim(obj_time_scheme%integration_variables)

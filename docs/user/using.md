@@ -217,7 +217,9 @@ dtime = 1.0e-1
 | `dtime` | Output time interval (s) |
 | `diter` | Output iteration interval |
 
-Each probe writes a text file `OUTPUT/p1.txt` with columns for time and the requested variables (any number of them). A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
+Each probe writes a text file `OUTPUT/p1.txt` with columns for time (or the iteration, with `diter`) and the requested variables (any number of them). An unknown variable name stops the run at set-up. A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
+
+A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart).
 
 ---
 

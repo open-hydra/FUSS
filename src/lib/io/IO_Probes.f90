@@ -93,17 +93,19 @@ contains
 
       call Assign_Variables(probe(i), domain)
 
+      ! A restart appends to the probe file, creating it if missing (e.g. probes added
+      ! or files moved away); a new run replaces it. Only the rank that owns the probe
+      ! gets here, so a failure aborts all ranks: an unopened unit would write to an
+      ! arbitrary file.
       if (.not.newrun) then
-        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='OLD',iostat=error)
-        if (error/=0) then
-          obj_io_probes(i)%error_message = "[ERROR] You restarted from an old solution but the probes files were not found."
-          return
-        endif
-        error = 0
-        do while ( error == 0 ); read (probe(i)%unit, *, iostat=error); enddo
-        backspace (probe(i)%unit)
+        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='UNKNOWN', &
+             position='APPEND',action='WRITE',iostat=error)
       else
         open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='REPLACE',iostat=error)
+      endif
+      if (error/=0) then
+        write(*,'(A)') ' [ERROR] cannot open probe file '//trim(obj_io_probes(i)%path)
+        call fuss_abort ( 1 )
       endif
   
     enddo

@@ -461,12 +461,15 @@ demo_pyro darcy_sealed_quasi_steady 1 "a sealed domain has no unique quasi-stead
     "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" \
     "RAW:[FUSS-Darcy]
 quasi-steady = true"
-# face 5 (type 0) becomes a 102 chimera face; its two donor counts are zero. The Darcy text
-# precedes plan 06 guard 9's (which refuses 101/102/103/104 on every pyrolysis run until plan 08)
+# face 5 (type 0) becomes a 102 chimera face with one donor per ghost row, volume fraction 1, so
+# that IO_BC's no-donor abort (104: upstream 6ad97e0, 102 too since chimera-mpi's 4634cd0) does not
+# stop the run first. The Darcy text precedes plan 06 guard 9's (which refuses 101/102/103/104 on
+# every pyrolysis run until plan 08)
 demo_pyro darcy_chimera      1 "a chimera (102, 104) face has no pressure condition" \
-    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:5:102:0 0"
-# the same with a 104 face (chimera and coupled wall, upstream 6ad97e0); one donor per ghost row,
-# volume fraction 1, so that IO_BC's no-donor abort does not stop the run first
+    "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:5:102:1 1
+ 1 1 1 1 1.0
+ 1 1 1 1 1.0"
+# the same with a 104 face (chimera and coupled wall, upstream 6ad97e0)
 demo_pyro darcy_chimera_104  1 "a chimera (102, 104) face has no pressure condition" \
     "$DARCY_T2" "DELKEY:p-gas" "$DARCY_K1" "$DARCY_K2" "BCFACE:5:104:1 1
  1 1 1 1 1.0

@@ -9,7 +9,7 @@ contains
 
   subroutine Fluxes ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -18,15 +18,35 @@ contains
 
     do b = 1, domain % nb ! Loop over blocks
       if (.not. is_local_block(b)) cycle
-      if ( obj_pyrolysis%enabled ) then
-        ! Face conductivity from the per-cell caches (plan 06 section 3.2);
-        ! passed only inside this branch, never as an unallocated actual.
+      ! Cell metrics for the diffusive face metric: inverse metrics (inverse-mean) or
+      ! metrics (mean). With pyrolysis, the face conductivity from the per-cell caches
+      ! (plan 06 section 3.2), passed only inside those branches, never as an
+      ! unallocated actual.
+      if ( obj_space_scheme % inverse_metric .and. obj_pyrolysis%enabled ) then
+        call Fluxes_blk ( domain % blk(b) % T,   &
+                          domain % blk(b) % matID, &
+                          domain % blk(b) % r,   &
+                          domain % blk(b) % dir, &
+                          domain % blk(b) % Minv, &
+                          domain % blk(b) % dim, &
+                          .true.,                &
+                          domain % blk(b) % k_s  )
+      else if ( obj_space_scheme % inverse_metric ) then
+        call Fluxes_blk ( domain % blk(b) % T,   &
+                          domain % blk(b) % matID, &
+                          domain % blk(b) % r,   &
+                          domain % blk(b) % dir, &
+                          domain % blk(b) % Minv, &
+                          domain % blk(b) % dim, &
+                          .true. )
+      else if ( obj_pyrolysis%enabled ) then
         call Fluxes_blk ( domain % blk(b) % T,   &
                           domain % blk(b) % matID, &
                           domain % blk(b) % r,   &
                           domain % blk(b) % dir, &
                           domain % blk(b) % m,   &
                           domain % blk(b) % dim, &
+                          .false.,               &
                           domain % blk(b) % k_s  )
       else
         call Fluxes_blk ( domain % blk(b) % T,   &
@@ -34,14 +54,15 @@ contains
                           domain % blk(b) % r,   &
                           domain % blk(b) % dir, &
                           domain % blk(b) % m,   &
-                          domain % blk(b) % dim  )
+                          domain % blk(b) % dim, &
+                          .false. )
       endif
     enddo
 
   end subroutine Fluxes
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n, k_s )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n, inverse_metric, k_s )
     use FUSS_Base_Types_m
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
@@ -51,7 +72,8 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in)  :: T
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
-    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M
+    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M   ! cell metrics, or their inverses
+    logical, intent(in) :: inverse_metric   ! M holds the inverse metrics (diffusive-metric = inverse-mean)
     real(R8), dimension(1:n(1), 1:n(2), 1:n(3)), intent(in), optional :: k_s   ! per-cell conductivity cache (pyrolysis)
     ! Local
     integer :: i, j, k
@@ -88,7 +110,7 @@ contains
                             M(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
-                            1, 2, 3            )                       
+                            1, 2, 3, inverse_metric )                       
     enddo; enddo; enddo
 
     !$omp do collapse (2)
@@ -112,7 +134,7 @@ contains
                             M(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
-                            2, 1, 3            )
+                            2, 1, 3, inverse_metric )
     enddo; enddo; enddo
 
     !$omp do collapse (2)
@@ -136,7 +158,7 @@ contains
                             M(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
-                            3, 1, 2            )
+                            3, 1, 2, inverse_metric )
     enddo; enddo; enddo
 
     else
@@ -164,7 +186,7 @@ contains
                             M(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
-                            1, 2, 3,           &
+                            1, 2, 3, inverse_metric, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i+1,j,k) ) )
     enddo; enddo; enddo
 
@@ -189,7 +211,7 @@ contains
                             M(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
-                            2, 1, 3,           &
+                            2, 1, 3, inverse_metric, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j+1,k) ) )
     enddo; enddo; enddo
 
@@ -214,7 +236,7 @@ contains
                             M(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
-                            3, 1, 2,           &
+                            3, 1, 2, inverse_metric, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j,k+1) ) )
     enddo; enddo; enddo
 

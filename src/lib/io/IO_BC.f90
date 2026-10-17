@@ -375,12 +375,12 @@ contains
             ! 104: coupled wall as for 103 (coupling flux, wall output)
             obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
             bc(i)%ext_flux = 0.0
-            ! Both ghost rows need MOSE donors, as checked on the MOSE side: without
-            ! them the blended fluid state is 0 and cons2prim divides by rho = 0
-            if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
-                sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
-              nzero_chim = nzero_chim + 1
-            endif
+          endif
+          ! Both ghost rows need donors (104: MOSE donors, as checked on the MOSE side):
+          ! without them the blended ghost state is 0 (104: cons2prim divides by rho = 0)
+          if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
+              sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
+            nzero_chim = nzero_chim + 1
           endif
 
         case(103)
@@ -400,12 +400,11 @@ contains
 
     if (nzero_chim > 0) then
       block
-        use FUSS_Mod_MPI, only: mpi_abort_all
         character(len=256) :: msg
-        write(msg,'(I0,A,I0,A)') nzero_chim, ' coupled chimera (104) entries in the level-', level, &
-          ' BC file have MOSE donor volume fractions summing to ~0 (no donors found by the BC '// &
+        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera (102, 104) entries in the level-', level, &
+          ' BC file have donor volume fractions summing to ~0 (no donors found by the BC '// &
           'builder). Their ghost states would be garbage; fix the BC file before running.'
-        call mpi_abort_all(trim(msg))
+        call fuss_abort ( 1, trim(msg) )   ! every rank reads the whole file: all stop alike
       end block
     endif
 

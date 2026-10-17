@@ -25,6 +25,7 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics, only: delthe
     use FUSS_Adapter_Morph, only: Adapter_Mesh_Type, Adapter_Block_Metrics
+    use FUSS_Config_Types_m, only: obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -49,11 +50,47 @@ contains
         write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
         call fuss_abort ( 2 )
       endif
+
+      if ( obj_space_scheme % inverse_metric ) call Fill_Inverse_Metric ( domain % blk(b) )
     enddo
 
     call Setup_BC_Metrics ( domain )
 
   end subroutine Setup_Metrics
+
+
+  !> Inverse metric of the interior cells, for the diffusive face metric (diffusive-metric =
+  !> inverse-mean): the face then needs one 3x3 inversion instead of three. Same bounds as M,
+  !> because Fluxes_blk takes either array through the same explicit-shape argument; the
+  !> ghost entries are zeroed, as M's are (Mod_Allocate_Data), and never read.
+  !>
+  !> Called by Setup_Metrics and, on a moving mesh, by Update_Mesh after each step's new
+  !> metric: computed once, it would keep the t = 0 geometry in every interior face flux.
+  !> Outside any OpenMP parallel region, as both callers are.
+  subroutine Fill_Inverse_Metric ( blk )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_Diffusive, only: Inverse3
+    implicit none
+    type(FUSS_block_type), intent(inout) :: blk
+    ! Local
+    integer :: i, j, k
+
+    if ( .not. allocated(blk % Minv) ) then
+      allocate( blk % Minv, mold = blk % M )
+      blk % Minv = FUSS_tensor_3D_type( reshape([0.0_R8,0.0_R8,0.0_R8, &
+                                                 0.0_R8,0.0_R8,0.0_R8, &
+                                                 0.0_R8,0.0_R8,0.0_R8], [3,3]) )
+    endif
+
+    !$omp parallel do collapse(3) private(i, j, k)
+    do k = 1, blk % dim(3)
+    do j = 1, blk % dim(2)
+    do i = 1, blk % dim(1)
+      blk % Minv(i,j,k) % c = Inverse3 ( blk % M(i,j,k) % c )
+    enddo; enddo; enddo
+    !$omp end parallel do
+
+  end subroutine Fill_Inverse_Metric
 
 
   !> Build the ghost-cell metrics for every boundary entry.
@@ -179,7 +216,7 @@ contains
   !> dt estimate costs accuracy, never conservation.
   subroutine Update_Mesh ( domain, t, dt )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_mesh_motion
+    use FUSS_Config_Types_m, only: obj_mesh_motion, obj_space_scheme
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
     use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
     use FUSS_Mod_GhostExchange, only: exchange_node_planes
@@ -238,6 +275,9 @@ contains
         write(*,'(A)')          '         Reduce the mesh velocity or the time step (lower vnn).'
         call fuss_abort ( 2 )
       endif
+
+      ! The interior face metric follows the moved cells (see Fill_Inverse_Metric)
+      if ( obj_space_scheme % inverse_metric ) call Fill_Inverse_Metric ( domain%blk(b) )
     enddo
 
     ! The shared nodes of every block interface must still coincide bitwise.

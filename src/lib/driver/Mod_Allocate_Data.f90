@@ -264,16 +264,21 @@ contains
     type(field_entry_t) :: e
     logical, allocatable :: needs_remote_T(:)
 
-    ! Build mask of remote blocks whose T (and dir) must be kept:
-    !  - chimera (102, 104): donorID(:,1) can reference remote blocks
+    ! Build mask of remote blocks whose T and matID (and dir) must be kept:
+    !  - chimera (102): remote donors of a receiver block this rank owns.
+    !    Ghost_Chimera reads both: T (refreshed by the chimera exchange) and
+    !    matID (static, as loaded from the initial condition).
+    !  - coupled chimera (104): the same records, kept alike; FUSS reads neither
+    !    (the face takes hydra's ext_flux) and the exchange does not carry them.
     allocate(needs_remote_T(domain%nb))
     needs_remote_T = .false.
     do i = 1, domain%nbound
       select case (domain%bc(i)%type)
-        case (102, 104) ! chimera
-          if (allocated(domain%bc(i)%donorID)) then
+        case (102, 104) ! chimera: only donors of a receiver this rank owns
+          if (allocated(domain%bc(i)%donorID) .and. is_local_block(domain%bc(i)%b)) then
             do c = 1, size(domain%bc(i)%donorID, 1)
               b = domain%bc(i)%donorID(c, 1)
+              if (b < 1 .or. b > domain%nb) cycle
               if (.not. is_local_block(b)) needs_remote_T(b) = .true.
             end do
           end if
@@ -289,8 +294,8 @@ contains
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
       if (allocated(domain%blk(b)%RS2))          deallocate(domain%blk(b)%RS2)
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
+      if (allocated(domain%blk(b)%Minv))         deallocate(domain%blk(b)%Minv)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)
-      if (allocated(domain%blk(b)%matID))        deallocate(domain%blk(b)%matID)
 
       ! Fields of the list (plan 06 section 3.1), same policy as TO/R
       do fl = 1, Field_List_Count()
@@ -321,9 +326,10 @@ contains
         end select
       enddo
 
-      ! T — free unless this remote block is a chimera donor or manifold source
+      ! T and matID — free unless this remote block is a chimera donor
       if (.not. needs_remote_T(b)) then
-        if (allocated(domain%blk(b)%T)) deallocate(domain%blk(b)%T)
+        if (allocated(domain%blk(b)%T))     deallocate(domain%blk(b)%T)
+        if (allocated(domain%blk(b)%matID)) deallocate(domain%blk(b)%matID)
       end if
 
       ! The motion history of a moving mesh: only a block's own rank moves it and

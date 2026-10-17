@@ -305,9 +305,16 @@ contains
         + A(1,3)*A(2,1)*A(3,2) - A(1,3)*A(2,2)*A(3,1)
 
     if ( abs(det) == 0d0 ) then
-      write(*,'(A90)') ' [ERROR] Metric tensor det=0. Should not happen, but going on with M==I'
+      ! Degenerate cell (zero volume): a mesh error, or ghost cells extrapolated from a
+      ! wall-thin first cell whose coordinates were read back in single precision.
+      write(*,'(A)') ' [ERROR] Metric tensor det=0: degenerate cell. Check the mesh, or the precision of the restart file'
+      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N1:', N1 % c
+      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N8:', N8 % c
+      ! This runs inside OpenMP threads, where MPI is FUNNELED: a worker thread of a
+      ! multi-rank run records the stop and returns (plan 11), and the fuss_abort_check
+      ! after Setup_BC_Metrics' region ends the run; M = I below only lets that thread
+      ! finish the region. Every other caller stops here.
       call fuss_abort_in_thread ( 2, can_continue = .true. )
-      ! a worker thread of a multi-rank run (plan 11): M = I, below
 
       M % c = 0d0
       do h = 1, 3
