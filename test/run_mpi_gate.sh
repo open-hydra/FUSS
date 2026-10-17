@@ -39,10 +39,12 @@ while test $# -gt 0; do
 done
 # plan 11 stage 1, static: three blocks on four ranks (one idle), two blocks with IRS (the R exchange) on
 # two; stage 2, a moving mesh: the 2x2 and 4x1 splits on four ranks (every block connection between two
-# ranks), one moving block on two ranks (one idle)
+# ranks), one moving block on two ranks (one idle); upstream's chimera-mpi (merged 2026-10-17): two blocks
+# joined by chimera faces, each donor on the other rank, and two multigrid levels, on two ranks
 [ "${#CASES[@]}" -gt 0 ] || CASES=("test/transient/multimat_Plate:4" "test/numerics-features/conjugate_two_layer_fixed:2"
   "test/moving-mesh/freestream_4blk:4" "test/moving-mesh/conservation_4blk:4" "test/moving-mesh/receding_4blk:4"
-  "test/moving-mesh/receding/N040:2")
+  "test/moving-mesh/receding/N040:2" "test/numerics-features/chimera_fixed:2"
+  "test/numerics-features/residual_convergence/mg1:2")
 
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
 export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"

@@ -336,13 +336,6 @@ contains
       call Check_Mesh_Motion_Compatibility()
       call Check_Pyrolysis_Compatibility()
 
-      ! A configuration a multi-rank run cannot do yet is refused by name (plan 11),
-      ! as pyrolysis and the ablating wall are, rather than left to crash
-      if ( mpi_size_ > 1 .and. obj_multigrid%MGL > 1 ) then
-        write(*,'(A)') ' [ERROR] multigrid is OpenMP-only: no ghost exchange exists on the coarse levels.'
-        call fuss_abort ( 1 )
-      endif
-
     end subroutine Check_Input
 
 

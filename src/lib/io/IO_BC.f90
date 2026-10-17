@@ -1,5 +1,5 @@
 module FUSS_IO_BC
-  use FUSS_Mod_MPI, only: fuss_abort, mpi_size_
+  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -357,11 +357,6 @@ contains
 
         case(102,104)
           if (level == 1) nchimera = nchimera + 1
-          ! A FUSS chimera face (102) interpolates donor cells of any block, and no
-          ! exchange brings another rank's donors (plan 11: refused, not left to crash;
-          ! the coupled 104 takes its donors from hydra)
-          if ( bc(i)%type == 102 .and. mpi_size_ > 1 ) obj_io_bc%error_message = &
-            '[ERROR] chimera faces (102) are OpenMP-only: their donor cells are not exchanged between ranks'
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
           allocate(bc(i)%donorID(1:sum(bc(i)%ni),1:4))
           allocate(bc(i)%volume_fraction(1:sum(bc(i)%ni)))
