@@ -206,3 +206,8 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
   - No reference outside the manifest is re-recorded; the physics gates moved inside their bounds (ATC 2.x by at most
     0.06 K; `graded100` against the exact series 1.101 -> 1.139 K, tolerance 1.3). Record:
     `plan-bucket/records/2026-10-17-chimera-merge/`.
+- **2026-10-21, plan 12 stage 2 (P-D3's exact case, `receding_front`): 0 rows moved, 62 added. 1854 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `3d49a432`) on sprop2 (gfortran 12.2.1),
+    on the tree of the stage-2 cases commit. All 1792 rows of the previous record are byte-identical: the stage adds
+    cases and gate scripts, no Fortran.
+  - **Added, 62 rows:** `test/pyrolysis/ablation/receding_front/front` (6), `twin_pyro` (6), `twin_legacy` (5), `t2` (45).
