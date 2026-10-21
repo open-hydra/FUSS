@@ -170,7 +170,11 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
 - **Pyrolysis on the receding mesh.** Every step the pyrolysis state is remapped conservatively onto the moved cells:
   - what is remapped: the energy, the reactive solid masses and, under type 2, the stored gas, the gas pressure and the
     histories of the scheme;
-  - the receding face sweeps out the wall state;
+  - the receding face sweeps out the wall state: the solid at `T_w` (the face's last balance; on the first step of a
+    new run, before any balance, the surface cell's `T`) and, under type 2, `p_w` with the stored gas `eta_st·p_w`,
+    `eta_st` being the surface cell's storage coefficient (equal to `η(T_w, p_w)·p_w` to first order). A receding face
+    without `[FUSS-Pyrolysis]` sweeps the cell's own state instead (`test/pyrolysis/ablation/receding_front`: about
+    9 % of the wall's rise on its Robin twin);
   - an in-code conservation audit stops a broken remap (`error stop 2`, `[ERROR] remap conservation`);
   - at most 64 reactions.
 - **Coupled ablating wall (307).** It runs on a static mesh with `lambda = 0`, its values written by hydra before every

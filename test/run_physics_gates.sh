@@ -1099,6 +1099,25 @@ gate_ablation_remap_uniform () {
   [ "$rc" -eq 0 ] && [ "$rq" -eq 0 ]
 }
 
+# plan 12 section D (P-D3's exact case): a receding ablating wall sweeps out the WALL state. Under a constant absorbed
+# flux the line settles at T_w* = T_inf + q/(rho c sdot) = 1300 K (a cell-state sweep: 1500 K), every step's swept
+# energy follows the reported T_w, a numpy replica of the scheme matches FUSS to round-off; the Robin twins tell the
+# pyrolysis remap (wall state) from the legacy one (cell state); the type-2 run sweeps (T_w, p_w)
+gate_ablation_receding_front () {
+  local dest="$WORK/ablation_receding_front" rc r2 r
+  for r in front twin_pyro twin_legacy t2; do stage "$ABL/receding_front/$r" "$dest/$r"; done
+  # proven-red hook: the flux one percent high must move T_w off the closed form and off the replica
+  [ "$SELFTEST" = "1" ] && sed -i 's/ 400000.0 / 404000.0 /' "$dest/front/INPUT/env_front.dat"
+  for r in front twin_pyro twin_legacy t2; do
+    solve "$dest/$r" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$r: solver exit $rc  (see $dest/$r/run.log)"; return 1; fi
+  done
+  python3 "$ABL/receding_front/verify.py" "$dest/front" "$dest/twin_pyro" "$dest/twin_legacy" > "$dest/verify.log" 2>&1; rc=$?
+  python3 "$ABL/receding_front/verify.py" --t2 "$dest/t2" > "$dest/verify_t2.log" 2>&1; r2=$?
+  KEYNUM="T_w $(grep -F '(G1)' "$dest/verify.log" | sed -E 's/.*= ([+-][0-9.e+-]+), .*/\1/') of 1000 K (<= 2e-3); sweep $(grep -F '(G2)' "$dest/verify.log" | sed -E 's/.*worst ([0-9.e+-]+) .*/\1/'); replica $(grep -F '(G5)' "$dest/verify.log" | sed -E 's/.*step ([0-9.e+-]+), .*/\1/'); twins $(grep -F '(twin)' "$dest/verify.log" | sed -E 's/.*= ([+-][0-9.e+-]+), .*/\1/' | paste -sd '/' -); t2 $(grep -F '(T2-b)' "$dest/verify_t2.log" | sed -E 's/.*worst ([0-9.e+-]+) .*/\1/')"
+  [ "$rc" -eq 0 ] && [ "$r2" -eq 0 ]
+}
+
 # plan 08 section 2.9 (3): R5's type-2 variant -- pyrolysis across an unequal-spacing 101 interface; the two sides
 # of every connection face carry opposite conduction, gas mass and gas enthalpy flows
 gate_conjugate_receding_t2 () {
@@ -1118,7 +1137,7 @@ CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium co
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
        ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
        ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
-       ablation_smoothing)
+       ablation_smoothing ablation_receding_front)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

@@ -293,6 +293,11 @@ for key in keys + derived:
         scale = max((abs(v) for k2 in a if k2.startswith("u_pg_") for v in a[k2]), default=0.0)
     else:
         scale = max((abs(v) for v in a[key]), default=0.0)
+    if key.startswith("chi_") and scale < 1.0e-12:
+        # a reaction advancement that never left round-off (frozen kinetics: the
+        # remap returns F (1 - chi) to a few ulp, plan 12's receding_front, 3e-15)
+        # is a zero field: compared absolutely, as an all-zero field is
+        scale = 0.0
     rel = d / scale if scale > 0.0 else d
     if key in derived:
         info.append((key, rel))
@@ -411,6 +416,10 @@ run_case "test/pyrolysis/ablation/smoothing/w5" 6
 # pyrolysis across a block connection (plan 08 stage D, R5's type-2 variant): chi, p and the gas state of two blocks
 # cross the restart; 50 steps per half
 run_case "test/moving-mesh/conjugate_receding_t2" 50
+# the wall state a receding face sweeps out (plan 12 section D): Tw_prev crosses the restart in bc306-state.dat, and
+# the next step sweeps the solid at it; 140 steps per half of the 280-step front (a restart that loses Tw_prev
+# sweeps the surface cell's T at its first step: T 1.6e-4 relative, T_w 0.12 K)
+run_case "test/pyrolysis/ablation/receding_front/front" 140
 
 # A two-level multigrid restart (plan 10 D15). Only level 1 reads the restart file, and every level used to take
 # its start time and iteration from its own IOfield, which nothing assigns above level 1: a restarted two-level run
