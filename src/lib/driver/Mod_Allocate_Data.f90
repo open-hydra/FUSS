@@ -268,13 +268,12 @@ contains
     !  - chimera (102): remote donors of a receiver block this rank owns.
     !    Ghost_Chimera reads both: T (refreshed by the chimera exchange) and
     !    matID (static, as loaded from the initial condition).
-    !  - coupled chimera (104): the same records, kept alike; FUSS reads neither
-    !    (the face takes hydra's ext_flux) and the exchange does not carry them.
+    ! Not 104: its donors are blocks of the other solver, which hydra exchanges
     allocate(needs_remote_T(domain%nb))
     needs_remote_T = .false.
     do i = 1, domain%nbound
       select case (domain%bc(i)%type)
-        case (102, 104) ! chimera: only donors of a receiver this rank owns
+        case (102) ! chimera: only donors of a receiver this rank owns
           if (allocated(domain%bc(i)%donorID) .and. is_local_block(domain%bc(i)%b)) then
             do c = 1, size(domain%bc(i)%donorID, 1)
               b = domain%bc(i)%donorID(c, 1)
