@@ -240,7 +240,8 @@ provenance: `test/pyrolysis/ablation/tables/`.
 **307 line 2**: the 103 connectivity record of the MOSE partner face, then `T_inf <bprime-file>`. hydra writes the
 exchange values `p_w, ρ_e u_e C_H, h_r, q_rad` before every FUSS step (`bc%env_now`); the face runs with `chem = 1` and
 `lambda = 0` (the CFD's coefficient is already blown) on a static mesh. A standalone run reads those values from the
-TEST ONLY `[FUSS-Ablation] coupled-env-file`, a table with the rows `t p_w rhoeUeCH h_r q_rad`.
+TEST ONLY `[FUSS-Ablation] coupled-env-file`, a table with the rows `t p_w rhoeUeCH h_r q_rad`, or one such table per
+307 face, each opened by a line `// face b i j k f` (see [Input File](input.md#ablating-wall-306-307-and-recession)).
 
 ## Examples
 

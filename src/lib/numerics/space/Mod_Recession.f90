@@ -81,9 +81,13 @@ module FUSS_Mod_Recession
   !> other, nearest first; 0 = beyond the line end), h = (smoothing-width-1)/2
   integer, allocatable, save :: win(:,:,:)
   integer, save :: hwin = 0
-  !> TEST ONLY [FUSS-Ablation] coupled-env-file: the exchange values of every
-  !> 307 face of a standalone run (t p_w rhoeUeCH h_r q_rad); nrow = 0 = hydra
+  !> TEST ONLY [FUSS-Ablation] coupled-env-file: the exchange values of the
+  !> 307 faces of a standalone run (t p_w rhoeUeCH h_r q_rad), one table for
+  !> every face (coupled_env), or one per face when the file holds `// face b i
+  !> j k f` blocks (env_face, by bc index: hydra's env-dump replayed, plan 12);
+  !> neither = hydra
   type(time_table_t), save :: coupled_env
+  type(time_table_t), allocatable, save :: env_face(:)
 
 contains
 
@@ -91,7 +95,9 @@ contains
   !> parallel region). A 307 face takes its exchange values env_now (from the
   !> coupled-env-file table when that TEST ONLY key is set): hydra writes them
   !> before every step, not before FUSS's setup, so at setup (setup = .true.)
-  !> a face without them keeps p-wall; at a step it stops the run.
+  !> a face without them keeps p-wall; at a step it stops the run. A face
+  !> block that opens with p_w = 0 (hydra's values at setup) has none before
+  !> its second row.
   subroutine Ablation_Update_Env ( domain, setup )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
@@ -101,7 +107,7 @@ contains
     ! Local
     integer  :: i
     real(R8) :: v(7)
-    logical  :: at_setup
+    logical  :: at_setup, early
 
     if ( .not. obj_ablation%enabled ) return
     at_setup = .false.
@@ -118,13 +124,23 @@ contains
           domain%bc(i)%hconv_env = v(6)
           domain%bc(i)%Tedge     = v(7)
         case (307)
+          early = .false.
           if ( coupled_env%nrow > 0 ) domain%bc(i)%env_now = coupled_env%eval( domain%time )
-          if ( .not. ( domain%bc(i)%env_now(1) > 0.0d0 ) ) then
+          if ( allocated(env_face) ) then
+            domain%bc(i)%env_now = env_face(i)%eval( domain%time )
+            early = env_face(i)%var(1,1) == 0.0d0 .and. domain%time < env_face(i)%time(2)
+          endif
+          if ( early .or. .not. ( domain%bc(i)%env_now(1) > 0.0d0 ) ) then
             if ( at_setup ) cycle
             write(*,'(A,I0,A)') ' [ERROR] coupled ablating wall (307), bc.txt record ', i, &
               ': no exchange values (p_w = 0) at this step.'
-            write(*,'(A)') '         hydra writes them before every FUSS step; a standalone run needs '// &
-              '[FUSS-Ablation] coupled-env-file.'
+            if ( early ) then
+              write(*,'(A,ES24.16,A,ES24.16,A)') '         t = ', domain%time, &
+                ' s precedes the first exchange row of the face''s coupled-env-file block (t = ', env_face(i)%time(2), ' s).'
+            else
+              write(*,'(A)') '         hydra writes them before every FUSS step; a standalone run needs '// &
+                '[FUSS-Ablation] coupled-env-file.'
+            endif
             call fuss_abort ( 1 )
           endif
           domain%bc(i)%pw        = domain%bc(i)%env_now(1)
@@ -154,6 +170,7 @@ contains
     character(len=512) :: file, line
     integer  :: u, ios, ln, i, b, ii, jj, kk, f, nrows
     real(R8) :: v(5)
+    logical  :: blocks
     logical, allocatable :: seen(:)
 
     ! TEST ONLY coupled-env-file: the exchange values of the 307 faces
@@ -162,15 +179,18 @@ contains
         write(*,'(A)') ' [ERROR] [FUSS-Ablation] coupled-env-file is set, but bc.txt has no coupled ablating wall (307).'
         call fuss_abort ( 1 )
       endif
-      call coupled_env%load( 'INPUT/'//trim(obj_ablation%coupled_env_file), 4 )
-      do i = 1, coupled_env%nrow
-        v(1:4) = coupled_env%var(:,i)
-        if ( .not. ( v(1) > 0.0d0 ) .or. v(2) < 0.0d0 .or. v(4) < 0.0d0 ) then
-          write(*,'(A,I0,A)') ' [ERROR] coupled-env-file INPUT/'//trim(obj_ablation%coupled_env_file)//' row ', i, &
-            ': needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0'
-          call fuss_abort ( 1 )
-        endif
-      enddo
+      call Load_Face_Blocks ( domain, 'INPUT/'//trim(obj_ablation%coupled_env_file), blocks )
+      if ( .not. blocks ) then
+        call coupled_env%load( 'INPUT/'//trim(obj_ablation%coupled_env_file), 4 )
+        do i = 1, coupled_env%nrow
+          v(1:4) = coupled_env%var(:,i)
+          if ( .not. ( v(1) > 0.0d0 ) .or. v(2) < 0.0d0 .or. v(4) < 0.0d0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] coupled-env-file INPUT/'//trim(obj_ablation%coupled_env_file)//' row ', i, &
+              ': needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0'
+            call fuss_abort ( 1 )
+          endif
+        enddo
+      endif
     endif
 
     if ( .not. obj_ablation%enabled ) return
@@ -233,6 +253,146 @@ contains
     end subroutine Fail
 
   end subroutine Setup_Ablation
+
+
+  !> The `// face b i j k f` blocks of a coupled-env-file (plan 12: hydra's
+  !> env-dump replayed in a standalone run). Such a line opens the block of
+  !> one 307 face (its bc indices, as in bc306-state.dat and hydra's
+  !> wall-file); the rows below it, `t p_w rhoeUeCH h_r q_rad`, are that
+  !> face's table (linear in t, clamped, as the one-table file). Every 307 face
+  !> has exactly one block. A block's first row may carry p_w = 0: no exchange
+  !> values yet, hydra's state at FUSS's setup (Ablation_Update_Env). Other
+  !> `//` lines are comments. A file without a `// face` line is the one-table
+  !> file: found = .false., and nothing is checked here.
+  subroutine Load_Face_Blocks ( domain, file, found )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in)  :: domain
+    character(len=*),       intent(in)  :: file
+    logical,                intent(out) :: found
+    ! Local
+    character(len=1024) :: line, t, s
+    integer  :: u, ios, ln, nb, nr, k, i, ib, r, orphan
+    integer,  allocatable :: key(:,:), hline(:), owner(:), rline(:)
+    real(R8), allocatable :: rows(:,:)
+    real(R8) :: v(5)
+
+    found = .false.
+    open( newunit=u, file=trim(file), status='old', action='read', iostat=ios )
+    if ( ios /= 0 ) return                   ! the one-table loader names the file
+    allocate( key(5,16), hline(16), rows(5,64), owner(64), rline(64) )
+    nb = 0 ; nr = 0 ; ln = 0 ; orphan = 0
+    do
+      read( u, '(A)', iostat=ios ) line
+      if ( ios /= 0 ) exit
+      ln = ln + 1
+      t = adjustl(line)
+      if ( len_trim(t) == 0 ) cycle
+      if ( t(1:2) == '//' ) then
+        s = adjustl(t(3:))
+        if ( s(1:4) /= 'face' .or. s(5:5) /= ' ' ) cycle      ! a comment
+        if ( nb == size(key,2) ) call Grow_Blocks ()
+        nb = nb + 1
+        hline(nb) = ln
+        read( s(5:), *, iostat=ios ) key(:,nb)
+        if ( ios /= 0 ) call Fail( 'a block header is "// face b i j k f": five integers, the bc indices of a 307 face' )
+        cycle
+      endif
+      if ( nb == 0 ) then
+        if ( orphan == 0 ) orphan = ln
+        cycle
+      endif
+      read( t, *, iostat=ios ) v
+      if ( ios /= 0 ) call Fail( 'expected 5 numbers (t p_w rhoeUeCH h_r q_rad)' )
+      if ( any( v /= v ) .or. any( abs(v) > huge(1.0d0) ) ) call Fail( 'value is not finite' )
+      if ( nr > 0 ) then
+        if ( owner(nr) == nb .and. v(1) <= rows(1,nr) ) call Fail( 't must increase strictly from row to row' )
+      endif
+      if ( nr == size(rows,2) ) call Grow_Rows ()
+      nr = nr + 1
+      rows(:,nr) = v
+      owner(nr) = nb
+      rline(nr) = ln
+    enddo
+    close( u )
+    if ( nb == 0 ) return
+    found = .true.
+    if ( orphan > 0 ) then
+      ln = orphan
+      call Fail( 'a row before the first "// face" line: with face blocks, every row belongs to the block above it' )
+    endif
+
+    allocate( env_face(domain%nbound) )
+    do k = 1, nb
+      ln = hline(k)
+      write(s,'(A,5(1X,I0),A)') '"// face', key(:,k), '"'
+      if ( count( owner(1:nr) == k ) < 2 ) call Fail( 'the block '//trim(s)//' has fewer than two rows' )
+      ib = 0
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type /= 307 ) cycle
+        if ( domain%bc(i)%b == key(1,k) .and. domain%bc(i)%i == key(2,k) .and. domain%bc(i)%j == key(3,k) .and. &
+             domain%bc(i)%k == key(4,k) .and. domain%bc(i)%f == key(5,k) ) then
+          ib = i
+          exit
+        endif
+      enddo
+      if ( ib == 0 ) call Fail( 'the block '//trim(s)//' names no coupled ablating wall (307) of bc.txt' )
+      if ( env_face(ib)%nrow > 0 ) call Fail( 'a second block for the 307 face '//trim(s) )
+      env_face(ib)%n    = 4
+      env_face(ib)%nrow = count( owner(1:nr) == k )
+      allocate( env_face(ib)%time(env_face(ib)%nrow), env_face(ib)%var(4, env_face(ib)%nrow) )
+      r = 0
+      do i = 1, nr
+        if ( owner(i) /= k ) cycle
+        r = r + 1
+        env_face(ib)%time(r)  = rows(1,i)
+        env_face(ib)%var(:,r) = rows(2:5,i)
+        if ( ( .not. ( rows(2,i) > 0.0d0 ) .and. .not. ( r == 1 .and. rows(2,i) == 0.0d0 ) ) .or. &
+             rows(3,i) < 0.0d0 .or. rows(5,i) < 0.0d0 ) then
+          ln = rline(i)
+          call Fail( 'needs p_w > 0 (p_w = 0 only on the first row of a block: no exchange values yet), '// &
+                     'rhoeUeCH >= 0 and q_rad >= 0' )
+        endif
+      enddo
+    enddo
+    do i = 1, domain%nbound
+      if ( domain%bc(i)%type /= 307 .or. env_face(i)%nrow > 0 ) cycle
+      write(*,'(A,I0,A,5(1X,I0),A)') ' [ERROR] coupled-env-file '//trim(file)//': no "// face" block for the 307 face '// &
+        'of bc.txt record ', i, ' ("// face', domain%bc(i)%b, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, &
+        domain%bc(i)%f, '"); with face blocks every 307 face needs exactly one'
+      call fuss_abort ( 1 )
+    enddo
+
+  contains
+
+    subroutine Fail ( reason )
+      character(len=*), intent(in) :: reason
+      write(*,'(A,I0,A)') ' [ERROR] coupled-env-file '//trim(file)//' line ', ln, ': '//reason
+      call fuss_abort ( 1 )
+    end subroutine Fail
+
+    subroutine Grow_Blocks ()
+      integer, allocatable :: ki(:,:), hi(:)
+      allocate( ki(5, 2*size(key,2)), hi(2*size(key,2)) )
+      ki(:,1:size(key,2)) = key
+      hi(1:size(key,2))   = hline
+      call move_alloc( ki, key )
+      call move_alloc( hi, hline )
+    end subroutine Grow_Blocks
+
+    subroutine Grow_Rows ()
+      real(R8), allocatable :: tr(:,:)
+      integer,  allocatable :: to(:), tl(:)
+      allocate( tr(5, 2*size(rows,2)), to(2*size(rows,2)), tl(2*size(rows,2)) )
+      tr(:,1:size(rows,2)) = rows
+      to(1:size(rows,2))   = owner
+      tl(1:size(rows,2))   = rline
+      call move_alloc( tr, rows )
+      call move_alloc( to, owner )
+      call move_alloc( tl, rline )
+    end subroutine Grow_Rows
+
+  end subroutine Load_Face_Blocks
 
 
   !> At every solution output (root): the seb.txt rows and the restart state.

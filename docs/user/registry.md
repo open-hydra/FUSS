@@ -114,4 +114,4 @@
 | dump-interface-flux | .false. | logical |  no | TEST ONLY: write the flux of every 101 face to OUTPUT/<prefix>interface-flux.txt at each output |
 | perturb-interface-node | .false. | logical |  no | TEST ONLY: at step 2 move the first shared 101 node of the lowest receding block by 1e-12 m in x (the interface-node assertion must stop the run) |
 | smoothing-width | 5 | >= 1 |  no | law = nodeshift: nodes of the stencil that averages the surface recession rate along each surface grid line (thesis Eq. 5.1, truncated at a line end; odd; 1 = no smoothing) |
-| coupled-env-file | none |  |  no | TEST ONLY: every coupled ablating wall (307) takes its exchange values from this INPUT/ file (rows t p_w rhoeUeCH h_r q_rad, linear in t) instead of hydra; none = from hydra |
+| coupled-env-file | none |  |  no | TEST ONLY: every coupled ablating wall (307) takes its exchange values from this INPUT/ file (rows t p_w rhoeUeCH h_r q_rad, linear in t) instead of hydra; lines // face b i j k f split it into one block per 307 face (a replay of hydra's env-dump); none = from hydra |

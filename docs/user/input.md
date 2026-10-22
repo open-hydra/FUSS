@@ -178,7 +178,14 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
   - an in-code conservation audit stops a broken remap (`error stop 2`, `[ERROR] remap conservation`);
   - at most 64 reactions.
 - **Coupled ablating wall (307).** It runs on a static mesh with `lambda = 0`, its values written by hydra before every
-  step. A standalone run reads them from the TEST ONLY `coupled-env-file`.
+  step. A standalone run reads them from the TEST ONLY `coupled-env-file`, evaluated as hydra's are: once per step at
+  the step's end time (and once at setup at the start time), never per Runge–Kutta stage. The file holds
+  - one table `t p_w rhoeUeCH h_r q_rad` for every 307 face (linear in `t`, clamped; `p_w > 0` on every row), or
+  - one block per 307 face (hydra's `[HYDRA-Ablation] env-dump` replayed): a line `// face b i j k f`, the face's
+    `bc.txt` indices as in `bc306-state.dat`, opens the block, and the rows below it are that face's table. Every 307
+    face has exactly one block, in any order; other `//` lines are comments. A block's first row may hold `p_w = 0`
+    (no exchange values yet: at setup the face keeps `p-wall`, as under hydra); a step before the block's second row
+    stops the run.
 - **Output.**
   - `wall.tec` carries seven columns in a run with a 306/307 face (two otherwise): `T_w`, the conducted flux `q_w`, the
     recession rate `ṡ`, `ṁ_pg`, `ṁ_ch`, `B′` and the recession `s_total`.
@@ -194,11 +201,12 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
   - an even `smoothing-width`;
   - a chemistry-on env row without `[FUSS-Pyrolysis]` or without a B′ table;
   - a 307 face without pyrolysis or without a B′ table, or with a `lambda`;
-  - `coupled-env-file` without a 307 face.
+  - `coupled-env-file` without a 307 face; with `// face` blocks, a 307 face without a block, a block that names no 307
+    face or a face already named, a block of fewer than two rows, or a row above the first `// face` line.
 - **TEST ONLY keys:**
   - `sdot-override`: imposes the recession rate;
   - `no-char`: makes `B′_c = ṁ_c = 0`;
-  - `coupled-env-file`: 307 standalone;
+  - `coupled-env-file`: 307 standalone (one table, or one block per face);
   - `dump-interface-flux`: writes `OUTPUT/<prefix>interface-flux.txt`, the conduction, gas-mass and gas-enthalpy flows
     through every block-connection face;
   - `perturb-interface-node`: moves one interface node, to show the interface check;
@@ -207,7 +215,7 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
   - Ablation Test Cases 2.1, 2.2 and 2.3 against PATO;
   - the closed-form balance and blowing checks;
   - the uniform receding slab;
-  - the 307/306 identity;
+  - the 307/306 identity and the per-face blocks of `coupled-env-file`;
   - the smoothing demonstration;
   - the receding two-block cases;
   - the restart cases.

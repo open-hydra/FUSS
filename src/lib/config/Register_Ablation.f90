@@ -70,7 +70,8 @@ contains
 
     call reg%add( trim(section), 'coupled-env-file', obj_ablation%coupled_env_file, 'none', &
                   'TEST ONLY: every coupled ablating wall (307) takes its exchange values from this INPUT/ file '// &
-                  '(rows t p_w rhoeUeCH h_r q_rad, linear in t) instead of hydra; none = from hydra', &
+                  '(rows t p_w rhoeUeCH h_r q_rad, linear in t) instead of hydra; lines // face b i j k f split it '// &
+                  'into one block per 307 face (a replay of hydra''s env-dump); none = from hydra', &
                   '', .false. )
 
   end subroutine Register_Ablation
