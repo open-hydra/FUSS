@@ -946,19 +946,27 @@ gate_ablation_smoothing () {
 }
 
 # plan 08 section 3.5 (ii), FUSS standalone: BC 307 fed by the TEST ONLY coupled-env-file reproduces BC 306 with
-# lambda 0 and the same values byte for byte (one SEB routine, two input paths)
+# lambda 0 and the same values byte for byte (one SEB routine, two input paths). Plan 12: the file's per-face blocks
+# (`// face b i j k f`, hydra's env-dump replayed) on four copies of run307 (faces/, verify_faces.py): identical blocks
+# = the one table byte for byte, the blocks' order is immaterial, each face takes its own block, swapped blocks mirror
+# the solution.
 gate_ablation_coupled307 () {
-  local dest="$WORK/ablation_coupled307" rc r
+  local dest="$WORK/ablation_coupled307" rc rc2 r
   for r in run307 run306; do stage "$ABL/coupled307/$r" "$dest/$r"; done
-  # proven-red hook: h_r one part in 1e7 off in the exchange values must break the identity
+  for r in same ab ab_rev ba; do
+    stage "$ABL/coupled307/run307" "$dest/$r"
+    cp "$ABL/coupled307/faces/env307-$r.dat" "$dest/$r/INPUT/env307.dat"
+  done
+  # proven-red hook: h_r one part in 1e7 off in the exchange values must break the identity (and same = run307)
   [ "$SELFTEST" = "1" ] && sed -i 's/ 1500000.0 / 1500000.1 /' "$dest/run307/INPUT/env307.dat"
-  for r in run307 run306; do
+  for r in run307 run306 same ab ab_rev ba; do
     solve "$dest/$r" "$NTHREADS"; rc=$?
     if [ "$rc" -ne 0 ]; then KEYNUM="$r: solver exit $rc  (see $dest/$r/run.log)"; return 1; fi
   done
   python3 "$ABL/coupled307/verify.py" "$dest/run307" "$dest/run306" > "$dest/verify.log" 2>&1; rc=$?
-  KEYNUM=$(head -n 1 "$dest/verify.log")
-  return $rc
+  python3 "$ABL/coupled307/verify_faces.py" "$dest" > "$dest/verify_faces.log" 2>&1; rc2=$?
+  KEYNUM="$(head -n 1 "$dest/verify.log"); $(head -n 1 "$dest/verify_faces.log" | sed 's/^coupled307 //')"
+  [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ]
 }
 
 # plan 08 section 3.3, stage C: ATC 2.2 and 2.3 on the receding mesh (law nodeshift) against PATO at 0.5 ms; T at the

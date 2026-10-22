@@ -14,7 +14,18 @@ Two runs of ONE problem, the base ../../darcy/ATC2-chemistryOff-type2 (TACOT, ty
 One input.ini, mesh, table set, probe list and output cadence; the runs differ only in the face-2 records, the env file
 and the coupled-env-file line, so nothing but the input path can move a byte. Both use law = static (a 307 face never
 recedes; a static 306 face consumes no char). verify.py compares every field file, seb.txt, wall.tec and
-bc306-state.dat. Run from this directory; it rewrites run307/ and run306/.
+bc306-state.dat.
+
+  faces/   per-face blocks of the coupled-env-file (plan 12, hydra's env-dump replayed): each file replaces run307's
+           env307.dat in a copy of run307 (the physics gate stages them; no case directory of its own). Face A = the
+           values above, face B = 110000 Pa, 0.33, 1.6e6 J/kg, 1e5 W/m2 (every column differs).
+           env307-same.dat    one block per face, both = ROWS: must reproduce run307 byte for byte;
+           env307-ab.dat      j = 1 A, j = 2 B, each block opened by hydra's setup row `0 0 0 0 0` (p-wall kept);
+           env307-ab_rev.dat  the same blocks in the other order: must reproduce ab byte for byte;
+           env307-ba.dat      the blocks swapped (j = 1 B, j = 2 A): the j-mirror of ab.
+           verify_faces.py grades them.
+
+Run from this directory; it rewrites run307/, run306/ and faces/.
 """
 import os
 import shutil
@@ -26,6 +37,10 @@ ENV_HEAD = "// t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge   (SI; plan 08 sectio
 COUPLED_HEAD = "// t p_w rhoeUeCH h_r q_rad   (SI; TEST ONLY exchange values of a 307 face, linear in t, clamped)"
 ROWS = [(0.0, 101325.0, 0.3, 1.5e6, 0.0), (60.0, 101325.0, 0.3, 1.5e6, 0.0)]   # ATC 2.1's heating values
 LINE307 = "     1 1 1 1 1 1 0 0 1  300.0, bprime_tacot_earth.dat"
+FACE_KEYS = ("1 100 1 1 2", "1 100 2 1 2")      # the two 307 records of run307's bc.txt (b i j k f), j = 1, 2
+FACE_A = ROWS[0][1:]
+FACE_B = (110000.0, 0.33, 1.6e6, 1.0e5)
+FACES_HEAD = "// t p_w rhoeUeCH h_r q_rad   (SI; TEST ONLY exchange values, one block per 307 face: // face b i j k f)"
 LINE306 = "     0.0, 300.0, bprime_tacot_earth.dat, env306.dat"
 
 HEADER = """; =============================================================================
@@ -47,6 +62,30 @@ def write_rows(path, head, rows):
         fh.write(head + "\n")
         for r in rows:
             fh.write(" ".join(fmt(v) for v in r) + "\n")
+
+
+def face_block(key, values, setup_row):
+    """The block of one face: hydra's setup row (no values yet) and the values from 1e-12 s on, or ROWS' times."""
+    rows = [(0.0, 0.0, 0.0, 0.0, 0.0), (1e-12,) + values, (60.0,) + values] if setup_row else \
+        [(r[0],) + values for r in ROWS]
+    return ["// face " + key] + [" ".join(fmt(v) for v in r) for r in rows]
+
+
+def write_faces(d):
+    if os.path.isdir(d):
+        shutil.rmtree(d)
+    os.makedirs(d)
+    a = face_block(FACE_KEYS[0], FACE_A, True)
+    b = face_block(FACE_KEYS[1], FACE_B, True)
+    files = {
+        "env307-same.dat": face_block(FACE_KEYS[0], FACE_A, False) + face_block(FACE_KEYS[1], FACE_A, False),
+        "env307-ab.dat": a + b,
+        "env307-ab_rev.dat": b + a,
+        "env307-ba.dat": face_block(FACE_KEYS[0], FACE_B, True) + face_block(FACE_KEYS[1], FACE_A, True),
+    }
+    for name, lines in files.items():
+        with open(os.path.join(d, name), "w") as fh:
+            fh.write(FACES_HEAD + "\n" + "\n".join(lines) + "\n")
 
 
 def ini_body():
@@ -96,7 +135,8 @@ def main():
         assert "MASTERDIR=../../../.." in sh
         open(os.path.join(d, "FUSS.sh"), "w").write(sh.replace("MASTERDIR=../../../..", "MASTERDIR=../../../../..", 1))
         os.chmod(os.path.join(d, "FUSS.sh"), 0o755)
-    print("coupled307: run307/ (BC 307 + coupled-env-file) and run306/ (BC 306, lambda 0) written")
+    write_faces(os.path.join(HERE, "faces"))
+    print("coupled307: run307/ (BC 307 + coupled-env-file), run306/ (BC 306, lambda 0) and faces/ (per-face blocks) written")
 
 
 if __name__ == "__main__":

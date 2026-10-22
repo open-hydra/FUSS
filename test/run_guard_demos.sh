@@ -678,6 +678,40 @@ demo_on "$BASE_ABL_PYRO" abl307_receding     1 "recedes (law = nodeshift) and ow
     "BCFACE:1:307:$L307" "FILE:INPUT/cenv.dat:$CENV" "SEC:FUSS-Ablation:coupled-env-file=cenv.dat" \
     "RAW:[FUSS-MeshMotion]
 law = nodeshift"
+# Plan 12: coupled-env-file split into one block per 307 face by `// face b i j k f` lines (hydra's env-dump replayed).
+# The base's 307 face is (1 20 1 1 2); FBLK is its block, opened by the setup row hydra writes (no values yet).
+FBLK="// face 1 20 1 1 2
+0.0 0.0 0.0 0.0 0.0
+1e-12 101325.0 0.1 2000000.0 0.0
+1000000.0 101325.0 0.1 2000000.0 0.0"
+CENV_KEY="SEC:FUSS-Ablation:coupled-env-file=cenv.dat"
+demo_on "$BASE_ABL_PYRO" abl307_faces_header  1 'a block header is "// face b i j k f": five integers' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:// face 1 20 1 1
+$CENV" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_orphan  1 'a row before the first "// face" line' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:$CENV
+$FBLK" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_no307   1 'names no coupled ablating wall (307) of bc.txt' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:$FBLK
+// face 1 1 1 1 1
+$CENV" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_twice   1 'a second block for the 307 face "// face 1 20 1 1 2"' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:$FBLK
+$FBLK" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_missing 1 'no "// face" block for the 307 face of bc.txt record 1 ("// face 1 1 1 1 1")' \
+    "BCFACE:1:307:$L307" "BCFACE:2:307:$L307" "FILE:INPUT/cenv.dat:$FBLK" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_short   1 'has fewer than two rows' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:// face 1 20 1 1 2
+0.0 101325.0 0.1 2000000.0 0.0" "$CENV_KEY"
+demo_on "$BASE_ABL_PYRO" abl307_faces_bad_row 1 'p_w = 0 only on the first row of a block' "BCFACE:2:307:$L307" \
+    "FILE:INPUT/cenv.dat:// face 1 20 1 1 2
+0.0 101325.0 0.1 2000000.0 0.0
+1000000.0 0.0 0.1 2000000.0 0.0" "$CENV_KEY"
+# hydra's setup row, then no values until t = 1e6 s: the first step has none
+demo_on "$BASE_ABL_PYRO" abl307_faces_early   1 "precedes the first exchange row of the face's coupled-env-file block" \
+    "BCFACE:2:307:$L307" "FILE:INPUT/cenv.dat:// face 1 20 1 1 2
+0.0 0.0 0.0 0.0 0.0
+1000000.0 101325.0 0.1 2000000.0 0.0" "$CENV_KEY"
 # the wall smoothing's stencil is centred on its node (plan 08 section 2.10)
 demo_on "$BASE_ABL" abl_bad_width            1 "smoothing-width = 4 must be odd" "SEC:FUSS-Ablation:smoothing-width=4"
 
