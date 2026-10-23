@@ -69,6 +69,10 @@ contains
   !>
   !> Ghost temperatures must already be valid: the upwind value at a block
   !> interface is read from the ghost cell.
+  !>
+  !> A receding ablating face (306, dV < 0) sweeps out the wall state, as the
+  !> pyrolysis remap does (P-D3; plan 12 U19): the solid at the face's T_w of
+  !> its last balance (Tw_prev), the cell's own before any balance.
   subroutine Remap_State_ALE ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_mesh_motion
@@ -77,10 +81,14 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer  :: i, j, k, b, f, ii, jj, kk
+    integer  :: i, j, k, b, f, ii, jj, kk, ib
     real(R8) :: h, h_up, hsum, dV, vnew, vold
 
     if ( .not. obj_mesh_motion%enabled ) return
+
+    !$omp single
+    call Map306_Setup ( domain )
+    !$omp end single
 
     do b = 1, domain%nb
       if (.not. is_local_block(b)) cycle
@@ -91,7 +99,7 @@ contains
       ! cell see its neighbour's already-remapped value, the two sides of a face
       ! would disagree on the upwind enthalpy, and conservation would break.
       ! (TO is free: Copy_State overwrites it immediately after this routine.)
-      !$omp do collapse(3) schedule(static) private(i,j,k,f,ii,jj,kk,h,h_up,hsum,dV,vnew,vold)
+      !$omp do collapse(3) schedule(static) private(i,j,k,f,ii,jj,kk,ib,h,h_up,hsum,dV,vnew,vold)
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -120,8 +128,16 @@ contains
             end select
             call co_H( domain%blk(b)%matID(ii,jj,kk), domain%blk(b)%T(ii,jj,kk), h_up )
           else
-            ! Face swept inward: this cell loses volume, carrying its own.
+            ! Face swept inward: this cell loses volume, carrying its own;
+            ! through a receding 306 face, the wall's.
             h_up = h
+            if ( f == f306(b) ) then
+              ib = map306(b)%idx(i,j,k)
+              if ( ib > 0 ) then
+                if ( domain%bc(ib)%Tw_prev > 0.0d0 ) &
+                  call co_H( domain%blk(b)%matID(i,j,k), domain%bc(ib)%Tw_prev, h_up )
+              endif
+            endif
           endif
 
           hsum = hsum + h_up * dV
@@ -350,9 +366,9 @@ contains
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     integer, intent(in) :: nq
-    integer :: b, ib, n(3)
+    integer :: b, n(3)
 
-    if ( allocated(map306) ) return
+    if ( allocated(qo) ) return
     if ( nq > QM - 1 + MAXSUB ) then
       write(*,'(A,I0,A,I0)') ' [ERROR] pyrolysis remap: more than ', MAXSUB, ' sub-phases (reactions): ', nq - QM + 1
 #ifdef USE_MPI
@@ -367,19 +383,36 @@ contains
     allocate( qo(nq, n(1), n(2), n(3)), qn(nq, n(1), n(2), n(3)), moved(n(1), n(2), n(3)) )
     allocate( qwall(nq, domain%nbound) )
     qwall = 0.0d0
+    call Map306_Setup ( domain )
+  end subroutine Remap_Setup
+
+
+  !> Once (single thread): per block, the receding 306 face id (0 = none)
+  !> and, for a block that has one, the bc index of the 306 face of each cell
+  !> on it (both remaps; idx is read only where f == f306(b) > 0).
+  subroutine Map306_Setup ( domain )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer :: b, ib
+
+    if ( allocated(f306) ) return
     allocate( map306(domain%nb), f306(domain%nb) )
     f306 = 0
+    do ib = 1, domain%nbound
+      if ( domain%bc(ib)%type == 306 ) f306(domain%bc(ib)%b) = domain%bc(ib)%f
+    enddo
     do b = 1, domain%nb
+      if ( f306(b) == 0 ) cycle
       allocate( map306(b)%idx(domain%blk(b)%dim(1), domain%blk(b)%dim(2), domain%blk(b)%dim(3)) )
       map306(b)%idx = 0
     enddo
     do ib = 1, domain%nbound
       if ( domain%bc(ib)%type /= 306 ) cycle
       b = domain%bc(ib)%b
-      f306(b) = domain%bc(ib)%f
       map306(b)%idx(domain%bc(ib)%i, domain%bc(ib)%j, domain%bc(ib)%k) = ib
     enddo
-  end subroutine Remap_Setup
+  end subroutine Map306_Setup
 
 
   !> The conservation audit of one block's remap (E-D9) and the swept-out
