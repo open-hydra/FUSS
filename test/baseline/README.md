@@ -211,3 +211,16 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     on the tree of the stage-2 cases commit. All 1792 rows of the previous record are byte-identical: the stage adds
     cases and gate scripts, no Fortran.
   - **Added, 62 rows:** `test/pyrolysis/ablation/receding_front/front` (6), `twin_pyro` (6), `twin_legacy` (5), `t2` (45).
+- **2026-10-23, plan 12 U19 (b) (the legacy remap sweeps the wall state at a receding 306 face): 21 rows moved, every one
+  attributed to `9c9194f`; none added. 1854 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `f722fe6f`) on sprop2 (gfortran 12.2.1), on
+    a snapshot of the tree of `3d69314`. 1833 rows are byte-identical; the whole manifest equals that of a `-k` run on the
+    worktree's build of the same source (binary `d010cfa8`: another path, another md5).
+  - **`9c9194f`, `co_H(matID, Tw_prev)` swept through a receding 306 face on the legacy path: 21 rows, the 4 cases of the
+    suite with a 306 face and no `[FUSS-Pyrolysis]`.** `moving-mesh/conjugate_receding` (6: bc306-state, field,
+    interface-flux, residual-history, seb, wall; T by up to 8.4e-2 K, the final T_w 568.476 -> 568.395 K),
+    `pyrolysis/ablation/demo_base` (5; 1.2e-2 K), `demo_base_2blk` (5; 2.8e-2 K) and `receding_front/twin_legacy` (5; the
+    final T_w 1390.37 -> 1299.62 K: against the exact 1300 K, +9.04e-2 -> -3.80e-4 of the 1000 K rise). Mesh and
+    `s_total` do not move (the kinematic `sdot-override`).
+  - **Measured per tree, not by exclusion:** the same source with the `h_up` branch removed (the `Map306_Setup` split
+    alone, binary `2af22acf`) reproduces all 21 rows of the previous record.
