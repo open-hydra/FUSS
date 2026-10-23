@@ -17,7 +17,8 @@ T(0) is that profile at the cell centres (it cuts the transient); 280 steps reac
   twin_pyro/    the same with a Robin wall instead of the flux, hconv 400 W/m2/K to T_edge 2300 K (T_w* is again
                 1300 K): the pyrolysis remap, which sweeps the wall state
   twin_legacy/  twin_pyro WITHOUT [FUSS-Pyrolysis] (a legacy properties.dat, rho 280, cp 1000, k 0.4): the legacy
-                remap, whose receding face sweeps the cell's own h; verify.py asserts it misses T_w* by >= 5 %
+                remap, which sweeps the wall state too since plan 12 U19 (before, the cell's own h: +9.0e-2 of the
+                rise); verify.py holds it to T_w* as twin_pyro
   t2/           front under the type-2 closure (K = 1e-12 m2, p-init = p_w = 101325 Pa), 20 steps with a field file
                 each: the swept energy and stored gas follow the wall state (T_w, p_w) step by step
 
@@ -109,9 +110,9 @@ CASES = {
                       body=("front with hconv 400 W/m2/K to T_edge 2300 K instead of the flux (T_w* again 1300 K):\n"
                             "the pyrolysis remap sweeps T_w."),
                       env=(HCONV, TEDGE, 0.0), pyro=PYRO1, steps=STEPS, overwrite="true"),
-    "twin_legacy": dict(title="Receding front, Robin wall, legacy remap (sweeps the cell state)",
+    "twin_legacy": dict(title="Receding front, Robin wall, legacy remap (sweeps the wall state)",
                         body=("twin_pyro without [FUSS-Pyrolysis] (legacy properties.dat): the legacy remap sweeps\n"
-                              "the cell's own h, and T_w misses 1300 K by about 9 percent."),
+                              "T_w too (plan 12 U19; sweeping the cell's own h, T_w missed 1300 K by about 9 percent)."),
                         env=(HCONV, TEDGE, 0.0), pyro="", steps=STEPS, overwrite="true"),
     "t2": dict(title="Receding front, type-2 closure: the swept energy and gas follow (T_w, p_w)",
                body=("front under the type-2 closure, K = 1e-12 m2, p-init = p_w = 101325 Pa; 20 steps with a\n"

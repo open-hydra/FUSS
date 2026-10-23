@@ -22,9 +22,10 @@ absorbed flux q = 4e5 W/m2; the continuum steady wall T_w* = T_inf + q/(rho c sd
         (measured 4.3e-14 and 1.3e-13 on two builds, before and after upstream's diffusive-metric default; a bound
         of 1.2 times the first measurement would break on a code-generation move)
   (G6)  printed: the last profile against the continuum curve, the cell-to-cell decay against 1/(1 + Pe)
-  (twin) twin_pyro (Robin hconv 400 W/m2/K to 2300 K: T_w* 1300 K again, the pyrolysis remap) |err| <= 2e-3, and
-        twin_legacy (the same without [FUSS-Pyrolysis]: the legacy remap sweeps the cell's own h) err >= 5e-2: the
-        gate shows on every run that it tells the two sweeps apart
+  (twin) twin_pyro (Robin hconv 400 W/m2/K to 2300 K: T_w* 1300 K again, the pyrolysis remap) and twin_legacy (the
+        same without [FUSS-Pyrolysis]: the legacy remap, which sweeps the wall state too since plan 12 U19) |err| <=
+        2e-3 each; the max |T| difference of the two twins' last fields is printed. A legacy remap that sweeps the
+        cell's own h (before U19) misses by +9.0e-2: the scratch red of plan-bucket/records/2026-10-22-plan12-fuss/
 
 t2 (type 2, K = 1e-12 m2, p_w = 101325 Pa, 20 steps with a field file each): for every step n >= 2 (step 1 sweeps the
 set-up state, which no file holds), from the surface cell's eta_st of field file n-1 and the face's T_w of step n-1:
@@ -58,7 +59,7 @@ Q, TINF, TWSTAR, DT_REF = 4.0e5, 300.0, 1300.0, 1000.0
 PW, EPS_G, H0 = 101325.0, 0.8, 298.15
 TOL_G1, TOL_G2, TOL_G3, TOL_G4, TOL_S, TOL_X = 2.0e-3, 1.0e-12, 1.0e-12, 1.0e-13, 1.0e-13, 1.0e-15
 TOL_G5 = 1.0e-12
-TOL_TWIN_PYRO, MIN_TWIN_LEGACY = 2.0e-3, 5.0e-2
+TOL_TWIN = 2.0e-3
 TOL_T2A, TOL_T2B, TOL_BALM, TOL_BALE = 1.0e-12, 1.0e-12, 1.0e-12, 1.0e-12
 
 bad = []
@@ -241,12 +242,16 @@ def type1(front, twin_pyro, twin_legacy):
 
     ep = (last_Tw(twin_pyro) - TWSTAR) / DT_REF
     el = (last_Tw(twin_legacy) - TWSTAR) / DT_REF
-    check("twin", np.all(np.abs(ep) <= TOL_TWIN_PYRO),
+    check("twin", np.all(np.abs(ep) <= TOL_TWIN),
           "twin_pyro (Robin wall, pyrolysis remap): (T_w - 1300)/1000 = %s (|.| <= %.0e)"
-          % (", ".join("%+.2e" % v for v in ep), TOL_TWIN_PYRO))
-    check("twin", np.all(el >= MIN_TWIN_LEGACY),
-          "twin_legacy (Robin wall, legacy remap: the cell state): (T_w - 1300)/1000 = %s (>= %.0e)"
-          % (", ".join("%+.2e" % v for v in el), MIN_TWIN_LEGACY))
+          % (", ".join("%+.2e" % v for v in ep), TOL_TWIN))
+    check("twin", np.all(np.abs(el) <= TOL_TWIN),
+          "twin_legacy (Robin wall, legacy remap): (T_w - 1300)/1000 = %s (|.| <= %.0e)"
+          % (", ".join("%+.2e" % v for v in el), TOL_TWIN))
+    tp = read_field(os.path.join(twin_pyro, "OUTPUT", "field.tec"))[0]["T"]
+    tl = read_field(os.path.join(twin_legacy, "OUTPUT", "field.tec"))[0]["T"]
+    print("(twins)  printed: max |T_twin_pyro - T_twin_legacy| over the last field %.2e K (two remaps, two property "
+          "routes, one problem)" % np.max(np.abs(tp - tl)))
 
 
 def type2(run):

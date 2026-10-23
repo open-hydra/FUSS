@@ -1109,8 +1109,8 @@ gate_ablation_remap_uniform () {
 
 # plan 12 section D (P-D3's exact case): a receding ablating wall sweeps out the WALL state. Under a constant absorbed
 # flux the line settles at T_w* = T_inf + q/(rho c sdot) = 1300 K (a cell-state sweep: 1500 K), every step's swept
-# energy follows the reported T_w, a numpy replica of the scheme matches FUSS to round-off; the Robin twins tell the
-# pyrolysis remap (wall state) from the legacy one (cell state); the type-2 run sweeps (T_w, p_w)
+# energy follows the reported T_w, a numpy replica of the scheme matches FUSS to round-off; both Robin twins, the
+# pyrolysis remap and the legacy one, sweep the wall state (plan 12 U19); the type-2 run sweeps (T_w, p_w)
 gate_ablation_receding_front () {
   local dest="$WORK/ablation_receding_front" rc r2 r
   for r in front twin_pyro twin_legacy t2; do stage "$ABL/receding_front/$r" "$dest/$r"; done

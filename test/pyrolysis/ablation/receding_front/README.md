@@ -8,7 +8,7 @@ case only the ATC 2.2/2.3 comparisons exercised it. `generate.py` writes four ru
 |---|---|---|
 | `front/` | a 0.1 m line of 200 cells (constant properties `rho_v` 280, `cp` 1000, `k` 0.4; TACOT kinetics frozen, `A = 0`) receding at the TEST ONLY `sdot-override` 1/700 m/s (law `nodeshift`) under an absorbed flux `q = 4e5 W/m2`; 280 steps | (G1) `T_w` against the steady closed form `T_w* = T_inf + q/(rho c sdot) = 1300 K`; (G2) the swept energy of every step at the face's `T_w` of the step before; (G3) the energy budget; (G4) mass and position; (G5) a numpy replica of the scheme; (G6) printed |
 | `twin_pyro/` | `front` with a Robin wall, `hconv` 400 to 2300 K (`T_w*` again 1300 K), pyrolysis remap | within 2e-3 of `T_w*` |
-| `twin_legacy/` | `twin_pyro` without `[FUSS-Pyrolysis]`: the legacy remap, whose receding face sweeps the cell's own `h` | misses `T_w*` by at least 5 % |
+| `twin_legacy/` | `twin_pyro` without `[FUSS-Pyrolysis]`: the legacy remap, which sweeps the wall state too (plan 12 U19) | within 2e-3 of `T_w*` |
 | `t2/` | `front` under the type-2 closure, `K = 1e-12 m2`, `p_w = p-init = 101325 Pa`, 20 steps with a field file each | (T2-a) swept energy at (`T_w`, `p_w`), (T2-b) swept gas `eta_st p_w`, every step; (bal-m), (bal-e) |
 
 ```
@@ -35,7 +35,7 @@ Measured 2026-10-17 (FUSS `d6b6e91`, gnu, 1 thread, 3 s for `front`; to be re-me
 | (G4) | 5.4e-14; `s_total` 2.3e-16; nodes 2.8e-17 m | 1e-13; 1e-13; 1e-15 m |
 | (G5) | `T_w` 4.3e-14, `T` 1.3e-13 | 1e-9 |
 | twin_pyro | -3.80e-4 | 2e-3 |
-| twin_legacy | +9.04e-2 | >= 5e-2 |
+| twin_legacy | -3.80e-4 (2026-10-22, plan 12 U19; +9.04e-2 while the legacy remap swept the cell state); the twins' last fields agree to 1.0e-12 K | 2e-3 |
 | (T2-a), (T2-b) | 1.8e-13, 1.8e-13 | 1e-12 |
 | (bal-m), (bal-e) | 4.9e-15, 2.2e-15 | 1e-12 |
 | `p_c - p_w` at step 20 | 20.5 Pa (2.0e-4 of `p_w`) | printed |
@@ -45,4 +45,5 @@ step of 6e-5 m. With the flux raised by 1 % (the gate's selftest) exactly (G1) a
 
 Facts that shaped the case (plan 12 section D.7): step 1 of a new run sweeps the surface CELL's T (`Tw_prev` is 0 until
 the first BC call), so (G2) uses `ic.tec` for it; under type 2 the swept stored gas is the cell's `eta_st` times `p_w`
-(not `eta(T_w, p_w) p_w`); a receding face without `[FUSS-Pyrolysis]` sweeps the cell state (`twin_legacy`).
+(not `eta(T_w, p_w) p_w`); a receding face without `[FUSS-Pyrolysis]` swept the cell state (`twin_legacy`, +9.04e-2)
+until plan 12 U19 gave the legacy remap the wall state (2026-10-22).
