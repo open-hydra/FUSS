@@ -24,6 +24,13 @@ module FUSS_Field_List_m
   public :: field_entry_t, field_convert_if
   public :: Field_List_Init, Field_List_Count, Field_List_Get, Field_List_Lookup
   public :: Field_List_Set_Converters
+  public :: Field_Cell_Get, Field_Cell_Set
+  public :: FLD_T, FLD_CHI, FLD_P_PG
+
+  !> The arrays plan 11's halo exchange moves between ranks, the rows with exchange and
+  !> has_ghost: a row's code names its array for the one accessor pair Field_Cell_Get /
+  !> Field_Cell_Set (0: no array the exchange knows; the exchange refuses such a row at setup).
+  integer, parameter :: FLD_T = 1, FLD_CHI = 2, FLD_P_PG = 3
 
   abstract interface
     !> q(1:ncomp) = the conserved quantity per unit volume of cell (i,j,k)
@@ -45,6 +52,7 @@ module FUSS_Field_List_m
     logical           :: output    = .false. ! appended to Ovarnames (ncomp columns, name_1..name_ncomp)
     logical           :: exchange  = .false. ! plan 11: halo exchange / root gather needed
     logical           :: managed   = .false. ! .true. = allocated/zeroed/freed/written by the list walkers
+    integer           :: code      = 0       ! plan 11: FLD_* of the array the halo exchange moves, 0 = none
     procedure(field_convert_if), pointer, nopass :: to_conserved   => null()
     procedure(field_convert_if), pointer, nopass :: from_conserved => null()
   end type field_entry_t
@@ -119,6 +127,12 @@ contains
       list(nlist)%output    = output
       list(nlist)%exchange  = exchange
       list(nlist)%managed   = managed
+      select case ( name )
+        case ('T')    ; list(nlist)%code = FLD_T
+        case ('chi')  ; list(nlist)%code = FLD_CHI
+        case ('p_pg') ; list(nlist)%code = FLD_P_PG
+        case default  ; list(nlist)%code = 0
+      end select
     end subroutine add
 
   end subroutine Field_List_Init
@@ -167,5 +181,33 @@ contains
     list(i)%to_conserved   => to
     list(i)%from_conserved => from
   end subroutine Field_List_Set_Converters
+
+
+  !> v(1:ncomp) = the values in cell (i,j,k) of blk of the array with code `code` (plan 11:
+  !> the halo exchange's pack; one accessor for every exchanged field).
+  subroutine Field_Cell_Get ( blk, code, i, j, k, v )
+    implicit none
+    type(FUSS_block_type), intent(in) :: blk
+    integer,  intent(in)  :: code, i, j, k
+    real(R8), intent(out) :: v(:)
+    select case ( code )
+      case ( FLD_T )    ; v(1) = blk%T(i,j,k)
+      case ( FLD_CHI )  ; v    = blk%chi(:,i,j,k)
+      case ( FLD_P_PG ) ; v(1) = blk%p_pg(i,j,k)
+    end select
+  end subroutine Field_Cell_Get
+
+  !> Cell (i,j,k) of blk of the array with code `code` = v(1:ncomp) (the halo exchange's unpack).
+  subroutine Field_Cell_Set ( blk, code, i, j, k, v )
+    implicit none
+    type(FUSS_block_type), intent(inout) :: blk
+    integer,  intent(in) :: code, i, j, k
+    real(R8), intent(in) :: v(:)
+    select case ( code )
+      case ( FLD_T )    ; blk%T(i,j,k)     = v(1)
+      case ( FLD_CHI )  ; blk%chi(:,i,j,k) = v
+      case ( FLD_P_PG ) ; blk%p_pg(i,j,k)  = v(1)
+    end select
+  end subroutine Field_Cell_Set
 
 end module FUSS_Field_List_m
