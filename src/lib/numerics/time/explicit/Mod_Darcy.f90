@@ -19,8 +19,16 @@
 !> Everything here runs inside the `!$omp parallel` region of Explicit_Step
 !> (orphaned `!$omp do` / `single`, never `parallel do`), except the setup
 !> entries, which run serially (an orphaned `!$omp do` outside a parallel
-!> region executes on the one thread). No MPI halo exchange exists for p_pg:
-!> plan 11 §2.2; pyrolysis is refused with mpi_size_ > 1 (guard 8).
+!> region executes on the one thread).
+!>
+!> MPI (plan 11 stage 3): a block connection between two ranks carries the
+!> pressure halo every sweep (Fill_Ghost_p) with the tangential stencil
+!> pg(3:6); the neighbour's lagged Gamma at the source cell once a step and
+!> its h_g Gamma every stage (kept in this rank's copy of the remote block,
+!> where the connection rows read them); the sweep control is a MAX over the
+!> ranks, so every rank sweeps the same count; the correction groups sum on
+!> root and their corrections come back (Group_Corrections). Every result is
+!> the one rank's, bit for bit. MPI calls on the master thread only (FUNNELED).
 module FUSS_Mod_Darcy
   use FUSS_Mod_MPI, only: fuss_abort
   use FUSS_Mod_MPI, only: fuss_abort_in_thread
@@ -73,6 +81,15 @@ module FUSS_Mod_Darcy
   integer,  allocatable, save :: grp(:), goff(:), gsgn(:), gnpos(:)
   integer,  save :: ngrp = 0
   real(R8), allocatable, save :: ccon(:)
+  ! The flat layout of the groups' summed systems (Group_Corrections), the same on
+  ! every rank: block b's partial sums at line position s (residual, diagonal,
+  ! lower, upper) at gpart(b) + 4 (s - 1) + 1..4; the conductance and the
+  ! pressure change of connection entry ii at gconn(ii) + 1..2 (-1: none); glen
+  ! values. Group g's corrections at gdoff(g) + 1..gnpos(g), ndl in all.
+  integer,  allocatable, save :: gpart(:), gconn(:), gdoff(:)
+  integer,  save :: glen = 0, ndl = 0
+  ! tags of the entry-value exchanges (exchange_entry_values: + the sender's rank)
+  integer, parameter :: GAM_TAG = 310000, G_TAG = 320000
 
 contains
 
@@ -205,6 +222,18 @@ contains
       wk(b)%res = 0.0d0 ; wk(b)%dgl = 0.0d0 ; wk(b)%dga = 0.0d0 ; wk(b)%rhs = 0.0d0
       wk(b)%lo  = 0.0d0 ; wk(b)%hi  = 0.0d0 ; wk(b)%g   = 0.0d0 ; wk(b)%cq  = 0.0d0
       wk(b)%dgx = 0.0d0 ; wk(b)%cx  = 0.0d0
+    enddo
+
+    ! a block on another rank that is the source of a connection into a block of
+    ! this one (plan 11 stage 3): the energy pass reads its h_g Gamma at the
+    ! source cells, which Exchange_G_Halo brings every stage
+    do i = 1, domain%nbound
+      if ( domain%bc(i)%type /= 101 ) cycle
+      bs = domain%bc(i)%bs
+      if ( is_local_block(bs) .or. .not. is_local_block(domain%bc(i)%b) ) cycle
+      if ( allocated(wk(bs)%g) ) cycle
+      allocate( wk(bs)%g(9, domain%blk(bs)%dim(1), domain%blk(bs)%dim(2), domain%blk(bs)%dim(3)) )
+      wk(bs)%g = 0.0d0
     enddo
 
   end subroutine Darcy_Setup_Blocks
@@ -487,11 +516,39 @@ contains
     use FUSS_Global_m,     only: gc
     use FUSS_Parameters_m, only: guide
     use FUSS_Mod_MPI,      only: is_local_block
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,           only: mpi_size_
+    use FUSS_Field_List_m,      only: Field_List_Lookup
+    use FUSS_Mod_GhostExchange, only: exchange_ghost_post_recv, exchange_ghost_pack, exchange_ghost_post_send, &
+                                      exchange_ghost_wait_unpack, exchange_ghost_wait_send, exchange_ghost_pg, &
+                                      ghost_sched
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: ii, i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, g, Ig, Jg, Kg
     integer :: ia, ja, ka, ib, jb, kb, icc, jcc, kcc, id, jd, kd, d11s, d12s, d21s, d22s
+#ifdef USE_MPI
+    integer :: fl, fg
+
+    ! a neighbour block on another rank: its pressure in the p_pg halo (plan 11
+    ! stage 3), posted before the local work and unpacked after it, as T moves in
+    ! Fill_Ghost_Cell; MPI calls on the master thread only (FUNNELED)
+    fl = Field_List_Lookup('p_pg')
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_post_recv ( domain, fl )
+      !$omp end master
+      !$omp do schedule(static) private(fg)
+      do fg = 1, ghost_sched%n_send_faces
+        call exchange_ghost_pack ( domain, fl, fg, fg )
+      enddo
+      !$omp end do
+      !$omp master
+      call exchange_ghost_post_send ( domain, fl )
+      !$omp end master
+    endif
+#endif
 
     !$omp do schedule(dynamic) private(ii,i,Bm,Im,Jm,Km,Fm,Bs,Is,Js,Ks,Fs,g,Ig,Jg,Kg)
     do ii = 1, domain%n_local_bc
@@ -500,7 +557,7 @@ contains
       select case ( domain%bc(i)%type )
         case (101)
           Bs = domain%bc(i)%bs
-          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: plan 11
+          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: the p_pg halo, below
           Is = domain%bc(i)%is ; Js = domain%bc(i)%js ; Ks = domain%bc(i)%ks ; Fs = domain%bc(i)%fs
           do g = 1, gc
             Ig = Im - guide(Fm,1)*g ; Jg = Jm - guide(Fm,2)*g ; Kg = Km - guide(Fm,3)*g
@@ -529,6 +586,30 @@ contains
       end select
     enddo
 
+#ifdef USE_MPI
+    ! the inter-rank connections: the ghost layers the halo brought and pg(1:gc)
+    ! from them, as the branch above sets them; before the stencil below, whose
+    ! cells at a block edge can be these ghosts
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_wait_unpack ( domain, fl )
+      !$omp end master
+      !$omp barrier
+      !$omp do schedule(dynamic) private(ii,i,Bm,Im,Jm,Km,Fm,g,Ig,Jg,Kg)
+      do ii = 1, domain%n_local_bc
+        i = domain%local_bc_idx(ii)
+        if ( domain%bc(i)%type /= 101 ) cycle
+        if ( is_local_block( domain%bc(i)%bs ) ) cycle
+        Bm = domain%bc(i)%b ; Im = domain%bc(i)%i ; Jm = domain%bc(i)%j ; Km = domain%bc(i)%k ; Fm = domain%bc(i)%f
+        do g = 1, gc
+          Ig = Im - guide(Fm,1)*g ; Jg = Jm - guide(Fm,2)*g ; Kg = Km - guide(Fm,3)*g
+          domain%bc(i)%pg(g) = domain%blk(Bm)%p_pg(Ig,Jg,Kg)
+        enddo
+      enddo
+      !$omp end do
+    endif
+#endif
+
     ! pg(3:6): the source block's tangential stencil (Fill_BC_Ghost_Connection)
     !$omp do schedule(dynamic) private(ii,i,Bs,Is,Js,Ks,Fs,d11s,d12s,d21s,d22s,ia,ja,ka,ib,jb,kb,icc,jcc,kcc,id,jd,kd)
     do ii = 1, domain%n_local_bs
@@ -552,7 +633,80 @@ contains
       domain%bc(i)%pg(6) = domain%blk(Bs)%p_pg(id,jd,kd)
     enddo
 
+#ifdef USE_MPI
+    ! the sends done, the stencil of a connection whose receiving block lives on
+    ! another rank goes there (exchange_ghost_pg, as Tg(3:6))
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_wait_send ( domain, fl )
+      call exchange_ghost_pg ( domain )
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
+
   end subroutine Fill_Ghost_p
+
+
+#ifdef USE_MPI
+  !> The neighbour's lagged Gamma at the source cell of every connection from a block
+  !> of another rank (plan 11 stage 3), into this rank's copy of that block
+  !> (deallocate_remote_computation_data keeps its gam_pg): the connection rows of
+  !> Assemble and Connection_Mass_Fluxes read it there. Once a step, after the
+  !> coefficients. Master thread.
+  subroutine Exchange_Gam_Halo ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_GhostExchange, only: entry_send_count, entry_recv_count, entry_send_cell, entry_recv_cell, &
+                                      exchange_entry_values
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer :: e, b, i, j, k, ii, ns, nr
+    real(R8), allocatable :: sb(:,:), rb(:,:)
+
+    ns = entry_send_count() ; nr = entry_recv_count()
+    if ( ns + nr == 0 ) return
+    allocate( sb(9, max(ns,1)), rb(9, max(nr,1)) )
+    do e = 1, ns
+      call entry_send_cell( e, b, i, j, k )
+      sb(:,e) = domain%blk(b)%gam_pg(:,i,j,k)
+    enddo
+    call exchange_entry_values( 9, sb, rb, GAM_TAG )
+    do e = 1, nr
+      call entry_recv_cell( e, b, i, j, k, ii )
+      domain%blk(b)%gam_pg(:,i,j,k) = rb(:,e)
+    enddo
+    deallocate( sb, rb )
+  end subroutine Exchange_Gam_Halo
+
+
+  !> The neighbour's h_g Gamma of this stage at the source cell of every connection from
+  !> a block of another rank (plan 11 stage 3), into wk of that block (allocated for it
+  !> in Darcy_Setup_Blocks), where Darcy_Energy_Flux's connection rows read it. Every
+  !> stage. Master thread.
+  subroutine Exchange_G_Halo ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_GhostExchange, only: entry_send_count, entry_recv_count, entry_send_cell, entry_recv_cell, &
+                                      exchange_entry_values
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer :: e, b, i, j, k, ii, ns, nr
+    real(R8), allocatable :: sb(:,:), rb(:,:)
+
+    ns = entry_send_count() ; nr = entry_recv_count()
+    if ( ns + nr == 0 ) return
+    allocate( sb(9, max(ns,1)), rb(9, max(nr,1)) )
+    do e = 1, ns
+      call entry_send_cell( e, b, i, j, k )
+      sb(:,e) = wk(b)%g(:,i,j,k)
+    enddo
+    call exchange_entry_values( 9, sb, rb, G_TAG )
+    do e = 1, nr
+      call entry_recv_cell( e, b, i, j, k, ii )
+      wk(b)%g(:,i,j,k) = rb(:,e)
+    enddo
+    deallocate( sb, rb )
+  end subroutine Exchange_G_Halo
+#endif
 
 
   ! ---------------------------------------------------------------------------
@@ -568,12 +722,18 @@ contains
     use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Lib_Pyrolysis,  only: Darcy_Cell_Coeffs, Reaction_Rate, Advance_Reaction
     use FUSS_Mod_MPI,        only: is_local_block, mpi_is_root
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_, mpi_allreduce_max_r8_array
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: b, i, j, k, m, r, u, ios, bw, iw, jw, kw
     real(R8) :: eta, Gam(3,3), eps, rho_g, h, pi, dt, kap, rel, rw, Tstar, cq
     character(len=256) :: file
+#ifdef USE_MPI
+    real(R8) :: ctl(4)
+#endif
 
     ! 1. lagged coefficients and the gas production of this step (plan 07
     !    §3.3): pi = sum_r eps_rho_F_r [Advance_Reaction(chi^n, kappa(T*), dt) - chi^n]/dt
@@ -621,6 +781,17 @@ contains
       !$omp end do
     enddo
 
+#ifdef USE_MPI
+    ! the neighbours' Gamma across the ranks (plan 11 stage 3), before the first sweep
+    if ( mpi_size_ > 1 ) then
+      !$omp barrier
+      !$omp master
+      call Exchange_Gam_Halo ( domain )
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
+
     ! 2. sweeps: residual of the current iterate (ghosts refreshed first),
     !    stop test, update into p_new, copy. nsweep counts applied updates;
     !    at least one is applied per step, so a line-implicit block solves
@@ -635,6 +806,20 @@ contains
       resid_max = 0.0d0 ; fmax = 0.0d0 ; smax = 0.0d0 ; floor_max = 0.0d0
       !$omp end single
       call Assemble( domain )
+#ifdef USE_MPI
+      ! the sweep control over every rank (plan 11 stage 3): one decision, so every
+      ! rank sweeps the same count -- one that stopped early would leave the
+      ! others waiting in the next halo
+      if ( mpi_size_ > 1 ) then
+        !$omp barrier
+        !$omp master
+        ctl = [ resid_max, fmax, smax, floor_max ]
+        call mpi_allreduce_max_r8_array ( ctl, 4 )
+        resid_max = ctl(1) ; fmax = ctl(2) ; smax = ctl(3) ; floor_max = ctl(4)
+        !$omp end master
+        !$omp barrier
+      endif
+#endif
       !$omp single
       rref_max = max( fmax, smax )
       ! The residual cannot be evaluated below the round-off of its largest
@@ -653,6 +838,24 @@ contains
       nsweep = nsweep + 1
       !$omp end single
     enddo
+
+#ifdef USE_MPI
+    ! the diagnostics of every block for root's darcy.txt: each block's largest
+    ! residual from its own rank, the largest change of the step over the ranks
+    if ( mpi_size_ > 1 ) then
+      !$omp barrier
+      !$omp master
+      do b = 1, domain%nb
+        if ( .not. is_local_block(b) ) resb(b) = 0.0d0
+      enddo
+      call mpi_allreduce_max_r8_array ( resb, domain%nb )
+      ctl(1) = dp_max
+      call mpi_allreduce_max_r8_array ( ctl(1:1), 1 )
+      dp_max = ctl(1)
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
 
     ! 3. failure, diagnostics (one thread; the arrays are shared)
     !$omp single
@@ -698,8 +901,8 @@ contains
         open( newunit=u, file=trim(file), status='old', position='append', action='write', iostat=ios )
       endif
       if ( ios == 0 ) then
+        ! every block (with more than one rank resb holds the other ranks' blocks too)
         do b = 1, domain%nb
-          if ( .not. is_local_block(b) ) cycle
           if ( rref_max > 0.0d0 ) then
             write(u,'(I8,ES24.16,I6,I10,2ES16.8)') domain%iter, domain%time, b, nsweep, resb(b) / rref_max, dp_max
           else
@@ -920,6 +1123,9 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy
     use FUSS_Mod_MPI,        only: is_local_block
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -981,11 +1187,21 @@ contains
     ! the correction of every group, once all its blocks are solved (the
     ! copy below comes after it: the group's residual reads p_pg)
     if ( ngrp > 0 ) then
+#ifdef USE_MPI
+      if ( mpi_size_ > 1 ) then
+        !$omp barrier
+        !$omp master
+        call Group_Corrections( domain )
+        !$omp end master
+        !$omp barrier
+      else
+#endif
       !$omp single
-      do g = 1, ngrp
-        call Group_Uniform_Correction( domain, g )
-      enddo
+      call Group_Corrections( domain )
       !$omp end single
+#ifdef USE_MPI
+      endif
+#endif
     endif
 
     do b = 1, domain%nb
@@ -1138,12 +1354,12 @@ contains
   !> residual through both. A lone block keeps Line_Uniform_Correction, so a
   !> single-block run is unchanged. Before, every block corrected alone and blocks
   !> coupled by block Jacobi through the ghost layer: a domain cut into blocks
-  !> converged to the tolerance, not to round-off, and slowly. One rank only (the
-  !> groups are not built under MPI).
+  !> converged to the tolerance, not to round-off, and slowly. Every rank builds
+  !> the same groups from the full bc list (plan 11 stage 3), and the flat layout
+  !> Group_Corrections sums them in.
   subroutine Setup_Groups ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy
-    use FUSS_Mod_MPI,        only: mpi_size_
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
@@ -1155,7 +1371,6 @@ contains
     if ( allocated(grp) ) deallocate( grp, goff, gsgn, gnpos )
     allocate( grp(nb), goff(nb), gsgn(nb), gnpos(nb) )
     grp = 0 ; goff = 0 ; gsgn = 1 ; gnpos = 0 ; ngrp = 0
-    if ( mpi_size_ > 1 ) return
 
     do b = 1, nb
       if ( obj_darcy%blk_dir(b) == 0 .or. grp(b) /= 0 ) cycle
@@ -1210,6 +1425,29 @@ contains
         gnpos(g) = max( gnpos(g), goff(a) + domain%blk(a)%dim( obj_darcy%blk_dir(a) ) )
       enddo
       ngrp = g
+    enddo
+
+    ! the flat layout of the summed systems: the blocks of the groups, then the
+    ! connections inside a group, in bc order; the corrections group by group
+    if ( allocated(gpart) ) deallocate( gpart, gconn, gdoff )
+    allocate( gpart(nb), gconn(max(domain%nbound, 1)), gdoff(max(ngrp, 1)) )
+    gpart = -1 ; gconn = -1 ; gdoff = 0
+    glen = 0
+    do b = 1, nb
+      if ( grp(b) == 0 ) cycle
+      gpart(b) = glen
+      glen = glen + 4 * domain%blk(b)%dim( obj_darcy%blk_dir(b) )
+    enddo
+    do ii = 1, domain%nbound
+      if ( domain%bc(ii)%type /= 101 ) cycle
+      if ( grp(domain%bc(ii)%b) == 0 .or. grp(domain%bc(ii)%b) /= grp(domain%bc(ii)%bs) ) cycle
+      gconn(ii) = glen
+      glen = glen + 2
+    enddo
+    ndl = 0
+    do g = 1, ngrp
+      gdoff(g) = ndl
+      ndl = ndl + gnpos(g)
     enddo
 
   end subroutine Setup_Groups
@@ -1268,30 +1506,43 @@ contains
   end function Cell_S
 
 
-  !> Line_Uniform_Correction over the blocks of group g (Setup_Groups). Serial
-  !> (inside an omp single), after every block's line solves, before the copy.
-  subroutine Group_Uniform_Correction ( domain, g )
+  !> Line_Uniform_Correction over the blocks of every group (Setup_Groups), after
+  !> every block's line solves, before the copy. Serial (inside an omp single, or on
+  !> the master thread with more than one rank). The summed system of a group is
+  !> assembled from per-block partial sums -- each block's cells, line position by
+  !> line position -- and the connections' (conductance, pressure change), in one
+  !> flat array laid out by Setup_Groups; with more than one rank each rank fills its
+  !> own blocks and connections, root receives the sum (every slot has one writer, so
+  !> the sum is exact), solves every group and sends the corrections back (plan 11
+  !> stage 3). One rank runs the same arithmetic in the same order, so the result is
+  !> the same at any rank count; where no two blocks of a group share a line position
+  !> (blocks in a row) it is also the old running sum's, bit for bit.
+  subroutine Group_Corrections ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy
+    use FUSS_Mod_MPI,        only: is_local_block, mpi_is_root
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_, mpi_reduce_sum_r8_array, mpi_bcast_real_array
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
-    integer, intent(in) :: g
     ! Local
-    integer  :: b, bb, d, n, s, t1, t2, n1, n2, c1, c2, q, ic(3), jc(3), ip, ipb, ii, np
-    real(R8) :: r, den, dl, dp
-    real(R8), allocatable :: sL(:), sD(:), sH(:), sR(:), cp(:), rp(:)
+    integer  :: b, bb, d, n, s, t1, t2, n1, n2, c1, c2, q, ic(3), jc(3), ii, o, g
+    real(R8) :: r, dl
+    real(R8), allocatable :: flat(:), delta(:)
 
-    np = gnpos(g)
-    allocate( sL(np), sD(np), sH(np), sR(np), cp(np), rp(np) )
-    sL = 0.0d0 ; sD = 0.0d0 ; sH = 0.0d0 ; sR = 0.0d0
+    allocate( flat(max(glen, 1)), delta(max(ndl, 1)) )
+    flat = 0.0d0 ; delta = 0.0d0
+
+    ! this rank's blocks: at every line position, the sums over the lines' cells
     do b = 1, domain%nb
-      if ( grp(b) /= g ) cycle
+      if ( grp(b) == 0 .or. .not. is_local_block(b) ) cycle
       d  = obj_darcy%blk_dir(b)
       n  = domain%blk(b)%dim(d)
       c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
       n1 = domain%blk(b)%dim(c1) ; n2 = domain%blk(b)%dim(c2)
       do s = 1, n
-        ip = Group_Pos( domain, b, s )
+        o = gpart(b) + 4 * (s - 1)
         do t2 = 1, n2 ; do t1 = 1, n1
           call Line_Index( d, s, t1, t2, ic )
           r = 0.0d0
@@ -1307,32 +1558,110 @@ contains
             r = r + wk(b)%cx(q,ic(1),ic(2),ic(3)) &
                   * ( domain%blk(b)%p_new(jc(1),jc(2),jc(3)) - domain%blk(b)%p_pg(jc(1),jc(2),jc(3)) )
           enddo
-          sR(ip) = sR(ip) + r
-          sD(ip) = sD(ip) + ( wk(b)%dgl(ic(1),ic(2),ic(3)) - wk(b)%dgx(ic(1),ic(2),ic(3)) )
-          if ( gsgn(b) > 0 ) then
-            sL(ip) = sL(ip) + wk(b)%lo(ic(1),ic(2),ic(3)) ; sH(ip) = sH(ip) + wk(b)%hi(ic(1),ic(2),ic(3))
-          else
-            sL(ip) = sL(ip) + wk(b)%hi(ic(1),ic(2),ic(3)) ; sH(ip) = sH(ip) + wk(b)%lo(ic(1),ic(2),ic(3))
-          endif
+          flat(o+1) = flat(o+1) + r
+          flat(o+2) = flat(o+2) + ( wk(b)%dgl(ic(1),ic(2),ic(3)) - wk(b)%dgx(ic(1),ic(2),ic(3)) )
+          flat(o+3) = flat(o+3) + wk(b)%lo(ic(1),ic(2),ic(3))
+          flat(o+4) = flat(o+4) + wk(b)%hi(ic(1),ic(2),ic(3))
         enddo ; enddo
+      enddo
+    enddo
+    ! this rank's connections: the conductance on the receiving block's rank (Assemble's
+    ! row), the change of the source cell's pressure on the source block's
+    do ii = 1, domain%nbound
+      if ( gconn(ii) < 0 ) cycle
+      if ( is_local_block( domain%bc(ii)%b ) ) flat(gconn(ii)+1) = ccon(ii)
+      bb = domain%bc(ii)%bs
+      if ( is_local_block(bb) ) &
+        flat(gconn(ii)+2) = domain%blk(bb)%p_new(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks) &
+                          - domain%blk(bb)%p_pg(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks)
+    enddo
+
+#ifdef USE_MPI
+    if ( mpi_size_ > 1 ) call mpi_reduce_sum_r8_array ( flat, max(glen, 1) )
+#endif
+    if ( mpi_is_root ) then
+      do g = 1, ngrp
+        call Group_Solve ( domain, g, flat, delta(gdoff(g)+1 : gdoff(g)+gnpos(g)) )
+      enddo
+    endif
+#ifdef USE_MPI
+    if ( mpi_size_ > 1 ) call mpi_bcast_real_array ( delta, max(ndl, 1) )
+#endif
+
+    ! this rank's blocks take their positions' corrections
+    do b = 1, domain%nb
+      if ( grp(b) == 0 .or. .not. is_local_block(b) ) cycle
+      g  = grp(b)
+      d  = obj_darcy%blk_dir(b)
+      n  = domain%blk(b)%dim(d)
+      c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
+      n1 = domain%blk(b)%dim(c1) ; n2 = domain%blk(b)%dim(c2)
+      do s = 1, n
+        dl = delta( gdoff(g) + Group_Pos( domain, b, s ) )
+        if ( dl == 0.0d0 ) cycle
+        do t2 = 1, n2 ; do t1 = 1, n1
+          call Line_Index( d, s, t1, t2, ic )
+          domain%blk(b)%p_new(ic(1),ic(2),ic(3)) = domain%blk(b)%p_new(ic(1),ic(2),ic(3)) + dl
+        enddo ; enddo
+      enddo
+    enddo
+
+    deallocate( flat, delta )
+
+  end subroutine Group_Corrections
+
+
+  !> Group g's summed system from the flat partial sums (Group_Corrections), in the
+  !> fixed order -- the group's blocks in turn, then its connections in bc order --
+  !> and its Thomas solve: dl = the correction of every group position; 0 where the
+  !> summed system is singular (no correction, as before).
+  subroutine Group_Solve ( domain, g, flat, dl )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_darcy
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer,  intent(in)  :: g
+    real(R8), intent(in)  :: flat(:)
+    real(R8), intent(out) :: dl(:)
+    ! Local
+    integer  :: b, bb, n, s, ip, ipb, ii, np, o, c
+    real(R8) :: den
+    real(R8), allocatable :: sL(:), sD(:), sH(:), sR(:), cp(:), rp(:)
+
+    np = gnpos(g)
+    dl = 0.0d0
+    allocate( sL(np), sD(np), sH(np), sR(np), cp(np), rp(np) )
+    sL = 0.0d0 ; sD = 0.0d0 ; sH = 0.0d0 ; sR = 0.0d0
+    do b = 1, domain%nb
+      if ( grp(b) /= g ) cycle
+      n = domain%blk(b)%dim( obj_darcy%blk_dir(b) )
+      do s = 1, n
+        ip = Group_Pos( domain, b, s )
+        o  = gpart(b) + 4 * (s - 1)
+        sR(ip) = sR(ip) + flat(o+1)
+        sD(ip) = sD(ip) + flat(o+2)
+        if ( gsgn(b) > 0 ) then
+          sL(ip) = sL(ip) + flat(o+3) ; sH(ip) = sH(ip) + flat(o+4)
+        else
+          sL(ip) = sL(ip) + flat(o+4) ; sH(ip) = sH(ip) + flat(o+3)
+        endif
       enddo
     enddo
     ! the group's own connections
     do ii = 1, domain%nbound
-      if ( domain%bc(ii)%type /= 101 ) cycle
+      if ( gconn(ii) < 0 ) cycle
       b = domain%bc(ii)%b ; bb = domain%bc(ii)%bs
-      if ( grp(b) /= g .or. grp(bb) /= g ) cycle
+      if ( grp(b) /= g ) cycle
+      c   = gconn(ii)
       ip  = Group_Pos( domain, b,  Cell_S( domain%bc(ii)%i,  domain%bc(ii)%j,  domain%bc(ii)%k,  obj_darcy%blk_dir(b) ) )
       ipb = Group_Pos( domain, bb, Cell_S( domain%bc(ii)%is, domain%bc(ii)%js, domain%bc(ii)%ks, obj_darcy%blk_dir(bb) ) )
-      dp = domain%blk(bb)%p_new(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks) &
-         - domain%blk(bb)%p_pg(domain%bc(ii)%is,domain%bc(ii)%js,domain%bc(ii)%ks)
-      sR(ip) = sR(ip) + ccon(ii) * dp
+      sR(ip) = sR(ip) + flat(c+1) * flat(c+2)
       if ( ipb == ip ) then
-        sD(ip) = sD(ip) - ccon(ii)
+        sD(ip) = sD(ip) - flat(c+1)
       elseif ( ipb == ip + 1 ) then
-        sH(ip) = sH(ip) - ccon(ii)
+        sH(ip) = sH(ip) - flat(c+1)
       elseif ( ipb == ip - 1 ) then
-        sL(ip) = sL(ip) - ccon(ii)
+        sL(ip) = sL(ip) - flat(c+1)
       endif
     enddo
     ! Thomas on the group's summed line; a singular system skips the correction
@@ -1347,23 +1676,9 @@ contains
     do ip = np - 1, 1, -1
       rp(ip) = rp(ip) - cp(ip) * rp(ip+1)
     enddo
-    do b = 1, domain%nb
-      if ( grp(b) /= g ) cycle
-      d  = obj_darcy%blk_dir(b)
-      n  = domain%blk(b)%dim(d)
-      c1 = merge( 2, 1, d == 1 ) ; c2 = merge( 2, 3, d == 3 )
-      n1 = domain%blk(b)%dim(c1) ; n2 = domain%blk(b)%dim(c2)
-      do s = 1, n
-        dl = rp( Group_Pos( domain, b, s ) )
-        if ( dl == 0.0d0 ) cycle
-        do t2 = 1, n2 ; do t1 = 1, n1
-          call Line_Index( d, s, t1, t2, ic )
-          domain%blk(b)%p_new(ic(1),ic(2),ic(3)) = domain%blk(b)%p_new(ic(1),ic(2),ic(3)) + dl
-        enddo ; enddo
-      enddo
-    enddo
+    dl(1:np) = rp(1:np)
 
-  end subroutine Group_Uniform_Correction
+  end subroutine Group_Solve
 
 
   !> Cell (i,j,k) of position s along direction d at transverse (t1, t2):
@@ -1698,6 +2013,9 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Lib_Pyrolysis, only: Darcy_Cell_Coeffs, Gas_State
     use FUSS_Mod_MPI,       only: is_local_block
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,       only: mpi_size_
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -1749,6 +2067,18 @@ contains
       enddo ; enddo
       !$omp end do
     enddo
+
+#ifdef USE_MPI
+    ! the neighbours' h_g Gamma of this stage across the ranks (plan 11 stage 3),
+    ! for the connection rows below
+    if ( mpi_size_ > 1 ) then
+      !$omp barrier
+      !$omp master
+      call Exchange_G_Halo ( domain )
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
 
     upper = 0
     do b = 1, domain%nb

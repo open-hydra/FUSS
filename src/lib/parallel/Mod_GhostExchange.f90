@@ -135,6 +135,8 @@ module FUSS_Mod_GhostExchange
   ! gather_field_to_root: block b's message is tagged FIELD_GATHER_TAG + b (Intel MPI 2021.9:
   ! MPI_TAG_UB = 524287)
   integer, parameter :: FIELD_GATHER_TAG = 400000
+  ! the gas-pressure stencil pg(3:6) (Tg(3:6) keeps 10000)
+  integer, parameter :: PG_TAG = 300000
 
   public :: build_ghost_schedule
   public :: build_local_bc_index
@@ -145,7 +147,8 @@ module FUSS_Mod_GhostExchange
   public :: exchange_ghost_post_recv, exchange_ghost_pack, exchange_ghost_post_send
   public :: exchange_ghost_wait_unpack, exchange_ghost_wait_send
   public :: exchange_ghost_R
-  public :: exchange_ghost_Tg
+  public :: exchange_ghost_Tg, exchange_ghost_pg
+  public :: entry_send_count, entry_recv_count, entry_send_cell, entry_recv_cell, exchange_entry_values
   public :: exchange_ghost_chimera_post_recv, exchange_ghost_chimera_pack
   public :: exchange_ghost_chimera_post_send, exchange_ghost_chimera_wait_recv
   public :: exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send
@@ -1863,9 +1866,106 @@ contains
 
     if (mpi_size_ <= 1) return
 #ifdef USE_MPI
-    call exchange_Tg_field(domain)
+    call exchange_Tg_field(domain, 1)
 #endif
   end subroutine exchange_ghost_Tg
+
+
+  !> The gas-pressure stencil pg(3:6) of the inter-rank connections (plan 11 stage 3), as
+  !> Tg(3:6): the source block's tangential pressures, computed on its rank (Fill_Ghost_p).
+  subroutine exchange_ghost_pg(domain)
+    use FUSS_Advanced_Types_m
+
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call exchange_Tg_field(domain, 2)
+#endif
+  end subroutine exchange_ghost_pg
+
+
+  !> The entries of the active schedule (plan 11 stage 3): a send entry is a block
+  !> connection whose source block lives here and whose receiving block on another rank, a
+  !> recv entry the converse. Both sides list them in bc order, so send entry e to a rank
+  !> pairs with that rank's recv entry e from here. 0 on one rank.
+  integer function entry_send_count() result(n)
+    n = 0
+    if (mpi_size_ <= 1) return
+    n = ghost_sched%n_send
+  end function entry_send_count
+
+  integer function entry_recv_count() result(n)
+    n = 0
+    if (mpi_size_ <= 1) return
+    n = ghost_sched%n_recv
+  end function entry_recv_count
+
+  !> The source cell of send entry e: block b (on this rank), cell (i, j, k) next to the face.
+  subroutine entry_send_cell(e, b, i, j, k)
+    integer, intent(in)  :: e
+    integer, intent(out) :: b, i, j, k
+    b = ghost_sched%send_list(e)%local_block
+    i = ghost_sched%send_list(e)%src_i
+    j = ghost_sched%send_list(e)%src_j
+    k = ghost_sched%send_list(e)%src_k
+  end subroutine entry_send_cell
+
+  !> The source cell of recv entry e: block b (on another rank), cell (i, j, k), and the bc
+  !> index ii of the connection (its receiving block lives here).
+  subroutine entry_recv_cell(e, b, i, j, k, ii)
+    integer, intent(in)  :: e
+    integer, intent(out) :: b, i, j, k, ii
+    b  = ghost_sched%recv_list(e)%remote_block
+    i  = ghost_sched%recv_list(e)%src_i
+    j  = ghost_sched%recv_list(e)%src_j
+    k  = ghost_sched%recv_list(e)%src_k
+    ii = ghost_sched%recv_list(e)%bc_idx
+  end subroutine entry_recv_cell
+
+  !> nv values per entry (plan 11 stage 3): sbuf(:, e) of every send entry e travels to the
+  !> rank of its receiving block, into rbuf(:, e) of the paired recv entry there. One
+  !> message per rank pair, tagged tag_base + the sender's rank. The caller packs and
+  !> unpacks (entry_send_cell / entry_recv_cell). Master thread only (FUNNELED); every rank
+  !> that has entries calls it with the same tag_base.
+  subroutine exchange_entry_values(nv, sbuf, rbuf, tag_base)
+    integer,  intent(in)    :: nv, tag_base
+    real(R8), intent(in)    :: sbuf(nv,*)
+    real(R8), intent(inout) :: rbuf(nv,*)
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    block
+      use mpi
+      integer :: r, ierr
+      integer, allocatable :: sreq(:), rreq(:), stats(:,:)
+      allocate(sreq(max(ghost_sched%n_send_ranks,1)), rreq(max(ghost_sched%n_recv_ranks,1)), &
+               stats(MPI_STATUS_SIZE, max(ghost_sched%n_send_ranks, ghost_sched%n_recv_ranks, 1)))
+      do r = 1, ghost_sched%n_recv_ranks
+        call MPI_IRECV(rbuf(1, ghost_sched%recv_groups(r)%offset), nv * ghost_sched%recv_groups(r)%count, &
+                       MPI_DOUBLE_PRECISION, ghost_sched%recv_groups(r)%rank, &
+                       tag_base + ghost_sched%recv_groups(r)%rank, MPI_COMM_WORLD, rreq(r), ierr)
+        call check_mpi_error(ierr)
+      end do
+      do r = 1, ghost_sched%n_send_ranks
+        call MPI_ISEND(sbuf(1, ghost_sched%send_groups(r)%offset), nv * ghost_sched%send_groups(r)%count, &
+                       MPI_DOUBLE_PRECISION, ghost_sched%send_groups(r)%rank, &
+                       tag_base + mpi_rank_, MPI_COMM_WORLD, sreq(r), ierr)
+        call check_mpi_error(ierr)
+      end do
+      if (ghost_sched%n_recv_ranks > 0) then
+        call MPI_WAITALL(ghost_sched%n_recv_ranks, rreq, stats, ierr)
+        call check_mpi_error(ierr)
+      end if
+      if (ghost_sched%n_send_ranks > 0) then
+        call MPI_WAITALL(ghost_sched%n_send_ranks, sreq, stats, ierr)
+        call check_mpi_error(ierr)
+      end if
+      deallocate(sreq, rreq, stats)
+    end block
+#endif
+  end subroutine exchange_entry_values
 
 
   !> Chimera donor-cell exchange, split like the T exchange so that packing
@@ -2052,15 +2152,17 @@ contains
   end subroutine exchange_matID_once
 
   
-  !> Internal: exchange Tg(3:6) stencil using aggregated messaging.
-  subroutine exchange_Tg_field(domain)
+  !> Internal: exchange a tangential stencil using aggregated messaging: which = 1 the
+  !> temperature's Tg(3:6), 2 the gas pressure's pg(3:6) (plan 11 stage 3).
+  subroutine exchange_Tg_field(domain, which)
     use FUSS_Advanced_Types_m
     use mpi
 
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: which
     ! Local
-    integer :: ns, nr, i, r, ierr, tag, bc_idx, buf_pos
+    integer :: ns, nr, i, r, ierr, tag, bc_idx, buf_pos, tag_off
     integer :: entry_size
     integer, parameter :: TG_NCOLS = 4   ! Tg columns 3..6
 
@@ -2069,11 +2171,13 @@ contains
     if (ns == 0 .and. nr == 0) return
 
     entry_size = TG_NCOLS
+    tag_off = 10000                       ! Tg
+    if (which == 2) tag_off = PG_TAG      ! pg
 
     ! Post one receive per remote rank (aggregated)
     do r = 1, ghost_sched%n_recv_ranks
       buf_pos = (ghost_sched%recv_groups(r)%offset - 1) * entry_size + 1
-      tag = ghost_sched%recv_groups(r)%rank + 10000  ! unique tag per rank for Tg
+      tag = ghost_sched%recv_groups(r)%rank + tag_off  ! unique tag per rank and stencil
       call MPI_IRECV(ghost_sched%Tg_recv_buf(buf_pos), &
                      ghost_sched%recv_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -2088,13 +2192,17 @@ contains
              ghost_sched%send_groups(r)%offset + ghost_sched%send_groups(r)%count - 1
         bc_idx = ghost_sched%send_list(i)%bc_idx
         buf_pos = (i - 1) * entry_size
-        ghost_sched%Tg_send_buf(buf_pos+1) = domain%bc(bc_idx)%Tg(3)
-        ghost_sched%Tg_send_buf(buf_pos+2) = domain%bc(bc_idx)%Tg(4)
-        ghost_sched%Tg_send_buf(buf_pos+3) = domain%bc(bc_idx)%Tg(5)
-        ghost_sched%Tg_send_buf(buf_pos+4) = domain%bc(bc_idx)%Tg(6)
+        if (which == 2) then
+          ghost_sched%Tg_send_buf(buf_pos+1:buf_pos+4) = domain%bc(bc_idx)%pg(3:6)
+        else
+          ghost_sched%Tg_send_buf(buf_pos+1) = domain%bc(bc_idx)%Tg(3)
+          ghost_sched%Tg_send_buf(buf_pos+2) = domain%bc(bc_idx)%Tg(4)
+          ghost_sched%Tg_send_buf(buf_pos+3) = domain%bc(bc_idx)%Tg(5)
+          ghost_sched%Tg_send_buf(buf_pos+4) = domain%bc(bc_idx)%Tg(6)
+        end if
       end do
       buf_pos = (ghost_sched%send_groups(r)%offset - 1) * entry_size + 1
-      tag = mpi_rank_ + 10000  ! sender's rank as tag for Tg
+      tag = mpi_rank_ + tag_off  ! sender's rank as tag
       call MPI_ISEND(ghost_sched%Tg_send_buf(buf_pos), &
                      ghost_sched%send_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -2110,10 +2218,14 @@ contains
       call check_mpi_error(ierr)
     end if
 
-    ! Unpack into bc%Tg(3:6)
+    ! Unpack into bc%Tg(3:6) (bc%pg(3:6))
     do i = 1, nr
       bc_idx = ghost_sched%recv_list(i)%bc_idx
       buf_pos = (i - 1) * entry_size
+      if (which == 2) then
+        domain%bc(bc_idx)%pg(3:6) = ghost_sched%Tg_recv_buf(buf_pos+1:buf_pos+4)
+        cycle
+      end if
       domain%bc(bc_idx)%Tg(3) = ghost_sched%Tg_recv_buf(buf_pos+1)
       domain%bc(bc_idx)%Tg(4) = ghost_sched%Tg_recv_buf(buf_pos+2)
       domain%bc(bc_idx)%Tg(5) = ghost_sched%Tg_recv_buf(buf_pos+3)

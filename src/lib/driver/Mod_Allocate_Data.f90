@@ -262,7 +262,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     integer :: b, d, i, c, fl
     type(field_entry_t) :: e
-    logical, allocatable :: needs_remote_T(:)
+    logical, allocatable :: needs_remote_T(:), needs_remote_gam(:)
 
     ! Build mask of remote blocks whose T and matID (and dir) must be kept:
     !  - chimera (102): remote donors of a receiver block this rank owns.
@@ -282,6 +282,17 @@ contains
             end do
           end if
       end select
+    end do
+
+    ! Under the Darcy closure (plan 11 stage 3), the remote source block of a connection
+    ! into a block this rank owns keeps its gam_pg: the connection rows read the
+    ! neighbour's Gamma at the source cell, which Exchange_Gam_Halo refreshes there
+    allocate(needs_remote_gam(domain%nb))
+    needs_remote_gam = .false.
+    do i = 1, domain%nbound
+      if (domain%bc(i)%type /= 101) cycle
+      if (is_local_block(domain%bc(i)%b) .and. .not. is_local_block(domain%bc(i)%bs)) &
+        needs_remote_gam(domain%bc(i)%bs) = .true.
     end do
 
     do b = 1, domain%nb
@@ -316,7 +327,8 @@ contains
           case ('eta_prev'); if (allocated(domain%blk(b)%eta_prev)) deallocate(domain%blk(b)%eta_prev)
           case ('eta_st') ; if (allocated(domain%blk(b)%eta_st))  deallocate(domain%blk(b)%eta_st)
           case ('eta_stO'); if (allocated(domain%blk(b)%eta_stO)) deallocate(domain%blk(b)%eta_stO)
-          case ('gam_pg') ; if (allocated(domain%blk(b)%gam_pg))  deallocate(domain%blk(b)%gam_pg)
+          case ('gam_pg') ; if (allocated(domain%blk(b)%gam_pg) .and. .not. needs_remote_gam(b)) &
+                              deallocate(domain%blk(b)%gam_pg)
           case ('pi_pg')  ; if (allocated(domain%blk(b)%pi_pg))   deallocate(domain%blk(b)%pi_pg)
           case ('T_prev') ; if (allocated(domain%blk(b)%T_prev))  deallocate(domain%blk(b)%T_prev)
           case default
@@ -354,7 +366,7 @@ contains
       end if
     end do
 
-    deallocate(needs_remote_T)
+    deallocate(needs_remote_T, needs_remote_gam)
 
   end subroutine deallocate_remote_computation_data
 

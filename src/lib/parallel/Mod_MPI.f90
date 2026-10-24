@@ -33,6 +33,7 @@ module FUSS_Mod_MPI
   public :: mpi_allreduce_norm2
   public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_real
   public :: mpi_gather_block_columns
+  public :: mpi_allreduce_max_r8_array, mpi_bcast_real_array
 
   !> mpi_gather_block_columns tags block b's message BLOCK_GATHER_TAG + b (plan 11; Intel MPI
   !> 2021.9's MPI_TAG_UB is 524287)
@@ -360,6 +361,33 @@ contains
     deallocate(reqs, stats)
 #endif
   end subroutine mpi_gather_block_columns
+
+
+  !> MPI_ALLREDUCE with MPI_MAX for an array of real(R8), in place (plan 11: the Darcy
+  !> sweep control, one decision on every rank).
+  subroutine mpi_allreduce_max_r8_array(arr, n)
+    integer, intent(in)     :: n
+    real(R8), intent(inout) :: arr(n)
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ <= 1) return
+    call MPI_ALLREDUCE(MPI_IN_PLACE, arr, n, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_allreduce_max_r8_array
+
+
+  !> Broadcast an array of real(R8) from root (rank 0) to all ranks.
+  subroutine mpi_bcast_real_array(arr, n)
+    integer, intent(in)     :: n
+    real(R8), intent(inout) :: arr(n)
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ <= 1) return
+    call MPI_BCAST(arr, n, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_bcast_real_array
 
 
   !> Broadcast a real(R8) value from root (rank 0) to all ranks.
