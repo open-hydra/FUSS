@@ -22,13 +22,13 @@
 #               -m N (plan 11) runs every demo with the mpi preset's bin/FUSS-mpi on
 #               N ranks through $I_MPI_ROOT/bin/mpirun, under timeout 900: each
 #               demo must keep its text AND its code there too (a stop on only
-#               some of the ranks used to make the launcher report 255). A base
-#               that MPI refuses as a whole -- the ablating wall -- is refused by
-#               name with code 1 before the demo's own check; that outcome is
-#               counted apart ("MPI") and is the first demonstration of that
-#               refusal. Chimera (102) and multigrid run on N ranks since the merge
-#               of upstream's chimera-mpi (2026-10-17), pyrolysis since plan 11
-#               stages 3a (type 1) and 3b (type 2; 2026-10-24).
+#               some of the ranks used to make the launcher report 255). Since plan
+#               11 stage 4 (2026-10-24) no base is refused by MPI any more: chimera
+#               (102) and multigrid run on N ranks since the merge of upstream's
+#               chimera-mpi (2026-10-17), pyrolysis since stages 3a (type 1) and 3b
+#               (type 2), the ablating wall since stage 4. MPI_REFUSALS below is
+#               the list of such refusals (empty); a demo stopped by one would be
+#               counted apart ("MPI"), never as a PASS.
 #===============================================================================
 set -u
 
@@ -73,7 +73,7 @@ trap '[ $? -eq 127 ] && bad "line $LINENO: exit 127 -- a demo helper or the solv
 # Under -m N > 1: a base that MPI refuses as a whole is stopped by name with code 1 before the demo's
 # own check. That is the expected outcome there; it is counted apart, never as a PASS.
 nmpi_ref=0
-MPI_REFUSALS=("the ablating wall (306) is OpenMP-only until plan 11")
+MPI_REFUSALS=()
 mpi_refused () {   # $1 = log, $2 = exit code: true when an MPI refusal stopped the run with code 1
   [ "$NMPI" -gt 1 ] && [ "$2" -eq 1 ] || return 1
   local t
@@ -823,7 +823,7 @@ demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_
     "a 101 line is \"bs is js ks fs d11 d12 d21 d22\" with a block and face of this mesh" "PY:$BC_CONN9"
 
 echo
-[ "$NMPI" -gt 1 ] && echo "$nmpi_ref demo(s) refused as a whole by an MPI guard (the ablating wall), code 1"
+[ "$NMPI" -gt 1 ] && echo "$nmpi_ref demo(s) refused as a whole by an MPI guard, code 1"
 if [ "$fail" -eq 0 ]; then
   echo "all guards fired as intended"
 else

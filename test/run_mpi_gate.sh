@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_mpi_gate.sh
-#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-c CASE:NRANKS]...
+#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-c CASE:NRANKS[:verify]]...
 #  DESCRIPTION: A case run on N MPI ranks must give the outputs of the same case
 #               run on one rank (plan 11 section 2.5). Both runs use the mpi
 #               preset's bin/FUSS-mpi at OMP_NUM_THREADS=1, the N-rank one through
@@ -22,6 +22,10 @@
 #               must lie on the face nodes of the field.tec written at the same
 #               output (string equality: one writer). Before stage 2 the patches
 #               kept the setup surface, on one rank too.
+#
+#               CASE:N:verify (plan 11 stage 4) also runs the case's own verify.py
+#               on the N-rank output, which must pass (the receding conjugate
+#               slabs: the interface fluxes of the two sides pair to 1e-12).
 #===============================================================================
 set -u
 
@@ -33,7 +37,7 @@ while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -c | --case) CASES+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-c CASE:NRANKS]..."; exit 1 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-c CASE:NRANKS[:verify]]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -46,14 +50,19 @@ done
 # split across the ranks -- twenty blocks in a row with the kinetics (the chi, p_pg, Gamma and h_g Gamma
 # halos, the correction group of blocks in a row), a 2 x 2 rotated-tensor slab under the Jacobi sweep
 # (the pressure stencil pg(3:6), the sweep control over thousands of sweeps), two blocks side by side
-# (a correction group whose blocks share their line positions)
+# (a correction group whose blocks share their line positions); stage 4: the ablating wall -- the receding
+# conjugate slabs on two ranks with their interface pairing (verify.py), ATC 2.2 cut in four with the
+# receding block on the last rank (the rates' allgather, the faces' state to root), the smoothed slab whose
+# two blocks share the receding surface (the nodal rates across ranks, the interface assertion)
 [ "${#CASES[@]}" -gt 0 ] || CASES=("test/transient/multimat_Plate:4" "test/numerics-features/conjugate_two_layer_fixed:2"
   "test/moving-mesh/freestream_4blk:4" "test/moving-mesh/conservation_4blk:4" "test/moving-mesh/receding_4blk:4"
   "test/moving-mesh/receding/N040:2" "test/numerics-features/chimera_fixed:2"
   "test/numerics-features/residual_convergence/mg1:2"
   "test/pyrolysis/energy_audit:4" "test/pyrolysis/heated0d:2"
   "test/pyrolysis/lit/baum_atreya2007/full_N100_20blk:4" "test/pyrolysis/darcy/tensor_linear_2d_2x2:4"
-  "test/pyrolysis/darcy/mass_balance_1d_2x:2")
+  "test/pyrolysis/darcy/mass_balance_1d_2x:2"
+  "test/moving-mesh/conjugate_receding:2:verify" "test/moving-mesh/conjugate_receding_t2:2:verify"
+  "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2")
 
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
 export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
@@ -70,7 +79,7 @@ echo "  work dir : $WORK"
 echo
 
 for spec in "${CASES[@]}"; do
-  case_rel=${spec%%:*}; n=${spec##*:}
+  IFS=: read -r case_rel n check <<< "$spec"
   src="$ROOT/$case_rel"; name=$(echo "$case_rel" | tr '/' '_')
   for r in 1 "$n"; do
     d="$WORK/$name.m$r"
@@ -155,6 +164,13 @@ PY
     pass "$case_rel: $n ranks = 1 rank ($out)"
   else
     bad "$case_rel: $n ranks differ from 1 rank ($out)"
+  fi
+  if [ "${check:-}" = "verify" ]; then
+    if python3 "$src/verify.py" "$WORK/$name.m$n" > "$WORK/$name.m$n/verify.log" 2>&1; then
+      pass "$case_rel: verify.py on the $n-rank output ($(grep -m1 -E '\(pair\)' "$WORK/$name.m$n/verify.log" | tr -s ' ' | cut -c1-110))"
+    else
+      bad "$case_rel: verify.py FAILED on the $n-rank output (see $WORK/$name.m$n/verify.log)"
+    fi
   fi
 done
 

@@ -493,8 +493,9 @@ def main(argv):
                    if not copied_input(f))
     if extra:
         die("INPUT/ holds files the splitter cannot split or does not know: %s" % " ".join(extra))
-    # case.json is the generators' description of a case for its verify.py, not a solver input
-    stray = sorted(f for f in os.listdir(src) if f.endswith((".dat", ".json")) and f != "case.json")
+    # case.json and expected.json are a generator's description and a verify.py's budgets, not solver inputs
+    stray = sorted(f for f in os.listdir(src) if f.endswith((".dat", ".json"))
+                   and f not in ("case.json", "expected.json"))
     if stray:
         die("case-root time/probe files are not supported: %s" % " ".join(stray))
 

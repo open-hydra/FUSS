@@ -65,6 +65,8 @@ XTHREAD=0
 XONLY=0
 XCASES=()
 NMPI=0
+# the text of a refusal by an MPI guard, an extended regex (empty: no case is refused since plan 11 stage 4)
+MPI_REFUSAL_RE=""
 
 while test $# -gt 0; do
   case $1 in
@@ -106,12 +108,12 @@ for pass in A B; do
        > "$WORK/$pass.log" 2>&1; then
     echo "done ($(wc -l < "$WORK/$pass/manifest.txt") artefacts)"
   elif [ "$NMPI" -gt 1 ]; then
-    # On N ranks the cases MPI refuses as a whole (the ablating wall) exit 1 by name; any other case
-    # that did not run is a failure
+    # On N ranks a case MPI refuses as a whole would exit 1 by name (MPI_REFUSAL_RE; none since plan
+    # 11 stage 4); any other case that did not run is a failure
     crashed=0
     for lg in $(grep -l . "$WORK/$pass"/*.log); do
       grep -q "FAILED (see $lg)" "$WORK/$pass.log" || continue
-      if ! grep -qE "the ablating wall \(306\) is OpenMP-only" "$lg"; then
+      if [ -z "$MPI_REFUSAL_RE" ] || ! grep -qE "$MPI_REFUSAL_RE" "$lg"; then
         echo; echo "  FAIL  $(basename "$lg" .log) did not run and was not refused by an MPI guard (see $lg)"
         crashed=$((crashed+1))
       fi
