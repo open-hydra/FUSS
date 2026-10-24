@@ -53,7 +53,9 @@ done
 # (a correction group whose blocks share their line positions); stage 4: the ablating wall -- the receding
 # conjugate slabs on two ranks with their interface pairing (verify.py), ATC 2.2 cut in four with the
 # receding block on the last rank (the rates' allgather, the faces' state to root), the smoothed slab whose
-# two blocks share the receding surface (the nodal rates across ranks, the interface assertion)
+# two blocks share the receding surface (the nodal rates across ranks, the interface assertion), the coupled
+# ablating wall 307 cut in four with its faces on the last rank (hydra's contract: the exchange values exist
+# on the rank of the face's block only, as the TEST ONLY coupled-env-file now writes them)
 [ "${#CASES[@]}" -gt 0 ] || CASES=("test/transient/multimat_Plate:4" "test/numerics-features/conjugate_two_layer_fixed:2"
   "test/moving-mesh/freestream_4blk:4" "test/moving-mesh/conservation_4blk:4" "test/moving-mesh/receding_4blk:4"
   "test/moving-mesh/receding/N040:2" "test/numerics-features/chimera_fixed:2"
@@ -62,7 +64,8 @@ done
   "test/pyrolysis/lit/baum_atreya2007/full_N100_20blk:4" "test/pyrolysis/darcy/tensor_linear_2d_2x2:4"
   "test/pyrolysis/darcy/mass_balance_1d_2x:2"
   "test/moving-mesh/conjugate_receding:2:verify" "test/moving-mesh/conjugate_receding_t2:2:verify"
-  "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2")
+  "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2"
+  "test/pyrolysis/ablation/coupled307/run307_4blk:4")
 
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
 export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"

@@ -42,7 +42,9 @@ numbered row-major, b = 1 + bi + nbi*bj (bi along i, bj along j).
                    sequence restricted to the block's cells), whatever loop the
                    source was written with.
                      outer face: the source record's type and second line,
-                                 copied verbatim, re-indexed to the block's cells;
+                                 copied verbatim, re-indexed to the block's cells
+                                 (a 307's second line names the coupled solver's
+                                 cell, not a FUSS one, so it is kept as it is);
                      cut face:   type 101, second line
                                  bs is js ks fs 1 0 0 1
                                  (the neighbour block's adjacent cell and face,
@@ -52,7 +54,9 @@ numbered row-major, b = 1 + bi + nbi*bj (bi along i, bj along j).
   INPUT/phase.txt, INPUT/properties.dat   copied, and the per-case tables of the
                    pyrolysis, Darcy and ablation cases (plan 11 stage 3):
                    pyrolysis.dat, virgin.dat, char.dat, gas.dat, env_*.dat,
-                   bprime_*.dat -- one file for every block, nothing per cell.
+                   bprime_*.dat -- one file for every block, nothing per cell --
+                   and the TEST ONLY [FUSS-Ablation] coupled-env-file when it is
+                   one table for every 307 face (plan 11 stage 4).
   FUSS.sh          copied, MASTERDIR set for out_dir's depth below the
                    repository (../../.. for test/moving-mesh/<case>).
   input.ini        only the [FUSS-*] sections, verbatim, behind a one-line
@@ -70,10 +74,12 @@ Files the tool does not write in out_dir (verify.py, README.md) are left alone.
 WHAT IT REFUSES
 ---------------
 A source with more than one zone; records that already carry connectivity
-(101, 102, 103, 104, 307: their targets would need re-mapping); a bc.txt that
+(101, 102, 103, 104: their targets would need re-mapping); a bc.txt that
 does not cover every boundary cell exactly once, face by face in order 1..6;
 INPUT files it does not know how to split (st.tec, multigrid bcN.txt, ...);
-multigrid sections (coarse-level files); time or probe files at the case root.
+a coupled-env-file of "// face b i j k f" blocks (they name the source's bc
+records); multigrid sections (coarse-level files); time or probe files at the
+case root.
 
 Python 3.6, standard library only.
 """
@@ -91,8 +97,9 @@ ROOT = os.path.dirname(os.path.dirname(HERE))          # test/tools -> repositor
 # one value line after "b i j k f type"; 102/104 carry a count line and donor
 # lines; every other type (0 null, 300 symmetry) carries none.
 ONE_VALUE_LINE = (101, 103, 301, 302, 303, 304, 305, 306, 307)
+# (307 is not here: its value line names the coupled solver's cell, not a FUSS one)
 CONNECTIVITY = {101: "block connection", 102: "chimera", 103: "coupled wall",
-                104: "coupled chimera", 307: "coupled ablating wall"}
+                104: "coupled chimera"}
 
 KNOWN_INPUT = ("ic.tec", "bc.txt", "phase.txt", "properties.dat")
 # copied verbatim: tables of the whole case, not of a block or a cell (plan 11 stage 3)
@@ -100,8 +107,36 @@ COPY_INPUT = ("phase.txt", "properties.dat", "pyrolysis.dat", "virgin.dat", "cha
 COPY_INPUT_PATTERNS = (r"^env_[\w.-]*\.dat$", r"^bprime_[\w.-]*\.dat$")
 
 
+COPY_EXTRA = set()                                       # the coupled-env-file (main)
+
+
 def copied_input(name):
-    return name in COPY_INPUT or any(re.match(p, name) for p in COPY_INPUT_PATTERNS)
+    return name in COPY_INPUT or name in COPY_EXTRA or any(re.match(p, name) for p in COPY_INPUT_PATTERNS)
+
+
+def coupled_env_file(text, src):
+    """The TEST ONLY [FUSS-Ablation] coupled-env-file of input.ini, or None. One table
+    for every 307 face is copied; a file of "// face b i j k f" blocks names the
+    source's bc records and is refused."""
+    sec, name = None, None
+    for line in text.split("\n"):
+        m = re.match(r"^\s*\[([^\]]+)\]", line)
+        if m:
+            sec = m.group(1).strip()
+            continue
+        m = re.match(r"^\s*coupled-env-file\s*=\s*([^;!#\s]+)", line)
+        if sec == "FUSS-Ablation" and m:
+            name = m.group(1)
+    if name is None or name.lower() == "none":
+        return None
+    path = os.path.join(src, "INPUT", name)
+    if not os.path.isfile(path):
+        die("coupled-env-file = %s: no INPUT/%s" % (name, name))
+    with open(path) as fh:
+        if any(re.match(r"^\s*//\s*face\b", l) for l in fh):
+            die("INPUT/%s holds '// face' blocks: they name the source's bc records "
+                "(not re-mapped)" % name)
+    return name
 COMMENT_CHARS = "!;#"                                   # FiNeR's COMMENTS
 
 
@@ -489,6 +524,10 @@ def main(argv):
     if os.path.realpath(src) == os.path.realpath(out):
         die("out_dir is the source case")
 
+    with open(os.path.join(src, "input.ini")) as fh:
+        env = coupled_env_file(fh.read(), src)
+    if env is not None:
+        COPY_EXTRA.add(env)
     extra = sorted(f for f in set(os.listdir(os.path.join(src, "INPUT"))) - set(KNOWN_INPUT)
                    if not copied_input(f))
     if extra:
