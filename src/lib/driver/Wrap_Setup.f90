@@ -558,9 +558,12 @@ contains
         bad = .true.
       endif
 
-      ! 8. No halo exchange or root gather exists for the new fields.
-      if ( mpi_size_ > 1 ) then
-        write(*,'(A)') ' [ERROR] pyrolysis is OpenMP-only until plan 11.'
+      ! 8. The type-2 pressure solve has no exchange between ranks before plan 11
+      !    stage 3b. Type 1 runs on any rank count (stage 3a): it is single-block
+      !    (guard 9), so its block lives on root and the other ranks idle through
+      !    every collective.
+      if ( mpi_size_ > 1 .and. obj_darcy%enabled ) then
+        write(*,'(A)') ' [ERROR] pyrolysis with gas-closure = type2 is OpenMP-only until plan 11 stage 3b.'
         bad = .true.
       endif
 
