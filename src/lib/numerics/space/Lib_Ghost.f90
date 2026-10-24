@@ -177,14 +177,41 @@ contains
   !> connection (101, type 2 only: guard 9) the neighbour's chi, as
   !> Fill_Ghost_p copies p, with bc%chig = the first ghost layer (the
   !> conductivity of the connection kernel, plan 08 section 2.9). Chimera
-  !> (102) is refused under pyrolysis.
+  !> (102) is refused under pyrolysis. A neighbour block on another rank
+  !> sends its chi in the chi halo (plan 11 stage 3), posted before the local
+  !> work and unpacked after it, as Fill_Ghost_Cell moves T.
   subroutine Fill_Ghost_chi ( domain )
     use FUSS_Parameters_m, only: guide
     use FUSS_Mod_MPI,      only: is_local_block
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,           only: mpi_size_
+    use FUSS_Field_List_m,      only: Field_List_Lookup
+    use FUSS_Mod_GhostExchange, only: exchange_ghost_post_recv, exchange_ghost_pack, exchange_ghost_post_send, &
+                                      exchange_ghost_wait_unpack, exchange_ghost_wait_send, ghost_sched
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg
+#ifdef USE_MPI
+    integer :: fl, fg
+
+    ! (MPI calls on the master thread only: MPI_THREAD_FUNNELED)
+    fl = Field_List_Lookup('chi')
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_post_recv ( domain, fl )
+      !$omp end master
+      !$omp do schedule(static) private(fg)
+      do fg = 1, ghost_sched%n_send_faces
+        call exchange_ghost_pack ( domain, fl, fg, fg )
+      enddo
+      !$omp end do
+      !$omp master
+      call exchange_ghost_post_send ( domain, fl )
+      !$omp end master
+    endif
+#endif
 
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg)
     do ii = 1, domain % n_local_bc
@@ -197,7 +224,7 @@ contains
       select case ( domain % bc(i) % type )
         case (101)
           Bs = domain % bc(i) % bs
-          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: plan 11
+          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: the chi halo, below
           Is = domain % bc(i) % is ; Js = domain % bc(i) % js ; Ks = domain % bc(i) % ks ; Fs = domain % bc(i) % fs
           do g = 1, gc
             Ig = Im - guide(Fm,1)*g ; Jg = Jm - guide(Fm,2)*g ; Kg = Km - guide(Fm,3)*g
@@ -225,6 +252,34 @@ contains
           enddo
       end select
     enddo
+
+#ifdef USE_MPI
+    ! the inter-rank connections: the ghost layers the halo brought, and chig = the
+    ! first of them, as the local branch above sets it
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_wait_unpack ( domain, fl )
+      !$omp end master
+      !$omp barrier
+      !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
+      do ii = 1, domain % n_local_bc
+        i = domain % local_bc_idx(ii)
+        if ( domain % bc(i) % type /= 101 ) cycle
+        if ( is_local_block( domain % bc(i) % bs ) ) cycle
+        Bm = domain % bc(i) % b
+        Im = domain % bc(i) % i
+        Jm = domain % bc(i) % j
+        Km = domain % bc(i) % k
+        Fm = domain % bc(i) % f
+        domain % bc(i) % chig = domain % blk(Bm) % chi(:, Im - guide(Fm,1), Jm - guide(Fm,2), Km - guide(Fm,3))
+      enddo
+      !$omp end do
+      !$omp master
+      call exchange_ghost_wait_send ( domain, fl )
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
 
   end subroutine Fill_Ghost_chi
 
