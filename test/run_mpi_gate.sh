@@ -42,12 +42,18 @@ done
 # ranks), one moving block on two ranks (one idle); upstream's chimera-mpi (merged 2026-10-17): two blocks
 # joined by chimera faces, each donor on the other rank, and two multigrid levels, on two ranks; stage 3a:
 # type-1 pyrolysis (single-block, guard 9) on four and on two ranks, every other rank idle through the
-# collectives -- the energy budget, the probes and the output files must not move
+# collectives -- the energy budget, the probes and the output files must not move; stage 3b: type 2
+# split across the ranks -- twenty blocks in a row with the kinetics (the chi, p_pg, Gamma and h_g Gamma
+# halos, the correction group of blocks in a row), a 2 x 2 rotated-tensor slab under the Jacobi sweep
+# (the pressure stencil pg(3:6), the sweep control over thousands of sweeps), two blocks side by side
+# (a correction group whose blocks share their line positions)
 [ "${#CASES[@]}" -gt 0 ] || CASES=("test/transient/multimat_Plate:4" "test/numerics-features/conjugate_two_layer_fixed:2"
   "test/moving-mesh/freestream_4blk:4" "test/moving-mesh/conservation_4blk:4" "test/moving-mesh/receding_4blk:4"
   "test/moving-mesh/receding/N040:2" "test/numerics-features/chimera_fixed:2"
   "test/numerics-features/residual_convergence/mg1:2"
-  "test/pyrolysis/energy_audit:4" "test/pyrolysis/heated0d:2")
+  "test/pyrolysis/energy_audit:4" "test/pyrolysis/heated0d:2"
+  "test/pyrolysis/lit/baum_atreya2007/full_N100_20blk:4" "test/pyrolysis/darcy/tensor_linear_2d_2x2:4"
+  "test/pyrolysis/darcy/mass_balance_1d_2x:2")
 
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
 export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"

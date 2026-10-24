@@ -106,12 +106,12 @@ for pass in A B; do
        > "$WORK/$pass.log" 2>&1; then
     echo "done ($(wc -l < "$WORK/$pass/manifest.txt") artefacts)"
   elif [ "$NMPI" -gt 1 ]; then
-    # On N ranks the cases MPI refuses as a whole (type-2 pyrolysis, the ablating wall) exit 1 by name;
-    # any other case that did not run is a failure
+    # On N ranks the cases MPI refuses as a whole (the ablating wall) exit 1 by name; any other case
+    # that did not run is a failure
     crashed=0
     for lg in $(grep -l . "$WORK/$pass"/*.log); do
       grep -q "FAILED (see $lg)" "$WORK/$pass.log" || continue
-      if ! grep -qE "gas-closure = type2 is OpenMP-only|the ablating wall \(306\) is OpenMP-only" "$lg"; then
+      if ! grep -qE "the ablating wall \(306\) is OpenMP-only" "$lg"; then
         echo; echo "  FAIL  $(basename "$lg" .log) did not run and was not refused by an MPI guard (see $lg)"
         crashed=$((crashed+1))
       fi

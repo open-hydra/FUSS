@@ -558,14 +558,8 @@ contains
         bad = .true.
       endif
 
-      ! 8. The type-2 pressure solve has no exchange between ranks before plan 11
-      !    stage 3b. Type 1 runs on any rank count (stage 3a): it is single-block
-      !    (guard 9), so its block lives on root and the other ranks idle through
-      !    every collective.
-      if ( mpi_size_ > 1 .and. obj_darcy%enabled ) then
-        write(*,'(A)') ' [ERROR] pyrolysis with gas-closure = type2 is OpenMP-only until plan 11 stage 3b.'
-        bad = .true.
-      endif
+      ! 8. (lifted by plan 11 stages 3a and 3b: pyrolysis runs on any rank count;
+      !    the ablating wall keeps its own refusal in Check_Ablation until stage 4)
 
       ! Darcy closure, ini-level rules (plan 07 §3.8).
       if ( obj_darcy%enabled ) then

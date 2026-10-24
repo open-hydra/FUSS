@@ -10,7 +10,7 @@ stripped (every nPyroReac 0): the gas source is [FUSS-Darcy] pi-source, a consta
 Usage:
     make_darcy_case.py <case-dir> --kind {sealed_nosource,mass_balance_1d,sealed_profile,tensor_linear_2d}
                        --tables <dir> [--ncells N] [--quasi-steady] [--K K] [--tensor45 K1 K2] [--identity]
-                       [--depth N] [--fuss-sh <path>]
+                       [--ny N] [--depth N] [--fuss-sh <path>]
 
     sealed_nosource   gate 4.1(a): 1-D slab, N cells (default 100) x L/N, L = 0.05 m, both i-faces
                       301 q = 0 (impermeable), pi-source = 0, T(0) = 1000 K, up to 200 material
@@ -36,6 +36,9 @@ Usage:
     --tables <dir>    the isothermal-solid + constant-gas set of make_tacot_tables.py
                       (--solid-isothermal --constant-gas 0.022 4e-5 0 [--cp-override 1e12]); the
                       permeability lines of the copy are rewritten from --K / --tensor45.
+    --ny N            the 1-D kinds: N identical lines along j (default 2), each 0.1 m tall; four lines
+                      split into two blocks side by side make a correction group whose blocks share
+                      their line positions (plan 11 stage 3b: test/pyrolysis/darcy/mass_balance_1d_2x).
     --depth N         MASTERDIR depth below the repo root (default from the case path under test/).
 
 Python 3.6, no third-party modules. Imports make_case.py (same directory) for the shared writers.
@@ -273,6 +276,7 @@ def main():
     ap.add_argument("--tensor45", type=float, nargs=2, default=[1.0e-13, 1.0e-15], metavar=("K1", "K2"),
                     help="tensor_linear_2d: principal permeabilities of the 45-degree tensor")
     ap.add_argument("--identity", action="store_true", help="tensor_linear_2d: K = diag(K1, K2) (red control)")
+    ap.add_argument("--ny", type=int, default=None, help="1-D kinds: identical lines along j (default 2)")
     ap.add_argument("--pseudo-vnn", type=float, default=None, help="damping of the Jacobi sweep (tensor_linear_2d default 0.25)")
     ap.add_argument("--fuss-sh", default=mc.DONOR_FUSS_SH)
     ap.add_argument("--depth", type=int, default=None)
@@ -290,6 +294,10 @@ def main():
         cfg["K"] = args.K
     if kind == "mass_balance_1d":
         cfg["quasi"] = args.quasi_steady
+    if args.ny is not None:
+        if kind == "tensor_linear_2d" or args.ny < 1:
+            die("--ny is for the 1-D kinds, at least 1")
+        cfg["ny"] = args.ny
     if args.pseudo_vnn is not None:
         if not 0.0 < args.pseudo_vnn <= 1.0:
             die("--pseudo-vnn must be in (0, 1]")
@@ -334,7 +342,7 @@ def main():
         ys = [L_SLAB * j / ny for j in range(ny + 1)]
         ys[-1] = L_SLAB
     else:
-        ny = NY_1D
+        ny = cfg.get("ny", NY_1D)
         ys = [DY_1D * j for j in range(ny + 1)]
     zs = [0.0, DZ]
     T0 = cfg["T0"]

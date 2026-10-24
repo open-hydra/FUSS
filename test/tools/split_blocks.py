@@ -2,7 +2,11 @@
 """
 Split the single block of a FUSS case into nbi x nbj blocks (plan 11 stage 2).
 
-    usage: split_blocks.py <case_dir> <nbi> <nbj> <out_dir>
+    usage: split_blocks.py [--set SECTION:KEY=VALUE]... <case_dir> <nbi> <nbj> <out_dir>
+
+--set replaces the value of KEY in the kept section [SECTION] (the key must be
+there): a twin with a fixed cadence, say, where the source stops on its residual
+(plan 11 stage 3: a 1- vs N-rank comparison cannot stop on res-threshold).
 
 WHY
 ---
@@ -45,15 +49,21 @@ numbered row-major, b = 1 + bi + nbi*bj (bi along i, bj along j).
                                  identity orientation; the form of conn() in
                                  test/numerics-features/conjugate_two_layer/
                                  generate.py, read at IO_BC.f90 Read_BCfile).
-  INPUT/phase.txt, INPUT/properties.dat   copied.
+  INPUT/phase.txt, INPUT/properties.dat   copied, and the per-case tables of the
+                   pyrolysis, Darcy and ablation cases (plan 11 stage 3):
+                   pyrolysis.dat, virgin.dat, char.dat, gas.dat, env_*.dat,
+                   bprime_*.dat -- one file for every block, nothing per cell.
   FUSS.sh          copied, MASTERDIR set for out_dir's depth below the
                    repository (../../.. for test/moving-mesh/<case>).
   input.ini        only the [FUSS-*] sections, verbatim, behind a one-line
                    comment naming the source. The ATLAS sections ([GRIB-*],
                    [GPB-*], [ICB-*], [BCB-*]) and the patch sections they name
                    describe the unsplit case and are dropped, with the source's
-                   preamble. No comment line may hold '=' (rule of every hydra
-                   INI): a kept one that does is refused, not dropped.
+                   preamble. [FUSS-Probes] is kept with the section of every
+                   probe it names, an index-position "1 i j k" re-indexed to
+                   the block that holds cell (i, j) (a position by coordinates
+                   is kept as it is). No comment line may hold '=' (rule of every
+                   hydra INI): a kept one that does is refused, not dropped.
 
 Files the tool does not write in out_dir (verify.py, README.md) are left alone.
 
@@ -63,8 +73,7 @@ A source with more than one zone; records that already carry connectivity
 (101, 102, 103, 104, 307: their targets would need re-mapping); a bc.txt that
 does not cover every boundary cell exactly once, face by face in order 1..6;
 INPUT files it does not know how to split (st.tec, multigrid bcN.txt, ...);
-probes and multigrid sections (block indices, coarse-level files); time or
-probe files at the case root.
+multigrid sections (coarse-level files); time or probe files at the case root.
 
 Python 3.6, standard library only.
 """
@@ -86,6 +95,13 @@ CONNECTIVITY = {101: "block connection", 102: "chimera", 103: "coupled wall",
                 104: "coupled chimera", 307: "coupled ablating wall"}
 
 KNOWN_INPUT = ("ic.tec", "bc.txt", "phase.txt", "properties.dat")
+# copied verbatim: tables of the whole case, not of a block or a cell (plan 11 stage 3)
+COPY_INPUT = ("phase.txt", "properties.dat", "pyrolysis.dat", "virgin.dat", "char.dat", "gas.dat")
+COPY_INPUT_PATTERNS = (r"^env_[\w.-]*\.dat$", r"^bprime_[\w.-]*\.dat$")
+
+
+def copied_input(name):
+    return name in COPY_INPUT or any(re.match(p, name) for p in COPY_INPUT_PATTERNS)
 COMMENT_CHARS = "!;#"                                   # FiNeR's COMMENTS
 
 
@@ -347,8 +363,43 @@ def split_bc(recs, ni, nj, nk, nbi, nbj):
 
 # ----------------------------------------------------------------- input.ini
 
-def fuss_sections(text, path):
-    """The [FUSS-*] sections of an INI file, verbatim, as one string each."""
+def probe_names(sections, path):
+    """The probe section names [FUSS-Probes] lists (probe1 = <name>, ...)."""
+    names = []
+    for name, body in sections:
+        if name != "FUSS-Probes":
+            continue
+        for line in body[1:]:
+            s = line.split(";")[0].split("!")[0].split("#")[0]
+            m = re.match(r"^\s*probe\d+\s*=\s*(\S+)\s*$", s)
+            if m:
+                names.append(m.group(1))
+    return names
+
+
+def reindex_probe(body, path, si, sj, nbi):
+    """A probe section with its index-position "1 i j k" moved to the split block."""
+    out = []
+    for line in body:
+        m = re.match(r"^(\s*index-position\s*=\s*)([^;!#]*)(.*)$", line)
+        if not m:
+            out.append(line)
+            continue
+        tok = m.group(2).split()
+        if len(tok) != 4:
+            die("%s: index-position needs 'b i j k': %s" % (path, line))
+        b, i, j, k = (int(t) for t in tok)
+        if b != 1:
+            die("%s: index-position on block %d, the source must be single-block" % (path, b))
+        bi, bj = (i - 1) // si, (j - 1) // sj
+        new = "%d %d %d %d" % (1 + bi + nbi * bj, i - bi * si, j - bj * sj, k)
+        out.append(m.group(1) + new + (" " + m.group(3).lstrip() if m.group(3).strip() else ""))
+    return out
+
+
+def fuss_sections(text, path, si=1, sj=1, nbi=1):
+    """The [FUSS-*] sections of an INI file, verbatim, as one string each, and the
+    section of every probe [FUSS-Probes] names, its index-position re-indexed."""
     sections, cur = [], None
     for line in text.split("\n"):
         m = re.match(r"^\s*\[([^\]]+)\]", line)
@@ -357,11 +408,14 @@ def fuss_sections(text, path):
             sections.append(cur)
         elif cur is not None:
             cur[1].append(line)
+    probes = probe_names(sections, path)
     kept = []
     for name, body in sections:
-        if name in ("FUSS-Probes", "FUSS-Multigrid", "HYDRA-Multigrid"):
-            die("%s: [%s] is not supported (block indices / coarse-level bc files)" % (path, name))
-        if not name.startswith("FUSS-"):
+        if name in ("FUSS-Multigrid", "HYDRA-Multigrid"):
+            die("%s: [%s] is not supported (coarse-level bc files)" % (path, name))
+        if name in probes:
+            body = reindex_probe(body, path, si, sj, nbi)
+        elif not name.startswith("FUSS-"):
             continue
         # trailing blank and comment-only lines separate this section from the next
         while body and (not body[-1].strip() or body[-1].lstrip()[0] in COMMENT_CHARS):
@@ -389,7 +443,37 @@ def write_lines(path, lines):
         fh.write("\n".join(lines) + "\n")
 
 
+def apply_sets(sections, sets):
+    """Replace KEY's value in section [SECTION] for every (SECTION, KEY, VALUE)."""
+    out = list(sections)
+    for sec, key, val in sets:
+        hit = [n for n, s in enumerate(out) if re.match(r"^\s*\[%s\]" % re.escape(sec), s)]
+        if len(hit) != 1:
+            die("--set: %d kept sections [%s]" % (len(hit), sec))
+        pat = re.compile(r"^(\s*%s\s*=\s*)([^;!#\n]*?)(\s*([;!#].*)?)$" % re.escape(key), re.M)
+        new, n = pat.subn(lambda m: m.group(1) + val + m.group(3), out[hit[0]])
+        if n != 1:
+            die("--set: [%s] has %d '%s' lines" % (sec, n, key))
+        out[hit[0]] = new
+    return out
+
+
 def main(argv):
+    sets, rest = [], [argv[0]]
+    a = 1
+    while a < len(argv):
+        if argv[a] == "--set":
+            if a + 1 >= len(argv):
+                die("--set needs SECTION:KEY=VALUE")
+            m = re.match(r"^([^:=]+):([^=]+)=(.+)$", argv[a + 1])
+            if not m:
+                die("--set %s: expected SECTION:KEY=VALUE" % argv[a + 1])
+            sets.append((m.group(1).strip(), m.group(2).strip(), m.group(3).strip()))
+            a += 2
+        else:
+            rest.append(argv[a])
+            a += 1
+    argv = rest
     if len(argv) != 5:
         sys.stderr.write(__doc__.split("WHY")[0])
         return 2
@@ -405,10 +489,12 @@ def main(argv):
     if os.path.realpath(src) == os.path.realpath(out):
         die("out_dir is the source case")
 
-    extra = sorted(set(os.listdir(os.path.join(src, "INPUT"))) - set(KNOWN_INPUT))
+    extra = sorted(f for f in set(os.listdir(os.path.join(src, "INPUT"))) - set(KNOWN_INPUT)
+                   if not copied_input(f))
     if extra:
         die("INPUT/ holds files the splitter cannot split or does not know: %s" % " ".join(extra))
-    stray = sorted(f for f in os.listdir(src) if f.endswith((".dat", ".json")))
+    # case.json is the generators' description of a case for its verify.py, not a solver input
+    stray = sorted(f for f in os.listdir(src) if f.endswith((".dat", ".json")) and f != "case.json")
     if stray:
         die("case-root time/probe files are not supported: %s" % " ".join(stray))
 
@@ -435,7 +521,7 @@ def main(argv):
     recs = read_bc(os.path.join(src, "INPUT", "bc.txt"), ni, nj, nk)
 
     with open(os.path.join(src, "input.ini")) as fh:
-        sections = fuss_sections(fh.read(), os.path.join(src, "input.ini"))
+        sections = fuss_sections(fh.read(), os.path.join(src, "input.ini"), ni // nbi, nj // nbj, nbi)
     with open(os.path.join(src, "FUSS.sh")) as fh:
         sh = fh.read()
     if len(re.findall(r"^MASTERDIR=", sh, re.M)) != 1:
@@ -448,8 +534,9 @@ def main(argv):
         os.makedirs(os.path.join(out, "MESH"), exist_ok=True)
         write_lines(os.path.join(out, "MESH", "mesh.tec"), split_tec(mesh, nbi, nbj, "Block%d"))
     write_lines(os.path.join(out, "INPUT", "bc.txt"), split_bc(recs, ni, nj, nk, nbi, nbj))
-    for name in ("phase.txt", "properties.dat"):
-        shutil.copyfile(os.path.join(src, "INPUT", name), os.path.join(out, "INPUT", name))
+    for name in sorted(os.listdir(os.path.join(src, "INPUT"))):
+        if copied_input(name):
+            shutil.copyfile(os.path.join(src, "INPUT", name), os.path.join(out, "INPUT", name))
 
     # MASTERDIR: the repository relative to out_dir (../../.. for test/moving-mesh/<case>)
     master = os.path.relpath(os.path.realpath(ROOT), os.path.realpath(out))
@@ -463,8 +550,11 @@ def main(argv):
         fh.write(sh)
     os.chmod(dst, os.stat(dst).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
+    sections = apply_sets(sections, sets)
     header = ("; Written by test/tools/split_blocks.py from %s, cut into %d x %d blocks"
               " (only its FUSS sections are kept)." % (label(src), nbi, nbj))
+    for sec, key, val in sets:
+        header += "\n; set by --set: [%s] %s %s" % (sec, key, val)
     if "=" in header:
         die("internal: the header comment holds '=' (%s)" % header)
     with open(os.path.join(out, "input.ini"), "w") as fh:
