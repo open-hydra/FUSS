@@ -132,6 +132,9 @@ module FUSS_Mod_GhostExchange
   ! the rank alone, as before plan 11 stage 3); the field-list row of T, set with the halos
   integer, parameter :: HALO_TAG_STEP = 100000
   integer :: fl_T = 0
+  ! gather_field_to_root: block b's message is tagged FIELD_GATHER_TAG + b (Intel MPI 2021.9:
+  ! MPI_TAG_UB = 524287)
+  integer, parameter :: FIELD_GATHER_TAG = 400000
 
   public :: build_ghost_schedule
   public :: build_local_bc_index
@@ -148,6 +151,7 @@ module FUSS_Mod_GhostExchange
   public :: exchange_ghost_chimera_unpack, exchange_ghost_chimera_wait_send
   public :: gather_T_to_root, gather_matID_to_root, gather_qvol_to_root
   public :: gather_node_to_root, exchange_node_planes
+  public :: gather_field_to_root
   public :: gather_diagnostic_to_root
   public :: scatter_T_from_root
   public :: mpi_io_barrier
@@ -402,7 +406,9 @@ contains
       top = max(top, ghost_sched%halo(fl)%tag_base + mpi_size_ - 1)
     end do
 
-    ! every tag must fit MPI_TAG_UB (the standard guarantees only 32767)
+    ! every tag must fit MPI_TAG_UB (the standard guarantees only 32767; Intel MPI 2021.9
+    ! gives 524287), the gathers' too
+    top = max(top, FIELD_GATHER_TAG + size(block_owner))
     call MPI_COMM_GET_ATTR(MPI_COMM_WORLD, MPI_TAG_UB, tag_ub, flag, ierr)
     call check_mpi_error(ierr)
     if (flag .and. tag_ub < top) then
@@ -1226,6 +1232,82 @@ contains
     end subroutine plane_range
 
   end subroutine exchange_node_planes
+
+
+  !> Gather the interior cells of one field (the array with code `code`, ncomp values per
+  !> cell) of every block to root, for the solution file (plan 11 stage 3: the field-list
+  !> output rows and the state the auxiliary columns are computed from). Root's copy of a
+  !> remote block's array, freed at setup, is allocated first. Exact copies, one message
+  !> per block. Collective: every rank calls it, outside any parallel region.
+  subroutine gather_field_to_root(domain, code, ncomp)
+    use FUSS_Advanced_Types_m
+    use FUSS_Field_List_m, only: Field_Cell_Get, Field_Cell_Set, Field_Allocate
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: code, ncomp
+    integer :: b
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    if (code == 0) then
+      write(*,'(A)') ' [ERROR] gather_field_to_root: an output field without an accessor code'
+      call fuss_abort(1)
+    end if
+    block
+      use mpi
+      integer :: ierr, nreq, off, n, i, j, k
+      integer, allocatable :: reqs(:), stats(:,:), boff(:), bn(:)
+      real(R8), allocatable :: buf(:)
+
+      ! root holds the remote blocks, every other rank sends its own
+      allocate(boff(domain%nb), bn(domain%nb))
+      off = 0
+      do b = 1, domain%nb
+        bn(b) = ncomp * domain%blk(b)%dim(1) * domain%blk(b)%dim(2) * domain%blk(b)%dim(3)
+        boff(b) = off
+        if (mpi_is_root .neqv. is_local_block(b)) off = off + bn(b)
+      end do
+      allocate(buf(max(off, 1)), reqs(domain%nb), stats(MPI_STATUS_SIZE, domain%nb))
+
+      nreq = 0
+      do b = 1, domain%nb
+        if (mpi_is_root .and. .not. is_local_block(b)) then
+          nreq = nreq + 1
+          call MPI_IRECV(buf(boff(b)+1), bn(b), MPI_DOUBLE_PRECISION, block_owner(b), &
+                         FIELD_GATHER_TAG + b, MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        else if (.not. mpi_is_root .and. is_local_block(b)) then
+          n = boff(b)
+          do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+            call Field_Cell_Get(domain%blk(b), code, i, j, k, buf(n+1:n+ncomp))
+            n = n + ncomp
+          end do; end do; end do
+          nreq = nreq + 1
+          call MPI_ISEND(buf(boff(b)+1), bn(b), MPI_DOUBLE_PRECISION, 0, &
+                         FIELD_GATHER_TAG + b, MPI_COMM_WORLD, reqs(nreq), ierr)
+          call check_mpi_error(ierr)
+        end if
+      end do
+      if (nreq > 0) then
+        call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+
+      if (mpi_is_root) then
+        do b = 1, domain%nb
+          if (is_local_block(b)) cycle
+          call Field_Allocate(domain%blk(b), code, ncomp)
+          n = boff(b)
+          do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+            call Field_Cell_Set(domain%blk(b), code, i, j, k, buf(n+1:n+ncomp))
+            n = n + ncomp
+          end do; end do; end do
+        end do
+      end if
+      deallocate(buf, reqs, stats, boff, bn)
+    end block
+#endif
+  end subroutine gather_field_to_root
 
 
   !> Gather all blocks' T interior data to rank 0 for I/O.

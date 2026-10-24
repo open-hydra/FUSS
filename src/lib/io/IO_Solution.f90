@@ -380,6 +380,10 @@ contains
     use FUSS_Lib_Solid
     use FUSS_Lib_Pyrolysis,  only: Solid_State, Gas_State, Energy_Of, Energy_Of2
     use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
+#ifdef USE_MPI
+    use FUSS_Field_List_m,   only: FLD_TO
+    use FUSS_Mod_GhostExchange, only: gather_field_to_root
+#endif
     use FUSS_Mod_Pyrolysis,  only: Write_Energy_Budget
     use FUSS_Mod_Recession,  only: Write_Ablation_Outputs, Write_Interface_Flux
     use FUSS_Mod_MPI, only: mpi_is_root
@@ -404,6 +408,19 @@ contains
     ! a moving mesh: root writes every block's CURRENT nodes (plan 11 stage 2); this
     ! file is also the restart, which would otherwise carry the setup geometry
     if ( obj_mesh_motion%enabled ) call gather_node_to_root(domain)
+#ifdef USE_MPI
+    ! pyrolysis (plan 11 stage 3): the field-list output rows -- chi, rho_s, mdot_pg; type 2
+    ! p_pg, u_pg, eta_prev, eta_st, T_prev -- and, under type 2, TO (the T_prev column once a
+    ! step has run). Root then evaluates the auxiliary columns k, rho, cs, h of every block
+    ! from the gathered (T, chi, p_pg, eta_st); the k_s / cp_s caches are not gathered.
+    if ( obj_pyrolysis%enabled ) then
+      do fl = 1, Field_List_Count()
+        e = Field_List_Get( fl )
+        if ( e%managed .and. e%output ) call gather_field_to_root( domain, e%code, e%ncomp )
+      enddo
+      if ( obj_darcy%enabled ) call gather_field_to_root( domain, FLD_TO, 1 )
+    endif
+#endif
 
     if (mpi_is_root) then
       path = 'OUTPUT/'

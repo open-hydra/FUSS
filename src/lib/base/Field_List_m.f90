@@ -18,19 +18,23 @@ module FUSS_Field_List_m
   use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: R8 => real64
   use FUSS_Advanced_Types_m, only: FUSS_block_type
+  use FUSS_Global_m, only: gc
 
   implicit none
   private
   public :: field_entry_t, field_convert_if
   public :: Field_List_Init, Field_List_Count, Field_List_Get, Field_List_Lookup
   public :: Field_List_Set_Converters
-  public :: Field_Cell_Get, Field_Cell_Set
-  public :: FLD_T, FLD_CHI, FLD_P_PG
+  public :: Field_Cell_Get, Field_Cell_Set, Field_Allocate
+  public :: FLD_T, FLD_CHI, FLD_P_PG, FLD_TO, FLD_RHO_S, FLD_MDOT_PG, FLD_U_PG, FLD_ETA_PREV, FLD_ETA_ST, FLD_T_PREV
 
-  !> The arrays plan 11's halo exchange moves between ranks, the rows with exchange and
-  !> has_ghost: a row's code names its array for the one accessor pair Field_Cell_Get /
-  !> Field_Cell_Set (0: no array the exchange knows; the exchange refuses such a row at setup).
-  integer, parameter :: FLD_T = 1, FLD_CHI = 2, FLD_P_PG = 3
+  !> The arrays plan 11 moves between ranks: the halo exchange (the rows with exchange and
+  !> has_ghost: T, chi, p_pg) and the gathers to root for the solution file (the output rows,
+  !> and TO for the type-2 T_prev column). A row's code names its array for the one accessor
+  !> pair Field_Cell_Get / Field_Cell_Set (0: no array plan 11 knows; the exchange and the
+  !> gather refuse such a row).
+  integer, parameter :: FLD_T = 1, FLD_CHI = 2, FLD_P_PG = 3, FLD_TO = 4, FLD_RHO_S = 5, FLD_MDOT_PG = 6, &
+                        FLD_U_PG = 7, FLD_ETA_PREV = 8, FLD_ETA_ST = 9, FLD_T_PREV = 10
 
   abstract interface
     !> q(1:ncomp) = the conserved quantity per unit volume of cell (i,j,k)
@@ -128,10 +132,17 @@ contains
       list(nlist)%exchange  = exchange
       list(nlist)%managed   = managed
       select case ( name )
-        case ('T')    ; list(nlist)%code = FLD_T
-        case ('chi')  ; list(nlist)%code = FLD_CHI
-        case ('p_pg') ; list(nlist)%code = FLD_P_PG
-        case default  ; list(nlist)%code = 0
+        case ('T')        ; list(nlist)%code = FLD_T
+        case ('chi')      ; list(nlist)%code = FLD_CHI
+        case ('p_pg')     ; list(nlist)%code = FLD_P_PG
+        case ('TO')       ; list(nlist)%code = FLD_TO
+        case ('rho_s')    ; list(nlist)%code = FLD_RHO_S
+        case ('mdot_pg')  ; list(nlist)%code = FLD_MDOT_PG
+        case ('u_pg')     ; list(nlist)%code = FLD_U_PG
+        case ('eta_prev') ; list(nlist)%code = FLD_ETA_PREV
+        case ('eta_st')   ; list(nlist)%code = FLD_ETA_ST
+        case ('T_prev')   ; list(nlist)%code = FLD_T_PREV
+        case default      ; list(nlist)%code = 0
       end select
     end subroutine add
 
@@ -184,30 +195,77 @@ contains
 
 
   !> v(1:ncomp) = the values in cell (i,j,k) of blk of the array with code `code` (plan 11:
-  !> the halo exchange's pack; one accessor for every exchanged field).
+  !> the pack of the halo exchange and of the gathers; one accessor for every field).
   subroutine Field_Cell_Get ( blk, code, i, j, k, v )
     implicit none
     type(FUSS_block_type), intent(in) :: blk
     integer,  intent(in)  :: code, i, j, k
     real(R8), intent(out) :: v(:)
     select case ( code )
-      case ( FLD_T )    ; v(1) = blk%T(i,j,k)
-      case ( FLD_CHI )  ; v    = blk%chi(:,i,j,k)
-      case ( FLD_P_PG ) ; v(1) = blk%p_pg(i,j,k)
+      case ( FLD_T )        ; v(1) = blk%T(i,j,k)
+      case ( FLD_CHI )      ; v    = blk%chi(:,i,j,k)
+      case ( FLD_P_PG )     ; v(1) = blk%p_pg(i,j,k)
+      case ( FLD_TO )       ; v(1) = blk%TO(i,j,k)
+      case ( FLD_RHO_S )    ; v(1) = blk%rho_s(i,j,k)
+      case ( FLD_MDOT_PG )  ; v(1) = blk%mdot_pg(i,j,k)
+      case ( FLD_U_PG )     ; v    = blk%u_pg(:,i,j,k)
+      case ( FLD_ETA_PREV ) ; v(1) = blk%eta_prev(i,j,k)
+      case ( FLD_ETA_ST )   ; v(1) = blk%eta_st(i,j,k)
+      case ( FLD_T_PREV )   ; v(1) = blk%T_prev(i,j,k)
     end select
   end subroutine Field_Cell_Get
 
-  !> Cell (i,j,k) of blk of the array with code `code` = v(1:ncomp) (the halo exchange's unpack).
+  !> Cell (i,j,k) of blk of the array with code `code` = v(1:ncomp) (the unpack).
   subroutine Field_Cell_Set ( blk, code, i, j, k, v )
     implicit none
     type(FUSS_block_type), intent(inout) :: blk
     integer,  intent(in) :: code, i, j, k
     real(R8), intent(in) :: v(:)
     select case ( code )
-      case ( FLD_T )    ; blk%T(i,j,k)     = v(1)
-      case ( FLD_CHI )  ; blk%chi(:,i,j,k) = v
-      case ( FLD_P_PG ) ; blk%p_pg(i,j,k)  = v(1)
+      case ( FLD_T )        ; blk%T(i,j,k)        = v(1)
+      case ( FLD_CHI )      ; blk%chi(:,i,j,k)    = v
+      case ( FLD_P_PG )     ; blk%p_pg(i,j,k)     = v(1)
+      case ( FLD_TO )       ; blk%TO(i,j,k)       = v(1)
+      case ( FLD_RHO_S )    ; blk%rho_s(i,j,k)    = v(1)
+      case ( FLD_MDOT_PG )  ; blk%mdot_pg(i,j,k)  = v(1)
+      case ( FLD_U_PG )     ; blk%u_pg(:,i,j,k)   = v
+      case ( FLD_ETA_PREV ) ; blk%eta_prev(i,j,k) = v(1)
+      case ( FLD_ETA_ST )   ; blk%eta_st(i,j,k)   = v(1)
+      case ( FLD_T_PREV )   ; blk%T_prev(i,j,k)   = v(1)
     end select
   end subroutine Field_Cell_Set
+
+  !> The array with code `code` of blk, allocated with Allocate_Block's bounds when it is
+  !> not (a remote block's copy on root, freed at setup by deallocate_remote_computation_data,
+  !> before a gather fills it); zeroed when allocated here.
+  subroutine Field_Allocate ( blk, code, ncomp )
+    implicit none
+    type(FUSS_block_type), intent(inout) :: blk
+    integer, intent(in) :: code, ncomp
+    integer :: ni, nj, nk
+    ni = blk%dim(1) ; nj = blk%dim(2) ; nk = blk%dim(3)
+    select case ( code )
+      case ( FLD_T )
+        if ( .not. allocated(blk%T) )        allocate( blk%T(1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc), source = 0.0d0 )
+      case ( FLD_CHI )
+        if ( .not. allocated(blk%chi) )      allocate( blk%chi(ncomp, 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc), source = 0.0d0 )
+      case ( FLD_P_PG )
+        if ( .not. allocated(blk%p_pg) )     allocate( blk%p_pg(1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc), source = 0.0d0 )
+      case ( FLD_TO )
+        if ( .not. allocated(blk%TO) )       allocate( blk%TO(1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc), source = 0.0d0 )
+      case ( FLD_RHO_S )
+        if ( .not. allocated(blk%rho_s) )    allocate( blk%rho_s(ni, nj, nk), source = 0.0d0 )
+      case ( FLD_MDOT_PG )
+        if ( .not. allocated(blk%mdot_pg) )  allocate( blk%mdot_pg(ni, nj, nk), source = 0.0d0 )
+      case ( FLD_U_PG )
+        if ( .not. allocated(blk%u_pg) )     allocate( blk%u_pg(ncomp, ni, nj, nk), source = 0.0d0 )
+      case ( FLD_ETA_PREV )
+        if ( .not. allocated(blk%eta_prev) ) allocate( blk%eta_prev(ni, nj, nk), source = 0.0d0 )
+      case ( FLD_ETA_ST )
+        if ( .not. allocated(blk%eta_st) )   allocate( blk%eta_st(ni, nj, nk), source = 0.0d0 )
+      case ( FLD_T_PREV )
+        if ( .not. allocated(blk%T_prev) )   allocate( blk%T_prev(ni, nj, nk), source = 0.0d0 )
+    end select
+  end subroutine Field_Allocate
 
 end module FUSS_Field_List_m
