@@ -548,12 +548,14 @@ contains
         E_IO = tec_write_structured_multiblock(orion=IOfield,varnames=obj_io%Ovarnames,filename=trim(path)//trim(file)//trim(IOfield%tec%extension))
       end if
 
-      ! Energy budget line at every solution write (plan 06 section 3.6)
-      if ( obj_pyrolysis%enabled ) call Write_Energy_Budget( domain )
       ! Ablating walls (plan 08 sections 2.3 R3, 3.2): seb.txt and the restart state
       if ( obj_ablation%enabled ) call Write_Ablation_Outputs( domain )
       call Write_Interface_Flux( domain )
     end if
+
+    ! Energy budget line at every solution write (plan 06 section 3.6), on every rank:
+    ! the block sums travel to root, which writes (plan 11 stage 3)
+    if ( obj_pyrolysis%enabled ) call Write_Energy_Budget( domain )
 
     ! Synchronize all ranks after I/O
     call mpi_io_barrier()

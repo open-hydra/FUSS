@@ -363,6 +363,7 @@ contains
   !> Once (single thread): the work arrays and the 306 face map.
   subroutine Remap_Setup ( domain, nq )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_ablation
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     integer, intent(in) :: nq
@@ -384,6 +385,10 @@ contains
     allocate( qwall(nq, domain%nbound) )
     qwall = 0.0d0
     call Map306_Setup ( domain )
+    if ( .not. allocated(obj_ablation%abl) ) then
+      allocate( obj_ablation%abl(3, domain%nb) )
+      obj_ablation%abl = 0.0d0
+    endif
   end subroutine Remap_Setup
 
 
@@ -454,10 +459,10 @@ contains
         if ( dV < 0.0d0 .and. f == f306(b) ) ib = map306(b)%idx(i,j,k)
         if ( ib > 0 ) then
           qu = [ qwall(QE,ib), sum( qwall(QM:nq,ib) ), qwall(QG,ib) ]
-          obj_ablation%E_abl = obj_ablation%E_abl - qu(1) * dV
-          obj_ablation%M_abl = obj_ablation%M_abl - &
+          obj_ablation%abl(1,b) = obj_ablation%abl(1,b) - qu(1) * dV
+          obj_ablation%abl(2,b) = obj_ablation%abl(2,b) - &
             ( obj_pyrolysis%mat(nint(blk%matID(i,j,k)))%rho_c + qu(2) ) * dV
-          obj_ablation%G_abl = obj_ablation%G_abl - qu(3) * dV
+          obj_ablation%abl(3,b) = obj_ablation%abl(3,b) - qu(3) * dV
         endif
         rhs = rhs + qu * dV
       enddo

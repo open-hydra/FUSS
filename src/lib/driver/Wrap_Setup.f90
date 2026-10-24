@@ -223,8 +223,8 @@ contains
     end select
 
     ! Pyrolysis energy budget at t = t0, after the caches are built and the
-    ! clock is set (plan 06 section 3.6).
-    if (mpi_is_root .and. obj_pyrolysis%enabled) call Write_Energy_Budget ( simulation%domain(1) )
+    ! clock is set (plan 06 section 3.6); every rank (its block sums go to root)
+    if (obj_pyrolysis%enabled) call Write_Energy_Budget ( simulation%domain(1) )
 
     ! Print warnings onto the logfile/shell.
     if (mpi_is_root) call Print_Warnings ()

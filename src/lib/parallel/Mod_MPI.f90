@@ -32,6 +32,11 @@ module FUSS_Mod_MPI
   public :: mpi_reduce_sum_r8, mpi_reduce_sum_r8_array
   public :: mpi_allreduce_norm2
   public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_real
+  public :: mpi_gather_block_columns
+
+  !> mpi_gather_block_columns tags block b's message BLOCK_GATHER_TAG + b (plan 11; Intel MPI
+  !> 2021.9's MPI_TAG_UB is 524287)
+  integer, parameter, public :: BLOCK_GATHER_TAG = 450000
   public :: mpi_abort_all
   public :: check_mpi_error
   public :: fuss_abort, fuss_abort_in_thread, fuss_abort_check
@@ -320,6 +325,41 @@ contains
     end if
 #endif
   end subroutine mpi_barrier_all
+
+
+  !> Per-block values to root (plan 11 stage 3): vals(:, b) holds block b's values on
+  !> the rank that owns b; root receives every block it does not own from its owner.
+  !> Exact copies, so a total root forms from the columns in block order is the same at
+  !> any rank count. Collective, outside any parallel region; off root vals is unchanged.
+  subroutine mpi_gather_block_columns(vals)
+    real(R8), intent(inout), contiguous :: vals(:,:)
+#ifdef USE_MPI
+    integer :: ierr, b, nreq
+    integer, allocatable :: reqs(:), stats(:,:)
+
+    if (mpi_size_ <= 1) return
+    allocate(reqs(size(vals,2)), stats(MPI_STATUS_SIZE, size(vals,2)))
+    nreq = 0
+    do b = 1, size(vals,2)
+      if (mpi_is_root .and. block_owner(b) /= 0) then
+        nreq = nreq + 1
+        call MPI_IRECV(vals(1,b), size(vals,1), MPI_DOUBLE_PRECISION, block_owner(b), BLOCK_GATHER_TAG + b, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      else if (.not. mpi_is_root .and. block_owner(b) == mpi_rank_) then
+        nreq = nreq + 1
+        call MPI_ISEND(vals(1,b), size(vals,1), MPI_DOUBLE_PRECISION, 0, BLOCK_GATHER_TAG + b, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+    end do
+    if (nreq > 0) then
+      call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+      call check_mpi_error(ierr)
+    end if
+    deallocate(reqs, stats)
+#endif
+  end subroutine mpi_gather_block_columns
 
 
   !> Broadcast a real(R8) value from root (rank 0) to all ranks.

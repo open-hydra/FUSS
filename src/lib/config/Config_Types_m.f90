@@ -344,8 +344,9 @@ module FUSS_Config_Types_m
     integer  :: n_faces = 0                          ! number of 306 and 307 faces of the finest grid
     integer  :: n_coupled = 0                        ! of which 307
     ! material the receding 306 faces swept out since the start of this run
-    ! (the pyrolysis remap; energy-budget.txt columns E_abl M_abl G_abl)
-    real(R8) :: E_abl = 0.0d0, M_abl = 0.0d0, G_abl = 0.0d0
+    ! (the pyrolysis remap; energy-budget.txt columns E_abl M_abl G_abl): abl(:, b)
+    ! = block b's E_abl, M_abl, G_abl, added in block order by Write_Energy_Budget
+    real(R8), allocatable :: abl(:,:)
   end type ablation_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------

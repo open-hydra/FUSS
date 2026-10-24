@@ -408,7 +408,7 @@ contains
 
     ! every tag must fit MPI_TAG_UB (the standard guarantees only 32767; Intel MPI 2021.9
     ! gives 524287), the gathers' too
-    top = max(top, FIELD_GATHER_TAG + size(block_owner))
+    top = max(top, FIELD_GATHER_TAG + size(block_owner), BLOCK_GATHER_TAG + size(block_owner))
     call MPI_COMM_GET_ATTR(MPI_COMM_WORLD, MPI_TAG_UB, tag_ub, flag, ierr)
     call check_mpi_error(ierr)
     if (flag .and. tag_ub < top) then

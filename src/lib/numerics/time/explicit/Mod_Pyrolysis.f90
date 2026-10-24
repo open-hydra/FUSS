@@ -39,11 +39,11 @@ module FUSS_Mod_Pyrolysis
   ! qvol V dt. Each is a pair (a, a_n): a_n = a saved at stage 1, then
   ! a = RK_stage(irk, n_RK, a, a_n, stage increment). They start at 0 on a
   ! restart as well (the budget file is appended; its Q columns count from
-  ! the restart time).
-  real(R8), save :: Q_out = 0.0d0,     Q_out_n = 0.0d0
-  real(R8), save :: Q_gas_out = 0.0d0, Q_gas_out_n = 0.0d0
-  real(R8), save :: M_gas_out = 0.0d0, M_gas_out_n = 0.0d0
-  real(R8), save :: Q_src = 0.0d0,     Q_src_n = 0.0d0
+  ! the restart time). Kept per block (plan 11 stage 3): bud(:, b) holds block
+  ! b's Q_out, Q_gas_out, M_gas_out, Q_src and bud_n(:, b) their stage-1
+  ! values; the file's totals add the blocks in block order, which no rank
+  ! count changes (Write_Energy_Budget).
+  real(R8), allocatable, save :: bud(:,:), bud_n(:,:)
   logical,  save :: budget_file_started = .false.
   ! The bc entry of every line's outflow face (0 = none), by the line's two
   ! transverse indices and the block; built at the first stage (the BC file is
@@ -327,13 +327,14 @@ contains
       !$omp end do
     enddo
 
-    ! (d) budget sums: one thread, fixed order (blocks, then k, j, i; lines in
-    !     the same order), read from R after the advection flux was added and
-    !     before RK_Newstate rescales R in place.
+    ! (d) budget sums: one thread, fixed order (k, j, i; lines in the same
+    !     order), read from R after the advection flux was added and before
+    !     RK_Newstate rescales R in place; folded per block (Budget_Fold).
     !$omp single
-    sumR = 0.0d0 ; sumS = 0.0d0 ; sumQg = 0.0d0 ; sumMg = 0.0d0
+    if ( .not. allocated(bud) ) call Budget_Allocate ( domain%nb )
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
+      sumR = 0.0d0 ; sumS = 0.0d0 ; sumQg = 0.0d0 ; sumMg = 0.0d0
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -364,17 +365,35 @@ contains
         sumQg = sumQg + Mdot * h_pg * dt
         sumMg = sumMg + Mdot * dt
       enddo ; enddo
+      call Budget_Fold ( b, i_rk, n_rk, sumR, sumQg, sumMg, sumS )
     enddo
-    if ( i_rk == 1 ) then
-      Q_out_n = Q_out ; Q_gas_out_n = Q_gas_out ; M_gas_out_n = M_gas_out ; Q_src_n = Q_src
-    endif
-    Q_out     = RK_stage( i_rk, n_rk, Q_out,     Q_out_n,     sumR  )
-    Q_gas_out = RK_stage( i_rk, n_rk, Q_gas_out, Q_gas_out_n, sumQg )
-    M_gas_out = RK_stage( i_rk, n_rk, M_gas_out, M_gas_out_n, sumMg )
-    Q_src     = RK_stage( i_rk, n_rk, Q_src,     Q_src_n,     sumS  )
     !$omp end single
 
   end subroutine Pyrolysis_Stage
+
+
+  !> The per-block accumulators, zero (a new run and a restart alike).
+  subroutine Budget_Allocate ( nb )
+    implicit none
+    integer, intent(in) :: nb
+    allocate( bud(4, nb), bud_n(4, nb) )
+    bud = 0.0d0 ; bud_n = 0.0d0
+  end subroutine Budget_Allocate
+
+
+  !> One block's stage sums into its accumulators, with the scheme's RK_stage
+  !> weights (the stage-1 values saved first): Q_out, Q_gas_out, M_gas_out, Q_src.
+  subroutine Budget_Fold ( b, i_rk, n_rk, sumR, sumQg, sumMg, sumS )
+    use FUSS_Lib_RK, only: RK_stage
+    implicit none
+    integer,  intent(in) :: b, i_rk, n_rk
+    real(R8), intent(in) :: sumR, sumQg, sumMg, sumS
+    if ( i_rk == 1 ) bud_n(:,b) = bud(:,b)
+    bud(1,b) = RK_stage( i_rk, n_rk, bud(1,b), bud_n(1,b), sumR  )
+    bud(2,b) = RK_stage( i_rk, n_rk, bud(2,b), bud_n(2,b), sumQg )
+    bud(3,b) = RK_stage( i_rk, n_rk, bud(3,b), bud_n(3,b), sumMg )
+    bud(4,b) = RK_stage( i_rk, n_rk, bud(4,b), bud_n(4,b), sumS  )
+  end subroutine Budget_Fold
 
 
   !> exit_bc: the bc entry of the outflow face of every line (single-block type 1,
@@ -442,7 +461,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     integer, intent(in) :: i_rk
     ! Local
-    integer  :: b, i, j, k, r, m, n_rk, ii, Dir, Fi, Fj, Fk
+    integer  :: b, i, j, k, r, m, n_rk, ii, Dir, Fi, Fj, Fk, lower, upper
     real(R8) :: dt, kap, T, A
     real(R8) :: sumR, sumS, sumQg, sumMg
 
@@ -469,9 +488,13 @@ contains
     call Darcy_Energy_Flux( domain )
 
     !$omp single
-    sumR = 0.0d0 ; sumS = 0.0d0 ; sumQg = 0.0d0 ; sumMg = 0.0d0
+    if ( .not. allocated(bud) ) call Budget_Allocate ( domain%nb )
+    upper = 0
     do b = 1, domain%nb
+      lower = upper + 1
+      upper = upper + sum( domain%n_bf(b,:) )
       if ( .not. is_local_block(b) ) cycle
+      sumR = 0.0d0 ; sumS = 0.0d0 ; sumQg = 0.0d0 ; sumMg = 0.0d0
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -479,25 +502,19 @@ contains
         sumR = sumR + domain%blk(b)%R(i,j,k) * dt
         sumS = sumS + domain%blk(b)%qvol(i,j,k) * domain%blk(b)%vol(i,j,k) * dt
       enddo ; enddo ; enddo
+      ! the gas leaving through the block's open faces, in bc order (a block's
+      ! records are contiguous, its faces 1..6 in turn)
+      do ii = lower, upper
+        if ( .not. Darcy_Is_Open( domain%bc(ii)%type ) ) cycle
+        i = domain%bc(ii)%i ; j = domain%bc(ii)%j ; k = domain%bc(ii)%k
+        call Face_Index( domain%bc(ii)%f, Dir, i, j, k, Fi, Fj, Fk )
+        A  = domain%blk(b)%dir(Dir)%f(Fi,Fj,Fk)%A
+        dt = domain%blk(b)%dtlocal(i,j,k)
+        sumQg = sumQg + domain%bc(ii)%edot_pg * A * dt
+        sumMg = sumMg + domain%bc(ii)%mdot_pg * A * dt
+      enddo
+      call Budget_Fold ( b, i_rk, n_rk, sumR, sumQg, sumMg, sumS )
     enddo
-    do ii = 1, domain%nbound
-      if ( .not. Darcy_Is_Open( domain%bc(ii)%type ) ) cycle
-      b = domain%bc(ii)%b
-      if ( .not. is_local_block(b) ) cycle
-      i = domain%bc(ii)%i ; j = domain%bc(ii)%j ; k = domain%bc(ii)%k
-      call Face_Index( domain%bc(ii)%f, Dir, i, j, k, Fi, Fj, Fk )
-      A  = domain%blk(b)%dir(Dir)%f(Fi,Fj,Fk)%A
-      dt = domain%blk(b)%dtlocal(i,j,k)
-      sumQg = sumQg + domain%bc(ii)%edot_pg * A * dt
-      sumMg = sumMg + domain%bc(ii)%mdot_pg * A * dt
-    enddo
-    if ( i_rk == 1 ) then
-      Q_out_n = Q_out ; Q_gas_out_n = Q_gas_out ; M_gas_out_n = M_gas_out ; Q_src_n = Q_src
-    endif
-    Q_out     = RK_stage( i_rk, n_rk, Q_out,     Q_out_n,     sumR  )
-    Q_gas_out = RK_stage( i_rk, n_rk, Q_gas_out, Q_gas_out_n, sumQg )
-    M_gas_out = RK_stage( i_rk, n_rk, M_gas_out, M_gas_out_n, sumMg )
-    Q_src     = RK_stage( i_rk, n_rk, Q_src,     Q_src_n,     sumS  )
     !$omp end single
 
   end subroutine Pyrolysis_Stage2
@@ -509,7 +526,7 @@ contains
   subroutine Pyrolysis_Budget_Rewind ()
     implicit none
     !$omp single
-    Q_out = Q_out_n ; Q_gas_out = Q_gas_out_n ; M_gas_out = M_gas_out_n ; Q_src = Q_src_n
+    if ( allocated(bud) ) bud = bud_n
     !$omp end single
   end subroutine Pyrolysis_Budget_Rewind
 
@@ -548,20 +565,23 @@ contains
 
   !> One line of OUTPUT/<prefix>energy-budget.txt: t E_tot M_s Q_out Q_gas_out
   !> M_gas_out Q_src (ES24.16). State sums in a fixed order on one thread, so
-  !> the file is reproducible across thread counts like the solution. Called
-  !> on root, outside any parallel region: once at the end of setup and at
-  !> every solution write.
+  !> the file is reproducible across thread counts like the solution; summed per
+  !> block by the block's rank and added in block order on root (plan 11 stage
+  !> 3), so it is the same at any rank count. Called on EVERY rank (the block
+  !> sums travel to root, which writes), outside any parallel region: once at
+  !> the end of setup and at every solution write.
   subroutine Write_Energy_Budget ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_pyrolysis, obj_sim_param, obj_darcy, obj_ablation, obj_mesh_motion
     use FUSS_Global_m,       only: FUSS_phase_prefix
     use FUSS_Lib_Pyrolysis,  only: Energy_Of, Energy_Of2
-    use FUSS_Mod_MPI,        only: is_local_block
+    use FUSS_Mod_MPI,        only: is_local_block, mpi_is_root, mpi_gather_block_columns
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
     integer  :: b, i, j, k, m, u, ios
-    real(R8) :: E_tot, M_s, V, M_g, G
+    real(R8) :: E_tot, M_s, V, M_g, G, Q_out, Q_gas_out, M_gas_out, Q_src, E_abl, M_abl, G_abl
+    real(R8) :: col(10, domain%nb), tot(10)
     character(len=256) :: file
     logical  :: abl
 
@@ -570,24 +590,50 @@ contains
     ! keeps its columns byte for byte.
     abl = obj_ablation%enabled .and. trim(obj_mesh_motion%law) == 'nodeshift'
 
-    ! Type 2 (plan 07): E with the stored gas, and an eighth column M_g = sum
-    ! V G (the stored gas mass), so that the type-2 mass balance
-    ! M_s + M_g + M_gas_out = const can be checked.
-    if ( obj_darcy%enabled ) then
+    ! Every column per block: E_tot, M_s, M_g (type 2), the four accumulators and
+    ! the three swept-out totals of the receding faces (Remap_Audit)
+    if ( .not. allocated(bud) ) call Budget_Allocate ( domain%nb )
+    if ( .not. allocated(obj_ablation%abl) ) then
+      allocate( obj_ablation%abl(3, domain%nb) )
+      obj_ablation%abl = 0.0d0
+    endif
+    col = 0.0d0
+    do b = 1, domain%nb
+      if ( .not. is_local_block(b) ) cycle
       E_tot = 0.0d0 ; M_s = 0.0d0 ; M_g = 0.0d0
-      do b = 1, domain%nb
-        if ( .not. is_local_block(b) ) cycle
-        do k = 1, domain%blk(b)%dim(3)
-        do j = 1, domain%blk(b)%dim(2)
-        do i = 1, domain%blk(b)%dim(1)
-          m = nint( domain%blk(b)%matID(i,j,k) )
-          V = domain%blk(b)%vol(i,j,k)
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        m = nint( domain%blk(b)%matID(i,j,k) )
+        V = domain%blk(b)%vol(i,j,k)
+        if ( obj_darcy%enabled ) then
+          ! Type 2 (plan 07): E with the stored gas, and an eighth column M_g = sum
+          ! V G (the stored gas mass), so that the type-2 mass balance
+          ! M_s + M_g + M_gas_out = const can be checked.
           G = domain%blk(b)%eta_st(i,j,k) * domain%blk(b)%p_pg(i,j,k)
           E_tot = E_tot + V * Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), domain%blk(b)%p_pg(i,j,k), G )
           M_s   = M_s   + V * domain%blk(b)%rho_s(i,j,k)
           M_g   = M_g   + V * G
-        enddo ; enddo ; enddo
-      enddo
+        else
+          E_tot = E_tot + V * Energy_Of( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), obj_pyrolysis%p_gas )
+          M_s   = M_s   + V * domain%blk(b)%rho_s(i,j,k)
+        endif
+      enddo ; enddo ; enddo
+      col(1:3, b)  = [ E_tot, M_s, M_g ]
+      col(4:7, b)  = bud(1:4, b)
+      col(8:10, b) = obj_ablation%abl(1:3, b)
+    enddo
+    call mpi_gather_block_columns ( col )
+    if ( .not. mpi_is_root ) return
+    tot = col(:, 1)
+    do b = 2, domain%nb
+      tot = tot + col(:, b)
+    enddo
+    E_tot = tot(1) ; M_s = tot(2) ; M_g = tot(3)
+    Q_out = tot(4) ; Q_gas_out = tot(5) ; M_gas_out = tot(6) ; Q_src = tot(7)
+    E_abl = tot(8) ; M_abl = tot(9) ; G_abl = tot(10)
+
+    if ( obj_darcy%enabled ) then
       file = 'OUTPUT/'//trim(FUSS_phase_prefix)//'energy-budget.txt'
       if ( .not. budget_file_started ) then
         if ( obj_sim_param%newrun ) then
@@ -609,26 +655,13 @@ contains
       endif
       if ( abl ) then
         write(u,'(11ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g, &
-          obj_ablation%E_abl, obj_ablation%M_abl, obj_ablation%G_abl
+          E_abl, M_abl, G_abl
       else
         write(u,'(8ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, M_g
       endif
       close(u)
       return
     endif
-
-    E_tot = 0.0d0 ; M_s = 0.0d0
-    do b = 1, domain%nb
-      if ( .not. is_local_block(b) ) cycle
-      do k = 1, domain%blk(b)%dim(3)
-      do j = 1, domain%blk(b)%dim(2)
-      do i = 1, domain%blk(b)%dim(1)
-        m = nint( domain%blk(b)%matID(i,j,k) )
-        V = domain%blk(b)%vol(i,j,k)
-        E_tot = E_tot + V * Energy_Of( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), obj_pyrolysis%p_gas )
-        M_s   = M_s   + V * domain%blk(b)%rho_s(i,j,k)
-      enddo ; enddo ; enddo
-    enddo
 
     file = 'OUTPUT/'//trim(FUSS_phase_prefix)//'energy-budget.txt'
     if ( .not. budget_file_started ) then
@@ -650,7 +683,7 @@ contains
       call fuss_abort ( 1 )
     endif
     if ( abl ) then
-      write(u,'(9ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, obj_ablation%E_abl, obj_ablation%M_abl
+      write(u,'(9ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src, E_abl, M_abl
     else
       write(u,'(7ES24.16)') domain%time, E_tot, M_s, Q_out, Q_gas_out, M_gas_out, Q_src
     endif
