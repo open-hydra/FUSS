@@ -97,10 +97,16 @@ contains
   !> before every step, not before FUSS's setup, so at setup (setup = .true.)
   !> a face without them keeps p-wall; at a step it stops the run. A face
   !> block that opens with p_w = 0 (hydra's values at setup) has none before
-  !> its second row.
+  !> its second row. With more than one rank, the faces of this rank's blocks
+  !> only (plan 11 stage 4): hydra writes a 307 face's env_now on the rank of
+  !> its block, no other rank reads a face's wall values, and root's outputs
+  !> gather them (Gather_Face_Outputs).
   subroutine Ablation_Update_Env ( domain, setup )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_, is_local_block
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     logical, intent(in), optional :: setup
@@ -113,6 +119,9 @@ contains
     at_setup = .false.
     if ( present(setup) ) at_setup = setup
     do i = 1, domain%nbound
+#ifdef USE_MPI
+      if ( mpi_size_ > 1 .and. .not. is_local_block( domain%bc(i)%b ) ) cycle
+#endif
       select case ( domain%bc(i)%type )
         case (306)
           v = domain%bc(i)%env%eval( domain%time )
@@ -125,11 +134,19 @@ contains
           domain%bc(i)%Tedge     = v(7)
         case (307)
           early = .false.
+#ifdef USE_MPI
+          ! the TEST ONLY table stands for hydra, which writes env_now on the rank
+          ! of the face's block only
+          if ( mpi_size_ == 1 .or. is_local_block( domain%bc(i)%b ) ) then
+#endif
           if ( coupled_env%nrow > 0 ) domain%bc(i)%env_now = coupled_env%eval( domain%time )
           if ( allocated(env_face) ) then
             domain%bc(i)%env_now = env_face(i)%eval( domain%time )
             early = env_face(i)%var(1,1) == 0.0d0 .and. domain%time < env_face(i)%time(2)
           endif
+#ifdef USE_MPI
+          endif
+#endif
           if ( early .or. .not. ( domain%bc(i)%env_now(1) > 0.0d0 ) ) then
             if ( at_setup ) cycle
             write(*,'(A,I0,A)') ' [ERROR] coupled ablating wall (307), bc.txt record ', i, &
@@ -798,7 +815,7 @@ contains
   end subroutine Allgather_306_State
 
 
-  !> The state of every 306 / 307 face (nv = 23 values) and the TEST ONLY 101 interface
+  !> The state of every 306 / 307 face (nv = 25 values) and the TEST ONLY 101 interface
   !> fluxes (3 values) from the rank that owns the face's block to root, for root's
   !> seb.txt, bc306-state.dat and interface-flux.txt (plan 11 stage 4). Exact copies,
   !> unpacked into root's bc entries of the other ranks' blocks. Collective.
@@ -812,7 +829,7 @@ contains
     integer  :: off(domain%nb + 1)
     real(R8), allocatable :: v(:)
 
-    nv = 23
+    nv = 25
     if ( which == 2 ) nv = 3
     allocate( v(nv * max(domain%nbound, 1)) )
     v = 0.0d0
@@ -827,8 +844,8 @@ contains
         associate ( bc => domain%bc(i) )
           if ( which == 1 ) then
             if ( bc%type /= 306 .and. bc%type /= 307 ) cycle
-            v(o+1:o+23) = [ bc%Tw_prev, bc%beta, bc%Bpg, bc%Bch, bc%hw, bc%mdot_pg, bc%mdot_ch, real(bc%seb_iter, R8), &
-                            real(bc%nclamp, R8), bc%seb, bc%Bpg_lag, bc%sdot, bc%s_total ]
+            v(o+1:o+25) = [ bc%Tw_prev, bc%beta, bc%Bpg, bc%Bch, bc%hw, bc%mdot_pg, bc%mdot_ch, real(bc%seb_iter, R8), &
+                            real(bc%nclamp, R8), bc%seb, bc%Bpg_lag, bc%sdot, bc%s_total, bc%rhoeUeCH0, bc%hr ]
           else
             if ( bc%type /= 101 ) cycle
             v(o+1:o+3) = [ bc%q_if, bc%qm_if, bc%qh_if ]
@@ -848,6 +865,7 @@ contains
             bc%Tw_prev = v(o+1) ; bc%beta = v(o+2) ; bc%Bpg = v(o+3) ; bc%Bch = v(o+4) ; bc%hw = v(o+5)
             bc%mdot_pg = v(o+6) ; bc%mdot_ch = v(o+7) ; bc%seb_iter = nint(v(o+8)) ; bc%nclamp = nint(v(o+9:o+12))
             bc%seb = v(o+13:o+20) ; bc%Bpg_lag = v(o+21) ; bc%sdot = v(o+22) ; bc%s_total = v(o+23)
+            bc%rhoeUeCH0 = v(o+24) ; bc%hr = v(o+25)          ! the env values seb.txt prints (Ablation_Update_Env)
           else
             if ( bc%type /= 101 ) cycle
             bc%q_if = v(o+1) ; bc%qm_if = v(o+2) ; bc%qh_if = v(o+3)
