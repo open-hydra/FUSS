@@ -255,6 +255,7 @@ contains
 
   subroutine deallocate_remote_computation_data(domain)
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_mesh_motion
     use FUSS_Mod_MPI, only: is_local_block, mpi_is_root
     use FUSS_Field_List_m, only: Field_List_Count, Field_List_Get, field_entry_t
 
@@ -262,7 +263,7 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain
     integer :: b, d, i, c, fl
     type(field_entry_t) :: e
-    logical, allocatable :: needs_remote_T(:), needs_remote_gam(:)
+    logical, allocatable :: needs_remote_T(:), needs_remote_gam(:), needs_remote_dir(:)
 
     ! Build mask of remote blocks whose T and matID (and dir) must be kept:
     !  - chimera (102): remote donors of a receiver block this rank owns.
@@ -294,6 +295,17 @@ contains
       if (is_local_block(domain%bc(i)%b) .and. .not. is_local_block(domain%bc(i)%bs)) &
         needs_remote_gam(domain%bc(i)%bs) = .true.
     end do
+
+    ! A receding ablating wall (law = nodeshift, plan 11 stage 4): a remote block owning 306
+    ! faces keeps its face metrics, where Allgather_306_State puts each face's current area
+    ! and normal every step for the nodal recession rates
+    allocate(needs_remote_dir(domain%nb))
+    needs_remote_dir = .false.
+    if (trim(obj_mesh_motion%law) == 'nodeshift') then
+      do i = 1, domain%nbound
+        if (domain%bc(i)%type == 306) needs_remote_dir(domain%bc(i)%b) = .true.
+      end do
+    end if
 
     do b = 1, domain%nb
       if (is_local_block(b)) cycle
@@ -358,7 +370,7 @@ contains
         if (allocated(domain%blk(b)%M))    deallocate(domain%blk(b)%M)
         if (allocated(domain%blk(b)%dl))   deallocate(domain%blk(b)%dl)
         if (allocated(domain%blk(b)%vol))  deallocate(domain%blk(b)%vol)
-        if (.not. needs_remote_T(b)) then
+        if (.not. needs_remote_T(b) .and. .not. needs_remote_dir(b)) then
           do d = 1, 3
             if (allocated(domain%blk(b)%dir(d)%f)) deallocate(domain%blk(b)%dir(d)%f)
           end do
@@ -366,7 +378,7 @@ contains
       end if
     end do
 
-    deallocate(needs_remote_T, needs_remote_gam)
+    deallocate(needs_remote_T, needs_remote_gam, needs_remote_dir)
 
   end subroutine deallocate_remote_computation_data
 

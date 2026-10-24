@@ -34,6 +34,7 @@ module FUSS_Mod_MPI
   public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_real
   public :: mpi_gather_block_columns
   public :: mpi_allreduce_max_r8_array, mpi_bcast_real_array
+  public :: mpi_gather_block_segments, mpi_allgather_block_segments
 
   !> mpi_gather_block_columns tags block b's message BLOCK_GATHER_TAG + b (plan 11; Intel MPI
   !> 2021.9's MPI_TAG_UB is 524287)
@@ -361,6 +362,61 @@ contains
     deallocate(reqs, stats)
 #endif
   end subroutine mpi_gather_block_columns
+
+
+  !> Per-block segments to root (plan 11 stage 4): vals(off(b)+1 : off(b+1)) holds block b's
+  !> values on the rank that owns b; root receives every segment of a block it does not own
+  !> from that block's rank. Exact copies (the faces of a block are contiguous in bc order).
+  !> Collective, outside any parallel region; off root vals is unchanged. Tag SEGMENT_TAG + b.
+  subroutine mpi_gather_block_segments(vals, off)
+    real(R8), intent(inout), contiguous :: vals(:)
+    integer,  intent(in) :: off(:)
+#ifdef USE_MPI
+    integer, parameter :: SEGMENT_TAG = 460000
+    integer :: ierr, b, n, nreq
+    integer, allocatable :: reqs(:), stats(:,:)
+
+    if (mpi_size_ <= 1) return
+    allocate(reqs(size(off) - 1), stats(MPI_STATUS_SIZE, size(off) - 1))
+    nreq = 0
+    do b = 1, size(off) - 1
+      n = off(b+1) - off(b)
+      if (n <= 0) cycle
+      if (mpi_is_root .and. block_owner(b) /= 0) then
+        nreq = nreq + 1
+        call MPI_IRECV(vals(off(b)+1), n, MPI_DOUBLE_PRECISION, block_owner(b), SEGMENT_TAG + b, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      else if (.not. mpi_is_root .and. block_owner(b) == mpi_rank_) then
+        nreq = nreq + 1
+        call MPI_ISEND(vals(off(b)+1), n, MPI_DOUBLE_PRECISION, 0, SEGMENT_TAG + b, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+    end do
+    if (nreq > 0) then
+      call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+      call check_mpi_error(ierr)
+    end if
+    deallocate(reqs, stats)
+#endif
+  end subroutine mpi_gather_block_segments
+
+
+  !> mpi_gather_block_segments, then root's whole array to every rank (MPI_BCAST): every
+  !> block's segment on every rank, exact copies. Collective.
+  subroutine mpi_allgather_block_segments(vals, off)
+    real(R8), intent(inout), contiguous :: vals(:)
+    integer,  intent(in) :: off(:)
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (mpi_size_ <= 1) return
+    call mpi_gather_block_segments(vals, off)
+    call MPI_BCAST(vals, off(size(off)), MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_allgather_block_segments
 
 
   !> MPI_ALLREDUCE with MPI_MAX for an array of real(R8), in place (plan 11: the Darcy

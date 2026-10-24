@@ -696,7 +696,6 @@ contains
     !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,
     !> 2.10), with or without pyrolysis (root, after Check_BC).
     subroutine Check_Ablation ( domain )
-      use FUSS_Mod_MPI, only: mpi_size_
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
       logical :: bad
@@ -704,10 +703,7 @@ contains
       real(R8) :: v(8)
 
       bad = .false.
-      if ( mpi_size_ > 1 ) then
-        write(*,'(A)') ' [ERROR] the ablating wall (306) is OpenMP-only until plan 11.'
-        bad = .true.
-      endif
+      ! (the MPI refusal is lifted: plan 11 stage 4)
       if ( mod( obj_ablation%smoothing_width, 2 ) == 0 ) then
         write(*,'(A,I0,A)') ' [ERROR] [FUSS-Ablation] smoothing-width = ', obj_ablation%smoothing_width, &
           ' must be odd: the stencil is centred on its node (1 = no smoothing).'

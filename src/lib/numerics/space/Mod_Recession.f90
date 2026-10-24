@@ -395,18 +395,28 @@ contains
   end subroutine Load_Face_Blocks
 
 
-  !> At every solution output (root): the seb.txt rows and the restart state.
+  !> At every solution output, on every rank (the faces' state of the other ranks'
+  !> blocks travels to root first, plan 11 stage 4; root writes): the seb.txt rows and
+  !> the restart state.
   subroutine Write_Ablation_Outputs ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation, obj_sim_param
     use FUSS_Global_m,       only: FUSS_phase_prefix
+    use FUSS_Mod_MPI,        only: mpi_is_root
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_
+#endif
     implicit none
-    type(FUSS_domain_type), intent(in) :: domain
+    type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     character(len=512) :: file
     integer :: u, ios, i
 
     if ( .not. obj_ablation%enabled ) return
+#ifdef USE_MPI
+    if ( mpi_size_ > 1 ) call Gather_Face_Outputs ( domain, 1 )
+#endif
+    if ( .not. mpi_is_root ) return
 
     ! seb.txt: appended, header on a new run's first write
     file = 'OUTPUT/'//trim(FUSS_phase_prefix)//'seb.txt'
@@ -625,6 +635,9 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
     use FUSS_Lib_BC_Fluxes,  only: Face_Index
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_, is_local_block
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     real(R8),               intent(in)    :: dt
@@ -632,6 +645,13 @@ contains
     integer  :: i, b, n, q, r, dr, fi, fj, fk, inc(4), nb_idx(3)
     real(R8) :: A, sum_a, sum_as, sdn, nrm(3), e(3), xs(3), cosang, disp(3), L
     real(R8), allocatable :: sdn_n(:)
+#ifdef USE_MPI
+    integer  :: rloc
+
+    ! every 306 face's rate, area and normal, from the rank of its block (plan 11 stage
+    ! 4): the recession and the nodal rates below run over every face on every rank
+    if ( mpi_size_ > 1 ) call Allgather_306_State ( domain )
+#endif
 
     ! the recession rates (TEST ONLY override) and the recession so far
     do i = 1, domain%nbound
@@ -681,6 +701,22 @@ contains
       nrm = nrm / norm2( nrm )
       ! the line direction, from the node toward its neighbour on the line
       inc = smap(n)%inc(:,1)
+#ifdef USE_MPI
+      ! with more than one rank, from the first incarnation in a block of this rank
+      ! (the shared nodes, and with them a shared node's line neighbour, agree bitwise in
+      ! every block: Assert_Interface_Nodes); a node no block of this rank holds is skipped
+      if ( mpi_size_ > 1 ) then
+        rloc = 0
+        do r = 1, smap(n)%ninc
+          if ( is_local_block( smap(n)%inc(1,r) ) ) then
+            rloc = r
+            exit
+          endif
+        enddo
+        if ( rloc == 0 ) cycle
+        inc = smap(n)%inc(:,rloc)
+      endif
+#endif
       b = inc(1)
       xs = domain%blk(b)%node(inc(2),inc(3),inc(4))%c
       nb_idx = inc(2:4)
@@ -695,6 +731,9 @@ contains
       disp = ( sdn * dt / cosang ) * e
       do r = 1, smap(n)%ninc
         inc = smap(n)%inc(:,r)
+#ifdef USE_MPI
+        if ( mpi_size_ > 1 .and. .not. is_local_block(inc(1)) ) cycle   ! moved and checked by its own rank
+#endif
         domain%blk(inc(1))%node_disp(inc(2),inc(3),inc(4))%c = disp
         L = line_length( domain, inc )
         if ( L - norm2( disp ) <= min_thick ) then
@@ -708,6 +747,117 @@ contains
     enddo
 
   end subroutine Compute_Node_Recession
+
+
+#ifdef USE_MPI
+  !> Every 306 face's recession rate, area and outward normal from the rank that owns
+  !> its block, on every rank (plan 11 stage 4): the rates for the recession so far,
+  !> the area and normal into this rank's copy of the block's face metrics (kept for
+  !> a block that owns 306 faces, deallocate_remote_computation_data), where the nodal
+  !> averages read them. Exact copies; collective; once a step, before the averages.
+  subroutine Allgather_306_State ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_BC_Fluxes, only: Face_Index
+    use FUSS_Mod_MPI,       only: is_local_block, mpi_allgather_block_segments
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer  :: b, i, lower, upper, dr, fi, fj, fk, o
+    integer  :: off(domain%nb + 1)
+    real(R8), allocatable :: v(:)
+
+    allocate( v(5 * max(domain%nbound, 1)) )
+    v = 0.0d0
+    upper = 0
+    do b = 1, domain%nb
+      off(b) = 5 * upper
+      lower = upper + 1
+      upper = upper + sum( domain%n_bf(b,:) )
+      if ( .not. is_local_block(b) ) cycle
+      do i = lower, upper
+        if ( domain%bc(i)%type /= 306 ) cycle
+        call Face_Index ( domain%bc(i)%f, dr, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, fi, fj, fk )
+        o = 5 * (i - 1)
+        v(o+1)   = domain%bc(i)%sdot
+        v(o+2)   = domain%blk(b)%dir(dr)%f(fi,fj,fk)%A
+        v(o+3:o+5) = domain%blk(b)%dir(dr)%f(fi,fj,fk)%N
+      enddo
+    enddo
+    off(domain%nb + 1) = 5 * upper
+    call mpi_allgather_block_segments ( v, off )
+    do i = 1, domain%nbound
+      if ( domain%bc(i)%type /= 306 ) cycle
+      b = domain%bc(i)%b
+      if ( is_local_block(b) ) cycle
+      call Face_Index ( domain%bc(i)%f, dr, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, fi, fj, fk )
+      o = 5 * (i - 1)
+      domain%bc(i)%sdot = v(o+1)
+      domain%blk(b)%dir(dr)%f(fi,fj,fk)%A = v(o+2)
+      domain%blk(b)%dir(dr)%f(fi,fj,fk)%N = v(o+3:o+5)
+    enddo
+    deallocate( v )
+  end subroutine Allgather_306_State
+
+
+  !> The state of every 306 / 307 face (nv = 23 values) and the TEST ONLY 101 interface
+  !> fluxes (3 values) from the rank that owns the face's block to root, for root's
+  !> seb.txt, bc306-state.dat and interface-flux.txt (plan 11 stage 4). Exact copies,
+  !> unpacked into root's bc entries of the other ranks' blocks. Collective.
+  subroutine Gather_Face_Outputs ( domain, which )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block, mpi_is_root, mpi_gather_block_segments
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in) :: which      ! 1: the ablating faces' state, 2: the interface fluxes
+    integer  :: b, i, lower, upper, o, nv
+    integer  :: off(domain%nb + 1)
+    real(R8), allocatable :: v(:)
+
+    nv = 23
+    if ( which == 2 ) nv = 3
+    allocate( v(nv * max(domain%nbound, 1)) )
+    v = 0.0d0
+    upper = 0
+    do b = 1, domain%nb
+      off(b) = nv * upper
+      lower = upper + 1
+      upper = upper + sum( domain%n_bf(b,:) )
+      if ( .not. is_local_block(b) ) cycle
+      do i = lower, upper
+        o = nv * (i - 1)
+        associate ( bc => domain%bc(i) )
+          if ( which == 1 ) then
+            if ( bc%type /= 306 .and. bc%type /= 307 ) cycle
+            v(o+1:o+23) = [ bc%Tw_prev, bc%beta, bc%Bpg, bc%Bch, bc%hw, bc%mdot_pg, bc%mdot_ch, real(bc%seb_iter, R8), &
+                            real(bc%nclamp, R8), bc%seb, bc%Bpg_lag, bc%sdot, bc%s_total ]
+          else
+            if ( bc%type /= 101 ) cycle
+            v(o+1:o+3) = [ bc%q_if, bc%qm_if, bc%qh_if ]
+          endif
+        end associate
+      enddo
+    enddo
+    off(domain%nb + 1) = nv * upper
+    call mpi_gather_block_segments ( v, off )
+    if ( mpi_is_root ) then
+      do i = 1, domain%nbound
+        if ( is_local_block( domain%bc(i)%b ) ) cycle
+        o = nv * (i - 1)
+        associate ( bc => domain%bc(i) )
+          if ( which == 1 ) then
+            if ( bc%type /= 306 .and. bc%type /= 307 ) cycle
+            bc%Tw_prev = v(o+1) ; bc%beta = v(o+2) ; bc%Bpg = v(o+3) ; bc%Bch = v(o+4) ; bc%hw = v(o+5)
+            bc%mdot_pg = v(o+6) ; bc%mdot_ch = v(o+7) ; bc%seb_iter = nint(v(o+8)) ; bc%nclamp = nint(v(o+9:o+12))
+            bc%seb = v(o+13:o+20) ; bc%Bpg_lag = v(o+21) ; bc%sdot = v(o+22) ; bc%s_total = v(o+23)
+          else
+            if ( bc%type /= 101 ) cycle
+            bc%q_if = v(o+1) ; bc%qm_if = v(o+2) ; bc%qh_if = v(o+3)
+          endif
+        end associate
+      enddo
+    endif
+    deallocate( v )
+  end subroutine Gather_Face_Outputs
+#endif
 
 
   !> The smoothing windows of every surface node (setup, law = nodeshift):
@@ -829,13 +979,19 @@ contains
   end subroutine Smooth_Pass
 
 
-  !> After the move, before the ghost metrics are rebuilt: the four nodes of
-  !> every 101 face agree bitwise with its partner's (as sorted coordinate
-  !> triples), else error stop 2. TEST ONLY: perturb-interface-node moves one
-  !> shared node of the lowest receding block by 1e-12 m in x at step 2.
+  !> After the move and the exchange of the node planes between the ranks, before
+  !> the ghost metrics are rebuilt: the four nodes of every 101 face of this rank's
+  !> blocks agree bitwise with its partner's (as sorted coordinate triples), else
+  !> error stop 2 -- across ranks too (plan 11 stage 4): the partner block's planes
+  !> 0..gc of the face, its own face nodes among them, came in exchange_node_planes.
+  !> TEST ONLY: perturb-interface-node moves one shared node of the lowest
+  !> receding block by 1e-12 m in x at step 2 (on that block's rank).
   subroutine Assert_Interface_Nodes ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_, is_local_block
+#endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -852,6 +1008,11 @@ contains
           exit
         endif
       enddo
+#ifdef USE_MPI
+      if ( mpi_size_ > 1 .and. br > 0 ) then
+        if ( .not. is_local_block(br) ) br = 0
+      endif
+#endif
       do i = 1, domain%nbound
         if ( domain%bc(i)%type /= 101 .or. domain%bc(i)%b /= br ) cycle
         call face_nodes( domain%bc(i)%f, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, nd )
@@ -864,6 +1025,9 @@ contains
 
     do i = 1, domain%nbound
       if ( domain%bc(i)%type /= 101 ) cycle
+#ifdef USE_MPI
+      if ( mpi_size_ > 1 .and. .not. is_local_block( domain%bc(i)%b ) ) cycle   ! the block's own rank checks it
+#endif
       associate ( bc => domain%bc(i) )
         call face_nodes( bc%f,  bc%i,  bc%j,  bc%k,  nd )
         call face_nodes( bc%fs, bc%is, bc%js, bc%ks, ns )
@@ -892,18 +1056,27 @@ contains
   !> TEST ONLY (dump-interface-flux): at every solution output, one row per
   !> 101 face with the flux BC_Connection put into the residual (and, type 2,
   !> the Darcy mass and enthalpy fluxes), for the pairing check of the
-  !> receding conjugate case.
+  !> receding conjugate case. On every rank: the other ranks' faces travel to
+  !> root first (plan 11 stage 4); root writes.
   subroutine Write_Interface_Flux ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation, obj_sim_param
     use FUSS_Global_m,       only: FUSS_phase_prefix
+    use FUSS_Mod_MPI,        only: mpi_is_root
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,        only: mpi_size_
+#endif
     implicit none
-    type(FUSS_domain_type), intent(in) :: domain
+    type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     character(len=512) :: file
     integer :: u, ios, i
 
     if ( .not. obj_ablation%dump_interface_flux ) return
+#ifdef USE_MPI
+    if ( mpi_size_ > 1 ) call Gather_Face_Outputs ( domain, 2 )
+#endif
+    if ( .not. mpi_is_root ) return
     file = 'OUTPUT/'//trim(FUSS_phase_prefix)//'interface-flux.txt'
     if ( .not. if_file_started .and. obj_sim_param%newrun ) then
       open( newunit=u, file=trim(file), status='replace', action='write', iostat=ios )

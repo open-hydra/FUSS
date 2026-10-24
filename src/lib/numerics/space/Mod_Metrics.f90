@@ -280,12 +280,14 @@ contains
       if ( obj_space_scheme % inverse_metric ) call Fill_Inverse_Metric ( domain%blk(b) )
     enddo
 
-    ! The shared nodes of every block interface must still coincide bitwise.
-    if ( nodeshift ) call Assert_Interface_Nodes ( domain )
-
     ! A block connection between two ranks builds its ghost metric from the
     ! neighbour's node planes: bring them to this rank first (plan 11 stage 2).
     call exchange_node_planes ( domain )
+
+    ! The shared nodes of every block interface must still coincide bitwise; after
+    ! the exchange, so that a face shared with another rank's block is checked
+    ! against that block's moved nodes (plan 11 stage 4).
+    if ( nodeshift ) call Assert_Interface_Nodes ( domain )
 
     ! The ghost-cell metrics are functions of the geometry that has just moved,
     ! so they have to be rebuilt too. See Setup_BC_Metrics. (TEST ONLY
