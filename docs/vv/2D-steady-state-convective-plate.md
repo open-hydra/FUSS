@@ -42,7 +42,7 @@ where $h = 750$ W/m²°C and $T_\infty = 0$ °C.
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |

@@ -45,7 +45,7 @@ $$\frac{k\,(T_1 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\rig
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |

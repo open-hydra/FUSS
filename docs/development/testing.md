@@ -21,7 +21,7 @@ The test cases in `test/` run FUSS on problems with analytical or benchmark solu
 | `numerics-features/chimera` | Chimera (overset) interface | smoke run |
 | `numerics-features/chimera_mg` | Chimera donors on 3 multigrid levels, FAS cycle | smoke run |
 | `numerics-features/anisotropic_Plate` | Cells of aspect ratio 100, 3 levels, W + IRS | smoke run |
-| `numerics-features/multimat_liner` | Material jumps inside a block (four-layer liner in 2 blocks) at vnn 1.0 | smoke run |
+| `numerics-features/multimat_liner` | Material jumps inside a block (four-layer liner in 2 blocks) at vnn 0.5 | smoke run |
 | `numerics-features/residual_convergence/*` | Six convergence strategies (IRS, multigrid) | smoke runs; `plot.py` |
 | `numerics-features/time_convergence/simdir` | Parallel timing study | smoke run; `plot.py` |
 

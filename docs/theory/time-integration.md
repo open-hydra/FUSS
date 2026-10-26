@@ -42,20 +42,22 @@ The schemes are first, second and third-order accurate in time; the RK stages ar
 The explicit update is stable while the diffusion number of every cell stays below the limit of the scheme. The time step of cell $i$ is
 
 $$
-\Delta t_i = \frac{\text{VNN}}{2\,\alpha(T_i)\,\sum_{d}\lvert\nabla\xi_d\rvert_i^{2}},
+\Delta t_i = \frac{\text{VNN}}{\alpha(T_i)\,\sum_{d}\lvert\nabla\xi_d\rvert_i^{2}},
 \qquad \alpha = \frac{k}{\rho\,c_p}
 $$
 
-where $\xi_d$ is the cell index along direction $d$ (the sum runs over the two or three directions of the mesh) and $\nabla\xi_d$ is row $d$ of the cell metric tensor $M$ (see [Grid Metrics](numerics.md#grid-metrics)). On an orthogonal cell $\lvert\nabla\xi_d\rvert = 1/\Delta x_d$ and the condition is the familiar $\alpha\,\Delta t \sum_d 1/\Delta x_d^2 \le \text{VNN}/2$; on a skewed cell $\lvert\nabla\xi_d\rvert$ is larger, $1/(\Delta x_d \sin\varphi)$ for a parallelogram whose edges meet at the angle $\varphi$. The diffusivity is taken at the current cell temperature, so with temperature-dependent properties the step follows the local $\alpha$.
+where $\xi_d$ is the cell index along direction $d$ (the sum runs over the two or three directions of the mesh) and $\nabla\xi_d$ is row $d$ of the cell metric tensor $M$ (see [Grid Metrics](numerics.md#grid-metrics)). On an orthogonal cell $\lvert\nabla\xi_d\rvert = 1/\Delta x_d$ and the condition is the familiar $\alpha\,\Delta t \sum_d 1/\Delta x_d^2 \le \text{VNN}$; on a skewed cell $\lvert\nabla\xi_d\rvert$ is larger, $1/(\Delta x_d \sin\varphi)$ for a parallelogram whose edges meet at the angle $\varphi$. The diffusivity is taken at the current cell temperature, so with temperature-dependent properties the step follows the local $\alpha$.
 
-On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete diffusion operator is $4\,\alpha \sum_d \lvert\nabla\xi_d\rvert^2$ (the mixed-derivative terms vanish in that mode). VNN is therefore the fraction of the stability limit of forward Euler and RK2, whose stability interval on the negative real axis is $[-2, 0]$: they are stable for $\text{VNN} \le 1$. RK3 reaches $-2.51$, i.e. $\text{VNN} \le 1.25$.
+On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete diffusion operator is $4\,\alpha \sum_d \lvert\nabla\xi_d\rvert^2$ (the mixed-derivative terms vanish in that mode). VNN is therefore $\Delta t\,\lambda_{\max}/4$, and the stability limit of forward Euler and RK2, whose stability interval on the negative real axis is $[-2, 0]$, is $\text{VNN} \le 1/2$. RK3 reaches $-2.51$, i.e. $\text{VNN} \le 0.628$.
 
-Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.5$, and now above 1.
+**Convention.** VNN is defined as in MOSE, $\Delta t = \text{VNN}\,\rho c_p / \sum_d k_d \lvert\nabla\xi_d\rvert^2$, so that one value of `vnn` means one step in a coupled deck. Until October 2026 FUSS carried a factor 2 in the denominator (limits 1 for Euler and RK2, 1.25 for RK3): **VNN$_{\text{new}}$ = VNN$_{\text{old}}$ / 2**. A deck written before this change runs at twice its step unless its `vnn` is halved; every deck of the repository was halved in the same change, with no change in any result (halving is exact in binary). The default is 0.15 (it was 0.3).
+
+Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.25$, and now above 0.5.
 
 **Face conductivities.** The formula above takes the conductivity of the cell, but the flux of each face carries the conductivity of that face (see [Face Conductivity](numerics.md#face-conductivity)). The step therefore takes, in each direction $d$, the larger of the conductivities of the cell's two faces in that direction, each evaluated as its flux evaluates it:
 
 $$
-\Delta t_i = \frac{\text{VNN}\,\rho c_p}{2\sum_{d} k_d\,\lvert\nabla\xi_d\rvert_i^{2}},
+\Delta t_i = \frac{\text{VNN}\,\rho c_p}{\sum_{d} k_d\,\lvert\nabla\xi_d\rvert_i^{2}},
 \qquad k_d = \max\bigl(k_{d-1/2},\,k_{d+1/2}\bigr).
 $$
 
@@ -63,13 +65,13 @@ An interior face takes $k$ at the mean temperature of its two cells, or between 
 
 Taking the larger of the two face conductivities is conservative: the row sum of the explicit operator (Gershgorin's bound, which the cell formula meets with equality on a uniform mesh) needs only their mean.
 
-Until October 2026 the step used the cell conductivity everywhere, and the face of a material jump inside a block took the conductivity of the lower-index cell: at a 300 → 15 W/(m K) jump the first cell of the low-conductivity material exchanged heat through 20 times its own $k$, and the four-layer liner of the FAS stress campaign left the properties table at VNN = 0.5 within 5 iterations.
+Until October 2026 the step used the cell conductivity everywhere, and the face of a material jump inside a block took the conductivity of the lower-index cell: at a 300 → 15 W/(m K) jump the first cell of the low-conductivity material exchanged heat through 20 times its own $k$, and the four-layer liner of the FAS stress campaign left the properties table at VNN = 0.25 within 5 iterations.
 
 With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ iterations $n$.
 
 !!! tip "Choosing VNN"
 
-    The default is 0.3. Without IRS stay below the limit of the scheme (1 for euler and RK2, 1.25 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 2 with `irs-beta = 0.5` (3 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
+    The default is 0.15. Without IRS stay below the limit of the scheme (0.5 for euler and RK2, 0.628 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 1 with `irs-beta = 0.5` (1.5 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
 
 ---
 
@@ -112,7 +114,7 @@ with smoothing parameter $\varepsilon$ specified by `irs-beta` in the input file
 
 ### Effect on stability
 
-The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D, allowing VNN values of 2 or more to be used without instability.
+The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D, allowing VNN values of 1 or more to be used without instability.
 
 ### Admissible updates
 

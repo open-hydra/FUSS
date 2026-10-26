@@ -71,7 +71,7 @@ The series is truncated at 100 terms (`analytical_T` in `verify.py`).
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 0.8 |
+| VNN | 0.4 |
 | Time-accurate | true |
 | Integration variables | primitive |
 | Implicit residual smoothing | disabled |

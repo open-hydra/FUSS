@@ -19,7 +19,7 @@ python3 plot_convergence.py /path/to/runs       # runs/convergence_{iterations,t
 ```
 
 `run_configs.sh` copies each case, sets the keys with `set_keys.py` (RK3, `cons`,
-`res-threshold = 1e-10`, `res-diter = 1`; `vnn = 1.0` without IRS, `vnn = 2.0` and
+`res-threshold = 1e-10`, `res-diter = 1`; `vnn = 0.5` without IRS, `vnn = 1.0` and
 `irs-beta = 0.5` with it; `none` and `IRS` on one grid, the cycles on the case's levels with
 `level<m>-iter = 1` on the coarse levels) and runs it with one thread in
 `<runs>/<case>_<config>`, writing `run.log`, `run.err` and `run.time` (`exit <status> <seconds> s`).

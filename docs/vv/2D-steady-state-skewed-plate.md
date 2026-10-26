@@ -25,7 +25,7 @@ The wall data vary from cell to cell, so `make_inputs.py` writes `MESH/mesh.tec`
 
 | Parameter | Value |
 |---|---|
-| Time scheme | RK3, VNN 2.0, local time step |
+| Time scheme | RK3, VNN 1.0, local time step |
 | Integration variables | prim |
 | Implicit residual smoothing | β = 0.5 |
 | Initial condition | 1300 K |

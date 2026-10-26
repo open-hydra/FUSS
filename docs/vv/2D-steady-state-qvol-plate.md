@@ -39,7 +39,7 @@ where $\dot{q} = 10^6$ W/m³ and $k = 52$ W/mK. The symmetry of the domain and b
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | conservative |
 | Implicit residual smoothing | enabled (β = 0.5) |

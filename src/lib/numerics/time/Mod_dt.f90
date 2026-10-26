@@ -68,8 +68,9 @@ contains
 
     contains
       
-      ! Explicit diffusion limit alpha dt sum_d |grad xi_d|^2 <= vnn/2, grad xi_d = row d of M:
-      ! exact on skewed cells too, where the edge lengths overstate the stable step by 1/sin^2(phi)
+      ! Explicit diffusion limit alpha dt sum_d |grad xi_d|^2 <= vnn, grad xi_d = row d of M (MOSE's convention;
+      ! until October 2026 vnn was twice this value): exact on skewed cells too, where the edge lengths
+      ! overstate the stable step by 1/sin^2(phi)
       subroutine compute ( T, matID, M, dtmin, vnn )
         use FUSS_Global_m
         use FUSS_Lib_Solid
@@ -92,7 +93,7 @@ contains
         do d = 1, ndir
           G = G + M(d,1)**2 + M(d,2)**2 + M(d,3)**2
         enddo
-        dt = 0.5d0 * vnn / (alpha * G)
+        dt = vnn / (alpha * G)
 
         dtmin = min ( dt, dtmin )
 
@@ -107,7 +108,7 @@ contains
   !> lower cell, before October 2026, 20 times it on a 300 -> 15 jump made the explicit update
   !> diverge). Here direction d of the cell sum takes the larger conductivity k_d of its two faces,
   !> each evaluated as its flux evaluates it:
-  !>   dt = vnn rho cp / (2 sum_d k_d |grad xi_d|^2)
+  !>   dt = vnn rho cp / sum_d k_d |grad xi_d|^2
   !> A cell whose k_d all equal its own k keeps the step of the cell loop untouched, and a block of
   !> one material at constant k connected only to itself is not visited at all, so such meshes get
   !> the cell step bit for bit. dtglobal is recomputed over the final steps (a face step is longer
@@ -223,7 +224,7 @@ contains
     do d = 1, ndir
       Gk = Gk + kd(d) * ( blk%M(i,j,k)%c(d,1)**2 + blk%M(i,j,k)%c(d,2)**2 + blk%M(i,j,k)%c(d,3)**2 )
     enddo
-    dt = 0.5d0 * vnn * rho * cp / Gk
+    dt = vnn * rho * cp / Gk
     dtmin = min ( dt, dtmin )
 
   contains

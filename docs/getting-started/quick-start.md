@@ -56,7 +56,7 @@ res-threshold = 1e-8
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 2.0
+vnn = 1.0
 time-accurate = false
 integration-variables = cons
 irs-beta = 0.5
@@ -125,7 +125,7 @@ T = 273.15
 | `newrun = true` | Start from `INPUT/ic.tec` (`false` restarts from `OUTPUT/field.tec`) |
 | `res-threshold = 1e-8` | Stop when the residual (L2 norm over all cells of the temperature change of one iteration, K) falls below $10^{-8}$ |
 | `time-accurate = false` | Steady run: local time step in each cell |
-| `time-scheme = RK3`, `vnn = 2.0` | SSP RK3; `vnn` above the explicit limit (1.25 for RK3), allowed here by IRS |
+| `time-scheme = RK3`, `vnn = 1.0` | SSP RK3; `vnn` above the explicit limit (0.628 for RK3), allowed here by IRS |
 | `irs-beta = 0.5` | Implicit residual smoothing |
 | `integration-variables = cons` | Advance the volumetric enthalpy $h$ |
 | `sol-diter`, `sol-overwrite`, `sol-format` | Write `OUTPUT/field.tec` every 10000 iterations and at the end, overwriting it |

@@ -63,7 +63,7 @@ if (USE_TECIO)
   fuss_add_script(RestartBinary restart.sh 300 "fast" szplt)
 endif()
 
-# Material jumps inside a block: the 4-layer liner at vnn 1.0 (series face conductivities and the
+# Material jumps inside a block: the 4-layer liner at vnn 0.5 (series face conductivities and the
 # face-conductivity time step)
 fuss_add_test(MultimatLiner    numerics-features/multimat_liner     300 "smoke" --iters 300)
 

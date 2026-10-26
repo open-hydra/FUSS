@@ -19,7 +19,7 @@ A plate of 4.0 m × 0.2 m (0.01 m thick) split into four blocks of 1000 × 20 ce
 | Block 4, face 2 (x = 4 m) | T = 2000 K (302) |
 | Faces 3–6 | `null` (adiabatic) |
 
-Initial temperature 1500 K. Numerics: RK3, VNN 1.5, local time step, primitive variables, IRS with β = 0.5, `iter-threshold = 1000`. The run stops long before steady state (the residual drops from 3.9 × 10³ to 5.6): only the time per iteration matters here.
+Initial temperature 1500 K. Numerics: RK3, VNN 0.75, local time step, primitive variables, IRS with β = 0.5, `iter-threshold = 1000`. The run stops long before steady state (the residual drops from 3.9 × 10³ to 5.6): only the time per iteration matters here.
 
 ## Configurations and results
 
