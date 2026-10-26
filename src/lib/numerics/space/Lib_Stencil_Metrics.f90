@@ -106,6 +106,7 @@ contains
   subroutine Setup_Face_Metrics ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Lib_BC_Fluxes_Connection, only: Pair_Connections
+    use FUSS_Config_Types_m, only: obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -117,6 +118,10 @@ contains
 
     ! 0. Partner and owner of every connection record (one flux per face, Connection_Fluxes)
     call Pair_Connections ( domain )
+
+    ! diffusive-metric = mean needs no stencil metric: the mean of the two cell metrics at the interior faces, the
+    ! two-sided balance at the connections and the cell metric at the walls, all from the cell metrics
+    if ( .not. obj_space_scheme % stencil_metric ) return
 
     ! 1. Centres of the cells of every block
     do b = 1, domain % nb

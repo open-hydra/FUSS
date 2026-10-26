@@ -9,20 +9,40 @@ module FUSS_Lib_BC_Fluxes_Connection
 
 contains
 
+  !> Chimera (102): two-sided balance with the cell metric and the ghost metric, residual update of the cell.
   subroutine BC_Connection ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg )
-    use FUSS_Lib_Solid
-    use FUSS_Lib_Diffusive
     implicit none
     integer, intent(in) :: Im, Jm, Km, Fm
     type(FUSS_tensor_3D_type), intent(in) :: Mg
     real(R8), intent(in)         :: Tg(6), matIDg
     type(FUSS_block_type), intent(inout) :: Blk
     ! Local
+    real(R8) :: Flux
+
+    call Connection_Face_Flux_Tint ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, Flux )
+    Blk % r(Im,Jm,Km) = Blk % r(Im,Jm,Km) - ( 1 - 2 * mod(Fm,2) ) * Flux
+
+  end subroutine BC_Connection
+
+
+  !> Flux of a face between blocks or with a chimera boundary from the two-sided balance of the temperature at the
+  !> face (Tint) with the cell metric and the ghost metric Mg: the form of 102 for every metric, and of 101 with
+  !> diffusive-metric = mean (the inverse-mean form of the former metric). Flux along the normal of growing index.
+  subroutine Connection_Face_Flux_Tint ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, Flux )
+    use FUSS_Lib_Solid
+    use FUSS_Lib_Diffusive
+    implicit none
+    integer, intent(in) :: Im, Jm, Km, Fm
+    type(FUSS_tensor_3D_type), intent(in) :: Mg
+    real(R8), intent(in)         :: Tg(6), matIDg
+    type(FUSS_block_type), intent(in) :: Blk
+    real(R8), intent(out)        :: Flux
+    ! Local
     integer :: Dir, Face_im, Face_jm, Face_km, modfm2
     real(R8) :: T_loc, T_con, T_ip_loc, T_im_loc, T_jp_loc, T_jm_loc, T_kp_loc, T_km_loc
     real(R8) :: Normal(3), Area, M_loc(3,3), M_con(3,3), Gradient(3)
     real(R8) :: kappa_loc, kappa_con, Num_loc, Num_con, Den_loc, Den_con
-    real(R8) :: Tint, Flux
+    real(R8) :: Tint
     
     ! Boundary face index
     call Face_Index ( Fm, Dir, Im, Jm, Km, Face_im, Face_jm, Face_km )
@@ -107,10 +127,7 @@ contains
 
     call Compute_Diffusive_Flux ( kappa_loc, Gradient, Area, Normal, Flux )
 
-    ! Residual update
-    Blk % r(Im,Jm,Km) = Blk % r(Im,Jm,Km) - modfm2 * Flux
-    
-  end subroutine BC_Connection
+  end subroutine Connection_Face_Flux_Tint
 
 
   !> Block connection (101) with the stencil face metric: the flux of the face as an interior face, from one gradient of
@@ -309,6 +326,7 @@ contains
   subroutine Connection_Fluxes ( domain )
     use FUSS_Mod_MPI, only: mpi_size_
     use FUSS_Mod_GhostExchange, only: exchange_connection_flux
+    use FUSS_Config_Types_m, only: obj_space_scheme
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -322,8 +340,14 @@ contains
       if ( .not. domain % bc(i) % owner ) cycle
       Bm = domain % bc(i) % b
       p  = domain % bc(i) % partner
-      call Connection_Face_Flux ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
-                                  domain % blk(Bm), domain % bc(i), Flux )
+      if ( obj_space_scheme % stencil_metric ) then
+        call Connection_Face_Flux ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
+                                    domain % blk(Bm), domain % bc(i), Flux )
+      else
+        call Connection_Face_Flux_Tint ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
+                                         domain % blk(Bm), domain % bc(i) % Mg(1), domain % bc(i) % Tg, &
+                                         domain % bc(i) % matIDg, Flux )
+      end if
       s = 1 - 2 * mod(domain % bc(i) % f, 2)     ! +1: the cell is on the low side of the face
       domain % bc(i) % Fc = - s * Flux
       domain % bc(p) % Fc = + s * Flux

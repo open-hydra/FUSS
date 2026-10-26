@@ -119,6 +119,11 @@ module FUSS_Config_Types_m
     ! Useful variables
     ! ...
   end type time_scheme_t
+
+  type :: space_scheme_t
+    character(len=llen) :: diffusive_metric                ! Face metric of the diffusive fluxes (stencil/mean)
+    logical             :: stencil_metric = .true.         ! diffusive_metric == stencil, fixed at set-up
+  end type space_scheme_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 
@@ -214,6 +219,7 @@ module FUSS_Config_Types_m
   type(io_probes_t), allocatable, public:: obj_io_probes(:)
   type(io_bc_t), public                 :: obj_io_bc
   type(time_scheme_t), public           :: obj_time_scheme
+  type(space_scheme_t), public          :: obj_space_scheme
   type(irs_t), public                   :: obj_irs
   type(multigrid_t), public             :: obj_multigrid
   type(table_t), public                 :: obj_table

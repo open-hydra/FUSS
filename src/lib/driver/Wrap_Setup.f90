@@ -625,7 +625,7 @@ contains
       write(*,'(A)') ' Numerical scheme'
       write(*,'(A)') ' ========================================================================================='
       write(*,'(A,T35,A)') ' Space'
-      write(*,'(A,T35,A)') '   Diffusive face metric', 'inverse-mean'
+      write(*,'(A,T35,A)') '   Diffusive face metric', trim(obj_space_scheme%diffusive_metric)
       write(*,*)
       write(*,'(A,T35,A)') ' Time'
       write(*,'(A,T35,A)') '   Scheme', trim(obj_time_scheme%description)
