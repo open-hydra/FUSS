@@ -127,7 +127,11 @@ contains
     enddo
 
     ! Chimera Tg(3:6): reads the ghost row written just above, so it must stay
-    ! a separate loop (implicit barrier in between)
+    ! a separate loop (implicit barrier in between). Each entry writes its own Tg
+    ! only: beyond the edges of a block face the ghost row is extrapolated into Tg,
+    ! not written in the block (Fill_BC_Ghost_Chimera), so the entries of two chimera
+    ! faces of a block that meet at an edge write no common location, and one loop
+    ! over all the entries has no data race
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
     do ii = 1, domain % n_local_bc
       i = domain % local_bc_idx(ii)
@@ -141,7 +145,11 @@ contains
     enddo
 
     ! Tg(3:6) of connections whose source block is local. On a face edge they are ghost
-    ! cells of Bs, set by the MPI unpack or the chimera fill: so this loop comes after both.
+    ! cells of Bs, set by the MPI unpack or by Ghost_Chimera (the ghost cells of a chimera
+    ! face of Bs; Fill_BC_Ghost_Chimera writes nothing in the block): so this loop comes
+    ! after both, and needs no other chimera step. (MOSE fills its connection Pg(:,3:6)
+    ! before Ghost_Chimera: a connection face that ends on a chimera face reads that ghost
+    ! one stage old there.)
     !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do ii = 1, domain % n_local_bs
       i  = domain % local_bs_idx(ii)
@@ -409,84 +417,54 @@ contains
   end subroutine Fill_BC_Ghost_Connection
 
 
+  !> Tg(3:6) of a chimera face: the tangential neighbours of its ghost cell, for the tangential differences of the face flux
+  !> (BC_Connection), which takes on the side of the ghost cells the central differences along the face of the row of the
+  !> ghost cells, as on the side of the cell those of the row of the cell. Tg(3:4) are the lower and the upper neighbour in
+  !> the first tangential direction of the face, Tg(5:6) in the second (j and k for faces 1-2, i and k for 3-4, i and j for
+  !> 5-6). Within the block face a neighbour is the ghost cell of the row, filled from the donors (Ghost_Chimera). Beyond an
+  !> edge of the block face the row has no ghost cell: the neighbour is extrapolated linearly along the row, 2 a - b from
+  !> the ghost cell a and the next one b, so that the central difference there is the one-sided one, exact for a linear
+  !> field as that of the row of the cell is (the ghost cell copied there halves it, and the face takes 3/4 of the
+  !> derivative of a linear field along that direction). A block one cell wide in a direction has no row to extrapolate
+  !> along (the k direction of the 2-D meshes): the neighbour is the ghost cell itself. T is a scalar: no rotation on the
+  !> axisymmetric wedge, no property lookup, so the extrapolated value needs no admissibility check. Nothing is written in
+  !> the block: two chimera faces that meet at an edge share no written location.
   subroutine Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, blk, Tg )
     implicit none
-    integer, intent(in) :: Im, Jm, Km, Fm
-    type(FUSS_block_type), intent(inout) :: blk
-    real(R8), intent(inout)              :: Tg(6)
+    integer, intent(in)               :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(in) :: blk
+    real(R8), intent(inout)           :: Tg(6)
     ! Local
-    integer :: i1, j1, k1, i2, j2, k2, i3, j3, k3, i4, j4, k4
-    integer :: dim(3), Ig, Jg, Kg
+    integer :: c(3), g(3), e(3), t(2), n, s, m
 
-    dim = blk % dim
-    Ig = Im - guide(Fm,1)
-    Jg = Jm - guide(Fm,2)
-    Kg = Km - guide(Fm,3)
-
+    c = [ Im, Jm, Km ]
+    g = c - guide(Fm,:)
     select case (Fm)
-      case(1:2)
-        if ( Jm == 1 )      blk % T (Ig, Jm-1, Km) = blk % T (Ig, Jm, Km)
-        if ( Jm == dim(2) ) blk % T (Ig, Jm+1, Km) = blk % T (Ig, Jm, Km)
-        if ( Km == 1 )      blk % T (Ig, Jm, Km-1) = blk % T (Ig, Jm, Km)
-        if ( Km == dim(3) ) blk % T (Ig, Jm, Km+1) = blk % T (Ig, Jm, Km)
-      case(3:4)
-        if ( Im == 1 )      blk % T (Im-1, Jg, Km) = blk % T (Im, Jg, Km)
-        if ( Im == dim(1) ) blk % T (Im+1, Jg, Km) = blk % T (Im, Jg, Km)
-        if ( Km == 1 )      blk % T (Im, Jg, Km-1) = blk % T (Im, Jg, Km)
-        if ( Km == dim(3) ) blk % T (Im, Jg, Km+1) = blk % T (Im, Jg, Km)
-      case(5:6)
-        if ( Im == 1 )      blk % T (Im-1, Jm, Kg) = blk % T (Im, Jm, Kg)
-        if ( Im == dim(1) ) blk % T (Im+1, Jm, Kg) = blk % T (Im, Jm, Kg)
-        if ( Jm == 1 )      blk % T (Im, Jm-1, Kg) = blk % T (Im, Jm, Kg)
-        if ( Jm == dim(2) ) blk % T (Im, Jm+1, Kg) = blk % T (Im, Jm, Kg)
+      case (1:2)
+        t = [ 2, 3 ]
+      case (3:4)
+        t = [ 1, 3 ]
+      case default
+        t = [ 1, 2 ]
     end select
 
-    select case(Fm)
-      case(1:2)
-        i1 = Ig
-        j1 = Jm - 1
-        k1 = Km
-        i2 = Ig
-        j2 = Jm + 1
-        k2 = Km
-        i3 = Ig
-        j3 = Jm
-        k3 = Km - 1
-        i4 = Ig
-        j4 = Jm
-        k4 = Km + 1
-      case(3:4)
-        i1 = Im - 1
-        j1 = Jg
-        k1 = Km
-        i2 = Im + 1
-        j2 = Jg 
-        k2 = Km
-        i3 = Im
-        j3 = Jg
-        k3 = Km - 1
-        i4 = Im
-        j4 = Jg 
-        k4 = Km + 1
-      case(5:6)
-        i1 = Im - 1
-        j1 = Jm
-        k1 = Kg
-        i2 = Im + 1
-        j2 = Jm
-        k2 = Kg
-        i3 = Im
-        j3 = Jm - 1
-        k3 = Kg
-        i4 = Im
-        j4 = Jm + 1
-        k4 = Kg
-    end select
-
-    Tg (3) = Blk % T (i1,j1,k1)
-    Tg (4) = Blk % T (i2,j2,k2)
-    Tg (5) = Blk % T (i3,j3,k3)
-    Tg (6) = Blk % T (i4,j4,k4)
+    do n = 1, 2
+      e = 0
+      e(t(n)) = 1
+      do s = -1, 1, 2
+        m = 2*n + 1 + (s+1)/2   ! Tg(3) and Tg(4) for n = 1, Tg(5) and Tg(6) for n = 2
+        if ( c(t(n)) + s >= 1 .and. c(t(n)) + s <= blk % dim(t(n)) ) then
+          ! Within the block face: the ghost cell of the row
+          Tg(m) = blk % T (g(1)+s*e(1),g(2)+s*e(2),g(3)+s*e(3))
+        elseif ( blk % dim(t(n)) > 1 ) then
+          ! Beyond an edge of the block face: extrapolated along the row
+          Tg(m) = 2d0 * blk % T (g(1),g(2),g(3)) - blk % T (g(1)-s*e(1),g(2)-s*e(2),g(3)-s*e(3))
+        else
+          ! One cell in this direction: the ghost cell
+          Tg(m) = blk % T (g(1),g(2),g(3))
+        end if
+      enddo
+    enddo
 
   end subroutine Fill_BC_Ghost_Chimera
 
