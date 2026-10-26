@@ -6,64 +6,194 @@ module FUSS_Lib_Metrics
   use FUSS_Parameters_m
 
   implicit none
-  real(R8), public :: delthe   ! grid axisymmetric angle
+  real(R8), public :: delthe = 0d0   ! grid axisymmetric angle
 
 contains
 
+  !> Mesh type, from the nodes of every block.
+  !>  - ndir is the number of index directions with more than one cell: 3 if a block has more than one cell in k,
+  !>    otherwise 2 if a block has more than one cell in j, otherwise 1. Until October 2026 only block 1 decided: a 3-D
+  !>    mesh whose block 1 is one cell thick in k ran as 2-D, with block 1 decoupled across its k faces.
+  !>  - delthe is the angle of the axisymmetric wedge of a 2-D mesh, 0 for a plane 2-D mesh and for 1-D and 3-D meshes
+  !>    (FUSS has no rotational periodicity, type 200, so a 3-D mesh has no sector). A 2-D mesh is a wedge when, in every
+  !>    block, the k = 1 node plane is the k = 0 plane turned about the x axis by the same angle; it is plane when no
+  !>    block is so turned. Every node is checked (Node_Planes); blocks that disagree stop the run.
+  !>  - The angle is the azimuth turned by the node (0,1) of the block, or by the node farthest from the axis when that
+  !>    one lies on it. The angles of two blocks agree when they differ by at most ETA of the angle.
+  !>  - The checks are relative to the move of the nodes per cell in k (K_Move_Per_Cell; the thickness of a 2-D block),
+  !>    not to the size of the coordinates: the coordinates of a mesh are written with a finite number of digits, and
+  !>    their round-off, relative to that move, is what a turn or a translation leaves over. A check relative to the
+  !>    size of the coordinates, at 1e-6 of it, fails a wedge of 5 degrees written with 5 significant digits, which is
+  !>    then taken for a plane mesh, and passes a plane slab far from the x axis, which is then taken for a wedge. A 2-D
+  !>    block nearer a turn than a translation, or nearer a translation than a turn, but not to within ETA of its
+  !>    thickness, stops the run: its nodes are written with too few digits to tell its type, or its k planes are neither
+  !>    parallel nor turned about the x axis.
   subroutine Check_Mesh_Type( domain )
+    use FUSS_Mod_MPI, only: mpi_abort_all
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    real(R8) :: theta1, theta2, theta(2)
-    real(R8) :: r0, r1  ! radius sqrt(y^2+z^2) at k=0 and k=1 probe node
+    real(R8), parameter :: TOL = 1d-6, ETA = 1d-2, PI = 3.141592653589793d0
+    integer  :: b, nb, nturn
+    real(R8) :: sr, ang, ang_b, fit, fit_move
+    logical  :: turned, moved, nearer_turn, nearer_move
+    character(len=512) :: msg   ! room for the longest message and the block number
 
-    ! Mesh definition (2D,2Daxi,3D)
-    if (domain%Blk(1)%dim(3)>1) then
-      ! 3D
-      ndir = 3
-      associate( node => domain%Blk(1)%node, jm => domain%Blk(1)%dim(2), km => domain%Blk(1)%dim(3) )
-        theta1 = atan2( node(0,1,0)%c(3),node(0,1,0)%c(2) ) ! computes axisymmetric angle
-        theta2 = atan2( node(0,1,km)%c(3),node(0,1,km)%c(2) )
-        theta(1) = theta2-theta1
-        theta1 = atan2( node(0,jm,0)%c(3), node(0,jm,0)%c(2) )
-        theta2 = atan2( node(0,jm,km)%c(3), node(0,jm,km)%c(2) )
-        theta(2) = theta2-theta1
+    nb = domain % nb
+
+    ndir = 1
+    do b = 1, nb
+      if ( domain % Blk(b) % dim(2) > 1 ) ndir = max ( ndir, 2 )
+      if ( domain % Blk(b) % dim(3) > 1 ) ndir = 3
+    enddo
+
+    delthe = 0d0
+    if ( ndir /= 2 ) return
+
+    ! Size of the distance from the x axis, to tell a probe node on the axis
+    sr = 0d0
+    do b = 1, nb
+      associate ( node => domain % Blk(b) % node )
+        sr = max ( sr, maxval ( sqrt ( node(:,:,:) % c(2)**2 + node(:,:,:) % c(3)**2 ) ) )
       end associate
-      if ( (theta(1)-theta(2)) < 1.d-5 ) then
-        delthe = theta(1)
-      else
-        delthe = 0d0
-      endif
-    elseif (domain%Blk(1)%dim(3)==1 .and. domain%Blk(1)%dim(2)==1) then
-      ! 1D
-      ndir = 1
-    else
-      ! 2D
-      ndir = 2
-      associate( node => domain%Blk(1)%node, jm => domain%Blk(1)%dim(2) )
-        theta1 = atan2( node(0,1,0)%c(3),node(0,1,0)%c(2) ) ! computes axisymmetric angle
-        theta2 = atan2( node(0,1,1)%c(3),node(0,1,1)%c(2) )
-        theta(1) = theta2-theta1
-        theta1 = atan2( node(0,jm,0)%c(3), node(0,jm,0)%c(2) )
-        theta2 = atan2( node(0,jm,1)%c(3), node(0,jm,1)%c(2) )
-        ! For true axisymmetry, the radius r=sqrt(y^2+z^2) must be conserved between k-planes.
-        ! A flat-plate mesh with z(k=0)=0 at the wall (y=0) gives r=0, which would
-        ! falsely satisfy the theta-difference check. Guard against this degenerate case.
-        r0 = sqrt( node(0,1,0)%c(2)**2 + node(0,1,0)%c(3)**2 )
-        r1 = sqrt( node(0,1,1)%c(2)**2 + node(0,1,1)%c(3)**2 )
+    enddo
+
+    ! Wedge if every block is turned by the same angle; plane if none is
+    nturn = 0
+    do b = 1, nb
+      call Node_Planes ( domain % Blk(b), 1, sr, TOL, ETA, turned, ang_b, moved, fit, nearer_turn, fit_move, &
+                         nearer_move )
+      if ( nearer_turn .and. .not. turned ) then
+        write(msg,'(A,I0,A,ES10.3,A,ES9.2,A)') '[ERROR] Mesh type: block ', b, ' is nearer a wedge of angle ', ang_b, &
+          ' rad than a plane block, but its nodes match the turn only to ', fit, ' of its thickness (1e-2 needed):'// &
+          ' write the node coordinates with more significant digits'
+        call mpi_abort_all ( trim(msg) )
+      end if
+      if ( nearer_move .and. .not. moved ) then
+        write(msg,'(A,I0,A,ES9.2,A)') '[ERROR] Mesh type: block ', b, ' is nearer a plane block than a wedge, but its'// &
+          ' k = 1 node plane is the k = 0 plane translated only to ', fit_move, ' of its thickness (1e-2 needed):'// &
+          ' its k planes must be parallel, or the coordinates written with more significant digits'
+        call mpi_abort_all ( trim(msg) )
+      end if
+      if ( .not. turned ) cycle
+      nturn = nturn + 1
+      if ( nturn == 1 ) then
+        ang = ang_b
+      elseif ( abs ( ang_b - ang ) > ETA * abs ( ang ) ) then
+        write(msg,'(A,I0,A,ES12.5,A,ES12.5,A)') '[ERROR] Mesh type: block ', b, ' is a wedge of angle ', ang_b, &
+          ' rad, another block one of ', ang, ' rad'
+        call mpi_abort_all ( trim(msg) )
+      end if
+    enddo
+    if ( nturn == nb ) then
+      delthe = ang
+    elseif ( nturn > 0 ) then
+      write(msg,'(A,I0,A,I0,A)') '[ERROR] Mesh type: ', nturn, ' of the ', nb, &
+        ' blocks of the 2-D mesh are axisymmetric wedges (k = 1 plane turned about the x axis), the others are not'
+      call mpi_abort_all ( trim(msg) )
+    end if
+
+  contains
+
+    !> Compare the node planes k = 0 and k = ktop of a block. cell is the move of the nodes per cell in k measured along
+    !> the k lines (K_Move_Per_Cell; in 2-D, ktop = 1, the thickness of the block). turned: every node of the plane ktop
+    !> is the node of the plane 0 turned about the x axis by ang, with |ang| > tol, to within eta of cell, and closer
+    !> than as a translation. moved: every node is the node of the plane 0 translated by the move of the node (0,0), to
+    !> within eta of cell, and closer than as a turn, or with |ang| <= tol, which is no turn: the turn by a null angle is
+    !> the translation by zero. Comparing the two keeps a wedge from passing for a translation and a slab far from the
+    !> axis, which a small turn nearly fits, from passing for a wedge. A block whose probe node keeps its azimuth while
+    !> its plane k = 1 is not the plane k = 0 translated to eta (planes that touch or cross, or a plane k = 1 scaled
+    !> radially about the axis) stops here: without the null angle it would pass for plane. fit, fit_move: the misfits of
+    !> the turn and of the translation over cell; nearer_turn: |ang| > tol and the turn fits better than the translation;
+    !> nearer_move: the translation fits better than the turn, or |ang| <= tol.
+    subroutine Node_Planes ( blk, ktop, sr, tol, eta, turned, ang, moved, fit, nearer_turn, fit_move, nearer_move )
+      type(FUSS_block_type), intent(in) :: blk
+      integer, intent(in)               :: ktop
+      real(R8), intent(in)              :: sr, tol, eta
+      logical, intent(out)              :: turned, moved, nearer_turn, nearer_move
+      real(R8), intent(out)             :: ang, fit, fit_move
+      ! Local
+      integer  :: i, j, i0, j0
+      real(R8) :: theta1, theta2, ca, sa, rmax, r, a(3), c(3), shift(3), turn_off, move_off, cell
+
+      associate ( node => blk % node )
+        ! Probe node: (0,1), or the node of the plane 0 farthest from the axis when (0,1) lies on it
+        i0 = 0
+        j0 = 1
+        if ( sqrt ( node(0,1,0)%c(2)**2 + node(0,1,0)%c(3)**2 ) <= tol * sr ) then
+          rmax = -1d0
+          do j = 0, blk % dim(2)
+            do i = 0, blk % dim(1)
+              r = sqrt ( node(i,j,0)%c(2)**2 + node(i,j,0)%c(3)**2 )
+              if ( r > rmax ) then
+                rmax = r
+                i0 = i
+                j0 = j
+              end if
+            enddo
+          enddo
+        end if
+        theta1 = atan2 ( node(i0,j0,0)%c(3), node(i0,j0,0)%c(2) )
+        theta2 = atan2 ( node(i0,j0,ktop)%c(3), node(i0,j0,ktop)%c(2) )
+        ang = theta2 - theta1
+        if ( ang >  pi ) ang = ang - 2d0 * pi
+        if ( ang < -pi ) ang = ang + 2d0 * pi
+
+        ca = cos ( ang )
+        sa = sin ( ang )
+        shift = node(0,0,ktop)%c - node(0,0,0)%c
+        turn_off = 0d0
+        move_off = 0d0
+        do j = 0, blk % dim(2)
+          do i = 0, blk % dim(1)
+            a = node(i,j,0)%c
+            c = node(i,j,ktop)%c
+            turn_off = max ( turn_off, abs ( c(1) - a(1) ), abs ( c(2) - ( a(2) * ca - a(3) * sa ) ), &
+                                       abs ( c(3) - ( a(2) * sa + a(3) * ca ) ) )
+            move_off = max ( move_off, maxval ( abs ( c - a - shift ) ) )
+          enddo
+        enddo
+        cell = K_Move_Per_Cell ( blk, ktop )
+        nearer_turn = abs ( ang ) > tol .and. turn_off < move_off
+        nearer_move = move_off < turn_off .or. abs ( ang ) <= tol
+        turned = nearer_turn .and. turn_off <= eta * cell
+        moved  = nearer_move .and. move_off <= eta * cell
+        fit      = huge ( 1d0 )
+        fit_move = huge ( 1d0 )
+        if ( cell > 0d0 ) fit = turn_off / cell
+        if ( cell > 0d0 ) fit_move = move_off / cell
       end associate
-      theta(2) = theta2-theta1
-      if ( (theta(1)-theta(2)) < 1.d-5 .and. &
-           r0 > 1.d-10 .and. abs(r0-r1) < 1.d-5*r0 ) then
-        ! 2Daxi
-        delthe = theta(1)
-      else
-        ! 2D
-        delthe = 0.d0
-      endif
-    endif
+
+    end subroutine Node_Planes
 
   end subroutine Check_Mesh_Type
+
+
+  !> The move of the nodes of a block per cell in k, from the node plane 0 to the plane ktop, measured along the k
+  !> lines: for every node of the plane 0 the sum, over the cells of its k line, of its move across each cell (the
+  !> largest component), and the largest of these sums over ktop. With one cell in k (ktop = 1) it is the move from the
+  !> plane 0 to the plane 1, bit for bit. The scale of the checks of Check_Mesh_Type.
+  pure function K_Move_Per_Cell ( blk, ktop ) result ( cell )
+    type(FUSS_block_type), intent(in) :: blk
+    integer, intent(in)               :: ktop
+    real(R8)                          :: cell
+    ! Local
+    integer  :: i, j, k
+    real(R8) :: s
+
+    cell = 0d0
+    do j = 0, blk % dim(2)
+      do i = 0, blk % dim(1)
+        s = 0d0
+        do k = 1, ktop
+          s = s + maxval ( abs ( blk % node(i,j,k) % c - blk % node(i,j,k-1) % c ) )
+        enddo
+        cell = max ( cell, s )
+      enddo
+    enddo
+    cell = cell / ktop
+
+  end function K_Move_Per_Cell
 
 
   subroutine Compute_Norm_Area( b )
