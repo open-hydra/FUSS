@@ -17,10 +17,10 @@ contains
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
-    real(R8), intent(in), dimension(3,3) :: M1, M2   ! inverse metrics of the two cells (blk%Minv)
+    real(R8), intent(in), dimension(3,3) :: M1, M2   ! metrics of the two cells (blk%M)
     real(R8), intent(inout) :: Res1, Res2
     ! Local
-    real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
+    real(R8) :: Gradient(3), T, M(3,3), Flux, kappa, Mi1(3,3), Mi2(3,3)
 
     ! Gradient in the same direction of the face: 1 and 2
     Gradient ( aa ) = T2 - T1
@@ -36,7 +36,9 @@ contains
     ! divided by the centre-to-centre distance. Averaging the metrics themselves
     ! (the mean metric, removed in October 2026) divides it by the mean of 1/h
     ! instead and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r.
-    M = Inverse3 ( 0.5d0 * ( M1 + M2 ) )
+    Mi1 = Inverse3 ( M1 )
+    Mi2 = Inverse3 ( M2 )
+    M = Inverse3 ( 0.5d0 * ( Mi1 + Mi2 ) )
     Gradient = matmul ( Gradient, M )
 
     ! Face conductivity. One material: k at the mean face temperature. A material jump
@@ -45,8 +47,8 @@ contains
       T = 0.5d0 * ( T1 + T2 )
       call co_Kappa( matID1, T, kappa )
     else
-      kappa = Series_Kappa ( matID1, T1, dot_product ( M1(:,aa), normal ), &
-                             matID2, T2, dot_product ( M2(:,aa), normal ) )
+      kappa = Series_Kappa ( matID1, T1, dot_product ( Mi1(:,aa), normal ), &
+                             matID2, T2, dot_product ( Mi2(:,aa), normal ) )
     end if
 
     call Compute_Diffusive_Flux ( kappa, Gradient, area, normal, Flux )

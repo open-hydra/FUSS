@@ -182,7 +182,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Lib_Solid
-    use FUSS_Lib_Diffusive, only: Series_Kappa
+    use FUSS_Lib_Diffusive, only: Series_Kappa, Inverse3
     implicit none
     type(FUSS_block_type), intent(in) :: blk
     integer(I1), intent(in) :: cf               ! connection faces of the cell (Connection_Faces)
@@ -236,16 +236,19 @@ contains
     ! evaluates it (lower cell first)
     real(R8) function interior_k ( lo, up )
       integer, intent(in) :: lo(3), up(3)
+      real(R8) :: Ai_lo(3,3), Ai_up(3,3)   ! edge vectors of the two cells (columns), Inverse3 of their metrics
 
       if ( blk%matID(lo(1),lo(2),lo(3)) == blk%matID(up(1),up(2),up(3)) ) then
         call co_Kappa( blk%matID(lo(1),lo(2),lo(3)), &
                        0.5d0*( blk%T(lo(1),lo(2),lo(3)) + blk%T(up(1),up(2),up(3)) ), interior_k )
       else
+        Ai_lo = Inverse3 ( blk%M(lo(1),lo(2),lo(3))%c )
+        Ai_up = Inverse3 ( blk%M(up(1),up(2),up(3))%c )
         interior_k = Series_Kappa ( &
           blk%matID(lo(1),lo(2),lo(3)), blk%T(lo(1),lo(2),lo(3)), &
-          dot_product ( blk%Minv(lo(1),lo(2),lo(3))%c(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ), &
+          dot_product ( Ai_lo(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ), &
           blk%matID(up(1),up(2),up(3)), blk%T(up(1),up(2),up(3)), &
-          dot_product ( blk%Minv(up(1),up(2),up(3))%c(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ) )
+          dot_product ( Ai_up(:,d), blk%dir(d)%f(lo(1),lo(2),lo(3))%n ) )
       endif
 
     end function interior_k

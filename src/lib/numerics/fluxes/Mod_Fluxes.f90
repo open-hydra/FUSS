@@ -17,19 +17,19 @@ contains
 
     do b = 1, domain % nb ! Loop over blocks
       if (.not. is_local_block(b)) cycle
-      ! The inverse metrics of the cells build the diffusive face metric
+      ! The metrics of the cells build the diffusive face metric
       call Fluxes_blk ( domain % blk(b) % T,   &
                         domain % blk(b) % matID, &
                         domain % blk(b) % r,   &
                         domain % blk(b) % dir, &
-                        domain % blk(b) % Minv, &
+                        domain % blk(b) % M, &
                         domain % blk(b) % dim )
     enddo
 
   end subroutine Fluxes
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, Minv, n )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n )
     use FUSS_Base_Types_m
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
@@ -39,7 +39,7 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in)  :: T
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
-    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: Minv   ! inverse cell metrics
+    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M   ! cell metrics
     ! Local
     integer :: i, j, k
 
@@ -69,8 +69,8 @@ contains
                             T(i  ,j,k+1),      &
                             T(i+1,j,k-1),      &
                             T(i+1,j,k+1),      &
-                            Minv(i  ,j,k) % c,    &
-                            Minv(i+1,j,k) % c,    &
+                            M(i  ,j,k) % c,    &
+                            M(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
                             1, 2, 3 )
@@ -93,8 +93,8 @@ contains
                             T(i,j  ,k+1),      &
                             T(i,j+1,k-1),      &
                             T(i,j+1,k+1),      &
-                            Minv(i,j  ,k) % c,    &
-                            Minv(i,j+1,k) % c,    &
+                            M(i,j  ,k) % c,    &
+                            M(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
                             2, 1, 3 )
@@ -117,8 +117,8 @@ contains
                             T(i,j+1,k  ),      &
                             T(i,j-1,k+1),      &
                             T(i,j+1,k+1),      &
-                            Minv(i,j,k  ) % c,    &
-                            Minv(i,j,k+1) % c,    &
+                            M(i,j,k  ) % c,    &
+                            M(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
                             3, 1, 2 )
