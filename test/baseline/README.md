@@ -224,3 +224,22 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     `s_total` do not move (the kinematic `sdot-override`).
   - **Measured per tree, not by exclusion:** the same source with the `h_up` branch removed (the `Map306_Setup` split
     alone, binary `2af22acf`) reproduces all 21 rows of the previous record.
+- **2026-10-25, plan 11 stages 3–4 (pyrolysis, Darcy and the ablating wall on N ranks): 17 rows moved, every one
+  attributed to `567e25d`; 106 added. 1960 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `a98bd334`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of the tree of `e2741ab` (`src/`, `test/`, `cmake/` and `CMakeLists.txt` equal to the commit). The other
+    1837 rows of the previous record are byte-identical. The `-B` manifest of `8b35c0c` (binary `c2491274`) is this one
+    without `run307_4blk`'s 28 rows, and that of the stage-3 tip `2d6d417` equals `8b35c0c`'s: stage 4 moves no row.
+  - **`567e25d`, the energy budget in per-block sums added in block order on root: the 17 `energy-budget.txt` rows of
+    the suite's pyrolysis cases.**
+    - `moving-mesh/conjugate_receding_t2` (two blocks): semantic. The blocks' sums are added in block order instead of one
+      running sum; that is what makes the file the same on any rank count.
+    - The other 16 (single block): code generation only. Q_out and Q_src move at 1e-16 relative (`darcy/mass_balance_1d`'s
+      Q_out is round-off of a zero net flux, ~1e-19 absolute). Two `-ffp-contract=off` builds, of `210aa9a` and of
+      `567e25d`, give identical rows on all 1083 rows of the 17 cases except `conjugate_receding_t2`'s budget: the moves
+      are FMA contraction decisions that changed when the accumulation moved into `Budget_Fold`.
+  - **Added, 106 rows:** `pyrolysis/lit/baum_atreya2007/full_N100_20blk` (68), `pyrolysis/darcy/tensor_linear_2d_2x2` (5),
+    `pyrolysis/darcy/mass_balance_1d_2x` (5) (stage 3) and `pyrolysis/ablation/coupled307/run307_4blk` (28) (stage 4):
+    the split cases of the 1-vs-N-ranks gate (`run_mpi_gate.sh`).
+  - The mpi preset's binary at one rank (`-m 1 -k`) gives the same manifest. Record:
+    `plan-bucket/records/2026-10-24-plan11-stage3/` (attribution, strict-build manifests) and `…-stage4/`.
