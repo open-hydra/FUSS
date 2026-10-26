@@ -3,7 +3,7 @@
 #   fast        under a minute each, run + verify.py      (ctest -L fast)
 #   validation  every case with a verify.py
 #   smoke       cases without a verifier, 300 iterations: the run must end cleanly
-#   needs-mpi   2 ranks must give the same output files as 1 process
+#   needs-mpi   2 ranks must give the same output files as 1 process; ranks x threads layouts the same bits
 
 set(_RUN "${CMAKE_CURRENT_SOURCE_DIR}/run_case.sh")
 set(_WORK "${CMAKE_CURRENT_BINARY_DIR}/runs")
@@ -43,6 +43,12 @@ fuss_add_test(MultigridNoneInert numerics-features/residual_convergence/mg3 300 
 # face-conductivity time step)
 fuss_add_test(MultimatLiner    numerics-features/multimat_liner     300 "smoke" --iters 300)
 
+# Chimera edges: a linear field on a sheared chimera pair (two chimera faces meeting at an edge in each block), walls
+# consistent with it, is preserved to round-off (the ghost row beyond an edge is extrapolated, not copied)
+add_test(NAME ChimeraEdge
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/mpi/bit-identity/chimera_edge.sh $<TARGET_FILE:${solver}> ${_WORK}/ChimeraEdge)
+set_tests_properties(ChimeraEdge PROPERTIES LABELS "fast;validation" TIMEOUT 300)
+
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)
   fuss_add_test(ChimeraMPI   numerics-features/chimera                      300 "needs-mpi" --iters 300 --mpi 2)
@@ -50,4 +56,9 @@ if (USE_MPI)
   fuss_add_test(MultigridMPI numerics-features/residual_convergence/mg_irs  300 "needs-mpi" --iters 300 --mpi 2)
   fuss_add_test(FASMPI       numerics-features/residual_convergence/fas_w_irs 300 "needs-mpi" --iters 300 --mpi 2)
   fuss_add_test(MultimatLinerMPI numerics-features/multimat_liner          300 "needs-mpi" --iters 300 --mpi 2)
+
+  # The same output bits on 1x1, 1x4, 2x1, 4x1 and 2x2 (ranks x threads) on a box of 4 blocks and a chimera pair
+  add_test(NAME MPIBitIdentity
+           COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/mpi/bit-identity/run.sh $<TARGET_FILE:${solver}> ${_WORK}/MPIBitIdentity)
+  set_tests_properties(MPIBitIdentity PROPERTIES LABELS "needs-mpi" TIMEOUT 900)
 endif()

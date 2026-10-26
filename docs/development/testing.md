@@ -39,10 +39,10 @@ ctest --test-dir build -R Qvol -V     # one test, with its output
 
 | Label | Tests | What passes |
 |---|---|---|
-| `fast` | the 9 verification cases under a minute | run ends with status 0, `verify.py` passes |
-| `validation` | the 10 verification cases (also `convective_Plate`) | same |
+| `fast` | the 9 verification cases and `ChimeraEdge`, under a minute | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces |
+| `validation` | the 10 verification cases (also `convective_Plate`) and `ChimeraEdge` | same |
 | `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |
-| `needs-mpi` | chimera, chimera_mg, multigrid with IRS, FAS W + IRS, multimat_liner (MPI builds only) | 2 ranks write the same files as 1 process, bit for bit |
+| `needs-mpi` | chimera, chimera_mg, multigrid with IRS, FAS W + IRS, multimat_liner (MPI builds only), and `MPIBitIdentity` | 2 ranks write the same files as 1 process, bit for bit; `MPIBitIdentity`: 1×4, 2×1, 4×1 and 2×2 (ranks × threads) write the same files as 1×1, on a box of 4 blocks and a chimera pair of overlapping blocks, steady with IRS and time-accurate (`test/mpi/bit-identity/`) |
 
 `run_case.sh <case> <work dir> <binary> [--iters N] [--verify] [--mpi N]` caps the run at N iterations by rewriting `iter-threshold` and every `level<m>-iter` of the copy.
 
