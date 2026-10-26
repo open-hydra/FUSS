@@ -64,6 +64,10 @@ module FUSS_Advanced_Types_m
     real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
     ! Stencil face metric of a block connection (101), set up by Lib_Stencil_Metrics
     real(R8) :: Mf(3,3) = 0d0
+    ! Stencil face metric of a wall (301-305): metric of the same position differences that the wall gradient takes,
+    ! variant 1 with the ghost cells (flux), variant 2 one-sided inside the block (ghost fill, wall output)
+    real(R8) :: wM(3,3,2) = 0d0
+    logical  :: wstencil = .false.
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

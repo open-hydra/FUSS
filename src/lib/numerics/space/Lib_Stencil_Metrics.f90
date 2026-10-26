@@ -153,9 +153,13 @@ contains
       call Interior_Face_Metrics ( b, domain % blk(b), xc(b) )
     enddo
     do r = 1, domain % nbound
-      if ( domain % bc(r) % type /= 101 ) cycle
       if ( .not. is_local_block ( domain % bc(r) % b ) ) cycle
-      call Connection_Face_Metric ( domain, xc, r )
+      select case ( domain % bc(r) % type )
+        case (101)
+          call Connection_Face_Metric ( domain, xc, r )
+        case (301:305)
+          call Wall_Face_Metric ( domain, xc, r )
+      end select
     enddo
 
     deallocate ( xc )
@@ -356,6 +360,63 @@ contains
     domain % bc(r) % Mf = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'between blocks' )
 
   end subroutine Connection_Face_Metric
+
+
+  !> Metric of the wall face of boundary record r (301-305): the gradient of Wall_Temperature takes the difference
+  !> across the half cell, D_n = 2 s (Tw - T), and the differences of the cell values along the face, (T_hi - T_lo)/
+  !> (hi - lo) for every tangential direction its loop uses; the metric takes the same differences of the positions,
+  !> J(:,n) = 2 s (x_f - x_c) and J(:,d) = (x_hi - x_lo)/(hi - lo). Two variants as in the gradient: 1 with the
+  !> ghost cells of the block (flux, ghosts = .true.), 2 one-sided inside the block (ghost fill, wall output,
+  !> ghosts = .false.). The directions the loop skips keep the cell edge; a face with no tangential difference
+  !> keeps the cell metric itself.
+  subroutine Wall_Face_Metric ( domain, xc, r )
+    use FUSS_Advanced_Types_m
+    use FUSS_Global_m, only: ndir
+    use FUSS_Lib_Diffusive, only: Inverse3
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    type(centres_t), intent(in) :: xc(:)
+    integer, intent(in) :: r
+    ! Local
+    integer :: b, Im, Jm, Km, Fm, dir, d, v, n(3), c(3), lo(3), hi(3), modfm2
+    real(R8) :: JT(3,3), Ac(3,3), xf(3), nf(3)
+    logical :: changed
+
+    b  = domain % bc(r) % b
+    Im = domain % bc(r) % i ; Jm = domain % bc(r) % j ; Km = domain % bc(r) % k
+    Fm = domain % bc(r) % f
+    c  = [Im, Jm, Km]
+    n  = domain % blk(b) % dim
+    dir = (Fm + 1) / 2
+    modfm2 = 1 - 2 * mod(Fm,2)
+    call Face_Centre_Normal ( domain % blk(b) % node, Im, Jm, Km, Fm, xf, nf )
+    Ac = Inverse3 ( domain % blk(b) % M(Im,Jm,Km) % c )        ! columns: the edges of the cell
+    do v = 1, 2
+      JT = Ac
+      JT(:,dir) = 2d0 * modfm2 * ( xf - xc(b) % x(:,Im,Jm,Km) )
+      changed = .false.
+      do d = 1, ndir
+        if ( d == dir ) cycle
+        lo = c ; hi = c
+        lo(d) = lo(d) - 1
+        hi(d) = hi(d) + 1
+        if ( v == 2 ) then
+          lo(d) = max ( lo(d), 1 )
+          hi(d) = min ( hi(d), n(d) )
+          if ( hi(d) == lo(d) ) cycle
+        end if
+        JT(:,d) = ( xc(b) % x(:,hi(1),hi(2),hi(3)) - xc(b) % x(:,lo(1),lo(2),lo(3)) ) / ( hi(d) - lo(d) )
+        changed = .true.
+      enddo
+      if ( changed ) then
+        domain % bc(r) % wM(:,:,v) = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'wall' )
+      else
+        domain % bc(r) % wM(:,:,v) = domain % blk(b) % M(Im,Jm,Km) % c
+      end if
+    enddo
+    domain % bc(r) % wstencil = .true.
+
+  end subroutine Wall_Face_Metric
 
 
   !> Indices in the source block of the cells of Tg(3:6) of a connection record, as in Fill_BC_Ghost_Connection.

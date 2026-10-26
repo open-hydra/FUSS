@@ -33,6 +33,8 @@ contains
   !> 302 prescribes Tw; 301, 303, 304, 305 prescribe q_in = q + hconv (Tref - Tw) + eps sigma (Tref^4 - Tw^4),
   !> with q = qw (301) or qrad (303). Tangential differences use the ghost cells (ghosts = .true.) or
   !> stay inside the block, one-sided at the face edges (ghosts = .false., used to fill the ghosts).
+  !> The metric M is that of the same differences of the positions (bc%wM, Lib_Stencil_Metrics, one variant per
+  !> value of ghosts): D = J g for a linear field, so Tw balances the prescribed flux at T(x_f) exactly.
   subroutine Wall_Temperature ( Im, Jm, Km, Fm, Blk, bc, ghosts, Tw, q_in )
     use FUSS_Lib_Solid, only: co_Kappa
     use FUSS_Parameters_m, only: sigma_SB
@@ -50,6 +52,7 @@ contains
     call Face_Index ( Fm, Dir, Im, Jm, Km, Face_i, Face_j, Face_k )
     Normal = Blk % dir(Dir) % f(Face_i,Face_j,Face_k) % n
     M = Blk % M (Im,Jm,Km) % c
+    if ( bc % wstencil ) M = bc % wM(:,:, merge(1, 2, ghosts))
     T = Blk % T(Im,Jm,Km)
     call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )
 
