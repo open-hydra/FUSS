@@ -3,7 +3,7 @@ module FUSS_Mod_dt
 
   implicit none
   private
-  public :: Compute_dt, Set_Global_dt
+  public :: Compute_dt, Set_Global_dt, Skew_Factor
 
   ! Face-conductivity pass, per multigrid level, built at the first call on the level: the faces
   ! of each local cell that are block connections (101) or chimera faces (102), bit f-1 for face f,
@@ -93,6 +93,8 @@ contains
         do d = 1, ndir
           G = G + M(d,1)**2 + M(d,2)**2 + M(d,3)**2
         enddo
+        ! 3-D cells skewed in all three pairs of directions: the spectral radius exceeds 4 alpha G (Skew_Factor)
+        if ( ndir == 3 ) G = G * Skew_Factor ( M )
         dt = vnn / (alpha * G)
 
         dtmin = min ( dt, dtmin )
@@ -224,6 +226,7 @@ contains
     do d = 1, ndir
       Gk = Gk + kd(d) * ( blk%M(i,j,k)%c(d,1)**2 + blk%M(i,j,k)%c(d,2)**2 + blk%M(i,j,k)%c(d,3)**2 )
     enddo
+    if ( ndir == 3 ) Gk = Gk * Skew_Factor ( blk%M(i,j,k)%c )
     dt = vnn * rho * cp / Gk
     dtmin = min ( dt, dtmin )
 
@@ -328,5 +331,36 @@ contains
     enddo
 
   end subroutine Set_Global_dt
+
+  !> Factor of the 3-D step for cells skewed in all three pairs of directions (MOSE 667fc3c). With the cosines cos12, cos13,
+  !> cos23 between the rows grad xi_d of the metric M, cos12^2 + cos13^2 + cos23^2 + 2 cos12 cos13 cos23 > 1 means the
+  !> spectral radius of the diffusion operator exceeds 4 alpha sum_d |grad xi_d|^2 by a factor below 9/8. The step takes the
+  !> bound (2 + m + 1/m)/4 of that factor, m + 1 the largest eigenvalue of the matrix of the cosines (m the largest root of
+  !> m^3 - s m - 2 cos12 cos13 cos23 = 0, s the sum of the squares of the cosines): exact on rhombohedra, and not taken where
+  !> the operator is bounded by 4 alpha sum_d |grad xi_d|^2 (orthogonal cells, and cells with one direction orthogonal to
+  !> the other two): there the factor is exactly 1. The caller multiplies the sum G or Gk by it, in 3-D only.
+  pure function Skew_Factor ( M ) result ( f )
+    real(R8), intent(in) :: M(3,3)
+    real(R8)             :: f
+    ! Local
+    real(R8) :: n1, n2, n3, cos12, cos13, cos23, ssum, qprod, mroot
+
+    f = 1d0
+    n1 = norm2 ( M(1,:) )
+    n2 = norm2 ( M(2,:) )
+    n3 = norm2 ( M(3,:) )
+    if ( n1 == 0d0 .or. n2 == 0d0 .or. n3 == 0d0 ) return
+    cos12 = dot_product ( M(1,:), M(2,:) ) / ( n1 * n2 )
+    cos13 = dot_product ( M(1,:), M(3,:) ) / ( n1 * n3 )
+    cos23 = dot_product ( M(2,:), M(3,:) ) / ( n2 * n3 )
+    ssum  = cos12**2 + cos13**2 + cos23**2
+    qprod = cos12 * cos13 * cos23
+    if ( ssum + 2d0 * qprod > 1d0 ) then
+      mroot = 2d0 * sqrt ( ssum / 3d0 ) * &
+              cos ( acos ( max ( -1d0, min ( 1d0, 3d0 * sqrt ( 3d0 ) * qprod / ssum**1.5d0 ) ) ) / 3d0 )
+      f = 0.25d0 * ( 2d0 + mroot + 1d0 / mroot )
+    end if
+
+  end function Skew_Factor
 
 end module FUSS_Mod_dt

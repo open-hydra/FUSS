@@ -7,6 +7,7 @@ module FUSS_Lib_Metrics
 
   implicit none
   real(R8), public :: delthe = 0d0   ! grid axisymmetric angle
+  real(R8), public :: skew_factor_max = 1d0   ! largest time-step skew factor of the cells of the finest level (Skew_Factor)
 
 contains
 

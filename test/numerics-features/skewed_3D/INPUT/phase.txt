@@ -1,0 +1,3 @@
+solid-bulk
+mat1 1
+mat2 1

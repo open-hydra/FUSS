@@ -11,11 +11,13 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics
     use FUSS_Lib_Diffusive, only: Inverse3
-    use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8
+    use FUSS_Mod_dt, only: Skew_Factor
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: b, i, j, k, g
+    real(R8) :: fmax
     integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
     type(FUSS_vector_3D_type) :: N1, N2, N3, N4, N5, N6, N7, N8
 
@@ -51,6 +53,23 @@ contains
       call Compute_Norm_Area ( domain % blk(b) )
     enddo
     
+    ! Largest time-step skew factor of the cells of the finest level (1 unless 3-D cells are skewed in all pairs of
+    ! directions), for the set-up summary and for the tests: the factor is 1 on every cell of a 2-D mesh
+    if ( domain % mg_level == 1 ) then
+      fmax = 1d0
+      if ( ndir == 3 ) then
+        do b = 1, domain % nb
+          if (.not. is_local_block(b)) cycle
+          do k = 1, domain % blk(b) % dim(3)
+          do j = 1, domain % blk(b) % dim(2)
+          do i = 1, domain % blk(b) % dim(1)
+            fmax = max ( fmax, Skew_Factor ( domain % blk(b) % M(i,j,k) % c ) )
+          enddo; enddo; enddo
+        enddo
+      end if
+      call mpi_allreduce_max_r8 ( fmax, skew_factor_max )
+    end if
+
     !$omp parallel private(g)
     ! Create the nodes for gc layers of ghost cell (of the symmetry faces the first layer only: below)
     !$omp do schedule (dynamic) private(i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
