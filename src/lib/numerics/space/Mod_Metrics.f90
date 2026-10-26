@@ -11,6 +11,7 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics
     use FUSS_Lib_Diffusive, only: Inverse3
+    use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
     use FUSS_Mod_dt, only: Skew_Factor
     implicit none
@@ -134,6 +135,9 @@ contains
     !$omp end parallel
     ! A degenerate or inverted ghost cell (Compute_Metric_Tensor wrote the first one): every rank stops together
     call Stop_On_Bad_Metric ( )
+
+    ! Face metrics of the diffusive fluxes from the positions of the cell centres
+    call Setup_Face_Metrics ( domain )
 
   end subroutine Setup_Metrics
 

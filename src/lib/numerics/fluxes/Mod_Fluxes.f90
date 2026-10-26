@@ -23,14 +23,16 @@ contains
                         domain % blk(b) % r,   &
                         domain % blk(b) % dir, &
                         domain % blk(b) % M, &
+                        domain % blk(b) % fm, &
                         domain % blk(b) % dim )
     enddo
 
   end subroutine Fluxes
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, M, Mfd, n )
     use FUSS_Base_Types_m
+    use FUSS_Advanced_Types_m, only: face_metric_type
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
     implicit none
@@ -40,6 +42,7 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
     type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M   ! cell metrics
+    type(face_metric_type), dimension(3), intent(in) :: Mfd   ! stencil face metrics
     ! Local
     integer :: i, j, k
 
@@ -69,6 +72,7 @@ contains
                             T(i  ,j,k+1),      &
                             T(i+1,j,k-1),      &
                             T(i+1,j,k+1),      &
+                            Mfd(1) % Mf(i,j,k) % c, &
                             M(i  ,j,k) % c,    &
                             M(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
@@ -93,6 +97,7 @@ contains
                             T(i,j  ,k+1),      &
                             T(i,j+1,k-1),      &
                             T(i,j+1,k+1),      &
+                            Mfd(2) % Mf(i,j,k) % c, &
                             M(i,j  ,k) % c,    &
                             M(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
@@ -117,6 +122,7 @@ contains
                             T(i,j+1,k  ),      &
                             T(i,j-1,k+1),      &
                             T(i,j+1,k+1),      &
+                            Mfd(3) % Mf(i,j,k) % c, &
                             M(i,j,k  ) % c,    &
                             M(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &

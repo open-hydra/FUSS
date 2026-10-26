@@ -40,7 +40,10 @@ contains
           Fm = domain % bc(i) % f
           select case ( domain % bc(i) % type )
           
-            case (101,102) ! connection & chimera (101=block connect, 102=chimera)
+            case (101) ! block connection: stencil face metric, interior-face conductivity
+              call BC_Connection_Stencil ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) )
+
+            case (102) ! chimera: two-sided balance with the cell metric and the ghost metric
               call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
                                    domain % bc(i) % Tg , domain % bc(i) % matIDg )
 

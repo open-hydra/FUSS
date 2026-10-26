@@ -10,6 +10,12 @@ module FUSS_Advanced_Types_m
   !! ------------------------------------------------------
   !! ------------------------------------------------------
   !! FUNDAMENTAL TYPES
+  !> Stencil face metric (Lib_Stencil_Metrics) of the interior faces of one block: Mf(i,j,k) is the face between cell
+  !> (i,j,k) and the next one along the direction
+  type :: face_metric_type
+    type(FUSS_tensor_3D_type), allocatable :: Mf(:,:,:)
+  end type face_metric_type
+
   type :: block_type
     integer                                :: dim(3)           ! Number of cells in i-j-k (ghost not included)
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
@@ -18,6 +24,7 @@ module FUSS_Advanced_Types_m
     type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
+    type(face_metric_type)                 :: fm(3)            ! Stencil face metrics of the interior faces of the three directions
   end type block_type
 
   type :: bc_type
@@ -55,6 +62,8 @@ module FUSS_Advanced_Types_m
     ! Wall BC specifications. Each wall type reads only its own subset: the default 0 makes a
     ! component a type does not set read as 0, not as whatever the allocation left there
     real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
+    ! Stencil face metric of a block connection (101), set up by Lib_Stencil_Metrics
+    real(R8) :: Mf(3,3) = 0d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

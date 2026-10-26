@@ -112,4 +112,93 @@ contains
     
   end subroutine BC_Connection
 
+
+  !> Block connection (101) with the stencil face metric: the flux of the face as an interior face, from one gradient of
+  !> the two cells in the order of growing index of the block (L, R), the tangential neighbours of the other block
+  !> in Tg(3:6), the metric of Lib_Stencil_Metrics (bc%Mf) and the conductivity of the interior faces
+  !> (Diffusive_Flux): k at the mean temperature for one material, the two half cells in series between two. The
+  !> chimera faces (102) keep BC_Connection. Flux: heat through the face along the normal of growing index.
+  subroutine Connection_Face_Flux ( Im, Jm, Km, Fm, Blk, bc, Flux )
+    use FUSS_Lib_Solid
+    use FUSS_Lib_Diffusive
+    implicit none
+    integer, intent(in) :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(in) :: Blk
+    type(FUSS_bc_type), intent(in)    :: bc
+    real(R8), intent(out) :: Flux
+    ! Local
+    integer  :: Dir, Face_im, Face_jm, Face_km, aa, bb, cc, t, q, tb(2), e(3,3), c(3)
+    real(R8) :: T_loc, T_con, T1, T2, Normal(3), Area, Gradient(3), kappa, dloc, dgh
+    real(R8) :: Mi_loc(3,3), Mi_con(3,3), h_loc, h_con, mat1, mat2
+
+    call Face_Index ( Fm, Dir, Im, Jm, Km, Face_im, Face_jm, Face_km )
+    Normal = Blk % dir(Dir) % f(Face_im,Face_jm,Face_km) % N
+    Area   = Blk % dir(Dir) % f(Face_im,Face_jm,Face_km) % A
+    select case (Dir)
+      case (1) ; aa = 1 ; tb = [2, 3]
+      case (2) ; aa = 2 ; tb = [1, 3]
+      case default ; aa = 3 ; tb = [1, 2]
+    end select
+    e = reshape ( [1,0,0, 0,1,0, 0,0,1], [3,3] )
+    c = [Im, Jm, Km]
+
+    T_loc = Blk % T (Im,Jm,Km)
+    T_con = bc % Tg(1)
+
+    ! One gradient: across the face, then the mean of the central differences of the two cells along each tangential
+    ! direction (the neighbours of the other block are the cells of its side, Tg(3:6))
+    Gradient = 0d0
+    if ( mod(Fm,2) == 0 ) then
+      T1 = T_loc ; T2 = T_con
+    else
+      T1 = T_con ; T2 = T_loc
+    end if
+    Gradient(aa) = T2 - T1
+    do q = 1, 2
+      t = tb(q)
+      if ( t == 3 .and. ndir == 2 ) cycle
+      dloc = Blk % T (Im+e(1,t),Jm+e(2,t),Km+e(3,t)) - Blk % T (Im-e(1,t),Jm-e(2,t),Km-e(3,t))
+      dgh  = bc % Tg(2*q+2) - bc % Tg(2*q+1)
+      if ( mod(Fm,2) == 0 ) then
+        Gradient(t) = 0.25d0 * ( dloc + dgh )
+      else
+        Gradient(t) = 0.25d0 * ( dgh + dloc )
+      end if
+    enddo
+    Gradient = matmul ( Gradient, bc % Mf )
+
+    ! Conductivity as at an interior face (lower cell first)
+    if ( Blk % matID(Im,Jm,Km) == bc % matIDg ) then
+      call co_Kappa( Blk % matID(Im,Jm,Km), 0.5d0 * ( T1 + T2 ), kappa )
+    else
+      Mi_loc = Inverse3 ( Blk % M(Im,Jm,Km) % c )
+      Mi_con = Inverse3 ( bc % Mg(1) % c )
+      h_loc = dot_product ( Mi_loc(:,aa), Normal )
+      h_con = dot_product ( Mi_con(:,aa), Normal )
+      if ( mod(Fm,2) == 0 ) then
+        kappa = Series_Kappa ( Blk % matID(Im,Jm,Km), T_loc, h_loc, bc % matIDg, T_con, h_con )
+      else
+        kappa = Series_Kappa ( bc % matIDg, T_con, h_con, Blk % matID(Im,Jm,Km), T_loc, h_loc )
+      end if
+    end if
+
+    call Compute_Diffusive_Flux ( kappa, Gradient, Area, Normal, Flux )
+
+  end subroutine Connection_Face_Flux
+
+
+  !> Residual update of the cell by the flux of its block connection (101) with the stencil metric.
+  subroutine BC_Connection_Stencil ( Im, Jm, Km, Fm, Blk, bc )
+    implicit none
+    integer, intent(in) :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(inout) :: Blk
+    type(FUSS_bc_type), intent(in)       :: bc
+    ! Local
+    real(R8) :: Flux
+
+    call Connection_Face_Flux ( Im, Jm, Km, Fm, Blk, bc, Flux )
+    Blk % r(Im,Jm,Km) = Blk % r(Im,Jm,Km) - ( 1 - 2 * mod(Fm,2) ) * Flux
+
+  end subroutine BC_Connection_Stencil
+
 end module FUSS_Lib_BC_Fluxes_Connection

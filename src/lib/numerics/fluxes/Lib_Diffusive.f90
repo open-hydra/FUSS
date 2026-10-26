@@ -8,7 +8,7 @@ module FUSS_Lib_Diffusive
 contains
 
   subroutine Diffusive_Flux ( matID1, matID2, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc )
+                              T8, T9, T10, Mf, M1, M2, Res1, Res2, aa, bb, cc )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
@@ -17,10 +17,11 @@ contains
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
-    real(R8), intent(in), dimension(3,3) :: M1, M2   ! metrics of the two cells (blk%M)
+    real(R8), intent(in), dimension(3,3) :: Mf       ! metric of the face (Lib_Stencil_Metrics)
+    real(R8), intent(in), dimension(3,3) :: M1, M2   ! metrics of the two cells (blk%M), for the widths of a material jump
     real(R8), intent(inout) :: Res1, Res2
     ! Local
-    real(R8) :: Gradient(3), T, M(3,3), Flux, kappa, Mi1(3,3), Mi2(3,3)
+    real(R8) :: Gradient(3), T, Flux, kappa, Mi1(3,3), Mi2(3,3)
 
     ! Gradient in the same direction of the face: 1 and 2
     Gradient ( aa ) = T2 - T1
@@ -31,15 +32,9 @@ contains
 
     if (ndir==2) Gradient(cc) = 0.0
     
-    ! Metric tensor at the face: the mean of the two inverse metrics (cell edge
-    ! vectors), inverted, so that the one-index difference across the face is
-    ! divided by the centre-to-centre distance. Averaging the metrics themselves
-    ! (the mean metric, removed in October 2026) divides it by the mean of 1/h
-    ! instead and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r.
-    Mi1 = Inverse3 ( M1 )
-    Mi2 = Inverse3 ( M2 )
-    M = Inverse3 ( 0.5d0 * ( Mi1 + Mi2 ) )
-    Gradient = matmul ( Gradient, M )
+    ! Metric tensor at the face (stencil: built from the same differences of the cell centres as the
+    ! gradient, Lib_Stencil_Metrics)
+    Gradient = matmul ( Gradient, Mf )
 
     ! Face conductivity. One material: k at the mean face temperature. A material jump
     ! inside the block: the two half cells in series, as at a block connection
@@ -47,6 +42,8 @@ contains
       T = 0.5d0 * ( T1 + T2 )
       call co_Kappa( matID1, T, kappa )
     else
+      Mi1 = Inverse3 ( M1 )
+      Mi2 = Inverse3 ( M2 )
       kappa = Series_Kappa ( matID1, T1, dot_product ( Mi1(:,aa), normal ), &
                              matID2, T2, dot_product ( Mi2(:,aa), normal ) )
     end if
