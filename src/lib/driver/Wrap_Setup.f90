@@ -547,9 +547,11 @@ contains
       use IR_Precision,   only: str  
       use FUSS_IO_BC,     only: Print_BC_Summary
       use FUSS_IO_Probes, only: nprobes
+      use FUSS_Lib_Metrics, only: delthe, skew_factor_max
       implicit none
       ! Local
       character(llen) :: eosword
+      character(len=16) :: angle 
       integer :: b, total_cells, k
 
       ! ----- Domain topology -----
@@ -567,6 +569,23 @@ contains
       write(*,'(A,T35,I0)') '   Blocks', simulation%domain(1)%nb
       write(*,'(A,T35,I0)') '   Cells', total_cells
       write(*,'(A,T35,I0)') '   Boundary faces', simulation%domain(1)%nbound
+      ! Mesh type as Check_Mesh_Type takes it from the nodes of every block (delthe = 0: plane;
+      ! FUSS has no type 200, so a 3-D mesh has no angle) and the largest time-step skew factor of the cells (1 unless 3-D
+      ! cells are skewed in all pairs)
+      write(angle,'(F16.6)') delthe * 180d0 / acos ( -1d0 )
+      select case ( ndir )
+        case ( 1 )
+          write(*,'(A,T35,A)') '   Mesh type', '1-D'
+        case ( 2 )
+          if ( delthe >= 0d0 .and. delthe <= 0d0 ) then
+            write(*,'(A,T35,A)') '   Mesh type', '2-D, plane'
+          else
+            write(*,'(A,T35,A)') '   Mesh type', '2-D, axisymmetric wedge of '//trim(adjustl(angle))//' degrees'
+          end if
+        case default
+          write(*,'(A,T35,A)') '   Mesh type', '3-D'
+      end select
+      write(*,'(A,T35,F0.6)') '   Time-step skew factor (max)', skew_factor_max
       if ( obj_multigrid%MGL > 1 ) &
         write(*,'(A,T35,I0)') '   Multigrid levels', obj_multigrid%MGL
 

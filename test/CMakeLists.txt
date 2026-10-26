@@ -73,6 +73,32 @@ add_test(NAME ChimeraEdge
          COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/mpi/bit-identity/chimera_edge.sh $<TARGET_FILE:${solver}> ${_WORK}/ChimeraEdge)
 set_tests_properties(ChimeraEdge PROPERTIES LABELS "fast;validation" TIMEOUT 300)
 
+# 3-D cells skewed in all three pairs of directions: the time step takes the factor (2 + m + 1/m)/4 of the spectral radius
+# of the diffusion operator (verify.py: the step of every cell against a replica, in both passes)
+fuss_add_test(Skewed3D         numerics-features/skewed_3D          300 "fast;validation" --verify)
+
+# Checks of the mesh at set-up and the type of the mesh (test/mesh-checks/run.sh): a block one cell thick in k joined to a
+# 3-D block, a wedge next to a plane block, a cell folded at a corner (2-D and 3-D), the first ghost layer behind a chimera
+# face turned over, and the same mesh with a wall there
+add_test(NAME MetricChecks
+         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/mesh-checks/run.sh $<TARGET_FILE:${solver}> ${_WORK}/MetricChecks)
+set_tests_properties(MetricChecks PROPERTIES LABELS "fast;validation" TIMEOUT 600)
+
+# Cell volume (CellVolume): a unit check of the volume of Compute_Metric_Tensor, the integral of det J of the trilinear cell,
+# against its exact value on cells with twisted faces, a non-convex cell, a collapsed edge, 2-D, wedge and left-handed cells,
+# and on a twisted mesh against the volume enclosed by its boundary faces; a cell whose volume has not the sign of det A at
+# its centre raises the flag of degenerate or inverted cells
+add_fortran_executable(cell_volume_check unit/cell_volume_check.f90)
+add_test(NAME CellVolume COMMAND cell_volume_check)
+set_tests_properties(CellVolume PROPERTIES LABELS "fast;unit" TIMEOUT 60)
+
+# Order of rounding (VolatileOrder): a difference stored in a VOLATILE variable and read back is rounded as written, also
+# with -ffast-math, which lets the compiler evaluate (q - c1) - (c2 - c1) as q - c2; Compute_Metric_Tensor takes its node
+# differences so. The values come from the command line (no folding).
+add_fortran_executable(volatile_order_check unit/volatile_order_check.f90)
+add_test(NAME VolatileOrder COMMAND volatile_order_check 1 18014398509481984 3)
+set_tests_properties(VolatileOrder PROPERTIES LABELS "fast;unit" TIMEOUT 60)
+
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)
   fuss_add_test(ChimeraMPI   numerics-features/chimera                      300 "needs-mpi" --iters 300 --mpi 2)

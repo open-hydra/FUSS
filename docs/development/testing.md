@@ -18,6 +18,9 @@ The test cases in `test/` run FUSS on problems with analytical or benchmark solu
 | `transient/oscillating_Rod` | Oscillating wall temperature (NAFEMS T5), probes | `verify.py` |
 | `transient/multimat_Plate` | Three material layers (two materials), Fourier-series solution (LANL) | `verify.py` |
 | `transient/variable_cp_Plate` | Temperature-dependent heat capacity, exact solution | `verify.py` |
+| `numerics-features/skewed_3D` | Time step of 3-D rhombohedral cells (115°), two materials: the step of every cell against a replica of the formula and the skew factor | `verify.py` |
+| `mesh-checks` | Set-up checks (`run.sh`, `make_case.py` writes the decks): a block one cell thick in k next to a 3-D block (exact linear field), a wedge next to a plane block, a folded cell (2-D, 3-D), a turned ghost layer behind a chimera face and the same mesh with a wall | `run.sh`: exit status, messages, field |
+| `unit/cell_volume_check`, `unit/volatile_order_check` | Cell volume against its exact value (rational arithmetic, `cell_volume_exact.py`); order of rounding of the node differences | unit programs |
 | `numerics-features/chimera` | Chimera (overset) interface | smoke run |
 | `numerics-features/chimera_mg` | Chimera donors on 3 multigrid levels, FAS cycle | smoke run |
 | `numerics-features/anisotropic_Plate` | Cells of aspect ratio 100, 3 levels, W + IRS | smoke run |
@@ -39,8 +42,8 @@ ctest --test-dir build -R Qvol -V     # one test, with its output
 
 | Label | Tests | What passes |
 |---|---|---|
-| `fast` | the 9 verification cases and `ChimeraEdge`, under a minute | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces |
-| `validation` | the 10 verification cases (also `convective_Plate`) and `ChimeraEdge` | same |
+| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, and the unit programs `CellVolume` and `VolatileOrder` | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass |
+| `validation` | the 10 verification cases (also `convective_Plate`), `ChimeraEdge`, `Skewed3D` and `MetricChecks` | same |
 | `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |
 | `needs-mpi` | chimera, chimera_mg, multigrid with IRS, FAS W + IRS, multimat_liner (MPI builds only), `MPIBitIdentity` and the MPI tests below | 2 ranks write the same files as 1 process, bit for bit; `MPIBitIdentity`: 1×4, 2×1, 4×1 and 2×2 (ranks × threads) write the same files as 1×1, on a box of 4 blocks and a chimera pair of overlapping blocks, steady with IRS and time-accurate (`test/mpi/bit-identity/`) |
 
