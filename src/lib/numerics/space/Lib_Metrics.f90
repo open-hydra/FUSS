@@ -8,6 +8,10 @@ module FUSS_Lib_Metrics
   implicit none
   real(R8), public :: delthe = 0d0   ! grid axisymmetric angle
   real(R8), public :: skew_factor_max = 1d0   ! largest time-step skew factor of the cells of the finest level (Skew_Factor)
+  ! A degenerate or inverted cell found by Compute_Metric_Tensor, inside the OpenMP threads of Setup_Metrics: the run stops
+  ! after the parallel region, on every rank (First_Bad_Metric, Stop_On_Bad_Metric)
+  logical, public, protected :: bad_metric = .false.
+  private :: First_Bad_Metric
 
 contains
 
@@ -378,15 +382,46 @@ contains
   end subroutine Compute_Norm_Area
 
 
-  subroutine Compute_Metric_Tensor( N1, N2, N3, N4, N5, N6, N7, N8, M, dl, vol )
+  !> True for the first degenerate or inverted cell of this rank, in any OpenMP thread: the flag is shared and set in a
+  !> critical section, so that one thread writes the cell. A STOP there would end the process while the other threads go
+  !> on (with two threads the exit code can be 0, the message of the cell lost or written twice).
+  logical function First_Bad_Metric ( ) result ( first )
+    !$omp critical (fuss_bad_metric)
+    first = .not. bad_metric
+    bad_metric = .true.
+    !$omp end critical (fuss_bad_metric)
+  end function First_Bad_Metric
+
+
+  !> Every rank stops, exit code 1, when one of them found a degenerate or inverted cell (bad_metric). Each rank computes
+  !> the cells of its own blocks, so the ranks take the decision together (the largest of a flag) before the stop.
+  !> Setup_Metrics calls it on every rank, outside its parallel regions.
+  subroutine Stop_On_Bad_Metric ( )
+    use FUSS_Mod_MPI, only: mpi_allreduce_max_r8, mpi_abort_all
+    implicit none
+    real(R8) :: flag, flag_all
+
+    flag = merge ( 1d0, 0d0, bad_metric )
+    call mpi_allreduce_max_r8 ( flag, flag_all )
+    if ( flag_all > 0d0 ) call mpi_abort_all ( 'degenerate or inverted cell (see above)' )
+  end subroutine Stop_On_Bad_Metric
+
+
+  subroutine Compute_Metric_Tensor( N1, N2, N3, N4, N5, N6, N7, N8, M, dl, vol, det1, loc, ratio )
     implicit none
     type(FUSS_vector_3D_type), intent(in)  :: N1, N2, N3, N4, N5, N6, N7, N8
     type(FUSS_tensor_3D_type), intent(out) :: M
     type(FUSS_vector_3D_type), intent(out) :: dl
     real(R8), intent(out)             :: vol
+    real(R8), optional, intent(in)    :: det1     ! ghost cell: det of the first cell, whose sign and size it must keep
+                                                  ! (0: no such check: the second layer, the first behind a face that
+                                                  ! is not a chimera face, and behind a face of zero area)
+    integer,  optional, intent(in)    :: loc(5)   ! block, cell i j k, face of a ghost cell (0 otherwise): stop message
+    real(R8), optional, intent(in)    :: ratio    ! ghost cell: r = dl_2/dl_1 of the first two cells (stop message)
     ! Local
     integer  :: h
-    real(R8) :: det, A(3,3), cofactor(3,3)
+    real(R8) :: det, A(3,3), cofactor(3,3), scale
+    logical  :: bad, first
     real(R8) :: vx(8), vy(8), vz(8)
 
     ! Compute average cell dimension. A is M^-1, inverse of metric tensor.
@@ -413,36 +448,6 @@ contains
     det = A(1,1)*A(2,2)*A(3,3) - A(1,1)*A(2,3)*A(3,2)  &
         - A(1,2)*A(2,1)*A(3,3) + A(1,2)*A(2,3)*A(3,1)  &
         + A(1,3)*A(2,1)*A(3,2) - A(1,3)*A(2,2)*A(3,1)
-
-    if ( abs(det) == 0d0 ) then
-      ! Degenerate cell (zero volume): a mesh error, or ghost cells extrapolated from a
-      ! wall-thin first cell whose coordinates were read back in single precision.
-      ! error stop, not mpi_abort_all: this can run inside OpenMP threads (MPI is FUNNELED).
-      write(*,'(A)') ' [ERROR] Metric tensor det=0: degenerate cell. Check the mesh, or the precision of the restart file'
-      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N1:', N1 % c
-      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N8:', N8 % c
-      error stop
-
-    else
-      
-      cofactor(1,1) =  (A(2,2)*A(3,3)-A(2,3)*A(3,2))
-      cofactor(1,2) = -(A(2,1)*A(3,3)-A(2,3)*A(3,1))
-      cofactor(1,3) =  (A(2,1)*A(3,2)-A(2,2)*A(3,1))
-      cofactor(2,1) = -(A(1,2)*A(3,3)-A(1,3)*A(3,2))
-      cofactor(2,2) =  (A(1,1)*A(3,3)-A(1,3)*A(3,1))
-      cofactor(2,3) = -(A(1,1)*A(3,2)-A(1,2)*A(3,1))
-      cofactor(3,1) =  (A(1,2)*A(2,3)-A(1,3)*A(2,2))
-      cofactor(3,2) = -(A(1,1)*A(2,3)-A(1,3)*A(2,1))
-      cofactor(3,3) =  (A(1,1)*A(2,2)-A(1,2)*A(2,1))
-
-      M % c = cofactor / det
-
-    endif
-
-    ! Cell length in i,j,k
-    do h = 1, 3
-      dl % c(h) = sqrt( A(h,1)**2 + A(h,2)**2 + A(h,3)**2 )
-    enddo
 
     ! Cell volume computation
     vx(1) = N1%c(1)
@@ -480,11 +485,77 @@ contains
     vol = tvol(vx,vy,vz,1,2,3,5) + tvol(vx,vy,vz,2,4,3,8) &
         + tvol(vx,vy,vz,5,8,6,2) + tvol(vx,vy,vz,5,7,8,3) &
         + tvol(vx,vy,vz,5,8,2,3)
-  
-    if( vol <= 0d0 ) then
-      write(*,'(A90)') ' [ERROR] Negative volume'
-      stop
+
+    ! Degenerate cell: |det| against the product of the lengths of the rows of A, its bound (Hadamard's inequality:
+    ! equal for an orthogonal cell, whatever its stretching). A ghost cell of the first layer behind a chimera face must
+    ! also keep the sign and the size of det of the first cell, to 1e-12 (a block may be left-handed: Compute_Norm_Area
+    ! takes the orientation of the normals from its first cell): a row of A that rounding leaves tiny but still in its
+    ! direction passes the first test, not this one. A mesh error, or ghost cells extrapolated from a wall-thin first cell
+    ! whose coordinates were read back in single precision.
+    ! This runs inside the OpenMP threads of Setup_Metrics, where a STOP ends the process while the other threads go on:
+    ! a bad cell raises bad_metric, the first thread of the rank that finds one writes it, M is the identity (finite for
+    ! what the region still computes), and Setup_Metrics stops every rank after the region (Stop_On_Bad_Metric).
+    scale = norm2 ( A(1,:) ) * norm2 ( A(2,:) ) * norm2 ( A(3,:) )
+    bad = .not. ( abs(det) > 1d-12 * scale )
+    if ( present(det1) ) then
+      if ( det1 /= 0d0 ) bad = bad .or. .not. ( det * det1 > 1d-12 * det1**2 )
+    end if
+    bad = bad .or. .not. ( vol > 0d0 )
+    first = .false.
+    if ( bad ) then
+      first = First_Bad_Metric ( )
+      M % c = 0d0
+      do h = 1, 3
+        M % c(h,h) = 1d0
+      enddo
+    end if
+    if ( first ) then
+      if ( present(loc) ) then
+        if ( loc(5) > 0 ) then
+          write(*,'(A,I0,A,3(1X,I0),A,I0,A)') ' [ERROR] Metric tensor: block ', loc(1), ', cell', loc(2:4), &
+                                               ', ghost cell behind face ', loc(5), ': degenerate or inverted'
+          if ( present(ratio) ) write(*,'(A,F0.4)') ' [ERROR]   r = dl_2/dl_1 of the first two cells across the face: ', ratio
+        else
+          write(*,'(A,I0,A,3(1X,I0),A)') ' [ERROR] Metric tensor: block ', loc(1), ', cell', loc(2:4), &
+                                          ': degenerate or inverted'
+        end if
+      else
+        write(*,'(A)') ' [ERROR] Metric tensor: degenerate or inverted cell'
+      end if
+      write(*,'(A,ES12.4,A,ES12.4,A)') ' [ERROR]   det = ', det, ', |A1| |A2| |A3| = ', scale, ' (equal for an orthogonal cell)'
+      if ( present(det1) ) then
+        if ( det1 /= 0d0 ) write(*,'(A,ES12.4)') ' [ERROR]   det of the first cell next to the face: ', det1
+        write(*,'(A)') ' [ERROR]   The ghost cells take the edge across the face of the first cell, and their edges along the'
+        write(*,'(A)') ' [ERROR]   face are extrapolated: behind a chimera face (102), whose flux takes its metric, the first'
+        write(*,'(A)') ' [ERROR]   layer turns over where those edges change sharply across the first cell (on a plane 2-D'
+        write(*,'(A)') ' [ERROR]   mesh, growing 3 times or more); behind any face a layer of zero size stops too.'
+        write(*,'(A)') ' [ERROR]   Remedy: index lines that change smoothly across the first two node layers at that face.'
+      else
+        write(*,'(A)') ' [ERROR]   Check the mesh, or the precision of the restart file.'
+      end if
+      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N1:', N1 % c
+      write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node N8:', N8 % c
+
+    else if ( .not. bad ) then
+      
+      cofactor(1,1) =  (A(2,2)*A(3,3)-A(2,3)*A(3,2))
+      cofactor(1,2) = -(A(2,1)*A(3,3)-A(2,3)*A(3,1))
+      cofactor(1,3) =  (A(2,1)*A(3,2)-A(2,2)*A(3,1))
+      cofactor(2,1) = -(A(1,2)*A(3,3)-A(1,3)*A(3,2))
+      cofactor(2,2) =  (A(1,1)*A(3,3)-A(1,3)*A(3,1))
+      cofactor(2,3) = -(A(1,1)*A(3,2)-A(1,2)*A(3,1))
+      cofactor(3,1) =  (A(1,2)*A(2,3)-A(1,3)*A(2,2))
+      cofactor(3,2) = -(A(1,1)*A(2,3)-A(1,3)*A(2,1))
+      cofactor(3,3) =  (A(1,1)*A(2,2)-A(1,2)*A(2,1))
+
+      M % c = cofactor / det
+
     endif
+
+    ! Cell length in i,j,k
+    do h = 1, 3
+      dl % c(h) = sqrt( A(h,1)**2 + A(h,2)**2 + A(h,3)**2 )
+    enddo
 
     contains
   
@@ -507,154 +578,133 @@ contains
   end subroutine Compute_Metric_Tensor
 
 
-  subroutine BC_Extrapolate_Metrics( Im, Jm, Km, Fm, blk, Mg, dlg, volg )
+  !> Metrics of the gc ghost cells behind face Fm of cell (Im,Jm,Km) of block b, from nodes extrapolated linearly along
+  !> the index lines, N(-g) = 2 N(-g+1) - N(-g+2) (MOSE cc4caf1; the cubic 3N - 3N + N of 237c9c2 is gone): every ghost
+  !> layer has the edge across the face of the first cell, so its size across the face never vanishes nor turns over;
+  !> its edges along the face are extrapolated too, and turn a layer over where they change sharply across the first
+  !> cell (on a plane 2-D mesh, growing 3 times or more turns the first layer, 5/3 times the second). Behind a chimera
+  !> face (chimera true) the first layer must keep the sign and the size of the first cell (Compute_Metric_Tensor
+  !> stops otherwise): its metric is the ghost metric of the flux of chimera faces (BC_Connection takes bc % Mg(1)), the
+  !> one flux that reads the metric of an extrapolated ghost cell. Behind the other faces no flux reads it (the walls take
+  !> the metric of the cell, symmetry copies it, a connection takes the cell across): only a zero size stops there. The
+  !> first layer is centred at 2 x_f - x_1 (x_f the mean of the nodes of the face, x_1 that of the cell): the position of
+  !> the ghost value of a wall, 2 Tw - T. The 2-D axisymmetric wedge rotates the cell (exact).
+  subroutine BC_Extrapolate_Metrics( Im, Jm, Km, Fm, blk, Mg, dlg, volg, b, chimera )
     implicit none
     integer, intent(in) :: Im, Jm, Km, Fm
     type(FUSS_block_type), intent(inout) :: blk
     type(FUSS_tensor_3D_type), intent(out)    :: Mg(2)
     type(FUSS_vector_3D_type), intent(out)    :: dlg(2)
     real(R8), intent(out)                :: volg(2)
+    integer, intent(in)                  :: b     ! the block, for the stop message of Compute_Metric_Tensor
+    logical, intent(in)                  :: chimera   ! a chimera face (102): the sign of the first layer is checked
     ! Local
-    integer :: g
+    integer :: g, loc(5), d, x(3)
+    real(R8) :: d1, rr
     type(FUSS_vector_3D_type), dimension(-gc:gc):: N1, N2, N3, N4, N5, N6, N7, N8
+
+    ! det of the first cell, 1/det(M), whose sign and size its ghost cells must keep (Compute_Metric_Tensor)
+    associate ( Mc => blk % M(Im,Jm,Km) % c )
+      d1 = 1d0 / ( Mc(1,1) * ( Mc(2,2)*Mc(3,3) - Mc(2,3)*Mc(3,2) ) - Mc(1,2) * ( Mc(2,1)*Mc(3,3) - Mc(2,3)*Mc(3,1) ) &
+                 + Mc(1,3) * ( Mc(2,1)*Mc(3,2) - Mc(2,2)*Mc(3,1) ) )
+    end associate
+    loc = [b, Im, Jm, Km, Fm]
+    ! r = dl_2/dl_1 of the first two cells across the face, for the stop message (0 with one cell)
+    d  = (Fm + 1) / 2
+    rr = 0d0
+    if ( blk % dim(d) >= 2 ) rr = blk % dl(Im+guide(Fm,1),Jm+guide(Fm,2),Km+guide(Fm,3)) % c(d) / blk % dl(Im,Jm,Km) % c(d)
+    ! Behind a face of zero area (an axis, as Compute_Norm_Area finds it) the ghost cells are the reflection of the
+    ! first cell through the axis: det = -d1 by construction. No check of their sign there (d1 = 0)
+    x = [Im, Jm, Km]
+    if ( mod(Fm,2) == 1 ) x(d) = x(d) - 1
+    if ( blk % dir(d) % f(x(1),x(2),x(3)) % a == 0d0 ) d1 = 0d0
+    ! Behind a face that is not a chimera face no flux reads the metric of the first layer: no check of its sign
+    ! either, as for the second layer (docs/theory/numerics.md, Ghost Cells)
+    if ( .not. chimera ) d1 = 0d0
 
     select case (Fm)
       case(1)
-        do g = 0, gc
+        do g = 0, 1
           N1(g)%c = blk % node (Im+g-1,Jm-1,Km-1) % c
           N2(g)%c = blk % node (Im+g-1,Jm-1,Km  ) % c
           N3(g)%c = blk % node (Im+g-1,Jm  ,Km-1) % c
           N4(g)%c = blk % node (Im+g-1,Jm  ,Km  ) % c
         enddo
         do g = -1, -gc, -1
-          N1(g)%c = 3d0*N1(g+1)%c - 3d0*N1(g+2)%c + N1(g+3)%c
-          N2(g)%c = 3d0*N2(g+1)%c - 3d0*N2(g+2)%c + N2(g+3)%c
-          N3(g)%c = 3d0*N3(g+1)%c - 3d0*N3(g+2)%c + N3(g+3)%c
-          N4(g)%c = 3d0*N4(g+1)%c - 3d0*N4(g+2)%c + N4(g+3)%c
+          N1(g)%c = 2d0*N1(g+1)%c - N1(g+2)%c
+          N2(g)%c = 2d0*N2(g+1)%c - N2(g+2)%c
+          N3(g)%c = 2d0*N3(g+1)%c - N3(g+2)%c
+          N4(g)%c = 2d0*N4(g+1)%c - N4(g+2)%c
           call Compute_Metric_Tensor ( N1(g), N2(g), N3(g), N4(g), N1(g+1), N2(g+1), N3(g+1), N4(g+1), &
-                                       blk % M(Im+g, Jm, Km), blk % dl(Im+g, Jm, Km), blk % vol(Im+g, Jm, Km))
+                                       blk % M(Im+g, Jm, Km), blk % dl(Im+g, Jm, Km), blk % vol(Im+g, Jm, Km), &
+                                       det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
           Mg(-g)   = blk % M(Im+g, Jm, Km)
           dlg(-g)  = blk % dl(Im+g, Jm, Km)
           volg(-g) = blk % vol(Im+g, Jm, Km)
         enddo
         
       case(2)
-        do g = 0, -gc, -1
+        do g = 0, -1, -1
           N5(g)%c = blk % node (Im+g,Jm-1,Km-1) % c
           N6(g)%c = blk % node (Im+g,Jm-1,Km  ) % c
           N7(g)%c = blk % node (Im+g,Jm  ,Km-1) % c
           N8(g)%c = blk % node (Im+g,Jm  ,Km  ) % c
         enddo
         do g = 1, gc
-          N5(g)%c = 3d0*N5(g-1)%c - 3d0*N5(g-2)%c + N5(g-3)%c
-          N6(g)%c = 3d0*N6(g-1)%c - 3d0*N6(g-2)%c + N6(g-3)%c
-          N7(g)%c = 3d0*N7(g-1)%c - 3d0*N7(g-2)%c + N7(g-3)%c
-          N8(g)%c = 3d0*N8(g-1)%c - 3d0*N8(g-2)%c + N8(g-3)%c
+          N5(g)%c = 2d0*N5(g-1)%c - N5(g-2)%c
+          N6(g)%c = 2d0*N6(g-1)%c - N6(g-2)%c
+          N7(g)%c = 2d0*N7(g-1)%c - N7(g-2)%c
+          N8(g)%c = 2d0*N8(g-1)%c - N8(g-2)%c
           call Compute_Metric_Tensor ( N5(g-1), N6(g-1), N7(g-1), N8(g-1), N5(g), N6(g), N7(g), N8(g), &
-                                       blk % M(Im+g, Jm, Km), blk % dl(Im+g, Jm, Km), blk % vol(Im+g, Jm, Km))
+                                       blk % M(Im+g, Jm, Km), blk % dl(Im+g, Jm, Km), blk % vol(Im+g, Jm, Km), &
+                                       det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
           Mg(g)   = blk % M(Im+g, Jm, Km)
           dlg(g)  = blk % dl(Im+g, Jm, Km)
           volg(g) = blk % vol(Im+g, Jm, Km)
         enddo
 
       case(3)
-        if ( blk % dim(2) > 2 ) then
-          do g = 0, gc
-            N1(g)%c = blk % node (Im-1,Jm+g-1,Km-1) % c
-            N2(g)%c = blk % node (Im-1,Jm+g-1,Km  ) % c
-            N5(g)%c = blk % node (Im  ,Jm+g-1,Km-1) % c
-            N6(g)%c = blk % node (Im  ,Jm+g-1,Km  ) % c
-          enddo
-          do g = -1, -gc, -1
-            N1(g)%c = 3d0*N1(g+1)%c - 3d0*N1(g+2)%c + N1(g+3)%c
-            N2(g)%c = 3d0*N2(g+1)%c - 3d0*N2(g+2)%c + N2(g+3)%c
-            N5(g)%c = 3d0*N5(g+1)%c - 3d0*N5(g+2)%c + N5(g+3)%c
-            N6(g)%c = 3d0*N6(g+1)%c - 3d0*N6(g+2)%c + N6(g+3)%c
-            call Compute_Metric_Tensor ( N1(g), N2(g), N1(g+1), N2(g+1), N5(g), N6(g), N5(g+1), N6(g+1), &
-                                         blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km))
-            Mg(-g)   = blk % M(Im, Jm+g, Km)
-            dlg(-g)  = blk % dl(Im, Jm+g, Km)
-            volg(-g) = blk % vol(Im, Jm+g, Km)
-          enddo
-        else
-          do g = 0, 1
-            N1(g)%c = blk % node (Im-1,Jm+g-1,Km-1) % c
-            N2(g)%c = blk % node (Im-1,Jm+g-1,Km  ) % c
-            N5(g)%c = blk % node (Im  ,Jm+g-1,Km-1) % c
-            N6(g)%c = blk % node (Im  ,Jm+g-1,Km  ) % c
-          enddo
-          do g = -1, -gc, -1
-            N1(g)%c = 2d0*N1(g+1)%c - N1(g+2)%c
-            N2(g)%c = 2d0*N2(g+1)%c - N2(g+2)%c
-            N5(g)%c = 2d0*N5(g+1)%c - N5(g+2)%c
-            N6(g)%c = 2d0*N6(g+1)%c - N6(g+2)%c
-            call Compute_Metric_Tensor ( N1(g), N2(g), N1(g+1), N2(g+1), N5(g), N6(g), N5(g+1), N6(g+1), &
-                                         blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km))
-            Mg(-g)   = blk % M(Im, Jm+g, Km)
-            dlg(-g)  = blk % dl(Im, Jm+g, Km)
-            volg(-g) = blk % vol(Im, Jm+g, Km)
-          enddo
-        endif
+        do g = 0, 1
+          N1(g)%c = blk % node (Im-1,Jm+g-1,Km-1) % c
+          N2(g)%c = blk % node (Im-1,Jm+g-1,Km  ) % c
+          N5(g)%c = blk % node (Im  ,Jm+g-1,Km-1) % c
+          N6(g)%c = blk % node (Im  ,Jm+g-1,Km  ) % c
+        enddo
+        do g = -1, -gc, -1
+          N1(g)%c = 2d0*N1(g+1)%c - N1(g+2)%c
+          N2(g)%c = 2d0*N2(g+1)%c - N2(g+2)%c
+          N5(g)%c = 2d0*N5(g+1)%c - N5(g+2)%c
+          N6(g)%c = 2d0*N6(g+1)%c - N6(g+2)%c
+          call Compute_Metric_Tensor ( N1(g), N2(g), N1(g+1), N2(g+1), N5(g), N6(g), N5(g+1), N6(g+1), &
+                                       blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km), &
+                                       det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
+          Mg(-g)   = blk % M(Im, Jm+g, Km)
+          dlg(-g)  = blk % dl(Im, Jm+g, Km)
+          volg(-g) = blk % vol(Im, Jm+g, Km)
+        enddo
 
       case(4)
-        if ( blk % dim(2) > 2 ) then
-          do g = 0, -gc, -1
-            N3(g)%c = blk % node (Im-1,Jm+g,Km-1) % c
-            N4(g)%c = blk % node (Im-1,Jm+g,Km  ) % c
-            N7(g)%c = blk % node (Im  ,Jm+g,Km-1) % c
-            N8(g)%c = blk % node (Im  ,Jm+g,Km  ) % c
-          enddo
-          do g = 1, gc
-            N3(g)%c = 3d0*N3(g-1)%c - 3d0*N3(g-2)%c + N3(g-3)%c
-            N4(g)%c = 3d0*N4(g-1)%c - 3d0*N4(g-2)%c + N4(g-3)%c
-            N7(g)%c = 3d0*N7(g-1)%c - 3d0*N7(g-2)%c + N7(g-3)%c
-            N8(g)%c = 3d0*N8(g-1)%c - 3d0*N8(g-2)%c + N8(g-3)%c
-            call Compute_Metric_Tensor ( N3(g-1), N4(g-1), N3(g), N4(g), N7(g-1), N8(g-1), N7(g), N8(g), &
-                                         blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km))
-            Mg(g)   = blk % M(Im, Jm+g, Km)
-            dlg(g)  = blk % dl(Im, Jm+g, Km)
-            volg(g) = blk % vol(Im, Jm+g, Km)
-          enddo
-        else
-          do g = 0, -1, -1
-            N3(g)%c = blk % node (Im-1,Jm+g,Km-1) % c
-            N4(g)%c = blk % node (Im-1,Jm+g,Km  ) % c
-            N7(g)%c = blk % node (Im  ,Jm+g,Km-1) % c
-            N8(g)%c = blk % node (Im  ,Jm+g,Km  ) % c
-          enddo
-          do g = 1, gc
-            N3(g)%c = 2d0*N3(g-1)%c - N3(g-2)%c
-            N4(g)%c = 2d0*N4(g-1)%c - N4(g-2)%c
-            N7(g)%c = 2d0*N7(g-1)%c - N7(g-2)%c
-            N8(g)%c = 2d0*N8(g-1)%c - N8(g-2)%c
-            call Compute_Metric_Tensor ( N3(g-1), N4(g-1), N3(g), N4(g), N7(g-1), N8(g-1), N7(g), N8(g), &
-                                         blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km))
-            Mg(g)   = blk % M(Im, Jm+g, Km)
-            dlg(g)  = blk % dl(Im, Jm+g, Km)
-            volg(g) = blk % vol(Im, Jm+g, Km)
-          enddo
-        endif
+        do g = 0, -1, -1
+          N3(g)%c = blk % node (Im-1,Jm+g,Km-1) % c
+          N4(g)%c = blk % node (Im-1,Jm+g,Km  ) % c
+          N7(g)%c = blk % node (Im  ,Jm+g,Km-1) % c
+          N8(g)%c = blk % node (Im  ,Jm+g,Km  ) % c
+        enddo
+        do g = 1, gc
+          N3(g)%c = 2d0*N3(g-1)%c - N3(g-2)%c
+          N4(g)%c = 2d0*N4(g-1)%c - N4(g-2)%c
+          N7(g)%c = 2d0*N7(g-1)%c - N7(g-2)%c
+          N8(g)%c = 2d0*N8(g-1)%c - N8(g-2)%c
+          call Compute_Metric_Tensor ( N3(g-1), N4(g-1), N3(g), N4(g), N7(g-1), N8(g-1), N7(g), N8(g), &
+                                       blk % M(Im, Jm+g, Km), blk % dl(Im, Jm+g, Km), blk % vol(Im, Jm+g, Km), &
+                                       det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
+          Mg(g)   = blk % M(Im, Jm+g, Km)
+          dlg(g)  = blk % dl(Im, Jm+g, Km)
+          volg(g) = blk % vol(Im, Jm+g, Km)
+        enddo
 
       case(5)
-        if ( ndir==2 .and. delthe==0d0 .or. ndir==1 ) then
-          do g = 0, 1
-            N1(g)%c = blk % node (Im-1,Jm-1,Km+g-1) % c
-            N3(g)%c = blk % node (Im-1,Jm  ,Km+g-1) % c
-            N5(g)%c = blk % node (Im  ,Jm-1,Km+g-1) % c
-            N7(g)%c = blk % node (Im  ,Jm  ,Km+g-1) % c
-          enddo
-          do g = -1, -gc, -1
-            N1(g)%c = 2d0*N1(g+1)%c - N1(g+2)%c
-            N3(g)%c = 2d0*N3(g+1)%c - N3(g+2)%c
-            N5(g)%c = 2d0*N5(g+1)%c - N5(g+2)%c
-            N7(g)%c = 2d0*N7(g+1)%c - N7(g+2)%c
-            call Compute_Metric_Tensor ( N1(g), N1(g+1), N3(g), N3(g+1), N5(g), N5(g+1), N7(g), N7(g+1), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
-            Mg(-g)   = blk % M(Im, Jm, Km+g)
-            dlg(-g)  = blk % dl(Im, Jm, Km+g)
-            volg(-g) = blk % vol(Im, Jm, Km+g)
-          enddo
-        elseif (ndir==2 .and. delthe/=0d0) then
+        if ( ndir==2 .and. delthe /= 0d0 ) then
           ! 2Dax: extrapolation with a rotation angle delthe (exact).
           do g = 0, 1
             N1(g)%c = blk % node (Im-1,Jm-1,Km+g-1) % c
@@ -676,25 +726,27 @@ contains
             N7(g)%c(2) = N7(0) % c(2) / cos(delthe*0.5d0) * cos(delthe*(0.5d0-g))
             N7(g)%c(3) = N7(0) % c(3) / sin(delthe*0.5d0) * sin(delthe*(0.5d0-g))
             call Compute_Metric_Tensor ( N1(g), N1(g+1), N3(g), N3(g+1), N5(g), N5(g+1), N7(g), N7(g+1), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
+                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g), &
+                                         det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
             Mg(-g)   = blk % M(Im, Jm, Km+g)
             dlg(-g)  = blk % dl(Im, Jm, Km+g)
             volg(-g) = blk % vol(Im, Jm, Km+g)
           enddo         
-        elseif (ndir==3) then
-          do g = 0, gc
+        else
+          do g = 0, 1
             N1(g)%c = blk % node (Im-1,Jm-1,Km+g-1) % c
             N3(g)%c = blk % node (Im-1,Jm  ,Km+g-1) % c
             N5(g)%c = blk % node (Im  ,Jm-1,Km+g-1) % c
             N7(g)%c = blk % node (Im  ,Jm  ,Km+g-1) % c
           enddo
           do g = -1, -gc, -1
-            N1(g)%c = 3d0*N1(g+1)%c - 3d0*N1(g+2)%c + N1(g+3)%c
-            N3(g)%c = 3d0*N3(g+1)%c - 3d0*N3(g+2)%c + N3(g+3)%c
-            N5(g)%c = 3d0*N5(g+1)%c - 3d0*N5(g+2)%c + N5(g+3)%c
-            N7(g)%c = 3d0*N7(g+1)%c - 3d0*N7(g+2)%c + N7(g+3)%c
+            N1(g)%c = 2d0*N1(g+1)%c - N1(g+2)%c
+            N3(g)%c = 2d0*N3(g+1)%c - N3(g+2)%c
+            N5(g)%c = 2d0*N5(g+1)%c - N5(g+2)%c
+            N7(g)%c = 2d0*N7(g+1)%c - N7(g+2)%c
             call Compute_Metric_Tensor ( N1(g), N1(g+1), N3(g), N3(g+1), N5(g), N5(g+1), N7(g), N7(g+1), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
+                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g), &
+                                         det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
             Mg(-g)   = blk % M(Im, Jm, Km+g)
             dlg(-g)  = blk % dl(Im, Jm, Km+g)
             volg(-g) = blk % vol(Im, Jm, Km+g)
@@ -702,25 +754,7 @@ contains
         endif
 
       case(6)
-        if ( ndir==2 .and. delthe==0d0 .or. ndir==1 ) then
-          do g = 0, -1, -1
-            N2(g)%c = blk % node (Im-1,Jm-1,Km+g) % c
-            N4(g)%c = blk % node (Im-1,Jm  ,Km+g) % c
-            N6(g)%c = blk % node (Im  ,Jm-1,Km+g) % c
-            N8(g)%c = blk % node (Im  ,Jm  ,Km+g) % c
-          enddo
-          do g = 1, gc
-            N2(g)%c = 2d0*N2(g-1)%c - N2(g-2)%c
-            N4(g)%c = 2d0*N4(g-1)%c - N4(g-2)%c
-            N6(g)%c = 2d0*N6(g-1)%c - N6(g-2)%c
-            N8(g)%c = 2d0*N8(g-1)%c - N8(g-2)%c
-            call Compute_Metric_Tensor ( N2(g-1), N2(g), N4(g-1), N4(g), N6(g-1), N6(g), N8(g-1), N8(g), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
-            Mg(g)   = blk % M(Im, Jm, Km+g)
-            dlg(g)  = blk % dl(Im, Jm, Km+g)
-            volg(g) = blk % vol(Im, Jm, Km+g)
-          enddo
-        elseif (ndir==2 .and. delthe/=0d0) then
+        if ( ndir==2 .and. delthe /= 0d0 ) then
           ! 2Dax: extrapolation with a rotation angle delthe (exact).
           do g = 0, -1, -1
             N2(g)%c = blk % node (Im-1,Jm-1,Km+g) % c
@@ -742,25 +776,27 @@ contains
             N8(g)%c(2) = N8(0) % c(2) / cos(delthe*0.5d0) * cos(delthe*(0.5d0+g))
             N8(g)%c(3) = N8(0) % c(3) / sin(delthe*0.5d0) * sin(delthe*(0.5d0+g))
             call Compute_Metric_Tensor ( N2(g-1), N2(g), N4(g-1), N4(g), N6(g-1), N6(g), N8(g-1), N8(g), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
+                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g), &
+                                         det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
             Mg(g)   = blk % M(Im, Jm, Km+g)
             dlg(g)  = blk % dl(Im, Jm, Km+g)
             volg(g) = blk % vol(Im, Jm, Km+g)
           enddo         
-        elseif (ndir==3) then
-          do g = 0, -gc, -1
+        else
+          do g = 0, -1, -1
             N2(g)%c = blk % node (Im-1,Jm-1,Km+g) % c
             N4(g)%c = blk % node (Im-1,Jm  ,Km+g) % c
             N6(g)%c = blk % node (Im  ,Jm-1,Km+g) % c
             N8(g)%c = blk % node (Im  ,Jm  ,Km+g) % c
           enddo
           do g = 1, gc
-            N2(g)%c = 3d0*N2(g-1)%c - 3d0*N2(g-2)%c + N2(g-3)%c
-            N4(g)%c = 3d0*N4(g-1)%c - 3d0*N4(g-2)%c + N4(g-3)%c
-            N6(g)%c = 3d0*N6(g-1)%c - 3d0*N6(g-2)%c + N6(g-3)%c
-            N8(g)%c = 3d0*N8(g-1)%c - 3d0*N8(g-2)%c + N8(g-3)%c
+            N2(g)%c = 2d0*N2(g-1)%c - N2(g-2)%c
+            N4(g)%c = 2d0*N4(g-1)%c - N4(g-2)%c
+            N6(g)%c = 2d0*N6(g-1)%c - N6(g-2)%c
+            N8(g)%c = 2d0*N8(g-1)%c - N8(g-2)%c
             call Compute_Metric_Tensor ( N2(g-1), N2(g), N4(g-1), N4(g), N6(g-1), N6(g), N8(g-1), N8(g), &
-                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g) )
+                                         blk % M(Im, Jm, Km+g), blk % dl(Im, Jm, Km+g), blk % vol(Im, Jm, Km+g), &
+                                         det1 = merge ( d1, 0d0, abs(g) == 1 ), loc = loc, ratio = rr )
             Mg(g)   = blk % M(Im, Jm, Km+g)
             dlg(g)  = blk % dl(Im, Jm, Km+g)
             volg(g) = blk % vol(Im, Jm, Km+g)

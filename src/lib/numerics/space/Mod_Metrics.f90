@@ -44,14 +44,19 @@ contains
         N6 % c = domain % blk(b) % node(i  ,j-1,k  ) % c
         N7 % c = domain % blk(b) % node(i  ,j  ,k-1) % c
         N8 % c = domain % blk(b) % node(i  ,j  ,k  ) % c
-        call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, domain % blk(b) % M(i,j,k), domain % blk(b) % dl(i,j,k), domain % blk(b) % vol(i,j,k) )
+        call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, domain % blk(b) % M(i,j,k), domain % blk(b) % dl(i,j,k), domain % blk(b) % vol(i,j,k), &
+                                     loc = [b, i, j, k, 0] )
         domain % blk(b) % Minv(i,j,k) % c = Inverse3 ( domain % blk(b) % M(i,j,k) % c )
       enddo; enddo; enddo
       !$omp end parallel
+      ! A degenerate or inverted cell (Compute_Metric_Tensor wrote the first one): no further block here; every rank
+      ! stops together below
+      if ( bad_metric ) exit
 
       ! Compute Normal & Area
       call Compute_Norm_Area ( domain % blk(b) )
     enddo
+    call Stop_On_Bad_Metric ( )
     
     ! Largest time-step skew factor of the cells of the finest level (1 unless 3-D cells are skewed in all pairs of
     ! directions), for the set-up summary and for the tests: the factor is 1 on every cell of a 2-D mesh
@@ -75,6 +80,9 @@ contains
     !$omp do schedule (dynamic) private(i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do i = 1, domain % nbound
       Bm = domain % bc(i) % b
+      ! Ghost metrics land in blk(Bm) and bc(i), read only by the rank owning Bm (BC_Fluxes skips the others), and the
+      ! sign check reads the metric of the first cell, computed by that rank only
+      if (.not. is_local_block(Bm)) cycle
       Im = domain % bc(i) % i 
       Jm = domain % bc(i) % j 
       Km = domain % bc(i) % k 
@@ -98,7 +106,8 @@ contains
                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, 1 )
         case default  ! chimera included
           call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                        domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
+                                        domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, Bm, &
+                                        chimera = ( domain % bc(i) % type == 102 ) )
       end select
     enddo
     !$omp end do
@@ -110,6 +119,7 @@ contains
       do i = 1, domain % nbound
         if ( domain % bc(i) % type /= 300 ) cycle
         Bm = domain % bc(i) % b
+        if (.not. is_local_block(Bm)) cycle
         call BC_Symmetry_Metrics ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, &
                                    domain % bc(i) % f, domain % blk(Bm), &
                                    domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, g )
@@ -117,6 +127,8 @@ contains
       !$omp end do
     enddo
     !$omp end parallel
+    ! A degenerate or inverted ghost cell (Compute_Metric_Tensor wrote the first one): every rank stops together
+    call Stop_On_Bad_Metric ( )
 
   end subroutine Setup_Metrics
 
