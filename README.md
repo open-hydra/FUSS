@@ -68,6 +68,7 @@ FUSS is built on top of companion libraries, included as Git submodules:
 |---|---|
 | [ORION](https://github.com/MarcoGrossi92/ORION) | Multi-format I/O (Tecplot, VTK, Plot3D) |
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
+| [MORPH](https://github.com/open-hydra/MORPH) | Mesh motion: motion laws, cell geometry, swept volumes |
 
 Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 

@@ -17,12 +17,13 @@ Before attempting to build FUSS make sure your system provides the following ext
 
 ### Git submodules
 
-FUSS depends on two repositories that are included as Git submodules.
+FUSS depends on three repositories that are included as Git submodules.
 
 | Path | Repository URL | Purpose |
 |------|----------------|---------|
 | `lib/ORION` | `https://github.com/MarcoGrossi92/ORION.git` | I/O routines (TecIO, VTK) |
 | `lib/third_party/FiNeR` | `https://github.com/szaghi/FiNeR.git` | INI file parser |
+| `lib/MORPH` | `https://github.com/open-hydra/MORPH.git` | Mesh motion (MORPH; FUSS links its library `MORPHL`) |
 
 ## Build methods
 
@@ -71,6 +72,7 @@ Options accepted by `build`:
 * `--use-tecio` – enable TecIO support (requires a C++ compiler).
 * `--include-orion=PATH` – use an external ORION tree instead of the submodule.
 * `--include-finer=PATH` – same for FiNeR.
+* `--include-morph=PATH` – same for MORPH.
 
 The script sets up environment variables for the chosen compilers and then invokes CMake. After a successful build, a `CMakePresets.json` file is written in the source root so that subsequent compilations can reuse the configuration.
 
@@ -104,7 +106,8 @@ cmake .. \
     -DUSE_MPI=OFF \                      # optional
     -DUSE_TECIO=ON \                     # optional (needs C++ compiler)
     -DORION_PATH=/path/to/ORION \        # optional
-    -DFINER_PATH=/path/to/FiNeR          # optional
+    -DFINER_PATH=/path/to/FiNeR \        # optional
+    -DMORPH_PATH=/path/to/MORPH          # optional (default: lib/MORPH)
 cmake --build . --parallel
 ```
 

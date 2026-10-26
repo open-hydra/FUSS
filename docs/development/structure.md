@@ -37,6 +37,7 @@ FUSS/
 │       └── physics/         # Solid material properties
 │
 ├── lib/                     # External dependencies (git submodules)
+│   ├── MORPH/               # Mesh-motion component (library MORPHL)
 │   ├── ORION/               # Structured-grid I/O library
 │   └── third_party/
 │       └── FiNeR/           # INI file parser
@@ -66,13 +67,16 @@ graph TD
     FUSS["<b>FUSS</b><br/>Solid heat-conduction solver"]
     ORION["<b>ORION</b><br/>Structured-grid I/O"]
     FiNeR["<b>FiNeR</b><br/>INI parser"]
+    MORPH["<b>MORPH</b><br/>Mesh motion"]
 
     FUSS --> ORION
     FUSS --> FiNeR
+    FUSS --> MORPH
 
     style FUSS fill:#37474f,stroke:#cfd8dc,color:#fff
     style ORION fill:#1565c0,stroke:#90caf9,color:#fff
     style FiNeR fill:#6a1b9a,stroke:#ce93d8,color:#fff
+    style MORPH fill:#2e7d32,stroke:#a5d6a7,color:#fff
 ```
 
 Optional compile-time dependencies (enabled via CMake flags):
@@ -337,17 +341,20 @@ graph LR
     DocGen["<b>DocGen</b><br/>(doc generator)"]
     ORION_LIB["ORION"]
     FiNeR_LIB["FiNeR"]
+    MORPHL_LIB["MORPHL"]
 
     FUSS_EXE --> FUSSL
     DocGen --> FUSSL
     FUSSL --> ORION_LIB
     FUSSL --> FiNeR_LIB
+    FUSSL --> MORPHL_LIB
 
     style FUSSL fill:#37474f,stroke:#cfd8dc,color:#fff
     style FUSS_EXE fill:#1565c0,stroke:#90caf9,color:#fff
     style DocGen fill:#1565c0,stroke:#90caf9,color:#fff
     style ORION_LIB fill:#6a1b9a,stroke:#ce93d8,color:#fff
     style FiNeR_LIB fill:#6a1b9a,stroke:#ce93d8,color:#fff
+    style MORPHL_LIB fill:#6a1b9a,stroke:#ce93d8,color:#fff
 ```
 
 | Target | Type | Description |
@@ -385,6 +392,7 @@ External library paths are set via CMake cache variables or the
 |----------|---------|---------|
 | `ORION_PATH` | `lib/ORION/` | ORION I/O |
 | `FINER_PATH` | `lib/third_party/FiNeR/` | FiNeR INI parser |
+| `MORPH_PATH` | `lib/MORPH/` | MORPH mesh motion (its library `MORPHL` only) |
 
 ---
 
