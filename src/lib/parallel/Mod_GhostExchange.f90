@@ -104,6 +104,18 @@ module FUSS_Mod_GhostExchange
   type(ghost_schedule_type), allocatable, target :: ghost_scheds(:)
   type(ghost_schedule_type), pointer, public :: ghost_sched => null()
 
+  ! Tags of the exchanges of a stage, one per exchange. Every receive names the
+  ! sender's rank, so a tag has only to tell apart the exchanges in flight
+  ! together (T, Tg, chimera, R, and matID at set-up). The gathers of the output,
+  ! outside the stages, use TAG_IO: one message per block, posted on both sides
+  ! in increasing block order, and the messages between two ranks with one tag are
+  ! matched in the order they were started (MPI 4.1, Sec. 3.7.4), so the k-th
+  ! receive from a rank takes the k-th block that rank sends. All are below 32767,
+  ! the least MPI_TAG_UB the MPI standard allows. TAG_FC is reserved for the
+  ! exchange of the shared connection flux (not used yet).
+  integer, parameter :: TAG_T = 0, TAG_TG = 1, TAG_CHIMERA = 2, TAG_R = 3, TAG_FC = 4, TAG_MATID = 6
+  integer, parameter, public :: TAG_IO = 5
+
   public :: allocate_exchange_schedules, set_active_mg_level
 
   public :: build_ghost_schedule
@@ -361,7 +373,7 @@ contains
     ! Initialize persistent receives
     do r = 1, ghost_sched%n_recv_ranks
       buf_pos = (ghost_sched%recv_groups(r)%offset - 1) * entry_size + 1
-      tag = ghost_sched%recv_groups(r)%rank
+      tag = TAG_T
       call MPI_RECV_INIT(ghost_sched%T_recv_buf(buf_pos), &
                          ghost_sched%recv_groups(r)%count * entry_size, &
                          MPI_DOUBLE_PRECISION, &
@@ -373,7 +385,7 @@ contains
     ! Initialize persistent sends
     do r = 1, ghost_sched%n_send_ranks
       buf_pos = (ghost_sched%send_groups(r)%offset - 1) * entry_size + 1
-      tag = mpi_rank_
+      tag = TAG_T
       call MPI_SEND_INIT(ghost_sched%T_send_buf(buf_pos), &
                          ghost_sched%send_groups(r)%count * entry_size, &
                          MPI_DOUBLE_PRECISION, &
@@ -387,14 +399,13 @@ contains
 
 
   !> Initialize persistent MPI requests for R field exchange.
-  !> Reuses T_send_buf/T_recv_buf (same size). Uses distinct tags (offset 30000).
+  !> Reuses T_send_buf/T_recv_buf (same size). Uses its own tag (TAG_R).
   subroutine init_persistent_R_requests()
     use FUSS_Global_m, only: gc
     use mpi
 
     implicit none
     integer :: r, ierr, tag, buf_pos, entry_size
-    integer, parameter :: TAG_OFFSET = 30000
 
     entry_size = gc
 
@@ -406,7 +417,7 @@ contains
     ! Initialize persistent receives for R
     do r = 1, ghost_sched%n_recv_ranks
       buf_pos = (ghost_sched%recv_groups(r)%offset - 1) * entry_size + 1
-      tag = ghost_sched%recv_groups(r)%rank + TAG_OFFSET
+      tag = TAG_R
       call MPI_RECV_INIT(ghost_sched%T_recv_buf(buf_pos), &
                          ghost_sched%recv_groups(r)%count * entry_size, &
                          MPI_DOUBLE_PRECISION, &
@@ -418,7 +429,7 @@ contains
     ! Initialize persistent sends for R
     do r = 1, ghost_sched%n_send_ranks
       buf_pos = (ghost_sched%send_groups(r)%offset - 1) * entry_size + 1
-      tag = mpi_rank_ + TAG_OFFSET
+      tag = TAG_R
       call MPI_SEND_INIT(ghost_sched%T_send_buf(buf_pos), &
                          ghost_sched%send_groups(r)%count * entry_size, &
                          MPI_DOUBLE_PRECISION, &
@@ -968,7 +979,7 @@ contains
           if (.not. is_local_block(b)) then
             nreq = nreq + 1
             call MPI_IRECV(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           block_owner(b), b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           block_owner(b), TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -983,7 +994,7 @@ contains
               reshape(domain%blk(b)%T(1:n1, 1:n2, 1:n3), [blk_ncells(b)])
             nreq = nreq + 1
             call MPI_ISEND(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           0, b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           0, TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1074,7 +1085,7 @@ contains
           if (.not. is_local_block(b)) then
             nreq = nreq + 1
             call MPI_IRECV(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           block_owner(b), b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           block_owner(b), TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1089,7 +1100,7 @@ contains
               reshape(domain%blk(b)%matID(1:n1, 1:n2, 1:n3), [blk_ncells(b)])
             nreq = nreq + 1
             call MPI_ISEND(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           0, b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           0, TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1180,7 +1191,7 @@ contains
           if (.not. is_local_block(b)) then
             nreq = nreq + 1
             call MPI_IRECV(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           block_owner(b), b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           block_owner(b), TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1195,7 +1206,7 @@ contains
               reshape(domain%blk(b)%qvol(1:n1, 1:n2, 1:n3), [blk_ncells(b)])
             nreq = nreq + 1
             call MPI_ISEND(buf(blk_offset(b)+1), blk_ncells(b), MPI_DOUBLE_PRECISION, &
-                           0, b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           0, TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1298,7 +1309,7 @@ contains
           if (.not. is_local_block(b)) then
             nreq = nreq + 1
             call MPI_IRECV(buf(blk_offset(b)+1), blk_size(b), MPI_DOUBLE_PRECISION, &
-                           block_owner(b), 1000+b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           block_owner(b), TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1319,7 +1330,7 @@ contains
               reshape(domain%blk(b)%dtlocal(1:n1, 1:n2, 1:n3), [ncells_dt])
             nreq = nreq + 1
             call MPI_ISEND(buf(blk_offset(b)+1), blk_size(b), MPI_DOUBLE_PRECISION, &
-                           0, 1000+b, MPI_COMM_WORLD, reqs(nreq), ierr)
+                           0, TAG_IO, MPI_COMM_WORLD, reqs(nreq), ierr)
             call check_mpi_error(ierr)
           end if
         end do
@@ -1469,7 +1480,6 @@ contains
     integer :: ns, nr, r, i, g, b, fg, ierr, tag, buf_pos
     integer :: Is, Js, Ks, Id, Jd, Kd, di, dj, dk
     integer :: entry_size
-    integer, parameter :: TAG_OFFSET = 40000
 
     ns = ghost_sched%n_send
     nr = ghost_sched%n_recv
@@ -1480,7 +1490,7 @@ contains
     ! Post one receive per remote rank (aggregated)
     do r = 1, ghost_sched%n_recv_ranks
       buf_pos = (ghost_sched%recv_groups(r)%offset - 1) * entry_size + 1
-      tag = ghost_sched%recv_groups(r)%rank + TAG_OFFSET
+      tag = TAG_MATID
       call MPI_IRECV(ghost_sched%T_recv_buf(buf_pos), &
                      ghost_sched%recv_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -1511,7 +1521,7 @@ contains
     ! Post one send per remote rank
     do r = 1, ghost_sched%n_send_ranks
       buf_pos = (ghost_sched%send_groups(r)%offset - 1) * entry_size + 1
-      tag = mpi_rank_ + TAG_OFFSET
+      tag = TAG_MATID
       call MPI_ISEND(ghost_sched%T_send_buf(buf_pos), &
                      ghost_sched%send_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -1576,7 +1586,7 @@ contains
     ! Post one receive per remote rank (aggregated)
     do r = 1, ghost_sched%n_recv_ranks
       buf_pos = (ghost_sched%recv_groups(r)%offset - 1) * entry_size + 1
-      tag = ghost_sched%recv_groups(r)%rank + 10000  ! unique tag per rank for Tg
+      tag = TAG_TG
       call MPI_IRECV(ghost_sched%Tg_recv_buf(buf_pos), &
                      ghost_sched%recv_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -1597,7 +1607,7 @@ contains
         ghost_sched%Tg_send_buf(buf_pos+4) = domain%bc(bc_idx)%Tg(6)
       end do
       buf_pos = (ghost_sched%send_groups(r)%offset - 1) * entry_size + 1
-      tag = mpi_rank_ + 10000  ! sender's rank as tag for Tg
+      tag = TAG_TG
       call MPI_ISEND(ghost_sched%Tg_send_buf(buf_pos), &
                      ghost_sched%send_groups(r)%count * entry_size, &
                      MPI_DOUBLE_PRECISION, &
@@ -1638,13 +1648,12 @@ contains
     implicit none
     ! Local
     integer :: r, ierr, tag, buf_pos
-    integer, parameter :: TAG_OFFSET = 20000
 
     if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
 
     do r = 1, ghost_sched%n_chim_recv_ranks
       buf_pos = ghost_sched%chim_recv_groups(r)%offset
-      tag = ghost_sched%chim_recv_groups(r)%rank + TAG_OFFSET
+      tag = TAG_CHIMERA
       call MPI_IRECV(ghost_sched%chim_recv_buf(buf_pos), &
                      ghost_sched%chim_recv_groups(r)%count, &
                      MPI_DOUBLE_PRECISION, &
@@ -1680,13 +1689,12 @@ contains
     implicit none
     ! Local
     integer :: r, ierr, tag, buf_pos
-    integer, parameter :: TAG_OFFSET = 20000
 
     if (ghost_sched%n_chim_send == 0 .and. ghost_sched%n_chim_recv == 0) return
 
     do r = 1, ghost_sched%n_chim_send_ranks
       buf_pos = ghost_sched%chim_send_groups(r)%offset
-      tag = mpi_rank_ + TAG_OFFSET
+      tag = TAG_CHIMERA
       call MPI_ISEND(ghost_sched%chim_send_buf(buf_pos), &
                      ghost_sched%chim_send_groups(r)%count, &
                      MPI_DOUBLE_PRECISION, &
