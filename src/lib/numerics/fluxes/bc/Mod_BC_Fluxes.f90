@@ -15,22 +15,25 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer  :: f, lower, upper, i, b
+    integer  :: f, lower, upper, i, ii, b
     integer  :: Bm, Im, Jm, Km, Fm
     
-    ! BC fluxes are computed in order of block and face type.
-    upper = 0
-
+    ! BC fluxes are computed block by block and, within a block, face by face, over the
+    ! records of the blocks this rank owns only (lists built once by build_local_bc_index):
+    ! no rank scans the records of the whole domain. The records of one face of one block
+    ! write distinct target cells, so one worksharing loop over them is race-free; its
+    ! implicit barrier keeps the face contributions of a corner cell summed in the order 1..6.
     blocks: do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle blocks
       faces: do f = 1, 6
 
-        lower = upper + 1                   ! Update lower bound
-        upper = upper + domain % n_bf(b,f)  ! Upper bound: add number of cells on face f of block b
-        
-        !$omp do schedule ( dynamic ) private(i, Bm, Im, Jm, Km, Fm)
-        do i = lower, upper
+        lower = domain % local_bf_first(b,f)
+        upper = lower + domain % local_bf_count(b,f) - 1
+
+        !$omp do schedule ( dynamic ) private(ii, i, Bm, Im, Jm, Km, Fm)
+        do ii = lower, upper
+          i  = domain % local_bf_idx(ii)
           Bm = domain % bc(i) % b
-          if (.not. is_local_block(Bm)) cycle
           Im = domain % bc(i) % i 
           Jm = domain % bc(i) % j 
           Km = domain % bc(i) % k 

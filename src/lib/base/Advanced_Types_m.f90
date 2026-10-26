@@ -78,6 +78,11 @@ module FUSS_Advanced_Types_m
     integer, dimension(:), allocatable               :: local_bc_idx
     integer                                          :: n_local_bs = 0
     integer, dimension(:), allocatable               :: local_bs_idx
+    ! The same local BC indices grouped by block and face, for BC_Fluxes: the records of face f
+    ! of block b are local_bf_idx(local_bf_first(b,f) : local_bf_first(b,f) + local_bf_count(b,f) - 1)
+    integer, dimension(:,:), allocatable             :: local_bf_first
+    integer, dimension(:,:), allocatable             :: local_bf_count   ! 0 on blocks of other ranks
+    integer, dimension(:), allocatable               :: local_bf_idx
   end type FUSS_domain_type
 
   type :: FUSS_simulation_type
