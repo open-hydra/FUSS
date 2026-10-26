@@ -111,11 +111,10 @@ contains
     ! Metrics
     allocate( blk % node ( 0:ni, 0:nj, 0:nk ) )
 
-    ! Previous-step node positions, needed only by the ALE path. Allocated on
-    ! demand so a static run carries no extra memory: at 3 reals per node this
-    ! would otherwise be a permanent cost for every existing case.
+    ! The ALE bookkeeping (previous-step volumes, swept volumes), needed only by
+    ! a moving mesh. Allocated on demand so a static run carries no extra memory.
+    ! The previous-step node positions are MORPH's (Morph_Update), not a block's.
     if ( obj_mesh_motion%enabled ) then
-      allocate( blk % node_old ( 0:ni, 0:nj, 0:nk ) )
       allocate( blk % vol_old  ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
       allocate( blk % dV_swept ( 6, 1:ni, 1:nj, 1:nk ) )
       blk % vol_old  = 0.0_R8
@@ -357,7 +356,6 @@ contains
 
       ! The motion history of a moving mesh: only a block's own rank moves it and
       ! remaps its cells (plan 11 stage 2)
-      if (allocated(domain%blk(b)%node_old)) deallocate(domain%blk(b)%node_old)
       if (allocated(domain%blk(b)%vol_old))  deallocate(domain%blk(b)%vol_old)
       if (allocated(domain%blk(b)%dV_swept)) deallocate(domain%blk(b)%dV_swept)
 

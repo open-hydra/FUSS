@@ -20,7 +20,6 @@ module FUSS_Advanced_Types_m
     real(R8), allocatable                  :: vol_old(:,:,:)   ! Cell volume at step n
     real(R8), allocatable                  :: dV_swept(:,:,:,:)! (6,i,j,k) swept volumes
     type(FUSS_vector_3D_type), allocatable :: node(:,:,:)      ! Mesh grid points (including ghost)
-    type(FUSS_vector_3D_type), allocatable :: node_old(:,:,:)  ! Mesh grid points at the previous step (moving mesh only)
     type(FUSS_vector_3D_type), allocatable :: node_disp(:,:,:) ! law = nodeshift: this step's displacement of the receding
                                                                ! face's nodes (Compute_Node_Recession; zero elsewhere)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor

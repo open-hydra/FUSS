@@ -33,7 +33,7 @@ contains
     ! Mesh motion. Derived here rather than registered directly, so that the
     ! INI exposes one readable keyword (`law`) instead of a bare on/off flag
     ! that could disagree with it. Must run before Setup_Data_Structure, which
-    ! allocates blk%node_old only when this is true.
+    ! allocates the ALE arrays (vol_old, dV_swept) only when this is true.
     obj_mesh_motion%enabled = ( trim(obj_mesh_motion%law) /= 'static' )
 
     ! Field list (plan 06 section 3.1): the pyrolysis rows need nsub, known

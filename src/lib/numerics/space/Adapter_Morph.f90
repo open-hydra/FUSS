@@ -230,7 +230,6 @@ contains
     do j = 0, blk%dim(2)
     do i = 0, blk%dim(1)
       blk%node(i,j,k)%c     = node(i,j,k)%c
-      blk%node_old(i,j,k)%c = node_old(i,j,k)%c
     enddo; enddo; enddo
 
     do k = 1, blk%dim(3)
