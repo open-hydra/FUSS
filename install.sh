@@ -25,6 +25,7 @@ Commands:
   build                     Perform a full build
     --include-orion=<path>  Set external ORION path
     --include-finer=<path>  Set external FiNeR path
+    --include-morph=<path>  Set external MORPH path
     --compilers=<name>      Set compilers (intel, gnu)
     --use-openmp            Use OpenMP
     --use-mpi               Use MPI
@@ -111,6 +112,7 @@ EOM
       "cacheVariables": {
         "ORION_PATH": "${ORION_PATH}",
         "FINER_PATH": "${FINER_PATH}",
+        "MORPH_PATH": "${MORPH_PATH}",
         "CMAKE_BUILD_TYPE": "${BUILD_TYPE}",
         "CMAKE_Fortran_COMPILER": "${FC}",
         "CMAKE_C_COMPILER": "${CC}",
@@ -161,6 +163,7 @@ COMMAND=""
 COMPILERS=""
 ORION_PATH=$(pwd)'/lib/ORION/'
 FINER_PATH=$(pwd)'/lib/third_party/FiNeR/'
+MORPH_PATH=$(pwd)'/lib/MORPH/'
 USE_OPENMP="false"
 USE_MPI="false"
 USE_TECIO="false"
@@ -169,7 +172,7 @@ BUILD_TYPE="RELEASE"
 
 # Define allowed options for each command using regular arrays
 CMD=("build" "compile" "update")
-CMD_OPTIONS_build=("--compilers --include-orion --include-finer --use-openmp --use-mpi --use-tecio")
+CMD_OPTIONS_build=("--compilers --include-orion --include-finer --include-morph --use-openmp --use-mpi --use-tecio")
 CMD_OPTIONS_update=("--remote")
 CMD_OPTIONS_compile=("--preset=NAME")
 
@@ -214,6 +217,10 @@ while [[ $# -gt 0 ]]; do
         --include-finer=*)
             [[ "$COMMAND" == "build" ]] || { error " --include-finer is only valid for 'build' command"; exit 1; }
             FINER_PATH="${1#*=}"
+            ;;
+        --include-morph=*)
+            [[ "$COMMAND" == "build" ]] || { error " --include-morph is only valid for 'build' command"; exit 1; }
+            MORPH_PATH="${1#*=}"
             ;;
         --compilers=*)
             [[ "$COMMAND" == "build" ]] || { error " --compilers is only valid for 'build' command"; exit 1; }
@@ -262,6 +269,7 @@ case "$COMMAND" in
         task "Cloning submodules"
         [[ $ORION_PATH == $(pwd)'/lib/ORION/' ]] && git submodule update --init lib/ORION
         [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]] && git submodule update --init --recursive lib/third_party/FiNeR
+        [[ $MORPH_PATH == $(pwd)'/lib/MORPH/' ]] && git submodule update --init lib/MORPH
         fill_finer_deps "$FINER_PATH" || exit 1
 
         task "Configuring and building $project"
@@ -278,6 +286,7 @@ case "$COMMAND" in
         log "Build type: $BUILD_TYPE"
         log "ORION path: $ORION_PATH"
         log "FINER path: $FINER_PATH"
+        log "MORPH path: $MORPH_PATH"
         log "Use OpenMP: $USE_OPENMP"
         log "Use MPI: $USE_MPI"
         log "Use TecIO: $USE_TECIO"
@@ -287,7 +296,7 @@ case "$COMMAND" in
           log "Compilers: FC=$FC, CXX=$CXX, CC=$CC"
         fi
         rm -rf $BUILD_DIR
-        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
+        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
         cmake --build $BUILD_DIR || exit 1
         log "[OK] Compilation successful"
 

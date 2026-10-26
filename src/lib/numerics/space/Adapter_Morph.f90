@@ -1,6 +1,6 @@
 !>@brief The ONLY file in FUSS that names both FUSS and MORPH types.
 !>
-!> MORPH is a standalone geometry component (src/lib/morph) that must never
+!> MORPH is a standalone geometry component (lib/MORPH) that must never
 !> depend on FUSS, so that extracting it into its own hydra solver is a
 !> directory move rather than a rewrite (plan 09). This adapter is the seam.
 !> Keeping it to one file is checked mechanically by test/run_morph_guards.sh.

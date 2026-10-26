@@ -4,7 +4,7 @@
 !> MIGRATION IN PROGRESS -- READ BEFORE EDITING THE KERNELS BELOW.
 !>
 !> Check_Mesh_Type, Compute_Norm_Area and Compute_Metric_Tensor have been MOVED
-!> into the MORPH component (src/lib/morph/metrics/Morph_Metrics.f90), which is
+!> into the MORPH component (lib/MORPH/src/lib/metrics/Morph_Metrics.f90), which is
 !> now what Mod_Metrics.f90 calls for cell geometry. The copies here are
 !> retained ONLY because the BC_*_Metrics routines in this file call
 !> Compute_Metric_Tensor from ~25 sites, and those routines have not been moved

@@ -105,6 +105,19 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
 endif()
 
+# MORPH, the mesh-motion component (plan 09): the git submodule lib/MORPH, or the tree
+# MORPH_PATH names (install.sh build --include-morph=). Only its library MORPHL is
+# configured, with this project's flags. A parent that already provides MORPHL keeps its
+# own; one that does not (hydra embeds FUSS) gets FUSS's submodule.
+if (NOT TARGET MORPHL)
+  set ( MORPH_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/MORPH" CACHE PATH "MORPH source tree (default: the submodule lib/MORPH)")
+  if (NOT EXISTS "${MORPH_PATH}/CMakeLists.txt")
+    message(FATAL_ERROR "MORPH not found at ${MORPH_PATH}: run ./install.sh update (git submodule update --init lib/MORPH), or pass -DMORPH_PATH=<MORPH tree>")
+  endif()
+  set ( morphD "${MORPH_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/lib/MORPH")
+  add_subdirectory(${morphD})
+endif()
+
 # Build library
 add_subdirectory(src/lib)
 
