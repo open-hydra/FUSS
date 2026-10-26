@@ -104,29 +104,6 @@ USE_TECIO="false"
 REMOTE="false"
 BUILD_TYPE="RELEASE"
 
-# FiNeR tracks none of its dependencies but its CMakeLists adds them: clone them into
-# lib/third_party/FiNeR/src/third_party at these commits (the ones FiNeR's fpm.toml pins, or newer)
-FINER_DEPS=(
-    "PENF       592259d24ff39fa5e4b387d46286120ee60e7cff"
-    "StringiFor bd218de71aea6218edbfce7bb46c40b4668dc3e2"
-    "FACE       da7b7407b51e56257a09970099997098e3a52d99"
-    "FLAP       19cad029681176ce9ae35296e99c5cf42da0212e"
-    "BeFoR64    4bf55d6048ee2cd7b477460c3925d6e070d74140"
-)
-
-function finer_deps() {
-    local entry dep sha dir
-    for entry in "${FINER_DEPS[@]}"; do
-        read -r dep sha <<< "$entry"
-        dir="$DIR/lib/third_party/FiNeR/src/third_party/$dep"
-        [[ -d "$dir/.git" ]] || git clone -q "https://github.com/szaghi/$dep" "$dir"
-        if [[ "$(git -C "$dir" rev-parse HEAD)" != "$sha" ]]; then
-            git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$dir" fetch -q origin
-            git -C "$dir" checkout -q "$sha"
-        fi
-    done
-}
-
 # Define allowed options for each command using regular arrays
 CMD=("build" "compile" "update")
 CMD_OPTIONS_build=("--compilers --include-orion --include-finer --use-openmp --use-mpi --use-tecio")
@@ -217,8 +194,9 @@ case "$COMMAND" in
         task "Cloning submodules"
         [[ $ORION_PATH == $(pwd)'/lib/ORION/' ]] && git submodule update --init lib/ORION
         if [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]]; then
-          git submodule update --init lib/third_party/FiNeR
-          finer_deps
+          # FiNeR and its five libraries (PENF, FACE, FLAP, BeFoR64, StringiFor): CMake adds the libraries before FiNeR
+          git submodule update --init lib/third_party/FiNeR lib/third_party/PENF lib/third_party/FACE \
+                                      lib/third_party/FLAP lib/third_party/BeFoR64 lib/third_party/StringiFor
         fi
 
         task "Configuring and building $project"
@@ -267,7 +245,6 @@ case "$COMMAND" in
           log "Updating submodules to current commit"
           git submodule update --init
         fi
-        finer_deps
         log "[OK] Submodules updated"
         ;;
     *)
