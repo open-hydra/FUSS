@@ -484,7 +484,7 @@ contains
 
 
   !> Once at setup, after Setup_BC and the bc-level checks, law = nodeshift
-  !> only (serial: MPI is refused with 306). The receding face of every block,
+  !> only, on every rank and on the full mesh (before the remote blocks are freed). The receding face of every block,
   !> the surface-node map, its rules (plan 08 section 2.3) -- (a) the 306 patch
   !> is closed across 101 interfaces, (b) blocks sharing a receding line give
   !> it the same length -- and the resolved min-thickness.
