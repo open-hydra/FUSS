@@ -2,8 +2,9 @@
 """Decks of the MetricChecks test (no ATLAS): make_case.py <part> <dir> writes input.ini, MESH/mesh.tec and INPUT/ of one part.
 Standard library only. Every deck is a few hundred cells of constant properties (k 52, rho 7850, cp 460), T0 1000 K.
 
-  thin3d    two Cartesian 3-D blocks, block 1 one cell thick in k, joined to block 2 on its k face; walls 302 with T linear in z
-            (the lateral faces of the two blocks at the face centre value), steady: the field is exactly linear in z.
+  thin3d    two Cartesian 3-D blocks side by side, 0.04 thick in z against 0.25 in x and y: block 1 one cell thick in k, block 2
+            with four cells; adiabatic lateral faces (301 with q = 0), walls 302 at the two k faces with T = A + GZ z: the steady
+            field is linear in z in both, and the step has to take the k direction (cells 6 to 25 times thinner than wide).
   mixed2d   a plane block and an axisymmetric wedge block (k = 1 plane turned by 5 degrees about the x axis) in one 2-D mesh
   fold2d    a 2-D block with one node moved across the next cell
   fold3d    a 3-D block with one node moved across the next cell
@@ -80,6 +81,8 @@ def write_case(out, blocks, ini, tfield=None):
             for (i, j, k) in b.face_cells(f):
                 if kind[0] == 'null':
                     bc.append(iv(bn, i, j, k, f, 0))
+                elif kind[0] == 'adiabatic':
+                    bc += [iv(bn, i, j, k, f, 301), rv(0.0)]
                 elif kind[0] == 'wall':
                     bc += [iv(bn, i, j, k, f, 302), rv(kind[1](b.face_centre(f, i, j, k)))]
                 elif kind[0] == 'conn':
@@ -136,21 +139,19 @@ def walls(blocks, which, fn):
 
 
 # --------------------------------------------------------------------------------------------------------------- parts
-GZ, A = 400.0, 800.0                     # thin3d: T = A + GZ z
+GZ, A, ZT = 4000.0, 800.0, 0.04          # thin3d: T = A + GZ z, the blocks ZT thick in z
 
 
 def thin3d():
     n = 4
-    b1 = Block('Block1', n, n, 1, lambda i, j, k: (i / n, j / n, 0.2 * k))
-    b2 = Block('Block2', n, n, n, lambda i, j, k: (i / n, j / n, 0.2 + 0.8 * k / n))
+    b1 = Block('Block1', n, n, 1, lambda i, j, k: (i / n, j / n, ZT * k))
+    b2 = Block('Block2', n, n, n, lambda i, j, k: (1.0 + i / n, j / n, ZT * k / n))
     tz = lambda c: A + GZ * c[2]
     for b in (b1, b2):
         for f in (1, 2, 3, 4):
-            b.faces[f] = ('wall', tz)
-    b1.faces[5] = ('wall', tz)
-    b1.faces[6] = ('conn', 2, 5)
-    b2.faces[5] = ('conn', 1, 6)
-    b2.faces[6] = ('wall', tz)
+            b.faces[f] = ('adiabatic',)
+        b.faces[5] = ('wall', tz)
+        b.faces[6] = ('wall', tz)
     return [b1, b2], ini_text(40000, vnn=0.5, extra='irs-beta = 0.5\n')
 
 
