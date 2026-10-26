@@ -145,10 +145,14 @@ contains
     integer :: ii, i, ig, jg, kg
     integer :: bm, im, jm, km, fm, bs, is, js, ks
 
-    ! MPI: exchange residual data for inter-rank type-1 connections
-    !$omp single
+    ! MPI: exchange residual data for inter-rank type-1 connections, on the master
+    ! thread only (MPI_THREAD_FUNNELED). No barrier after it: the loop below neither
+    ! reads nor writes what the exchange writes (the ghost cells of the inter-rank
+    ! entries; the loop reads interior cells), and the loop's own closing barrier
+    ! completes the exchange before the smoothing reads those ghost cells.
+    !$omp master
     call exchange_ghost_R(domain)
-    !$omp end single
+    !$omp end master
 
     ! BC array processing — iterate only over local BC entries
     !$omp do private ( ii, i, bm, im, jm, km, fm, bs, is, js, ks, ig, jg, kg )

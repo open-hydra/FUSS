@@ -29,12 +29,15 @@ contains
 
     ! MPI: post persistent receives, pack buffer in parallel, then post sends.
     ! Chimera donor cells travel in their own non-blocking exchange, started
-    ! here so it overlaps with the local BC processing below.
-    !$omp single
+    ! here so it overlaps with the local BC processing below. The MPI calls run
+    ! on the master thread only (MPI_THREAD_FUNNELED); the barrier publishes the
+    ! level's schedule, whose loop bounds every thread reads below.
+    !$omp master
     call set_active_mg_level(domain%mg_level)
     call exchange_ghost_T_post_recv(domain)
     call exchange_ghost_chimera_post_recv(domain)
-    !$omp end single
+    !$omp end master
+    !$omp barrier
 
     ! Pack send buffers in parallel: T over face groups, chimera over donor cells
     !$omp do schedule(static) private(fg)
@@ -47,11 +50,12 @@ contains
       call exchange_ghost_chimera_pack(domain, ii, ii)
     end do
 
-    ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do)
-    !$omp single
+    ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do).
+    ! No barrier after: the local work below touches neither buffers nor requests.
+    !$omp master
     call exchange_ghost_T_post_send(domain)
     call exchange_ghost_chimera_post_send(domain)
-    !$omp end single nowait
+    !$omp end master
 
     ! Process LOCAL BC entries while MPI communication is in flight
     ! Uses pre-filtered local_bc_idx to avoid scanning all nbound entries
@@ -87,13 +91,14 @@ contains
     ! MPI: wait for T receives to complete; wait for chimera donor cells and
     ! unpack them into the kept-alive T arrays of remote donor blocks. What is
     ! timed here is the communication the local BC work did not hide, plus the
-    ! wait on slower neighbours.
-    !$omp single
+    ! wait on slower neighbours. The barrier: the loops below read what arrived.
+    !$omp master
     call timer_comm_begin()
     call exchange_ghost_T_wait_unpack(domain)
     call exchange_ghost_chimera_wait_recv(domain)
     call timer_comm_end()
-    !$omp end single
+    !$omp end master
+    !$omp barrier
 
     ! Chimera donor cells are distinct, so the unpack has no write conflicts
     !$omp do schedule(static) private(ii)
@@ -162,12 +167,14 @@ contains
                                       domain % blk(Bs), domain % bc(i) % Tg )
     enddo
 
-    ! Wait for P sends to complete before reusing buffers
-    !$omp single
+    ! Wait for P sends to complete before reusing buffers. The barrier: the
+    ! callers read the Tg(3:6) that exchange_ghost_Tg brings.
+    !$omp master
     call exchange_ghost_T_wait_send(domain)
     call exchange_ghost_chimera_wait_send(domain)
     call exchange_ghost_Tg(domain)
-    !$omp end single
+    !$omp end master
+    !$omp barrier
 
   end subroutine Fill_Ghost_Cell
 

@@ -919,11 +919,11 @@ contains
 
   !> The halo of field-list row fl, split so that packing and unpacking can run over the
   !> whole thread team (plan 11 section 2.2; the T path is the template):
-  !>   post_recv (single) -> pack (omp do over face groups) -> post_send (single)
-  !>   wait_unpack (single) -> wait_send (single)
+  !>   post_recv (master) -> pack (omp do over face groups) -> post_send (master)
+  !>   wait_unpack (master) -> wait_send (master)
   !> A row without a halo on this rank (no block connection to another rank) is a no-op.
 
-  !> Post the persistent receives of row fl. Call from !$omp single.
+  !> Post the persistent receives of row fl. Call from !$omp master.
   subroutine exchange_ghost_post_recv(domain, fl)
     use FUSS_Advanced_Types_m
     implicit none
@@ -950,7 +950,7 @@ contains
   end subroutine exchange_ghost_pack
 
 
-  !> Post the persistent sends of row fl. Call from !$omp single after the pack.
+  !> Post the persistent sends of row fl. Call from !$omp master after the pack.
   subroutine exchange_ghost_post_send(domain, fl)
     use FUSS_Advanced_Types_m
     implicit none
@@ -964,7 +964,7 @@ contains
 
 
   !> Wait for the receives of row fl and unpack them into the ghost cells. Call from
-  !> !$omp single.
+  !> !$omp master.
   subroutine exchange_ghost_wait_unpack(domain, fl)
     use FUSS_Advanced_Types_m
     implicit none
@@ -978,7 +978,7 @@ contains
   end subroutine exchange_ghost_wait_unpack
 
 
-  !> Wait for the sends of row fl. Call from !$omp single.
+  !> Wait for the sends of row fl. Call from !$omp master.
   subroutine exchange_ghost_wait_send(domain, fl)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1970,12 +1970,12 @@ contains
 
   !> Chimera donor-cell exchange, split like the T exchange so that packing
   !> and unpacking run over the whole thread team:
-  !>   post_recv (single) -> pack (omp do) -> post_send (single)
-  !>   wait_recv (single) -> unpack (omp do) -> wait_send (single)
+  !>   post_recv (master) -> pack (omp do) -> post_send (master)
+  !>   wait_recv (master) -> unpack (omp do) -> wait_send (master)
   !> Unpacked cells land in the kept-alive T arrays of remote donor blocks,
   !> where Ghost_Chimera reads them.
 
-  !> Post chimera receives. Call from !$omp single.
+  !> Post chimera receives. Call from !$omp master.
   subroutine exchange_ghost_chimera_post_recv(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -2001,7 +2001,7 @@ contains
   end subroutine exchange_ghost_chimera_pack
 
 
-  !> Post chimera sends. Call from !$omp single after packing is complete.
+  !> Post chimera sends. Call from !$omp master after packing is complete.
   subroutine exchange_ghost_chimera_post_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -2013,7 +2013,7 @@ contains
   end subroutine exchange_ghost_chimera_post_send
 
 
-  !> Wait for chimera receives. Call from !$omp single.
+  !> Wait for chimera receives. Call from !$omp master.
   subroutine exchange_ghost_chimera_wait_recv(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -2040,7 +2040,7 @@ contains
   end subroutine exchange_ghost_chimera_unpack
 
 
-  !> Wait for chimera sends before the send buffer is reused. Call from !$omp single.
+  !> Wait for chimera sends before the send buffer is reused. Call from !$omp master.
   subroutine exchange_ghost_chimera_wait_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -2358,7 +2358,7 @@ contains
   end subroutine chimera_wait_send
 
 
-  !> Start the persistent receives of a halo. Call from !$omp single.
+  !> Start the persistent receives of a halo. Call from !$omp master.
   subroutine halo_post_recv(h)
     use mpi
     implicit none
@@ -2410,7 +2410,7 @@ contains
   end subroutine halo_pack_faces
 
 
-  !> Start the persistent sends of a halo. Call from !$omp single after the pack.
+  !> Start the persistent sends of a halo. Call from !$omp master after the pack.
   subroutine halo_post_send(h)
     use mpi
     implicit none
@@ -2425,7 +2425,7 @@ contains
   end subroutine halo_post_send
 
 
-  !> Wait for a halo's receives. Call from !$omp single.
+  !> Wait for a halo's receives. Call from !$omp master.
   subroutine halo_wait_recv(h)
     use mpi
     implicit none
@@ -2478,7 +2478,7 @@ contains
   end subroutine halo_unpack_faces
 
 
-  !> Wait for a halo's sends. Call from !$omp single.
+  !> Wait for a halo's sends. Call from !$omp master.
   subroutine halo_wait_send(h)
     use mpi
     implicit none
