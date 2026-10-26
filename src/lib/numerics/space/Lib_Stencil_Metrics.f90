@@ -105,6 +105,7 @@ contains
   !> level (Setup_Metrics calls it with the domain of the level, after the ghost metrics bc%Mg).
   subroutine Setup_Face_Metrics ( domain )
     use FUSS_Advanced_Types_m
+    use FUSS_Lib_BC_Fluxes_Connection, only: Pair_Connections
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -113,6 +114,9 @@ contains
     integer :: b, i, j, k, n(3), d, r
 
     allocate ( xc(domain % nb) )
+
+    ! 0. Partner and owner of every connection record (one flux per face, Connection_Fluxes)
+    call Pair_Connections ( domain )
 
     ! 1. Centres of the cells of every block
     do b = 1, domain % nb
@@ -156,7 +160,7 @@ contains
       if ( .not. is_local_block ( domain % bc(r) % b ) ) cycle
       select case ( domain % bc(r) % type )
         case (101)
-          call Connection_Face_Metric ( domain, xc, r )
+          if ( domain % bc(r) % owner ) call Connection_Face_Metric ( domain, xc, r )   ! only the owner computes the face
         case (301:305)
           call Wall_Face_Metric ( domain, xc, r )
       end select

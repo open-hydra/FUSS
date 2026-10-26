@@ -10,6 +10,7 @@ contains
   subroutine Fluxes ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Lib_BC_Fluxes_Connection, only: Connection_Fluxes
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -26,6 +27,9 @@ contains
                         domain % blk(b) % fm, &
                         domain % blk(b) % dim )
     enddo
+
+    ! One flux per block connection (101), computed by the record that owns the face
+    call Connection_Fluxes ( domain )
 
   end subroutine Fluxes
 

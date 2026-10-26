@@ -68,6 +68,11 @@ module FUSS_Advanced_Types_m
     ! variant 1 with the ghost cells (flux), variant 2 one-sided inside the block (ghost fill, wall output)
     real(R8) :: wM(3,3,2) = 0d0
     logical  :: wstencil = .false.
+    ! One flux per connection face (101): the record of the same face seen from the other block, whether this record
+    ! computes the face (owner), and the share of this cell (heat into the cell, W) that the owner leaves in it
+    integer  :: partner = 0
+    logical  :: owner = .false.
+    real(R8) :: Fc = 0d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------

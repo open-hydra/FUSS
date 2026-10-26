@@ -40,8 +40,8 @@ contains
           Fm = domain % bc(i) % f
           select case ( domain % bc(i) % type )
           
-            case (101) ! block connection: stencil face metric, interior-face conductivity
-              call BC_Connection_Stencil ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) )
+            case (101) ! block connection: the share of the flux of the face that its owner left in this cell (Connection_Fluxes)
+              domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % Fc
 
             case (102) ! chimera: two-sided balance with the cell metric and the ghost metric
               call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
