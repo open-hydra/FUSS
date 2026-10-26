@@ -151,7 +151,14 @@ contains
               simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
               obj_sim_param%iter_general = 0
             else
-              obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
+              ! ORION a978930 reads SOLUTIONTIME with its sign: a negative time is a steady solution stamped with
+              ! minus its iteration count (Wrap_Postprocess.f90:65); a positive one (a file written before the
+              ! repin, |count| with STRANDID = 0) is read as before. Stopgap until the restart counters replace it.
+              if (simulation%IOfield(1)%solutiontime < 0.0d0) then
+                obj_sim_param%iter_general = nint(-simulation%IOfield(1)%solutiontime)
+              else
+                obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
+              endif
               simulation%domain(m)%time = -1.d0
             endif
           endif

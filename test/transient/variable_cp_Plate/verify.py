@@ -68,6 +68,7 @@ def read_field(path):
         t = float(m.group(1).replace('D', 'E').replace('d', 'e')) if m else t
         cc = re.search(r'\[(\d+)-(\d+)\]\s*=\s*CELLCENTERED', header)
         first_cc = int(cc.group(1)) if cc else len(names) + 1
+        body = re.split(r'(?im)^\s*DATASETAUXDATA', body)[0]   # records that follow the last zone (ORION a978930)
         values = np.array(body.split(), dtype=float)
         n_node, n_cell = ni * nj * nk, max(ni - 1, 1) * max(nj - 1, 1) * max(nk - 1, 1)
         offset = 0
