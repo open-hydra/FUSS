@@ -24,33 +24,48 @@ contains
     ! Local
     integer :: ii, i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
     integer :: fg
+    logical :: mpi_on
 
+    ! On a single rank the exchange has nothing to do, and running it anyway
+    ! costs a chain of empty master blocks, each one followed by a barrier.  The
+    ! test is uniform over the team, so the worksharing constructs and barriers
+    ! it guards are still encountered by every thread.
+    mpi_on = mpi_size_ > 1
 
-    ! MPI: post persistent receives, pack buffer in parallel, then post sends.
-    ! Chimera donor cells travel in their own non-blocking exchange, started
-    ! here so it overlaps with the local BC processing below.
-    !$omp single
-    call set_active_mg_level(domain%mg_level)
-    call exchange_ghost_T_post_recv(domain)
-    call exchange_ghost_chimera_post_recv(domain)
-    !$omp end single
+    if (mpi_on) then
+      ! MPI: post persistent receives, pack buffer in parallel, then post sends.
+      ! Chimera donor cells travel in their own non-blocking exchange, started
+      ! here so it overlaps with the local BC processing below.
+      ! MPI is initialised with MPI_THREAD_FUNNELED: every MPI call is made by
+      ! the primary thread, in a master construct (named masked since OpenMP
+      ! 5.1; master is kept because older compilers lack masked), followed by
+      ! an explicit barrier wherever the other threads need its result. A
+      ! single construct would let any thread make the call, which FUNNELED
+      ! forbids.
+      !$omp master
+      call set_active_mg_level(domain%mg_level)
+      call exchange_ghost_T_post_recv(domain)
+      call exchange_ghost_chimera_post_recv(domain)
+      !$omp end master
+      !$omp barrier
 
-    ! Pack send buffers in parallel: T over face groups, chimera over donor cells
-    !$omp do schedule(static) private(fg)
-    do fg = 1, ghost_sched%n_send_faces
-      call exchange_ghost_T_pack(domain, fg, fg)
-    end do
-    !$omp end do nowait
-    !$omp do schedule(static) private(ii)
-    do ii = 1, ghost_sched%n_chim_send
-      call exchange_ghost_chimera_pack(domain, ii, ii)
-    end do
+      ! Pack send buffers in parallel: T over face groups, chimera over donor cells
+      !$omp do schedule(static) private(fg)
+      do fg = 1, ghost_sched%n_send_faces
+        call exchange_ghost_T_pack(domain, fg, fg)
+      end do
+      !$omp end do nowait
+      !$omp do schedule(static) private(ii)
+      do ii = 1, ghost_sched%n_chim_send
+        call exchange_ghost_chimera_pack(domain, ii, ii)
+      end do
 
-    ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do)
-    !$omp single
-    call exchange_ghost_T_post_send(domain)
-    call exchange_ghost_chimera_post_send(domain)
-    !$omp end single nowait
+      ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do)
+      !$omp master
+      call exchange_ghost_T_post_send(domain)
+      call exchange_ghost_chimera_post_send(domain)
+      !$omp end master
+    end if
 
     ! Process LOCAL BC entries while MPI communication is in flight
     ! Uses pre-filtered local_bc_idx to avoid scanning all nbound entries
@@ -87,18 +102,21 @@ contains
     ! unpack them into the kept-alive T arrays of remote donor blocks. What is
     ! timed here is the communication the local BC work did not hide, plus the
     ! wait on slower neighbours.
-    !$omp single
-    call timer_comm_begin()
-    call exchange_ghost_T_wait_unpack(domain)
-    call exchange_ghost_chimera_wait_recv(domain)
-    call timer_comm_end()
-    !$omp end single
+    if (mpi_on) then
+      !$omp master
+      call timer_comm_begin()
+      call exchange_ghost_T_wait_unpack(domain)
+      call exchange_ghost_chimera_wait_recv(domain)
+      call timer_comm_end()
+      !$omp end master
+      !$omp barrier
 
-    ! Chimera donor cells are distinct, so the unpack has no write conflicts
-    !$omp do schedule(static) private(ii)
-    do ii = 1, ghost_sched%n_chim_recv
-      call exchange_ghost_chimera_unpack(domain, ii, ii)
-    end do
+      ! Chimera donor cells are distinct, so the unpack has no write conflicts
+      !$omp do schedule(static) private(ii)
+      do ii = 1, ghost_sched%n_chim_recv
+        call exchange_ghost_chimera_unpack(domain, ii, ii)
+      end do
+    end if
 
     ! Chimera ghost fill: all donor data (local and remote) is now current
     !$omp do schedule (dynamic) private(ii, i)
@@ -141,26 +159,29 @@ contains
     enddo
 
     ! Process INTER-RANK type-1 entries (Bm local, Bs remote)
-    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, Bs)
-    do ii = 1, domain % n_local_bc
-      i  = domain % local_bc_idx(ii)
-      if (domain%bc(i)%type /= 101) cycle
-      Bs = domain % bc(i) % bs
-      if (is_local_block(Bs)) cycle  ! already processed above
-      Bm = domain % bc(i) % b
-      Im = domain % bc(i) % i
-      Jm = domain % bc(i) % j
-      Km = domain % bc(i) % k
-      Fm = domain % bc(i) % f
-      call Ghost_Interrank(Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg)
-    enddo
+    if (mpi_on) then
+      !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, Bs)
+      do ii = 1, domain % n_local_bc
+        i  = domain % local_bc_idx(ii)
+        if (domain%bc(i)%type /= 101) cycle
+        Bs = domain % bc(i) % bs
+        if (is_local_block(Bs)) cycle  ! already processed above
+        Bm = domain % bc(i) % b
+        Im = domain % bc(i) % i
+        Jm = domain % bc(i) % j
+        Km = domain % bc(i) % k
+        Fm = domain % bc(i) % f
+        call Ghost_Interrank(Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg)
+      enddo
 
-    ! Wait for P sends to complete before reusing buffers
-    !$omp single
-    call exchange_ghost_T_wait_send(domain)
-    call exchange_ghost_chimera_wait_send(domain)
-    call exchange_ghost_Tg(domain)
-    !$omp end single
+      ! Wait for T sends to complete before reusing buffers
+      !$omp master
+      call exchange_ghost_T_wait_send(domain)
+      call exchange_ghost_chimera_wait_send(domain)
+      call exchange_ghost_Tg(domain)
+      !$omp end master
+      !$omp barrier
+    end if
 
   end subroutine Fill_Ghost_Cell
 

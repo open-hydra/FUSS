@@ -829,7 +829,7 @@ contains
 #endif
 
 
-  !> Post persistent T receives. Call from !$omp single.
+  !> Post persistent T receives. Call from !$omp master (primary thread).
   subroutine exchange_ghost_T_post_recv(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -855,7 +855,7 @@ contains
   end subroutine exchange_ghost_T_pack
 
 
-  !> Post persistent T sends. Call from !$omp single after pack is complete.
+  !> Post persistent T sends. Call from !$omp master (primary thread) after pack is complete.
   subroutine exchange_ghost_T_post_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -867,7 +867,7 @@ contains
   end subroutine exchange_ghost_T_post_send
 
 
-  !> Wait for T receives and unpack. Call wait from !$omp single, unpack from !$omp do.
+  !> Wait for T receives and unpack. Call wait from !$omp master (primary thread), unpack from !$omp do.
   subroutine exchange_ghost_T_wait_unpack(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -880,7 +880,7 @@ contains
   end subroutine exchange_ghost_T_wait_unpack
 
 
-  !> Wait for T sends to complete. Call from !$omp single.
+  !> Wait for T sends to complete. Call from !$omp master (primary thread).
   subroutine exchange_ghost_T_wait_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1378,7 +1378,7 @@ contains
   !> Unpacked cells land in the kept-alive T arrays of remote donor blocks,
   !> where Ghost_Chimera reads them.
 
-  !> Post chimera receives. Call from !$omp single.
+  !> Post chimera receives. Call from !$omp master (primary thread).
   subroutine exchange_ghost_chimera_post_recv(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1404,7 +1404,7 @@ contains
   end subroutine exchange_ghost_chimera_pack
 
 
-  !> Post chimera sends. Call from !$omp single after packing is complete.
+  !> Post chimera sends. Call from !$omp master (primary thread) after packing is complete.
   subroutine exchange_ghost_chimera_post_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1416,7 +1416,7 @@ contains
   end subroutine exchange_ghost_chimera_post_send
 
 
-  !> Wait for chimera receives. Call from !$omp single.
+  !> Wait for chimera receives. Call from !$omp master (primary thread).
   subroutine exchange_ghost_chimera_wait_recv(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1443,7 +1443,7 @@ contains
   end subroutine exchange_ghost_chimera_unpack
 
 
-  !> Wait for chimera sends before the send buffer is reused. Call from !$omp single.
+  !> Wait for chimera sends before the send buffer is reused. Call from !$omp master (primary thread).
   subroutine exchange_ghost_chimera_wait_send(domain)
     use FUSS_Advanced_Types_m
     implicit none
@@ -1749,7 +1749,7 @@ contains
   end subroutine chimera_wait_send
 
 
-  !> Post persistent receives for T field. Call from !$omp single.
+  !> Post persistent receives for T field. Call from !$omp master (primary thread).
   subroutine exchange_T_post_recv()
     use mpi
     implicit none
@@ -1797,7 +1797,7 @@ contains
   end subroutine exchange_T_pack_faces
 
 
-  !> Post persistent sends for T field. Call from !$omp single after pack.
+  !> Post persistent sends for T field. Call from !$omp master (primary thread) after pack.
   subroutine exchange_T_post_send()
     use mpi
     implicit none
@@ -1860,7 +1860,7 @@ contains
   end subroutine exchange_T_unpack_faces
 
 
-  !> Wait for T sends to complete. Call from !$omp single.
+  !> Wait for T sends to complete. Call from !$omp master (primary thread).
   subroutine exchange_T_wait_send()
     use mpi
     implicit none
