@@ -135,10 +135,6 @@ module FUSS_Mod_GhostExchange
   public :: Ghost_Interrank
   public :: exchange_connection_flux   ! prompt 11 (port/metric): one flux per connection face
 
-  !> Message tag of the connection fluxes (prompt 12 reserves the value 4 for it in its tag table; this line and the
-  !> public line above are the whole rebase conflict with that port)
-  integer, parameter :: TAG_FC = 4
-
 contains
 
 
