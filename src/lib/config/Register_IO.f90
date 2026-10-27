@@ -33,6 +33,8 @@ contains
     ! Shell options
     call reg%add( section, 'shell-diter', obj_io%shell_diter, '1', 'Shell update iter frequency', '> 0', .false. )
     call reg%add( section, 'ini-diter', obj_io%ini_diter, '10000', 'input.ini update iter frequency', '> 0', .false. )
+    call reg%add( section, 'decomposition-map', obj_io%decomposition_map, 'none', &
+                  'File of INPUT/ (name only, with the phase prefix) that gives the MPI rank of every block, in the format of the ATLAS mesh decomposer; none: blocks balanced by cell count', '', .false. )
     call reg%add( section, 'ini-error', obj_io%ini_error, 'warn', 'input.ini read again with an error: warn (the reading is not taken, the run goes on) or stop', 'warn, stop', .false. )
 
     ! Wall-clock instrumentation

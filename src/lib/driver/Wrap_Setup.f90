@@ -98,8 +98,19 @@ contains
     ! MPI: partition blocks once on finest-level cell counts (restriction and
     ! prolongation are block-local, so a block must live on the same rank at
     ! every level), then build per-level ghost/chimera communication schedules.
-    call partition_blocks(simulation%domain(1)%nb, &
-      [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)])
+    ! The rank of every block comes from the map that decomposition-map names in INPUT/ (with the phase prefix of
+    ! bc.txt), in the format of the map of the ATLAS mesh decomposer; with none, the default, from the LPT, and no file is
+    ! read.
+    if ( trim(obj_io%decomposition_map) == 'none' ) then
+      call partition_blocks(simulation%domain(1)%nb, &
+        [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)])
+    else
+      call partition_blocks(simulation%domain(1)%nb, &
+        [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)], &
+        reshape([(simulation%domain(1)%blk(ios)%dim(1:3), ios=1, simulation%domain(1)%nb)], &
+                [3, simulation%domain(1)%nb]), &
+        'INPUT/'//trim(FUSS_phase_prefix)//trim(obj_io%decomposition_map))
+    end if
 
     call allocate_exchange_schedules(obj_multigrid%MGL)
     do m = 1, obj_multigrid%MGL
@@ -430,6 +441,11 @@ contains
       integer :: r
 
       out = Validate_Registry()
+      ! decomposition-map names a file of INPUT/: the folder, and the phase prefix of bc.txt, are put before it
+      if ( index(out,'ERROR') == 0 .and. trim(obj_io%decomposition_map) /= 'none' .and. &
+           index(obj_io%decomposition_map, '/') > 0 ) &
+        out = '[ERROR] input.ini, [FUSS-IO] decomposition-map = '//trim(obj_io%decomposition_map)// &
+              ': the value is the name of a file in INPUT/, without a folder'
       has_error = index(out,'ERROR') > 0
       if ( has_error ) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'

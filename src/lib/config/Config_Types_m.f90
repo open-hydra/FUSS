@@ -60,6 +60,7 @@ module FUSS_Config_Types_m
     character(len=llen)  :: sol_format, ic_format   ! solution format (native,tecplot,vtk) and formatting (ascii,raw)
     integer              :: shell_diter  ! Shell update
     integer              :: ini_diter    ! input.ini update
+    character(len=llen)  :: decomposition_map ! File of INPUT/ with the MPI rank of every block (none: balanced by cell count)
     character(len=llen)  :: ini_error    ! input.ini read again with an error: warn (the reading not taken) or stop
     integer              :: timer_diter  ! Wall-clock timing report (0 = off)
     ! Useful variables

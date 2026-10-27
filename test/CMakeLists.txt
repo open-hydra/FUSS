@@ -53,6 +53,9 @@ fuss_add_script(InputChecks  input-checks.sh  300 "fast")
 fuss_add_script(RuntimeInput runtime-input.sh 300 "fast")
 fuss_add_script(ExitCodes    exit-codes.sh    300 "fast")
 
+# decomposition-map: the rank of every block from a file of INPUT/ (one rank here; MPIDecompositionMap with MPI)
+fuss_add_script(DecompositionMap decomposition-map.sh 300 "fast")
+
 # Restart: the run split in two writes the files of the run in one go, byte for byte, in every format (the counters stored
 # with the solution); the .szplt case needs TecIO
 fuss_add_script(Restart       restart.sh 600 "fast" core)
@@ -85,4 +88,5 @@ if (USE_MPI)
   fuss_add_script(MPIRuntimeInput mpi-runtime-input.sh 300 "needs-mpi")
   fuss_add_script(MPIExitCodes    mpi-exit-codes.sh    300 "needs-mpi")
   fuss_add_script(MPIRestart      mpi-restart.sh       300 "needs-mpi")
+  fuss_add_script(MPIDecompositionMap mpi-decomposition-map.sh 300 "needs-mpi")
 endif()
