@@ -77,6 +77,11 @@ contains
               IOwall(lv) % block(bb) % mesh(:,i,j,0) = domain % blk(b) % node(i,j,domain%blk(b)%dim(3)) % c
           enddo; enddo
         end select
+        ! Cells of the face in each direction, 0 across it: the vtk writer of ORION (a978930) sizes the block
+        ! file with them (the Tecplot writer takes the sizes from the mesh array); as in MOSE (IO_Wall.f90:100-104)
+        IOwall(lv)%block(bb)%Ni = size(IOwall(lv)%block(bb)%mesh, 2) - 1
+        IOwall(lv)%block(bb)%Nj = size(IOwall(lv)%block(bb)%mesh, 3) - 1
+        IOwall(lv)%block(bb)%Nk = size(IOwall(lv)%block(bb)%mesh, 4) - 1
       endif
     enddo; enddo
 
