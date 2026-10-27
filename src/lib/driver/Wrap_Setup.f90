@@ -19,7 +19,7 @@ contains
     use FUSS_Mod_Multigrid,        only: Setup_Multigrid, Restriction
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
-    use FUSS_IO_Probes,            only: Setup_Probes
+    use FUSS_IO_Probes,            only: Setup_Probes, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
     use FUSS_IO_Wall,              only: Initialize_Wall_File, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_bcast_logical
@@ -31,6 +31,7 @@ contains
     ! Local
     integer :: m, ios
     logical :: setup_error   ! an error found by a check of rank 0 (Stop_Together)
+    logical :: resume        ! a restart goes on with the counters of its solution
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -62,6 +63,19 @@ contains
     call Read_IC ( simulation%IOfield(1) )
     ! The ranks decide together on an error of the read (Check_IC)
     call Check_IC ()
+    ! A restart goes on from the time of the solution it reads: the physical time of a time-accurate solution, minus the
+    ! global iteration count of a steady one. A solution that holds no time (a vtk file without TIME, a Tecplot ASCII
+    ! file without SOLUTIONTIME) cannot tell where to go on: stop
+    if ( .not. obj_sim_param%newrun .and. .not. obj_io%restart%time_found ) then
+      if (mpi_is_root) then
+        write(*,'(A)') ' [ERROR] Restart from '//trim(obj_io%nameinit)//': the solution holds no time '// &
+                       '(vtk TIME, Tecplot SOLUTIONTIME), and a restart goes on from the time of its solution.'
+        write(*,'(A)') ' [ERROR]   To start from this solution, use it as the initial condition: '// &
+                       'INPUT/ic.* with newrun = true.'
+      end if
+      ! Every rank has read the solution and found no time: the ranks stop together, once rank 0 has written the message
+      call mpi_stop_all ( 'restart from a solution without a time (see above)' )
+    end if
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
@@ -157,16 +171,21 @@ contains
             endif
             obj_sim_param%iter_general = 0
           else
-            ! The restart file is the finest level's (IOfield(1)): the coarse IOfield carry no time
+            ! The restart solution is read on the finest level: its time and iteration count hold for every level (the
+            ! coarse IOfields are built from the fine one and hold no time)
             if (obj_time_scheme%time_accurate) then
-              simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
+              if (obj_io%restart%steady) then
+                ! A transient started from a steady solution starts at t = 0
+                simulation%domain(m)%time = 0.0d0
+              else
+                simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
+              endif
               obj_sim_param%iter_general = 0
             else
-              ! ORION a978930 reads SOLUTIONTIME with its sign: a negative time is a steady solution stamped with
-              ! minus its iteration count (Wrap_Postprocess.f90:65); a positive one (a file written before the
-              ! repin, |count| with STRANDID = 0) is read as before. Stopgap until the restart counters replace it.
-              if (simulation%IOfield(1)%solutiontime < 0.0d0) then
-                obj_sim_param%iter_general = nint(-simulation%IOfield(1)%solutiontime)
+              ! The global iteration count of the solution: a steady one holds it as its time (Read_vtk_tec), a
+              ! transient one holds its physical time, of which the integer part is taken
+              if (obj_io%restart%steady) then
+                obj_sim_param%iter_general = nint(simulation%IOfield(1)%solutiontime)
               else
                 obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
               endif
@@ -176,6 +195,39 @@ contains
           obj_sim_param%time_from_call = simulation%domain(m)%time 
           obj_sim_param%iter_from_call = 0
         enddo
+
+        ! The counters stored with a solution, in every format: the restart goes on as the uninterrupted run would (vnn
+        ! ramp, output cadence and numbering, residual history, probes, grid level), if that run was of the same kind,
+        ! steady or time-accurate. Otherwise, or with a solution that holds no counters (written before them), the run
+        ! starts its counters as a new one, numbers its outputs from the files in OUTPUT/ (Wrap_Postprocess), and
+        ! starts the multigrid from the coarsest level.
+        resume = .false.
+        if ( .not. obj_sim_param%newrun ) &
+          resume = obj_io%restart%found .and. ( obj_io%restart%steady .neqv. obj_time_scheme%time_accurate )
+        obj_io%restart%resumed = resume
+        if ( resume ) then
+          obj_sim_param%iter_general   = obj_io%restart%cycle
+          obj_multigrid%MG_level       = max(1, min(obj_multigrid%MGL, obj_io%restart%grid_level))
+          ! The solution read is that of the finest level, and so is its iteration count
+          simulation%domain(1)%iter    = obj_io%restart%iteration
+          obj_sim_param%time_from_call = obj_io%restart%last_output_time
+          obj_io%output_number         = obj_io%restart%output_number
+          ! A run that went on past the solution read left in residual-history.dat and in the probe files the rows of
+          ! the iterations after it, which the restart writes again: drop them
+          if (mpi_is_root) then
+            close(obj_io%unitRES)
+            call Drop_Rows_After ( 'OUTPUT/'//trim(FUSS_phase_prefix)//'residual-history.dat', 3, &
+                                   obj_io%restart%cycle, simulation%domain(1)%time )
+            open(newunit=obj_io%unitRES,file='OUTPUT/'//trim(FUSS_phase_prefix)//'residual-history.dat', &
+                 status='old',position='append',form='formatted')
+          endif
+          call Drop_Probe_Rows ( obj_io%restart%cycle, simulation%domain(1)%time )
+        endif
+        ! Time-based probe rows fall on the multiples of their dtime: a restart that goes on in time writes the next one
+        ! not reached yet; a new transient starts from the first, as a new run
+        if ( .not. obj_sim_param%newrun ) &
+          call Restart_Probes ( simulation%domain(1)%time, &
+                                resume = .not. ( obj_io%restart%steady .and. obj_time_scheme%time_accurate ) )
         call Fill_Ghost_Cell ( simulation%domain(1) )
 
         ! Interpolate initial solution on coarser domains
@@ -510,6 +562,16 @@ contains
       write(*,'(A)') ' Input/Output'
       write(*,'(A,T35,A)') '   Initial conditions file', trim(obj_io%nameinit)
       write(*,'(A,T35,A)') '   Solution format', trim(obj_io%sol_format)
+      if ( .not. obj_sim_param%newrun ) then
+        write(*,'(A,T35,A)') '   Restart from', trim(obj_io%nameinit)
+        if ( obj_io%restart%found .and. ( obj_io%restart%steady .neqv. obj_time_scheme%time_accurate ) ) then
+          write(*,'(A,T35,A)') '   Restart counters', 'restored from the solution'
+        elseif ( obj_io%restart%found ) then
+          write(*,'(A,T35,A)') '   Restart counters', 'not restored (the solution is of the other kind of run)'
+        else
+          write(*,'(A,T35,A)') '   Restart counters', 'not in the solution: counted as a new run'
+        endif
+      endif
       write(*,'(A,T35,A)') '   Probes number', str(.true.,nprobes)
       write(*,'(A)') ' ========================================================================================='
 

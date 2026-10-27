@@ -53,6 +53,13 @@ fuss_add_script(InputChecks  input-checks.sh  300 "fast")
 fuss_add_script(RuntimeInput runtime-input.sh 300 "fast")
 fuss_add_script(ExitCodes    exit-codes.sh    300 "fast")
 
+# Restart: the run split in two writes the files of the run in one go, byte for byte, in every format (the counters stored
+# with the solution); the .szplt case needs TecIO
+fuss_add_script(Restart       restart.sh 600 "fast" core)
+if (USE_TECIO)
+  fuss_add_script(RestartBinary restart.sh 300 "fast" szplt)
+endif()
+
 # Material jumps inside a block: the 4-layer liner at vnn 1.0 (series face conductivities and the
 # face-conductivity time step)
 fuss_add_test(MultimatLiner    numerics-features/multimat_liner     300 "smoke" --iters 300)
@@ -77,4 +84,5 @@ if (USE_MPI)
   set_tests_properties(MPIBitIdentity PROPERTIES LABELS "needs-mpi" TIMEOUT 900)
   fuss_add_script(MPIRuntimeInput mpi-runtime-input.sh 300 "needs-mpi")
   fuss_add_script(MPIExitCodes    mpi-exit-codes.sh    300 "needs-mpi")
+  fuss_add_script(MPIRestart      mpi-restart.sh       300 "needs-mpi")
 endif()

@@ -5,8 +5,7 @@ module FUSS_Wrap_Postprocess
   private
   public :: FUSS_postprocess
 
-  integer, private :: id_stampa=0
-  logical, private :: id_stampa_set = .false.   ! counter resumed from OUTPUT/ on a restart
+  logical, private :: id_stampa_set = .false.   ! numbering of the outputs settled (restored by a restart, or scanned)
   logical, private :: irs_runtime_warned = .false.
   ! FAS setup state: the runtime re-read may not switch cycles on (coarse-level arrays are
   ! allocated at setup only) nor leave a cycling root with no smoothing iterations
@@ -122,16 +121,18 @@ contains
     elseif ( obj_sim_param%TODO == 2 ) then
 
       if (level == 1) then
-        ! Restart with numbered snapshots: continue after the last field<n> in OUTPUT/
+        ! Restart with numbered snapshots: the number goes on from the solution read (obj_io%output_number, restored with
+        ! the counters). A solution without counters (written before them) gives no number: the legacy path scans
+        ! OUTPUT/ for the last field<n> and continues after it
         if (.not. id_stampa_set) then
           id_stampa_set = .true.
-          if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite) &
+          if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite .and. .not. obj_io%restart%resumed) &
             call Resume_File_Counter ( trim(simulation%IOfield(1)%tec%extension) )
         endif
-        id_stampa = id_stampa + 1
-        if (.not.obj_io%sol_overwrite) solfile  = trim(solfile)//trim(str(.true.,id_stampa))
-        if (.not.obj_io%sol_overwrite) wallfile = trim(wallfile)//trim(str(.true.,id_stampa))
-        if (.not.obj_io%sol_overwrite) dgsfile  = trim(dgsfile)//trim(str(.true.,id_stampa))
+        obj_io%output_number = obj_io%output_number + 1
+        if (.not.obj_io%sol_overwrite) solfile  = trim(solfile)//trim(str(.true.,obj_io%output_number))
+        if (.not.obj_io%sol_overwrite) wallfile = trim(wallfile)//trim(str(.true.,obj_io%output_number))
+        if (.not.obj_io%sol_overwrite) dgsfile  = trim(dgsfile)//trim(str(.true.,obj_io%output_number))
       endif
 
       ! Residuals history
@@ -349,9 +350,13 @@ contains
 
   end subroutine FUSS_postprocess
 
-  !> Highest n with OUTPUT/field<n><ext> present, so a restart appends instead of overwriting
+  !> Legacy path, for a restart from a solution that holds no counters (written before them): the highest n with
+  !> OUTPUT/field<n><ext> present, so that a restart with numbered snapshots appends instead of overwriting. A solution with
+  !> counters gives the number itself (obj_io%output_number).
   subroutine Resume_File_Counter ( ext )
     use FUSS_Global_m, only: FUSS_phase_prefix
+    use FUSS_Config_Types_m, only: obj_io
+    use FUSS_Mod_MPI, only: mpi_is_root
     use ir_precision, only: str
     implicit none
     character(len=*), intent(in) :: ext
@@ -359,12 +364,13 @@ contains
     logical :: present
 
     do
-      inquire ( file='OUTPUT/'//trim(FUSS_phase_prefix)//'field'//trim(str(.true.,id_stampa+1))//trim(ext), &
+      inquire ( file='OUTPUT/'//trim(FUSS_phase_prefix)//'field'//trim(str(.true.,obj_io%output_number+1))//trim(ext), &
                 exist=present )
       if (.not. present) exit
-      id_stampa = id_stampa + 1
+      obj_io%output_number = obj_io%output_number + 1
     enddo
-    if (id_stampa > 0) write(*,'(A)') ' Numbered output continues from '//trim(str(.true.,id_stampa+1))
+    if (obj_io%output_number > 0 .and. mpi_is_root) &
+      write(*,'(A)') ' Numbered output continues from '//trim(str(.true.,obj_io%output_number+1))
 
   end subroutine Resume_File_Counter
 
