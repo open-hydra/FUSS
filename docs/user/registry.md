@@ -22,6 +22,8 @@
 | res-diter | 1 | > 0 |  no | Residual history iter frequency |
 | shell-diter | 1 | > 0 |  no | Shell update iter frequency |
 | ini-diter | 10000 | > 0 |  no | input.ini update iter frequency |
+| decomposition-map | none |  |  no | File of INPUT/ (name only, with the phase prefix) that gives the MPI rank of every block, in the format of the ATLAS mesh decomposer; none: blocks balanced by cell count |
+| ini-error | warn | warn, stop |  no | input.ini read again with an error: warn (the reading is not taken, the run goes on) or stop |
 | timer-diter | 0 | >= 0 |  no | Wall-clock timing report iter frequency (0 = off) |
 
 ## FUSS-Probes
@@ -45,7 +47,7 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | time-scheme | euler | euler, RK2, RK3 |  no | Time integration solver |
-| vnn | 0.3 | > 0 |  no | VNN parameter |
+| vnn | 0.15 | > 0 |  no | Diffusion number: dt = vnn rho cp / sum_d k_d |grad xi_d|^2 (limits 0.5 euler/RK2, 0.628 RK3; MOSE's convention; until October 2026 twice this value) |
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
