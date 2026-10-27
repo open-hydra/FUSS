@@ -41,7 +41,7 @@ rod probe-var;   sed -i -E '0,/^variables = T/s//variables = T Z/' "$WORK/probe-
 nominal fas-levels; printf '\n[FUSS-Multigrid]\ncycle = w\n' >> "$WORK/fas-levels/input.ini"; go fas-levels 'cycle needs levels >= 2'
 
 nominal mg-divisible; printf '\n[FUSS-Multigrid]\nlevels = 4\nlevel1-iter = 5\nlevel2-iter = 5\nlevel3-iter = 5\nlevel4-iter = 5\n' >> "$WORK/mg-divisible/input.ini"; go mg-divisible 'multigrid with 4 levels'
-nominal diverge; setkey "$WORK/diverge" vnn 1.4 FUSS-Numerics; setkey "$WORK/diverge" iter-threshold 400; go diverge 'NaN or T outside the properties table'
+nominal diverge; setkey "$WORK/diverge" vnn 0.7 FUSS-Numerics; setkey "$WORK/diverge" iter-threshold 400; go diverge 'NaN or T outside the properties table'
 
 # the initial condition: a file that is missing; a restart without the solution
 plate ic-missing; rm "$WORK/ic-missing/INPUT/ic.tec"; go ic-missing 'reading input file'

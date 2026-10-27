@@ -51,7 +51,7 @@ warn_case() {  # warn_case <name> <edit command> <ini-error at the start>
 warn_case warn-vnn       'sed -i -E "s|^vnn.*|vnn = -1|" input.ini'
 warn_case warn-empty     ': > input.ini'
 warn_case warn-comments  'printf "; nothing\n" > input.ini'
-warn_case warn-bad-value 'sed -i -E "s|^vnn.*|vnn = 0.4|; s|^sol-diter.*|sol-diter = seven|" input.ini'
+warn_case warn-bad-value 'sed -i -E "s|^vnn.*|vnn = 0.2|; s|^sol-diter.*|sol-diter = seven|" input.ini'
 # the value of ini-error in force when the reading starts decides, also when the file writes another one
 warn_case warn-overruled 'sed -i -E "s|^vnn.*|vnn = -1|; s|^ini-error.*|ini-error = stop|" input.ini'
 

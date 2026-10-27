@@ -46,7 +46,7 @@ write_ini() {
   local accurate=false iters=30 vars=cons irs=0.5
   if [[ $1 == transient ]]; then accurate=true; iters=20; vars=prim; irs=0.0; fi
   printf '%s\n' '[FUSS-Parameters]' 'newrun = true' 'res-threshold = 1e-300' "iter-threshold = $iters" '' \
-    '[FUSS-Numerics]' 'time-scheme = RK3' 'vnn = 1.0' "time-accurate = $accurate" \
+    '[FUSS-Numerics]' 'time-scheme = RK3' 'vnn = 0.5' "time-accurate = $accurate" \
     "integration-variables = $vars" "irs-beta = $irs" '' \
     '[FUSS-IO]' 'sol-diter = 1000000' 'sol-overwrite = true' 'sol-format = vtk raw' 'ini-diter = 1000000' > "$2"
 }

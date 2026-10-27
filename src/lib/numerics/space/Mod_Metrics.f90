@@ -11,10 +11,11 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics
     use FUSS_Lib_Diffusive, only: Inverse3
-    use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8
+    use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
     use FUSS_Mod_dt, only: Skew_Factor
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    logical :: bad
     ! Local
     integer :: b, i, j, k, g
     real(R8) :: fmax
@@ -24,7 +25,8 @@ contains
     call Check_Mesh_Type ( domain )
 
     ! A cell folded at one of its corners, or turned against its block, stops the run here
-    call Check_Folded_Cells ( domain )
+    call Check_Folded_Cells ( domain, bad )
+    call mpi_stop_if_any ( bad, 'degenerate or folded cell in the mesh (see above)', '' )
 
     ! Inverse metric of the interior cells, for the diffusive face metric: the face then needs
     ! one 3x3 inversion instead of three. Same bounds as M.
@@ -149,16 +151,18 @@ contains
   !> The volume of a cell, the integral of that Jacobian, has the sign of the block when the cell is not turned over, and
   !> Compute_Metric_Tensor stops a cell whose volume has not the sign of the determinant at its centre. Setup_Metrics calls
   !> this on every multigrid level, whose nodes are every other node of the level above: a stop there names the level.
-  subroutine Check_Folded_Cells ( domain )
+  subroutine Check_Folded_Cells ( domain, bad )
     use FUSS_Advanced_Types_m
-    use FUSS_Mod_MPI, only: is_local_block, mpi_abort_all
+    use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
+    logical, intent(out) :: bad   !< A degenerate or folded cell was found on this rank (its message is written)
     ! Local
     integer  :: b, i, j, k, ca, cb, cc, n(3)
     real(R8) :: s, det, hm, ei(3), ej(3), ek(3), h, Jv, Am(3,3)
     character(len=32) :: lev
 
+    bad = .false.
     lev = ':'
     if ( domain % mg_level > 1 ) write(lev,'(A,I0,A)') ' of multigrid level ', domain % mg_level, ':'
 
@@ -180,7 +184,8 @@ contains
         if ( .not. ( abs(det) > 1d-12 * hm ) ) then
           write(*,'(A,I0,A,ES12.4,A,ES12.4)') ' [ERROR] Mesh'//trim(lev)//' block ', b, &
             ', cell 1 1 1: degenerate, so the block has no orientation; det = ', det, ', |A1| |A2| |A3| = ', hm
-          call mpi_abort_all ( 'degenerate cell in the mesh (see above)' )
+          bad = .true.
+          return
         end if
         s = sign ( 1d0, det )
         do k = 1, n(3); do j = 1, n(2); do i = 1, n(1)
@@ -199,7 +204,8 @@ contains
                                                ', sign of the block (from its first cell): ', nint(s)
             write(*,'(A)') ' [ERROR]   At every corner of a cell the edges along i, j and k must keep the orientation of the block.'
             write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node:', node(i-1+ca, j-1+cb, k-1+cc)%c
-            call mpi_abort_all ( 'folded cell in the mesh (see above)' )
+            bad = .true.
+            return
           enddo; enddo; enddo
         enddo; enddo; enddo
       end associate

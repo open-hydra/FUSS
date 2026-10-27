@@ -34,7 +34,7 @@ contains
   !>    thickness, stops the run: its nodes are written with too few digits to tell its type, or its k planes are neither
   !>    parallel nor turned about the x axis.
   subroutine Check_Mesh_Type( domain )
-    use FUSS_Mod_MPI, only: mpi_abort_all
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -72,13 +72,13 @@ contains
         write(msg,'(A,I0,A,ES10.3,A,ES9.2,A)') '[ERROR] Mesh type: block ', b, ' is nearer a wedge of angle ', ang_b, &
           ' rad than a plane block, but its nodes match the turn only to ', fit, ' of its thickness (1e-2 needed):'// &
           ' write the node coordinates with more significant digits'
-        call mpi_abort_all ( trim(msg) )
+        call mpi_stop_all ( trim(msg) )
       end if
       if ( nearer_move .and. .not. moved ) then
         write(msg,'(A,I0,A,ES9.2,A)') '[ERROR] Mesh type: block ', b, ' is nearer a plane block than a wedge, but its'// &
           ' k = 1 node plane is the k = 0 plane translated only to ', fit_move, ' of its thickness (1e-2 needed):'// &
           ' its k planes must be parallel, or the coordinates written with more significant digits'
-        call mpi_abort_all ( trim(msg) )
+        call mpi_stop_all ( trim(msg) )
       end if
       if ( .not. turned ) cycle
       nturn = nturn + 1
@@ -87,7 +87,7 @@ contains
       elseif ( abs ( ang_b - ang ) > ETA * abs ( ang ) ) then
         write(msg,'(A,I0,A,ES12.5,A,ES12.5,A)') '[ERROR] Mesh type: block ', b, ' is a wedge of angle ', ang_b, &
           ' rad, another block one of ', ang, ' rad'
-        call mpi_abort_all ( trim(msg) )
+        call mpi_stop_all ( trim(msg) )
       end if
     enddo
     if ( nturn == nb ) then
@@ -95,7 +95,7 @@ contains
     elseif ( nturn > 0 ) then
       write(msg,'(A,I0,A,I0,A)') '[ERROR] Mesh type: ', nturn, ' of the ', nb, &
         ' blocks of the 2-D mesh are axisymmetric wedges (k = 1 plane turned about the x axis), the others are not'
-      call mpi_abort_all ( trim(msg) )
+      call mpi_stop_all ( trim(msg) )
     end if
 
   contains
@@ -397,13 +397,9 @@ contains
   !> the cells of its own blocks, so the ranks take the decision together (the largest of a flag) before the stop.
   !> Setup_Metrics calls it on every rank, outside its parallel regions.
   subroutine Stop_On_Bad_Metric ( )
-    use FUSS_Mod_MPI, only: mpi_allreduce_max_r8, mpi_abort_all
+    use FUSS_Mod_MPI, only: mpi_stop_if_any
     implicit none
-    real(R8) :: flag, flag_all
-
-    flag = merge ( 1d0, 0d0, bad_metric )
-    call mpi_allreduce_max_r8 ( flag, flag_all )
-    if ( flag_all > 0d0 ) call mpi_abort_all ( 'degenerate or inverted cell (see above)' )
+    call mpi_stop_if_any ( bad_metric, 'degenerate, inverted or folded cell (see above)', '' )
   end subroutine Stop_On_Bad_Metric
 
 
