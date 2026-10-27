@@ -15,6 +15,7 @@ subroutine Check_Multigrid ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_multigrid
     use ir_precision, only: str
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -33,7 +34,7 @@ subroutine Check_Multigrid ( domain )
       if ( check < 3 ) then
         write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels needs block cells '// &
                        'divisible by '//trim(str(.true.,rap))//'; block '//trim(str(.true.,b))//' is not'
-        error stop 'multigrid: block cells not divisible'
+        call mpi_stop_all('multigrid: block cells not divisible')
       endif
       ! The coarsest level needs at least 2 cells per coarsened direction
       do d = 1, 3
@@ -41,7 +42,7 @@ subroutine Check_Multigrid ( domain )
           write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels leaves block '// &
                          trim(str(.true.,b))//' with '//trim(str(.true.,domain % Blk(b) % Dim(d) / rap))// &
                          ' cell in direction '//trim(str(.true.,d))//' on the coarsest level; at least 2 are needed'
-          error stop 'multigrid: coarsest level thinner than 2 cells'
+          call mpi_stop_all('multigrid: coarsest level thinner than 2 cells')
         endif
       enddo
     enddo

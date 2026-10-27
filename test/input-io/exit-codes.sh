@@ -37,8 +37,11 @@ rod probe-block; sed -i -E 's|^index-position = 1 90 1 1|index-position = 5 90 1
 rod probe-index; sed -i -E 's|^index-position = 1 90 1 1|index-position = 1 900 1 1|' "$WORK/probe-index/input.ini"; go probe-index 'probe index-position 900 outside block 1'
 rod probe-var;   sed -i -E '0,/^variables = T/s//variables = T Z/' "$WORK/probe-var/input.ini"; go probe-var 'unknown probe variable "Z"'
 
-# FAS cycle with one level; multigrid levels that the blocks cannot divide are checked at commit 9 (Lib_Multigrid)
+# FAS cycle with one level; multigrid levels that the blocks cannot divide or leave thinner than 2 cells; a divergence
 nominal fas-levels; printf '\n[FUSS-Multigrid]\ncycle = w\n' >> "$WORK/fas-levels/input.ini"; go fas-levels 'cycle needs levels >= 2'
+
+nominal mg-divisible; printf '\n[FUSS-Multigrid]\nlevels = 4\nlevel1-iter = 5\nlevel2-iter = 5\nlevel3-iter = 5\nlevel4-iter = 5\n' >> "$WORK/mg-divisible/input.ini"; go mg-divisible 'multigrid with 4 levels'
+nominal diverge; setkey "$WORK/diverge" vnn 1.4 FUSS-Numerics; setkey "$WORK/diverge" iter-threshold 400; go diverge 'NaN or T outside the properties table'
 
 # the initial condition: a file that is missing; a restart without the solution
 plate ic-missing; rm "$WORK/ic-missing/INPUT/ic.tec"; go ic-missing 'reading input file'

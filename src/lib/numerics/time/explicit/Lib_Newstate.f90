@@ -364,16 +364,17 @@ contains
 
   subroutine Check_And_Fix_State ( T, b, i, j, k )
     use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Mod_MPI, only: stop_from_thread
     implicit none
     real(R8), intent(in) :: T
     integer, intent(in)  :: b, i, j, k
 
-    ! error stop (non-zero exit), not mpi_abort_all: this runs in OpenMP threads, MPI is FUNNELED
+    ! stop_from_thread (exit code 1), not mpi_stop_all or mpi_abort_all: this runs in OpenMP threads, MPI is FUNNELED
     if ( .not. Admissible_T( T ) ) then
       write(*,'(A,4I5)') ' [ERROR] Integration failed at b, i, j, k:', b, i, j, k
       write(*,'(A,ES14.6,A,I0,A,I0,A)') ' [ERROR] T = ', T, ' K, outside the properties table [', &
         obj_table%Tmin, ', ', obj_table%Tmax, ') K'
-      error stop 'NaN or T outside the properties table'
+      call stop_from_thread('NaN or T outside the properties table')
     endif
 
   end subroutine Check_And_Fix_State

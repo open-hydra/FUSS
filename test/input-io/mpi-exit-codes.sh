@@ -53,4 +53,11 @@ until [[ -f $WORK/runtime/OUTPUT/field1.tec ]] || ! kill -0 $pid 2>/dev/null; do
 wait $pid
 both runtime-stop runtime 'vnn must be > 0' solutions-ok
 
+# 6. a divergence found inside the OpenMP loop of the time step: the rank that finds it ends with exit code 1 (stop_from_thread,
+# no MPI call there) and the launcher ends the other rank, no hang
+base diverge; setkey "$WORK/diverge" vnn 1.4 FUSS-Numerics; setkey "$WORK/diverge" iter-threshold 400
+( cd "$WORK/diverge" && timeout 120 mpirun -np 2 "$BIN" > run.log 2>&1; echo $? > exit.code )
+c=$(code "$WORK/diverge")
+if [[ $c == 1 ]] && grep -q 'STOP: NaN or T outside the properties table' "$WORK/diverge/run.log"; then case_result diverge 0 "exit 1, STOP line"; else case_result diverge 1 "exit code $c"; fi
+
 finish

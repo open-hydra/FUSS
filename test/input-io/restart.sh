@@ -98,6 +98,12 @@ if [[ $GROUP == core || $GROUP == all ]]; then
   if [[ $(code "$WORK/src-A") == 0 && $(code "$WORK/src-B") == 0 && $nd == 0 ]]; then case_result source-ic-format 0 "0 differing files"
   else case_result source-ic-format 1 "exit $(code "$WORK/src-B"), $nd differing files"; fi
 
+  # the .vtm of the field, wall and diagnostic files list their block files relative to their own folder (vtk/<name>.vts)
+  prep $R/nominal "$WORK/vtm"; iters "$WORK/vtm" 10; fmt "$WORK/vtm" "vtk raw"; run "$WORK/vtm"
+  bad=$(grep -h 'file="' "$WORK"/vtm/OUTPUT/*.vtm | grep -vc 'file="vtk/[A-Za-z0-9_-]*\.vts"')
+  nv=$(grep -h 'file="' "$WORK"/vtm/OUTPUT/*.vtm | wc -l)
+  if [[ $(code "$WORK/vtm") == 0 && $bad == 0 && $nv -gt 0 ]]; then case_result vtm-entries 0 "$nv entries relative to the .vtm"; else case_result vtm-entries 1 "exit $(code "$WORK/vtm"), $bad entries of $nv not vtk/<name>.vts"; fi
+
   # a vtk solution without TIME, and one with a counter that is not finite, stop at set-up; the vts in ascii are editable
   prep $R/nominal "$WORK/bad"; setkey "$WORK/bad" res-threshold 1e-30; iters "$WORK/bad" 10; fmt "$WORK/bad" "vtk ascii"; run "$WORK/bad"
   cp -a "$WORK/bad" "$WORK/bad-notime"; cp -a "$WORK/bad" "$WORK/bad-nan"

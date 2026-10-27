@@ -12,6 +12,7 @@ contains
     use FUSS_Config_Types_m, only: obj_io
     use FUSS_Global_m
     use Lib_ORION_data
+    use FUSS_Mod_MPI, only: mpi_stop_all
     
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -35,7 +36,8 @@ contains
     if ( size(IOfield%block(1)%vars, 1) < 3 ) then
       write(*,'(A)')         '[ERROR] Number of variables in IOfield does not match FUSS expectation.'
       write(*,'(A,I0,A,I0)') '        Expected: ', 3, ', Found: ', size(IOfield%block(1)%vars, 1)
-      stop
+      ! Every rank read the same file: the ranks stop together, with exit code 1 (a bare stop ended with exit code 0)
+      call mpi_stop_all('initial condition has too few variables (see above)')
     end if
 
     do b = 1, nblocks

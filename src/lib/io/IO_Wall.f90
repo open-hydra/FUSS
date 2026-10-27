@@ -99,6 +99,7 @@ contains
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
     character(len=llen) :: vtknames
+    character(len=llen) :: name
     integer             :: E_IO, lv
     character(len=clen) :: format(2)
 
@@ -116,11 +117,16 @@ contains
       select case(trim(format(1)))
       case('vtk')
         IOwall(lv)%vtk%format = trim(format(2))
+        ! The .vtm lists the block files relative to its own folder: the leading '/' of file is dropped, as for the field
+        ! files (IO_Solution); the time is the solution time of the Tecplot outputs, minus the global iteration count in a
+        ! steady run (it was the -1 of domain%time)
+        name = file
+        if ( name(1:1) == '/' ) name = name(2:)
         localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
         vtknames = unquoted(obj_io%Owallnames)
-        E_IO = vtk_write_structured_multiblock(orion=IOwall(lv),vtspath=trim(localpath_vtk)//trim(file), &
-                                                             vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
+        E_IO = vtk_write_structured_multiblock(orion=IOwall(lv),vtspath=trim(localpath_vtk)//trim(name), &
+                                               vtmpath=trim(path)//trim(name),varnames=vtknames,time=IOwall(lv)%solutiontime)
       case('tecplot')
         IOwall(lv)%tec%format = trim(format(2))
         E_IO = tec_write_structured_multiblock(orion=IOwall(lv),varnames=obj_io%Owallnames,filename=trim(path)//trim(file)//trim(IOwall(lv)%tec%extension))
