@@ -1,0 +1,133 @@
+# CTest of FUSS on GitHub: the PR tier under gfortran (every test but the MPI tier and the full forms of the verification
+# cases) and the MPI tier under gfortran + Open MPI, modelled on MOSE's ctest.yml (hydra sync 2026-10). The comments
+# marked FUSS: say where this file differs from MOSE's. docs.yml (mkdocs deploy) is separate.
+name: CTest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  # The verifier scripts import pyplot unconditionally; keep them headless.
+  MPLBACKEND: Agg
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # FUSS: lib/ORION (ORION a978930), lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor}: seven submodules, none
+          # nested (the layout of the pins theme). CMake would try `git submodule update --init` itself when one is missing
+          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner.
+          submodules: recursive
+
+      - name: Install system dependencies
+        # FUSS: gcc and g++ come with the image (project(FUSS LANGUAGES Fortran CXX C): ORION and FiNeR need the three
+        # compilers); cmake >= 3.23 (cmake_minimum_required) is the image's. No Cantera, no SUNDIALS, no TecIO.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        # FUSS: the verify.py scripts and the checkers of test/ import numpy and matplotlib and the standard library
+        # (fractions, decimal, json, ...) only: no scipy, no sympy, no ExactPack (MOSE needs them for its reference solutions).
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy matplotlib
+
+      - name: Configure
+        # FUSS: USE_TECIO=OFF has to be given. The option is ORION's (lib/ORION/CMakeLists.txt:30, default ON): left out, ORION
+        # builds TecIO, which needs more than the runner has. The tests that need TecIO (RestartBinary, the .szplt restart) are
+        # registered only when it is ON (test/CMakeLists.txt, `if (USE_TECIO)`), so no label has to exclude them.
+        # TESTING is the -O2 build type of cmake/SetFortranFlags.cmake (-march=native is added to every type: the build and
+        # the tests run on the same machine of the job).
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=TESTING \
+            -DCMAKE_Fortran_COMPILER=gfortran \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DUSE_OPENMP=ON \
+            -DUSE_MPI=OFF \
+            -DUSE_TECIO=OFF
+
+      - name: Build
+        # FUSS: the binary goes to bin/ of the source tree (src/app/CMakeLists.txt), the tests find it as $<TARGET_FILE:FUSS>.
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Run tests
+        # The PR tier: the 37 tests of a build without MPI and TecIO (21 fast, 14 validation, 15 smoke, as labelled by
+        # ctest_alignment.patch), minus the full forms of the verification cases (label verification: none registered yet, so
+        # the exclusion costs nothing). FUSS has no needs-cantera and needs-sundials. The longest test is ConvectivePlate
+        # (about two minutes at one thread; TIMEOUT 1200 in its registration).
+        run: >
+          ctest --test-dir build --output-on-failure --timeout 300
+          --label-exclude "needs-mpi|verification"
+
+  test-mpi:
+    # gfortran with the MPI library of Ubuntu (Open MPI): the build with USE_MPI=ON and the needs-mpi tier, which the job above
+    # does not register.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran libopenmpi-dev openmpi-bin
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy matplotlib
+
+      - name: Configure
+        # FUSS: Mod_MPI.f90 is compiled with -fallow-argument-mismatch (src/lib/CMakeLists.txt:27-29, parallel theme c581f84) for
+        # gfortran >= 10: it is what an `mpi` module without ignore-TKR interfaces (Intel MPI's) needs; with Open MPI's module
+        # it is harmless. The SetFortranFlags flag -fno-underscoring is on with gfortran, as in MOSE: this job passes only if
+        # Open MPI's Fortran library exports the lower-case names without a trailing underscore too (MOSE's own test-mpi job
+        # has the same flag and passes; with Intel MPI's library the link of FUSS fails, see ctest_alignment.md section 7).
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=TESTING \
+            -DCMAKE_Fortran_COMPILER=gfortran \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DUSE_OPENMP=ON \
+            -DUSE_MPI=ON \
+            -DUSE_TECIO=OFF
+
+      - name: Build
+        run: cmake --build build --parallel $(nproc)
+
+      - name: Run MPI tests
+        # FUSS: the tests launch `mpirun` themselves (run_case.sh --mpi N, input-io/lib.sh, mpi/bit-identity/run.sh), up to 4 ranks
+        # (2x2 ranks x threads in MPIBitIdentity); the runner has 4 cores, but let Open MPI run more ranks than the runner has
+        # cores for safety (Open MPI 4 and Open MPI 5 read different variables), as MOSE does. The tests set
+        # OMP_NUM_THREADS themselves.
+        env:
+          OMPI_MCA_rmaps_base_oversubscribe: "1"
+          PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
+        run: >
+          ctest --test-dir build --output-on-failure --timeout 900
+          --label-regex needs-mpi --no-tests=error
