@@ -213,6 +213,7 @@ contains
           endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%qw
+          if (cios==0) call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%qw ], 'q_wall' )
           if (cios/=0) then
             call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
@@ -230,6 +231,7 @@ contains
           endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%Tw
+          if (cios==0) call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%Tw ], 'T_wall' )
           if (cios/=0) then
             call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
@@ -242,6 +244,7 @@ contains
           call Next_Line ( unitfile, pline, ios, nline )
           if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
           call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
         
         case(304)
@@ -251,6 +254,7 @@ contains
           call Next_Line ( unitfile, pline, ios, nline )
           if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%eps, bc(i)%Tref
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%eps, bc(i)%Tref ], 'eps Tref' )
           call Need_R ( i, bc(i)%type, nline, [ bc(i)%eps, bc(i)%Tref ], 'eps Tref' )
 
         case(305)
@@ -260,6 +264,7 @@ contains
           call Next_Line ( unitfile, pline, ios, nline )
           if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
           call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
 
         case(102,104)
@@ -279,6 +284,7 @@ contains
             if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
             if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
             call Need_I ( i, bc(i)%type, nline, bc(i)%donorID(s,1:4), 'bD iD jD kD' )
+            call Need_Finite ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
             call Need_R ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
           enddo
           if (bc(i)%type == 104) then
@@ -462,6 +468,33 @@ contains
     end do
 
   end subroutine Need_I
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Need_Finite: stop every rank on the first of the values v of record n, type btype, line nline of the file that is not
+  !   finite (NaN or infinity): the numbers of a property line. names as for Need_R. The test reads the bits of each value
+  !   (Not_Finite), and comes before the test of EMPTY (Need_R): every comparison with a NaN is false, so that test lets a
+  !   NaN through, and with -ffast-math, an option of the RELEASE build, the compiler can take a NaN for EMPTY.
+  subroutine Need_Finite ( n, btype, nline, v, names )
+    use FUSS_Finite_m, only: Not_Finite
+    use FUSS_Mod_MPI,  only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    real(R8), intent(in)         :: v(:)
+    character(len=*), intent(in) :: names
+    ! Local
+    integer :: k
+    character(len=240) :: msg
+
+    do k = 1, size(v)
+      if ( Not_Finite ( v(k) ) ) then
+        write(msg,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, &
+          '): the value of '//trim(Name_Of ( names, k ))//' is not finite (NaN or infinity)'
+        call mpi_stop_all ( trim(msg) )
+      end if
+    end do
+
+  end subroutine Need_Finite
 
 
   !─────────────────────────────────────────────────────────────────────────────

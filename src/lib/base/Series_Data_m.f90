@@ -19,7 +19,8 @@ contains
 
   !> Reads a time table. Every rank reads the same file, so an error stops every rank together (mpi_stop_all, exit code 1).
   subroutine initialize(self,file)
-    use FUSS_Mod_MPI, only: mpi_stop_all
+    use FUSS_Mod_MPI,  only: mpi_stop_all
+    use FUSS_Finite_m, only: Not_Finite
     implicit none
     class(time_series_type), intent(inout) :: self
     character(len=*), intent(in)     :: file
@@ -55,6 +56,12 @@ contains
       if (ios /= 0) then
         write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": cannot read row ', i
         call mpi_stop_all('bad time table row')
+      endif
+      ! Every time and every value is finite. A NaN passes every comparison as false: the check of the times below lets a NaN
+      ! time through. Not_Finite reads the bits, with no such operation
+      if (Not_Finite(self%time(i)) .or. Not_Finite(self%var(i))) then
+        write(*,'(A,I0,A)') ' [ERROR] time table "'//trim(file)//'", row ', i, ': a value that is not finite (NaN or infinity)'
+        call mpi_stop_all('time table value not finite')
       endif
       if (i > 1) then
         if (self%time(i) <= self%time(i-1)) then

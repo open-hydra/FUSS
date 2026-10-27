@@ -65,6 +65,9 @@ contains
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
+    ! Every value that the initial condition gives the domain is finite, before the state is tested and the coarse
+    ! levels are built from it
+    call Check_IC_Values ( simulation%domain(1) )
     call Check_State ( simulation%domain(1) )
 
     ! With multigrid, allocate Grid and IOfield 2,...,MGL
@@ -274,6 +277,54 @@ contains
       endif
 
     end subroutine Check_IC
+
+
+    !> The initial condition, or the solution that a restart reads, gives the domain the coordinates of its nodes and the
+    !> temperature, the material and the heat source of its cells, and a value there that is not finite (NaN, infinity)
+    !> stops the run at set-up, with the place of the value. Not_Finite reads the bits of each value, an operation on
+    !> integers that raises no floating-point exception: a test by comparison would stop a build that traps the invalid
+    !> operations (the DEBUG build) with SIGFPE at the first such operation on the value, and -ffast-math cannot fold the
+    !> test away. Each rank checks the values it holds; the ranks decide together (mpi_stop_if_any), the first rank that
+    !> found a value writes it, and every rank stops: exit code 1, in every build.
+    subroutine Check_IC_Values ( domain )
+      use FUSS_Advanced_Types_m
+      use FUSS_Finite_m, only: Not_Finite
+      use FUSS_Mod_MPI,  only: mpi_stop_if_any
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      ! Local
+      character(len=1), parameter :: axis(3) = ['x', 'y', 'z']
+      character(len=hlen) :: what
+      integer :: b, i, j, k, d
+
+      what = ''
+      blocks: do b = 1, domain%nb
+        do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 0, domain%blk(b)%dim(1)
+          do d = 1, 3
+            if ( Not_Finite( domain%blk(b)%node(i,j,k)%c(d) ) ) then
+              write(what,'(3A,I0,A,2(I0,A),I0)') 'coordinate ', axis(d), ' of block ', b, ', node i, j, k = ', i, ', ', j, ', ', k
+              exit blocks
+            endif
+          enddo
+        enddo; enddo; enddo
+        do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+          if ( Not_Finite( domain%blk(b)%T(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'T of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          elseif ( Not_Finite( domain%blk(b)%matID(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'matID of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          elseif ( Not_Finite( domain%blk(b)%qvol(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'qvol of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          endif
+        enddo; enddo; enddo
+      enddo blocks
+
+      call mpi_stop_if_any ( len_trim(what) > 0, 'initial condition error (see above)', &
+        '[ERROR] '//trim(obj_io%nameinit)//' holds a value that is not finite (NaN or infinity): '//trim(what) )
+
+    end subroutine Check_IC_Values
 
 
     !> The initial field must be admissible: every matID a table index, every T inside the table. Each rank checks the

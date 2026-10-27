@@ -14,6 +14,14 @@ function(fuss_add_test NAME DIR TIMEOUT LABELS)
   set_tests_properties(${NAME} PROPERTIES LABELS "${LABELS}" TIMEOUT ${TIMEOUT})
 endfunction()
 
+# Scripts of input-io/ (input checks, stops, restart, decomposition map): fuss_add_script(NAME SCRIPT TIMEOUT LABELS [args]);
+# each runs `bash SCRIPT <FUSS binary> <work folder> [args]` on copies of the test cases and prints one CASE line per check
+function(fuss_add_script NAME SCRIPT TIMEOUT LABELS)
+  add_test(NAME ${NAME}
+           COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/input-io/${SCRIPT} $<TARGET_FILE:${solver}> ${_WORK}/${NAME} ${ARGN})
+  set_tests_properties(${NAME} PROPERTIES LABELS "${LABELS}" TIMEOUT ${TIMEOUT})
+endfunction()
+
 # Verification cases (analytic or reference solutions)
 fuss_add_test(QvolPlate          steady-state/qvol_Plate          300 "fast;validation" --verify)
 fuss_add_test(TemperaturePlate   steady-state/temperature_Plate   300 "fast;validation" --verify)
@@ -39,6 +47,12 @@ fuss_add_test(TimeConvergence  numerics-features/time_convergence/simdir 300 "sm
 # must reproduce the plain multigrid run byte for byte
 fuss_add_test(MultigridNoneInert numerics-features/residual_convergence/mg3 300 "smoke" --iters 300 --none-inert)
 
+# Input checks and stops: the values of input.ini are checked and every error ends the run with exit code 1; input.ini read
+# again during the run (ini-error); the errors of bc.txt, time tables, probes, the initial condition and the registry
+fuss_add_script(InputChecks  input-checks.sh  300 "fast")
+fuss_add_script(RuntimeInput runtime-input.sh 300 "fast")
+fuss_add_script(ExitCodes    exit-codes.sh    300 "fast")
+
 # Material jumps inside a block: the 4-layer liner at vnn 1.0 (series face conductivities and the
 # face-conductivity time step)
 fuss_add_test(MultimatLiner    numerics-features/multimat_liner     300 "smoke" --iters 300)
@@ -61,4 +75,6 @@ if (USE_MPI)
   add_test(NAME MPIBitIdentity
            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/mpi/bit-identity/run.sh $<TARGET_FILE:${solver}> ${_WORK}/MPIBitIdentity)
   set_tests_properties(MPIBitIdentity PROPERTIES LABELS "needs-mpi" TIMEOUT 900)
+  fuss_add_script(MPIRuntimeInput mpi-runtime-input.sh 300 "needs-mpi")
+  fuss_add_script(MPIExitCodes    mpi-exit-codes.sh    300 "needs-mpi")
 endif()

@@ -350,11 +350,12 @@ contains
   ! T the property lookups can evaluate (they read the entries int(T) and int(T)+1): Tmin <= T < Tmax
   logical function Admissible_T ( T )
     use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Finite_m, only: Not_Finite
     implicit none
     real(R8), intent(in) :: T
 
     Admissible_T = .false.
-    if ( isnan(T) ) return
+    if ( Not_Finite(T) ) return
     if ( T < real(obj_table%Tmin, R8) .or. T >= real(obj_table%Tmax, R8) ) return
     Admissible_T = .true.
 
