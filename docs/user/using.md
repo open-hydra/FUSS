@@ -158,7 +158,7 @@ FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-0
 | `field-level<n>.*`, `wall-level<n>.*` | Multigrid: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
 | `field-prolongated.*`, `wall-prolongated.*` | Multigrid: the coarse solution prolongated to the finest level, written with the coarse-level output (see `prolongated-diter`) |
 
-The final solution of a run is always written to `field.*`. The field and wall files carry the iteration (steady runs) or the time (time-accurate runs) as their solution time. A restart from a Tecplot ASCII or VTK file continues from it; A steady solution is stamped with minus its iteration count (a negative `SOLUTIONTIME`, no `STRANDID`); ORION's binary reader (`.szplt`) returns the time, so a restart from `tecplot binary` output continues from it. The text formats (`tecplot ascii`, `vtk ascii`) write every real with 17 significant digits, so a text restart reproduces the field exactly.
+The final solution of a run is always written to `field.*`; the solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written before it, with its number and its wall and diagnostic files, so a run that ends on an output iteration leaves the same files as one that goes on. The field and wall files carry the solution time: the physical time of a time-accurate run, minus the global iteration count of a steady one (a negative `SOLUTIONTIME`, no `STRANDID`, in Tecplot; the `TIME` field data in vtk). Every field file also stores the counters a restart needs: `CYCLE` (the global iteration count) and `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`, as field data in the vtk block files, as `DATASETAUXDATA` records after the last zone of a Tecplot ASCII file (five lines) and as auxiliary data of a `.szplt`. A script that reads a `.tec` file must stop at the first line that is not a number. The `.vtm` lists its block files relative to its own folder (`vtk/fieldBlock1.vts`). The text formats (`tecplot ascii`, `vtk ascii`) write every real with 17 significant digits and `.szplt` stores 64-bit values, so a restart reproduces the field exactly in every format (see [Restart](initial-conditions.md#restart)).
 
 ### Formats
 
@@ -203,13 +203,19 @@ dtime = 1.0e-1
 | `dtime` | Write at the multiples of `dtime` seconds of simulated time (at most once per step, from the first multiple after the start or restart time) |
 | `diter` | Write every `diter` iterations |
 
-Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above), one line per record: the time (or the iteration, for `diter` records) followed by the variables. A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart). The last step of the run is always sampled when its time or iteration matches.
+Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above), one line per record: the time (or the iteration, for `diter` records) followed by the variables. A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart); the rows written after the solution a restart reads are dropped first. The time-based rows fall on the multiples of `dtime`, counted with an integer, so a restart on an exact multiple writes the rows of the uninterrupted run. Every row of `residual-history.dat` and of the probe files is flushed when it is written, so a run that is killed leaves every row it wrote; the files are closed before MPI ends. The last step of the run is always sampled when its time or iteration matches.
 
 ---
 
 ## Restart
 
-Set `newrun = false` in `[FUSS-Parameters]`: FUSS restarts from `OUTPUT/field.*` (or, when it is missing, from the last `OUTPUT/field<n>.*`) in `sol-format`. The thresholds (`res-threshold`, `time-threshold`, `iter-threshold`) can be changed before restarting. What is read back is described in [Initial Conditions](initial-conditions.md#restart).
+Set `newrun = false` in `[FUSS-Parameters]`: FUSS restarts from `OUTPUT/field.*` (or, when it is missing, from the last `OUTPUT/field<n>.*`) in `sol-format`. The thresholds (`res-threshold`, `time-threshold`, `iter-threshold`) can be changed before restarting. What is read back is described in [Initial Conditions](initial-conditions.md#restart): a run split in two and restarted writes the files of the run in one go.
+
+---
+
+## Exit Codes
+
+Every error that stops the run ends it with **exit code 1**, after writing the message and flushing the output; a run that ends well has exit code 0. The line `[RANK r] STOP: <message>` names the stop (`STOP: <message>` in a serial build), and an `[ERROR]` line above it says where: the file, the line or the key and the value. With MPI every rank stops together. The errors are those of the input file, the material tables, `bc.txt` (the file, the line, the record and the type), the time tables, the initial condition or the restart solution (including a value that is not finite, and a solution without a time), the probes, the FAS and multigrid settings, a decomposition map, and the state check of the time step (a temperature that is NaN or outside the properties table, found inside the OpenMP loop: the run ends with exit code 1 on that rank and the launcher ends the others). No solution is written by a run that stops at set-up.
 
 ---
 
