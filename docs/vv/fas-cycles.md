@@ -209,8 +209,8 @@ the material jumps inside both blocks (so 2 ranks each own a block).
 
 On the code of the FAS review this case was the one that would not behave: the explicit
 baseline died at the liner → jacket interface within a few steps at `vnn = 0.25` (T < 0 K),
-plain IRS at `vnn = 1.0` or `0.5` locked into a bounded residual orbit with its admissibility
-fallback firing on ~4·10⁵ cell updates per report, the cycles inherited the orbit whenever IRS
+plain IRS at `vnn = 1.0` or `0.5` locked into a bounded residual orbit with the IRS admissibility
+fallback of that time (removed in October 2026, decision D2) firing on ~4·10⁵ cell updates per report, the cycles inherited the orbit whenever IRS
 was on, and only `v` / `w` without IRS at `vnn = 0.1` converged (8 362 and 7 222 iterations,
 against 1 259 270 for the baseline). **Both symptoms were one defect in the face flux, not in
 the cycles.** An interior face took the conductivity of the lower-index cell's material: at the
@@ -218,7 +218,7 @@ the cycles.** An interior face took the conductivity of the lower-index cell's m
 carried the copper-side transmissibility, 10.5 times the series value of the two half cells)
 while its time step was built on k = 15, so every explicit update at that face violated the
 stability bound — a crash without IRS, the admissibility orbit with it (the fallback was the
-symptom). The steady field was wrong too: against a reference with each layer in its own block,
+symptom; since its removal such an update stops the run). The steady field was wrong too: against a reference with each layer in its own block,
 where the 101 connections always balanced the two half cells in series, the single-block
 solution was off by 35.7 K.
 

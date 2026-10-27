@@ -5,15 +5,16 @@ module FUSS_Lib_Newstate
   private
   public :: Newstate_Conservative, Newstate_Primitive
 
-  !> IRS fallbacks of this rank (cell updates that took their own residual), reported and reset by
-  !> FUSS_postprocess every shell-diter iterations.
-  integer, public :: irs_fallbacks = 0
-
   !> FAS coarse-level updates halved because the forcing pushed T outside the table (no-IRS
-  !> conservative path, which otherwise error-stops); reported and reset like irs_fallbacks.
+  !> conservative path, which otherwise stops); reported and reset by FUSS_postprocess every
+  !> shell-diter iterations.
   integer, public :: fas_update_fallbacks = 0
 
-  integer, parameter, public :: IRS_HALVINGS = 10   ! an update is halved down to 2**-10, then not applied
+  !> The FAS guards (the prolongated correction in Lib_Multigrid, the coarse smoothing update here)
+  !> halve down to 2**-10, then do not apply. The IRS admissibility fallback that used the same
+  !> constant was removed in October 2026 (decision D2 of the hydra sync, as MOSE): a smoothed
+  !> update that leaves the properties table stops the run like an explicit one.
+  integer, parameter, public :: FAS_HALVINGS = 10
   public :: Admissible_T
 
 contains
@@ -115,45 +116,29 @@ contains
         residual = ( - residual/volume + qvol) * dt
       end subroutine Scale_Residual_Cons
 
-      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table is
-      ! halved until admissible, else not applied: falling back to the cell's own explicit
-      ! update (the behaviour until d730ef8) reintroduced exactly the unsmoothed update IRS
-      ! exists to stabilise, and on a stiff multimaterial mesh it locked the run into a
-      ! bounded residual orbit.
+      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table stops
+      ! the run, as an explicit one does (Check_And_Fix_State): the halving fallback of 2026-10-14
+      ! was removed in October 2026 (decision D2 of the hydra sync, as MOSE a24a236).
       subroutine Update_State_Cons_IRS( T, TO, matID, residual, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T, residual
         real(R8), intent(in)    :: TO, matID
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
         ! Local
-        real(R8) :: hO, h, Tnew, theta
-        integer  :: n
+        real(R8) :: hO, h
 
         call co_H( matID, TO, hO )
         call co_H( matID, T, h )
 
-        call co_T( matID, RK_stage ( irk, n_rk, h, hO, residual ), Tnew )
-
-        if ( .not. Admissible_T( Tnew ) ) then
-          !$omp atomic
-          irs_fallbacks = irs_fallbacks + 1
-          theta = 0.5d0
-          do n = 1, IRS_HALVINGS
-            call co_T( matID, RK_stage ( irk, n_rk, h, hO, theta * residual ), Tnew )
-            if ( Admissible_T( Tnew ) ) exit
-            theta = 0.5d0 * theta
-          enddo
-          if ( .not. Admissible_T( Tnew ) ) call co_T( matID, RK_stage ( irk, n_rk, h, hO, 0d0 ), Tnew )
-        endif
-
-        T = Tnew
+        call co_T( matID, RK_stage ( irk, n_rk, h, hO, residual ), T )
         call Check_And_Fix_State( T, b, i, j, k )
 
       end subroutine Update_State_Cons_IRS
 
       ! Full compute+update without IRS. On a FAS coarse level (guarded = the level carries a
-      ! forcing) an update that leaves the properties table is halved until admissible, like the
-      ! IRS fallback, instead of stopping the run.
+      ! forcing) an update that leaves the properties table is halved until admissible (at most
+      ! FAS_HALVINGS times, then not applied) instead of stopping the run: a forced coarse
+      ! problem is not a physical time evolution.
       subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k, guarded )
         implicit none
         real(R8), intent(inout) :: T, residual
@@ -178,7 +163,7 @@ contains
           !$omp atomic
           fas_update_fallbacks = fas_update_fallbacks + 1
           theta = 0.5d0
-          do n = 1, IRS_HALVINGS
+          do n = 1, FAS_HALVINGS
             call co_T( matID, RK_stage ( irk, n_rk, h0stage, hO, theta * residual ), T )
             if ( Admissible_T( T ) ) exit
             theta = 0.5d0 * theta
@@ -298,31 +283,15 @@ contains
 
       end subroutine Compute_Prim_Residual
 
-      ! Apply the RK stage after IRS smoothing, with the halving fallback of Update_State_Cons_IRS
+      ! Apply the RK stage after IRS smoothing; an update outside the table stops the run, as
+      ! in Update_State_Cons_IRS
       subroutine Update_State_Prim_IRS ( T, TO, residual, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T
         real(R8), intent(in)    :: TO, residual
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
-        ! Local
-        real(R8) :: Tnew, theta
-        integer  :: n
 
-        Tnew = RK_stage ( irk, n_rk, T, TO, residual )
-
-        if ( .not. Admissible_T( Tnew ) ) then
-          !$omp atomic
-          irs_fallbacks = irs_fallbacks + 1
-          theta = 0.5d0
-          do n = 1, IRS_HALVINGS
-            Tnew = RK_stage ( irk, n_rk, T, TO, theta * residual )
-            if ( Admissible_T( Tnew ) ) exit
-            theta = 0.5d0 * theta
-          enddo
-          if ( .not. Admissible_T( Tnew ) ) Tnew = RK_stage ( irk, n_rk, T, TO, 0d0 )
-        endif
-
-        T = Tnew
+        T = RK_stage ( irk, n_rk, T, TO, residual )
         call Check_And_Fix_State( T, b, i, j, k )
 
       end subroutine Update_State_Prim_IRS

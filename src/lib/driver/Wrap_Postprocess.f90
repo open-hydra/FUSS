@@ -32,7 +32,7 @@ contains
     use FUSS_Mod_Multigrid,  only: Prolongation
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
-    use FUSS_Lib_Newstate,   only: irs_fallbacks, fas_update_fallbacks
+    use FUSS_Lib_Newstate,   only: fas_update_fallbacks
     use FUSS_Lib_Multigrid,  only: fas_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
     use IR_precision
@@ -289,16 +289,8 @@ contains
 
     endif
 
-    ! IRS fallbacks (Lib_Newstate) since the last report, summed over the ranks
-    if ( obj_irs%at_setup .and. mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
-      nfall = real(irs_fallbacks, R8)
-      call mpi_reduce_sum_r8( nfall )
-      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: ', &
-        nint(nfall), ' smoothed updates halved or dropped since the last report, level ', level
-      irs_fallbacks = 0
-    endif
-
-    ! FAS corrections cut by the admissibility guard (Lib_Multigrid), same cadence
+    ! FAS corrections cut by the admissibility guard (Lib_Multigrid) since the last report, summed
+    ! over the ranks (the IRS fallback report went with the fallback, October 2026)
     if ( trim(obj_multigrid%cycle) /= 'none' ) then
       if ( mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
         nfall = real(fas_fallbacks, R8)
