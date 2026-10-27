@@ -76,7 +76,7 @@ FUSS is built on top of companion libraries, included as Git submodules:
 | [ORION](https://github.com/MarcoGrossi92/ORION) | Multi-format I/O (Tecplot, VTK, Plot3D) |
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
 
-FiNeR's own dependencies (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by `install.sh build` and `install.sh update`. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are Git submodules under `lib/third_party/`, added by CMake before FiNeR (run `git submodule update --init` after pulling a change of the pins). Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 

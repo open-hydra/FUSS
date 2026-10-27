@@ -7,7 +7,7 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 - **CMake** 3.23 or newer.
 - **Fortran compiler**: GNU (`gfortran`) or Intel oneAPI (`ifx`).
 - **C and C++ compilers**: the project enables C and C++ (ORION and TecIO).
-- **git**: `install.sh` fetches the dependencies.
+- **git**: the dependencies are Git submodules (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of the pins).
 - **OpenMP** and **MPI**: optional.
 
 ### Dependencies
@@ -16,7 +16,7 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 |------|------------|---------|
 | `lib/ORION` | [MarcoGrossi92/ORION](https://github.com/MarcoGrossi92/ORION) (submodule) | Tecplot/VTK reading and writing; bundles TecIO |
 | `lib/third_party/FiNeR` | [szaghi/FiNeR](https://github.com/szaghi/FiNeR) (submodule) | `input.ini` parser |
-| `lib/third_party/FiNeR/src/third_party/` | PENF, StringiFor, FACE, FLAP, BeFoR64 (github.com/szaghi) | FiNeR's own dependencies, cloned by `install.sh` at the commits pinned in its `FINER_DEPS` list |
+| `lib/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (submodules) | FiNeR's own libraries, added by CMake before FiNeR; pinned at the tags of MOSE (PENF v2.0.1, FACE v1.1.17, FLAP v2.5.3, BeFoR64 v1.2.4, StringiFor v1.8.0) |
 
 ## Build with `install.sh`
 
@@ -34,7 +34,7 @@ Global options: `-h`, `--help` (usage) and `-v`, `--verbose` (log the configurat
 
 ### `build`
 
-1. Initialises the submodules `lib/ORION` and `lib/third_party/FiNeR` (unless an external path is given) and clones FiNeR's dependencies.
+1. Initialises the submodules `lib/ORION`, `lib/third_party/FiNeR` and FiNeR's five libraries under `lib/third_party/` (ORION and FiNeR unless an external path is given).
 2. Sets the compilers, deletes `build/`, configures CMake in `build/` with `CMAKE_BUILD_TYPE=RELEASE` and builds.
 3. Writes `CMakePresets.json` with the configuration just used.
 
@@ -63,7 +63,7 @@ Rebuilds without deleting `build/`, with the configuration stored in `CMakePrese
 
 ### `update`
 
-Runs `git submodule update --init` (with `--remote`: moves each submodule to the latest commit of its remote branch instead of the commit recorded in FUSS), then clones or checks out FiNeR's dependencies at their pinned commits.
+Runs `git submodule update --init` (with `--remote`: moves each submodule to the latest commit of its remote branch instead of the commit recorded in FUSS), FiNeR's libraries included.
 
 ```bash
 ./install.sh update
@@ -84,7 +84,7 @@ Runs `git submodule update --init` (with `--remote`: moves each submodule to the
 `install.sh build` runs the equivalent of:
 
 ```bash
-./install.sh update          # submodules and FiNeR's dependencies
+./install.sh update          # submodules (ORION, FiNeR and its five libraries)
 cmake -B build \
       -DORION_PATH=$PWD/lib/ORION/ \
       -DFINER_PATH=$PWD/lib/third_party/FiNeR/ \
@@ -93,10 +93,10 @@ cmake -B build \
 cmake --build build
 ```
 
-- `ORION_PATH` and `FINER_PATH` are required. CMake stops if a FiNeR dependency is missing.
+- `ORION_PATH` and `FINER_PATH` default to `lib/ORION/` and `lib/third_party/FiNeR/`; `FINER_DEPS_PATH` (default `lib/third_party/`) is where CMake finds PENF, FACE, FLAP, BeFoR64 and StringiFor, which it adds before FiNeR. A submodule that is not initialised is initialised by CMake (`git submodule update --init`); FiNeR older than v2.1.0 stops the configuration.
 - `USE_TECIO` is an ORION option and defaults to ON there: pass `-DUSE_TECIO=false` to build without TecIO.
 - `CMAKE_BUILD_TYPE` is `RELEASE` (default), `DEBUG` (`-O0`, warnings, traceback, bounds checking) or `TESTING` (`-O2`); see `cmake/SetFortranFlags.cmake`.
-- Use the `build/` directory: ORION and FiNeR are always built in `build/lib/` of the source tree, and the executables always go to `bin/`.
+- Use the `build/` directory: ORION, FiNeR and its libraries are built in `lib/` of the build directory (`-B` elsewhere leaves the source tree clean), and the executables always go to `bin/`.
 
 The configuration stored by `install.sh` can be reused with:
 
