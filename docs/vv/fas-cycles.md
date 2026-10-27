@@ -283,6 +283,26 @@ case: use `w`, or enable IRS. Documented in
 `v` without IRS to 1e-10 in 2 885 iterations without a halved update: the instability
 is possible, not certain.
 
+## Re-validation at the sync of October 2026
+
+The sync of October 2026 (MOSE's pins, parallel, input/stops/restart, metrics/dt and face-metric themes, then the removal
+of the IRS admissibility fallback) was accepted against a 45-row FAS set run with `fuss-stress/fas_vv.sh` on the binary
+before the sync (237c9c2, `fuss-stress/ref/237c9c2/fas_vv.md`) and on the integrated binary with the halved `vnn` values
+(the same steps; `fuss-stress/results/fas-vv-s10/fas_vv.md`): the plates, chimera, liner, anisotropic and textbook cases
+above, the 16³ and 32³ boxes, the k(T)/c_p(T) and bi-material plates, the stress cases and the guard probes, under `none`,
+`v`, `w` and IRS. 43 rows reproduce their iteration counts (40 exactly, three within one or three iterations:
+`residual_convergence` `mg3` 212 413 → 212 414, `mg_irs` 79 817 → 79 816, the narrow-table `v` probe 942 → 939) and
+their rates; the two probes built to fire the removed fallback (IRS on a table of 995–1705 K started at 1700 K, alone and
+under `v`) now stop with exit code 1 instead of running, as the rule above says; every other row reports zero FAS guard
+events, as before. The 16³ box under `v` and `w` to the threshold 1e-12 takes 267 and 195 iterations instead of 261 and
+186: the residual histories agree to ten digits until the residual reaches 1e-10 and then separate in the round-off tail
+(4.1e-12 against 4.5e-12 at iteration 250 on `v`), the single-grid run of the same box keeps its 2 983 iterations along an
+identical history, and the final fields of the three runs agree to 6e-12 K (the last-bit changes of the cell volume and
+of the stencil metric of the sync). The ranks × threads bit identity under cycles (1×4, 2×1, 2×4, 4×1, 4×4 against
+1×1 on `fas_w_irs`, chimera `w`, the liner `w` + IRS, the 128² plate `w` + IRS and the 16³ box `w`) holds on the
+integrated binary, 25 of 25 layouts, and the restart of a `v` run (302 + the rest against 535 in one go) reproduces the
+field to the last bit.
+
 ## Practical guidance
 
 - **Recommended: `cycle = w` with IRS (`irs-beta = 0.5`, `vnn = 1.0`)**: the fewest iterations
