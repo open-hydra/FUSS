@@ -37,16 +37,20 @@ contains
   subroutine Setup_Probes( domain, newrun )
     use IR_precision
     use strings, only: parse
-    use FUSS_Mod_MPI, only: is_local_block, mpi_abort_all
+    use FUSS_Mod_MPI, only: is_local_block, mpi_stop_all, mpi_stop_if_any
     implicit none
     type(FUSS_domain_type), intent(in)  :: domain
     logical, intent(in)                 :: newrun
     ! Local
     integer             :: i, ii, error
     character(len=clen) :: string(8)
+    logical             :: open_failed
+    character(len=hlen) :: open_detail
 
     nprobes = size(obj_io_probes)
     allocate(probe(1:nprobes))
+    open_failed = .false.
+    open_detail = ''
 
     do i = 1, nprobes
 
@@ -64,6 +68,13 @@ contains
       allocate(probe(i)%names(1:probe(i)%nvar))
       do ii = 1, probe(i)%nvar
         probe(i)%names(ii) = trim(string(ii))
+      enddo
+
+      ! The variables are known names: every rank checks them, whether it owns the probe or not (a rank that does not own
+      ! the probe would otherwise go on while the owner stops)
+      do ii = 1, probe(i)%nvar
+        if (trim(probe(i)%names(ii)) /= 'T') &
+          call mpi_stop_all('unknown probe variable "'//trim(probe(i)%names(ii))//'" (accepted: T)')
       enddo
 
       ! Frequency
@@ -84,17 +95,22 @@ contains
 
       ! A restart appends to the probe file, creating it if missing (e.g. probes added
       ! or files moved away); a new run replaces it. Only the rank that owns the probe
-      ! gets here, so a failure aborts all ranks: an unopened unit would write to an
-      ! arbitrary file.
+      ! gets here: a failure is reduced over the ranks after the loop, and stops them all (an
+      ! unopened unit would write to an arbitrary file).
       if (.not.newrun) then
         open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='UNKNOWN', &
              position='APPEND',action='WRITE',iostat=error)
       else
         open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='REPLACE',iostat=error)
       endif
-      if (error/=0) call mpi_abort_all('cannot open probe file '//trim(obj_io_probes(i)%file))
+      if (error/=0 .and. .not. open_failed) then
+        open_failed = .true.
+        open_detail = '[ERROR] cannot open probe file '//trim(obj_io_probes(i)%file)
+      endif
   
     enddo
+
+    call mpi_stop_if_any(open_failed, 'cannot open a probe file (see above)', open_detail)
 
   end subroutine Setup_Probes
 
@@ -128,7 +144,7 @@ contains
 
   !> index-position must name an existing cell
   subroutine Check_Location(probe, domain)
-    use FUSS_Mod_MPI, only: mpi_abort_all
+    use FUSS_Mod_MPI, only: mpi_stop_all
     use IR_precision, only: str
     implicit none
     type(obj_probe), intent(in)        :: probe
@@ -138,10 +154,10 @@ contains
 
     b = probe%ilocation(1)
     if (b < 1 .or. b > domain%nb) &
-      call mpi_abort_all('probe block '//trim(str(.true.,b))//' does not exist')
+      call mpi_stop_all('probe block '//trim(str(.true.,b))//' does not exist')
     do d = 1, 3
       if (probe%ilocation(1+d) < 1 .or. probe%ilocation(1+d) > domain%blk(b)%dim(d)) &
-        call mpi_abort_all('probe index-position '//trim(str(.true.,probe%ilocation(1+d)))// &
+        call mpi_stop_all('probe index-position '//trim(str(.true.,probe%ilocation(1+d)))// &
                            ' outside block '//trim(str(.true.,b)))
     enddo
 
@@ -150,7 +166,7 @@ contains
 
   subroutine Assign_Variables(probe, domain)
     use IR_precision
-    use FUSS_Mod_MPI, only: mpi_abort_all
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     type(obj_probe), intent(inout), target     :: probe
     type(FUSS_domain_type), intent(in), target :: domain
@@ -169,7 +185,7 @@ contains
       nullify(probe%variables(v)%p)
       if (probe%names(v)=='T') probe%variables(v)%p => probe%P
       if (.not. associated(probe%variables(v)%p)) &
-        call mpi_abort_all('unknown probe variable "'//trim(probe%names(v))//'" (accepted: T)')
+        call mpi_stop_all('unknown probe variable "'//trim(probe%names(v))//'" (accepted: T)')
     enddo
 
   end subroutine Assign_Variables

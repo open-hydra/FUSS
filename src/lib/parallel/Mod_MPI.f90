@@ -6,7 +6,7 @@ module FUSS_Mod_MPI
 #ifdef USE_MPI
   use mpi
 #endif
-  use iso_fortran_env, only: R8 => real64, I4 => int32, output_unit
+  use iso_fortran_env, only: R8 => real64, I4 => int32, output_unit, error_unit
 
   implicit none
   private
@@ -31,7 +31,7 @@ module FUSS_Mod_MPI
   public :: mpi_reduce_sum_r8, mpi_reduce_sum_r8_array
   public :: mpi_allreduce_norm2
   public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_chars
-  public :: mpi_abort_all, mpi_stop_all
+  public :: mpi_abort_all, mpi_stop_all, mpi_stop_if_any, stop_from_thread
   public :: check_mpi_error
 
 contains
@@ -50,6 +50,7 @@ contains
       call check_mpi_error(ierr)
       if (provided < MPI_THREAD_FUNNELED) then
         write(*,'(A)') ' ERROR: MPI does not support the required threading level (MPI_THREAD_FUNNELED)'
+        call flush_output_units()
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
       end if
     end if
@@ -361,24 +362,41 @@ contains
     integer :: abort_ierr
     if (ierr /= 0) then
       write(*,'(A,I4,A,I6)') ' [RANK ', mpi_rank_, '] MPI error code: ', ierr
+      call flush_output_units()
       call MPI_ABORT(MPI_COMM_WORLD, 1, abort_ierr)
     end if
 #endif
   end subroutine check_mpi_error
 
 
-  !> MPI-aware abort: prints message, then aborts all ranks.
+  !> MPI-aware abort: prints message, writes out the output of this process (flush_output_units), then aborts all
+  !> ranks. For an error that one rank finds alone, outside OpenMP regions, where no collective call can be reached
+  !> (mpi_stop_all and mpi_stop_if_any are the stops of the errors that every rank, or the ranks together, can decide).
   subroutine mpi_abort_all(message)
     character(len=*), intent(in) :: message
 #ifdef USE_MPI
     integer :: ierr
     write(*,'(A,I4,A,A)') ' [RANK ', mpi_rank_, '] ABORT: ', trim(message)
+    call flush_output_units()
     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
 #else
     write(*,'(A,A)') ' ABORT: ', trim(message)
-    error stop
+    call flush_output_units()
+    error stop 1
 #endif
   end subroutine mpi_abort_all
+
+
+  !> Write out what this process still holds for output_unit and error_unit, before MPI_ABORT. MPI_ABORT makes only a
+  !> "best attempt" to abort the processes (MPI-4.1, section 11.4.2) and need not end this one through the end of the
+  !> Fortran program, where the run-time library writes out its units: a run without this call can lose the message,
+  !> what it wrote before and the lines on error_unit. It writes out the units of this process only: what the other
+  !> ranks still hold when the run is aborted is not written out by this call.
+  subroutine flush_output_units()
+    flush(output_unit)
+    flush(error_unit)
+  end subroutine flush_output_units
+
 
   !> Stop of every rank on an error that every rank has found, a decision taken on all ranks (the outcome of reading
   !> input.ini, which rank 0 broadcasts; a file that every rank reads, such as bc.txt): each rank prints the message and
@@ -407,6 +425,47 @@ contains
 #endif
     error stop 1
   end subroutine mpi_stop_all
+
+  !> Stop of the ranks on an error that only some of them can find (the initial condition or the restart solution that
+  !> each rank reads, a file that a rank opens for its blocks): every rank calls this routine, found true on the ranks
+  !> that found the error. The largest of the flag decides; the lowest rank that found the error writes detail (with its
+  !> rank when the run has more than one), then every rank stops together with mpi_stop_all(message). Without an error it
+  !> returns after one MPI_ALLREDUCE. Not for OpenMP regions.
+  subroutine mpi_stop_if_any(found, message, detail)
+    logical,          intent(in) :: found     !< The verdict of this rank
+    character(len=*), intent(in) :: message   !< The line of the stop, as mpi_stop_all gives it
+    character(len=*), intent(in) :: detail    !< What this rank found, written by the first rank that found it
+    ! Local
+    real(R8) :: flag, flag_all, first
+
+    flag = 0.0_R8
+    if (found) flag = 1.0_R8
+    call mpi_allreduce_max_r8(flag, flag_all)
+    if (flag_all <= 0.0_R8) return
+    call mpi_allreduce_min_r8(merge(real(mpi_rank_, R8), huge(1.0_R8), found), first)
+    if (found .and. nint(first) == mpi_rank_) then
+      if (mpi_size_ > 1) then
+        write(*,'(A,I0,A)') trim(detail)//' (rank ', mpi_rank_, ')'
+      else
+        write(*,'(A)') trim(detail)
+      end if
+    end if
+    call mpi_stop_all(message)
+
+  end subroutine mpi_stop_if_any
+
+
+  !> Stop of the process from inside an OpenMP parallel region (the time step state check), where no MPI call is allowed
+  !> (MPI is FUNNELED): writes the message, writes out the output (output_unit), and ends this process with exit code 1;
+  !> the launcher ends the other ranks.
+  subroutine stop_from_thread(message)
+    character(len=*), intent(in) :: message
+
+    write(*,'(A,I4,A,A)') ' [RANK ', mpi_rank_, '] STOP: ', trim(message)
+    flush(output_unit)
+    stop 1
+
+  end subroutine stop_from_thread
 
 
 end module FUSS_Mod_MPI

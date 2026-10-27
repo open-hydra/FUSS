@@ -17,7 +17,9 @@ module FUSS_Series_Data_m
 
 contains
 
+  !> Reads a time table. Every rank reads the same file, so an error stops every rank together (mpi_stop_all, exit code 1).
   subroutine initialize(self,file)
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     class(time_series_type), intent(inout) :: self
     character(len=*), intent(in)     :: file
@@ -30,7 +32,7 @@ contains
     open(newunit=UnitFree, file = trim(file), status = 'OLD', action = 'READ', form = 'FORMATTED', iostat=ios)
     if (ios /= 0) then
       write(*,'(A)') ' [ERROR] time table "'//trim(file)//'" not found'
-      error stop 'time table not found'
+      call mpi_stop_all('time table not found')
     endif
     do while (ios==0)
       read(UnitFree,'(A)',iostat=ios) line
@@ -46,18 +48,18 @@ contains
     if (self%periodic) read(UnitFree,*) 
     if (self%n < 1) then
       write(*,'(A)') ' [ERROR] time table "'//trim(file)//'" is empty'
-      error stop 'empty time table'
+      call mpi_stop_all('empty time table')
     endif
     do i = 1, self%n
       read(UnitFree,*,iostat=ios) self%time(i), self%var(i)
       if (ios /= 0) then
         write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": cannot read row ', i
-        error stop 'bad time table row'
+        call mpi_stop_all('bad time table row')
       endif
       if (i > 1) then
         if (self%time(i) <= self%time(i-1)) then
           write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": times must increase, row ', i
-          error stop 'non-increasing time table'
+          call mpi_stop_all('non-increasing time table')
         endif
       endif
     enddo

@@ -22,7 +22,7 @@ contains
     use FUSS_IO_Probes,            only: Setup_Probes
     use FUSS_IO_Wall,              only: Initialize_Wall_File, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_abort_all
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_bcast_logical
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
@@ -30,6 +30,7 @@ contains
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
     integer :: m, ios
+    logical :: setup_error   ! an error found by a check of rank 0 (Stop_Together)
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -38,11 +39,15 @@ contains
     
     ! Load tables (thermo, transport)
     call Load_Table ()
-    if (mpi_is_root) call Check_Table ()
+    setup_error = .false.
+    if (mpi_is_root) call Check_Table ( setup_error )
+    call Stop_Together ( setup_error, 'material properties error (see above)' )
 
     ! Read input.ini
     call Read_Inifile ()
-    if (mpi_is_root) call Check_Input ()
+    setup_error = .false.
+    if (mpi_is_root) call Check_Input ( setup_error )
+    call Stop_Together ( setup_error, 'input file error (see above)' )
     call Check_FAS ()
 
     ! Allocate container objects Domain and IOfield.
@@ -55,7 +60,8 @@ contains
 
     ! Read file for initial solution.
     call Read_IC ( simulation%IOfield(1) )
-    if (mpi_is_root) call Check_IC ()
+    ! The ranks decide together on an error of the read (Check_IC)
+    call Check_IC ()
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
@@ -68,7 +74,9 @@ contains
 
     ! Read Boundary Conditions file
     call Setup_BC ( simulation%domain )
-    if (mpi_is_root) call Check_BC ()
+    setup_error = .false.
+    if (mpi_is_root) call Check_BC ( setup_error )
+    call Stop_Together ( setup_error, 'boundary condition error (see above)' )
     
     ! MPI: partition blocks once on finest-level cell counts (restriction and
     ! prolongation are block-local, so a block must live on the same rank at
@@ -180,8 +188,10 @@ contains
     ! Print warnings onto the logfile/shell.
     if (mpi_is_root) call Print_Warnings ()
 
-    ! If errors are found, print error messages and stop the simulation.
-    if (mpi_is_root) call Stop_Simulation()
+    ! If errors are found, print error messages and stop the simulation (every rank together).
+    setup_error = .false.
+    if (mpi_is_root) call Stop_Simulation ( setup_error )
+    call Stop_Together ( setup_error, 'setup error (see above)' )
 
     ! Set-up is over: start the solver clock
     call timer_run_begin()
@@ -209,9 +219,9 @@ contains
     end subroutine Print_Header
 
 
-    subroutine Check_Table()
+    subroutine Check_Table ( has_error )
       implicit none
-      logical :: has_error
+      logical, intent(out) :: has_error
 
       has_error = .false.
 
@@ -228,69 +238,99 @@ contains
         write(*,'(A,T35,A)') '   Properties', 'OK'
       endif
 
-      if (has_error) call mpi_abort_all('material properties error (see above)')
-
     end subroutine Check_Table
 
 
-    subroutine Check_IC()
+    !> An error of the read of the initial condition (Read_IC, the reader writes it in obj_io%error_message) stops the
+    !> run. Every rank reads the file, and a rank can fail to read what rank 0 reads: the ranks take the decision
+    !> together (the largest of a flag); rank 0 writes the line of the set-up summary with the verdict of all ranks, the
+    !> first rank that found an error writes it (with its rank when the run has more than one), and every rank stops
+    !> with mpi_stop_all, exit code 1.
+    subroutine Check_IC ()
+      use FUSS_Mod_MPI, only: mpi_rank_, mpi_allreduce_max_r8, mpi_allreduce_min_r8, mpi_size_
       implicit none
+      real(R8) :: flag, flag_all, first
 
-      if (index(obj_io%error_message,'ERROR')>0) then
-        write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
-        write(*,'(4X,A)') trim(obj_io%error_message)
-        call mpi_abort_all('initial condition error (see above)')
-      else
-        write(*,'(A,T35,A)') '   Initial conditions', 'OK'
+      flag = 0.0_R8
+      if ( index(obj_io%error_message,'ERROR') > 0 ) flag = 1.0_R8
+      call mpi_allreduce_max_r8 ( flag, flag_all )
+      if ( mpi_is_root ) then
+        if ( flag_all > 0.0_R8 ) then
+          write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
+        else
+          write(*,'(A,T35,A)') '   Initial conditions', 'OK'
+        endif
+      endif
+      if ( flag_all > 0.0_R8 ) then
+        call mpi_allreduce_min_r8 ( merge(real(mpi_rank_, R8), huge(1.0_R8), flag > 0.0_R8), first )
+        if ( flag > 0.0_R8 .and. nint(first) == mpi_rank_ ) then
+          if ( mpi_size_ > 1 ) then
+            write(*,'(4X,A,I0,A)') trim(obj_io%error_message)//' (rank ', mpi_rank_, ')'
+          else
+            write(*,'(4X,A)') trim(obj_io%error_message)
+          endif
+        endif
+        call mpi_stop_all ( 'initial condition error (see above)' )
       endif
 
     end subroutine Check_IC
 
 
-    !> The initial field must be admissible: every matID a table index, every T inside the table
+    !> The initial field must be admissible: every matID a table index, every T inside the table. Each rank checks the
+    !> field it read; the ranks decide together (mpi_stop_if_any), the first rank that found a cell writes it.
     subroutine Check_State ( domain )
       use FUSS_Advanced_Types_m
       use FUSS_Config_Types_m, only: obj_table
+      use FUSS_Mod_MPI, only: mpi_stop_if_any
       use ir_precision, only: str
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
       ! Local
       integer :: b, i, j, k, m
       real(R8) :: T
+      logical :: found
+      character(len=hlen) :: detail
 
-      do b = 1, domain%nb
+      found = .false.
+      detail = ''
+      blocks: do b = 1, domain%nb
         do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
           m = nint ( domain%blk(b)%matID(i,j,k) )
           if (m < 1 .or. m > obj_table%n) then
-            if (mpi_is_root) write(*,'(A,4I6,A)') ' [ERROR] initial condition: matID '//trim(str(.true.,m))// &
+            write(detail,'(A,4I6,A)') ' [ERROR] initial condition: matID '//trim(str(.true.,m))// &
               ' at b, i, j, k:', b, i, j, k, ' is not a material of properties.dat (1..'//trim(str(.true.,obj_table%n))//')'
-            call mpi_abort_all('initial condition outside the properties table')
+            found = .true.
+            exit blocks
           endif
           T = domain%blk(b)%T(i,j,k)
           if (.not. (T >= obj_table%Tmin .and. T < real(obj_table%Tmax,R8))) then
-            if (mpi_is_root) write(*,'(A,4I6,A,ES12.4,A)') ' [ERROR] initial condition at b, i, j, k:', b, i, j, k, &
+            write(detail,'(A,4I6,A,ES12.4,A)') ' [ERROR] initial condition at b, i, j, k:', b, i, j, k, &
               '  T =', T, ' K, outside the properties table ['//trim(str(.true.,obj_table%Tmin))//', '// &
               trim(str(.true.,obj_table%Tmax))//') K'
-            call mpi_abort_all('initial condition outside the properties table')
+            found = .true.
+            exit blocks
           endif
         enddo; enddo; enddo
-      enddo
+      enddo blocks
+
+      call mpi_stop_if_any ( found, 'initial condition outside the properties table', detail )
 
     end subroutine Check_State
 
 
-    subroutine Check_Input()
+    subroutine Check_Input ( has_error )
       use FUSS_Input_Registry
       use FUSS_Read_Ini, only: input_warnings
       implicit none
+      logical, intent(out) :: has_error
       character(len=hlen) :: out
       integer :: r
 
       out = Validate_Registry()
-      if (index(out,'ERROR')>0) then
+      has_error = index(out,'ERROR') > 0
+      if ( has_error ) then
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-        call mpi_abort_all('input file error (see above)')
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
@@ -308,26 +348,27 @@ contains
 
       if (trim(obj_multigrid%cycle) == 'none') return
       if (obj_multigrid%MGL < 2) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle needs levels >= 2')
+        call mpi_stop_all('[FUSS-Multigrid] cycle needs levels >= 2')
       if (obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
+        call mpi_stop_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
       if (obj_sim_param%HYDRA_MG) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
+        call mpi_stop_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
       if (trim(obj_time_scheme%integration_variables) == 'prim') &
-        call mpi_abort_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
+        call mpi_stop_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
       if (obj_multigrid%pre_iter + obj_multigrid%post_iter < 1) &
-        call mpi_abort_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
+        call mpi_stop_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
 
     end subroutine Check_FAS
 
 
-    subroutine Check_BC()
+    subroutine Check_BC ( has_error )
       implicit none
+      logical, intent(out) :: has_error
 
-      if (index(obj_io_bc%error_message,'ERROR')>0) then
+      has_error = index(obj_io_bc%error_message,'ERROR') > 0
+      if ( has_error ) then
         write(*,'(A,T35,A)') '   Boundary conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io_bc%error_message)
-        call mpi_abort_all('boundary condition error (see above)')
       else
         write(*,'(A,T35,A)') '   Boundary conditions', 'OK'
       endif
@@ -350,9 +391,9 @@ contains
     end subroutine Print_Warnings
 
 
-    subroutine Stop_Simulation()
+    subroutine Stop_Simulation ( has_error )
       implicit none
-      logical :: has_error
+      logical, intent(out) :: has_error
 
       has_error = .false.
 
@@ -364,9 +405,23 @@ contains
         write(*,'(A)') obj_irs%error_message;          has_error = .true.
       endif
 
-      if (has_error) call mpi_abort_all('setup error (see above)')
-
     end subroutine Stop_Simulation
+
+
+    !> A check of the set-up that runs on rank 0 alone writes what it finds there. Rank 0 broadcasts whether it found an
+    !> error, and on an error every rank stops together (mpi_stop_all): rank 0 has written its message before any rank
+    !> ends, and the run ends with exit code 1. With MPI_ABORT from rank 0 alone, which makes only a best attempt to stop
+    !> the processes (MPI-4.1, section 11.4.2), the launcher can end while rank 0 is writing, and the other ranks go on
+    !> meanwhile.
+    subroutine Stop_Together ( found, why )
+      implicit none
+      logical, intent(inout)       :: found
+      character(len=*), intent(in) :: why
+
+      call mpi_bcast_logical ( found )
+      if ( found ) call mpi_stop_all ( why )
+
+    end subroutine Stop_Together
 
 
     subroutine Print_Shell_Info()
