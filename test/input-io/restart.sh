@@ -30,9 +30,10 @@ split() {
 
 # split_time <name> <case> <sol-format> <T>: A runs to time T in one go, B to T/2 and then (restart) to T
 split_time() {
-  local n=$1 c=$2 f=$3 T=$4 a="$WORK/$1-A" b="$WORK/$1-B"
+  local n=$1 c=$2 f=$3 T=$4 a="$WORK/$1-A" b="$WORK/$1-B"; shift 4
   prep "$c" "$a"; prep "$c" "$b"
   for d in "$a" "$b"; do fmt "$d" "$f"; setkey "$d" time-threshold "$T"; done
+  while [[ $# -gt 0 ]]; do setkey "$a" "$1" "$2" "$3"; setkey "$b" "$1" "$2" "$3"; shift 3; done
   run "$a"
   setkey "$b" time-threshold "$(awk -v t="$T" 'BEGIN{print t/2}')"; run "$b"; setkey "$b" newrun false; setkey "$b" time-threshold "$T"; run "$b"
   if [[ $(code "$a") != 0 || $(code "$b") != 0 ]]; then case_result "$n" 1 "exit A $(code "$a") B $(code "$b")"; return; fi
@@ -55,6 +56,11 @@ if [[ $GROUP == core || $GROUP == all ]]; then
 
   # numbered solutions, the split on an output iteration: the output due at the last iteration is written (commit 6)
   split numbered-due-tecplot transient/variable_cp_Plate "tecplot ascii" 20
+
+  # the first part ends on a due output: by sol-diter with sol-overwrite = true, with two grid levels, by sol-dtime only
+  split due-overwrite-vtk-raw $R/nominal "vtk raw" 200 sol-diter 100 FUSS-IO
+  split due-mg-vtk-raw        $R/mg_irs  "vtk raw" 200 level2-iter 300 FUSS-Multigrid sol-diter 100 FUSS-IO
+  split_time due-dtime-vtk-raw transient/oscillating_Rod "vtk raw" 160 sol-dtime 0.01 FUSS-IO
 
   # a solution without counters (written before them): the restart goes on from its time, counts from there
   prep $R/nominal "$WORK/legacy"; setkey "$WORK/legacy" res-threshold 1e-30; iters "$WORK/legacy" 100; run "$WORK/legacy"

@@ -7,7 +7,7 @@ module FUSS_IO_Probes
 
   implicit none
   private
-  public :: Setup_Probes, Write_Probes_Data, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
+  public :: Setup_Probes, Write_Probes_Data, Close_Probes, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
 
   type :: real_ptr
     real(R8), pointer :: p
@@ -343,7 +343,10 @@ contains
   end subroutine End_With_Newline
 
 
-  !> Write the probe rows due at this iteration (each rank the probes it owns). A time-based row is written when the time
+  !> Write the probe rows due at this iteration (each rank the probes it owns), and pass each row to the file system when it
+  !> is written (flush): a run that stops before its end (killed, stopped at the time limit of a queue, aborted) leaves in
+  !> the files every row it wrote, as a restart from its last solution expects (Drop_Rows_After); the rows held in the buffer
+  !> of the unit would be lost with the process. A time-based row is written when the time
   !> has reached the next multiple of dtime, and at most one per step: the counter ntime then goes to the multiple after
   !> the one the time is in. The first call (also after a restart that gives no counter) sets it to the multiple after the
   !> time of the call.
@@ -364,14 +367,32 @@ contains
       endif
       if (mod(iter,probe(i)%diter)==0) then
         write(probe(i)%unit,*) iter, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
+        flush(probe(i)%unit)
       elseif (time >= probe(i)%dtime*probe(i)%ntime) then
         write(probe(i)%unit,*) time, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
+        flush(probe(i)%unit)
         probe(i)%ntime = probe(i)%ntime + 1
         if (time / probe(i)%dtime < 0.5d0 * real(huge(1), R8)) probe(i)%ntime = max(probe(i)%ntime, int(time / probe(i)%dtime) + 1)
       endif
     enddo
 
   end subroutine Write_Probes_Data
+
+
+  !> Close the probe files at the end of the run: each rank closes the files of the probes it owns, which Setup_Probes or
+  !> Drop_Probe_Rows opened, before the ranks finalize MPI (a unit left open is closed by the Fortran run-time library only
+  !> when the process ends, after MPI_FINALIZE).
+  subroutine Close_Probes ()
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    integer :: i
+
+    do i = 1, nprobes
+      if (.not. is_local_block(probe(i)%ilocation(1))) cycle
+      close(probe(i)%unit)
+    enddo
+
+  end subroutine Close_Probes
 
 
 end module FUSS_IO_Probes

@@ -28,7 +28,7 @@ contains
     use FUSS_IO_Wall,        only: IOwall, Write_Wall_Solution
     use FUSS_IO_Solution,    only: Write_Solution
     use FUSS_Mod_Diagnostic, only: Write_Diagnostic
-    use FUSS_IO_Probes,      only: Write_Probes_Data
+    use FUSS_IO_Probes,      only: Write_Probes_Data, Close_Probes
     use FUSS_Mod_Multigrid,  only: Prolongation
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
@@ -39,7 +39,8 @@ contains
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
-    character(len=llen) :: solfile, dgsfile, wallfile, mgsol, mgwall
+    character(len=llen) :: solfile, dgsfile, wallfile, mgsol, mgwall, numsol, numwall, numdgs
+    logical  :: iter_based
     integer  :: m, level
     real(R8) :: nfall
 
@@ -86,6 +87,7 @@ contains
         ! Residual history
         if ( mod (simulation%domain(1) % iter, obj_io%res_diter) == 0d0 ) then
           write (obj_io%unitRES,trim(obj_io%unitRES_format)) obj_sim_param%iter_general, simulation%domain(1)%time, obj_sim_param%residuotot
+          flush(obj_io%unitRES)
         endif
 
         ! Shell
@@ -107,6 +109,35 @@ contains
       ! Last probe sample (collective: the owner rank writes)
       if (level == 1) call Write_Probes_Data( obj_sim_param%iter_general, simulation%domain(1)%time )
 
+      ! The solution due at the last iteration (sol-diter, else sol-dtime), as at any other output iteration (TODO == 2): it
+      ! takes the next output number and, when due by time only, sets the time of the last output, which the final solution
+      ! below then holds for a restart. With sol-overwrite = true the final solution is that output, written once.
+      ! Collective: every rank evaluates the same condition. A run ends on the finest level only (Explicit_Step sets
+      ! TODO = 3 at level 1)
+      iter_based = ( mod (simulation%domain(1) % iter, obj_io%sol_diter) == 0 )
+      if ( level == 1 .and. ( iter_based .or. &
+           simulation%domain(1) % time >= obj_sim_param%time_from_call + obj_io%sol_dtime ) ) then
+        if (.not. id_stampa_set) call Settle_Numbering ()
+        obj_io%output_number = obj_io%output_number + 1
+        if ( .not. iter_based ) obj_sim_param%time_from_call = simulation%domain(1) % time
+        if ( .not. obj_io%sol_overwrite ) then
+          if (mpi_is_root) then
+            if ( iter_based ) then
+              write(*,*) ' ... writing iter-based solution'
+            else
+              write(*,*) ' ... writing time-based solution'
+            endif
+          endif
+          numsol  = trim(solfile)//trim(str(.true.,obj_io%output_number))
+          numwall = trim(wallfile)//trim(str(.true.,obj_io%output_number))
+          numdgs  = trim(dgsfile)//trim(str(.true.,obj_io%output_number))
+          call Write_Solution ( simulation%domain(1), simulation%IOfield(1), numsol )
+          if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(1), numwall )
+          if (.not. obj_time_scheme%time_accurate) &
+            call Write_Diagnostic ( simulation%domain(1), simulation%IOfield(1), numdgs )
+        endif
+      endif
+
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
 
@@ -115,6 +146,11 @@ contains
       if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(level), wallfile )
       if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
         call Write_Diagnostic ( simulation%domain(1), simulation%IOfield(1), dgsfile )
+
+      ! The history files hold their last rows: close them before the ranks finalize MPI (a unit left open is closed by
+      ! the Fortran run-time library only when the process ends, after MPI_FINALIZE)
+      call Close_Probes()
+      if (mpi_is_root) close(obj_io%unitRES)
     
 
     ! INTERMEDIATE SOLUTION EVALUATION
@@ -124,11 +160,7 @@ contains
         ! Restart with numbered snapshots: the number goes on from the solution read (obj_io%output_number, restored with
         ! the counters). A solution without counters (written before them) gives no number: the legacy path scans
         ! OUTPUT/ for the last field<n> and continues after it
-        if (.not. id_stampa_set) then
-          id_stampa_set = .true.
-          if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite .and. .not. obj_io%restart%resumed) &
-            call Resume_File_Counter ( trim(simulation%IOfield(1)%tec%extension) )
-        endif
+        if (.not. id_stampa_set) call Settle_Numbering ()
         obj_io%output_number = obj_io%output_number + 1
         if (.not.obj_io%sol_overwrite) solfile  = trim(solfile)//trim(str(.true.,obj_io%output_number))
         if (.not.obj_io%sol_overwrite) wallfile = trim(wallfile)//trim(str(.true.,obj_io%output_number))
@@ -139,6 +171,7 @@ contains
       if (mpi_is_root) then
         if ( mod(simulation%domain(level) % iter, obj_io%res_diter) == 0d0 ) then
           write (obj_io%unitRES,trim(obj_io%unitRES_format)) obj_sim_param%iter_general, simulation%domain(level)%time, obj_sim_param%residuotot
+          flush(obj_io%unitRES)
         endif
       end if
 
@@ -228,6 +261,7 @@ contains
       if (mpi_is_root) then
         if ( mod (simulation%domain(level) % iter, obj_io%res_diter) == 0d0 ) then
           write (obj_io%unitRES,trim(obj_io%unitRES_format)) obj_sim_param%iter_general, simulation%domain(level)%time, obj_sim_param%residuotot
+          flush(obj_io%unitRES)
         end if
       end if
 
@@ -341,6 +375,13 @@ contains
     endif
 
   contains
+
+    ! The numbering of the outputs of a restart that gets no counter from its solution: scan OUTPUT/ (legacy path)
+    subroutine Settle_Numbering ()
+      id_stampa_set = .true.
+      if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite .and. .not. obj_io%restart%resumed) &
+        call Resume_File_Counter ( trim(simulation%IOfield(1)%tec%extension) )
+    end subroutine Settle_Numbering
 
     ! Periodic prolongated writes: every field write, or prolongated-diter level iterations apart
     logical function prolongated_due ()
