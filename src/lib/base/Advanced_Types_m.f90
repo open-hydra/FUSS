@@ -16,15 +16,26 @@ module FUSS_Advanced_Types_m
     type(FUSS_tensor_3D_type), allocatable :: Mf(:,:,:)
   end type face_metric_type
 
+  !> Stencil face metrics of the boundary faces of one block face (Lib_Stencil_Metrics), indexed by the two tangential
+  !> cell indices (Face_Tangential), allocated only on the block faces that have walls (wM, wset) or connections
+  !> that the record owns (cM): a thin 2-D block has two k faces of null records per cell, which carry nothing here.
+  !> wM(:,:,v,t1,t2): metric of the wall gradient, variant 1 with the ghost cells (flux), 2 one-sided inside the block
+  !> (ghost fill, wall output); cM: metric of a block connection
+  type :: boundary_metric_type
+    real(R8), allocatable :: wM(:,:,:,:,:)
+    logical,  allocatable :: wset(:,:)
+    real(R8), allocatable :: cM(:,:,:,:)
+  end type boundary_metric_type
+
   type :: block_type
     integer                                :: dim(3)           ! Number of cells in i-j-k (ghost not included)
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
     type(FUSS_vector_3D_type), allocatable :: node(:,:,:)      ! Mesh grid points (including ghost)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
-    type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
     type(face_metric_type)                 :: fm(3)            ! Stencil face metrics of the interior faces of the three directions
+    type(boundary_metric_type)             :: bm(6)            ! Stencil face metrics of the walls and connections of the six block faces
   end type block_type
 
   type :: bc_type
@@ -62,12 +73,6 @@ module FUSS_Advanced_Types_m
     ! Wall BC specifications. Each wall type reads only its own subset: the default 0 makes a
     ! component a type does not set read as 0, not as whatever the allocation left there
     real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
-    ! Stencil face metric of a block connection (101), set up by Lib_Stencil_Metrics
-    real(R8) :: Mf(3,3) = 0d0
-    ! Stencil face metric of a wall (301-305): metric of the same position differences that the wall gradient takes,
-    ! variant 1 with the ghost cells (flux), variant 2 one-sided inside the block (ghost fill, wall output)
-    real(R8) :: wM(3,3,2) = 0d0
-    logical  :: wstencil = .false.
     ! One flux per connection face (101): the record of the same face seen from the other block, whether this record
     ! computes the face (owner), and the share of this cell (heat into the cell, W) that the owner leaves in it
     integer  :: partner = 0

@@ -123,7 +123,7 @@ FUSS prints the loading checks, a summary of the set-up, and one line per iterat
  Numerical scheme
  =========================================================================================
  Space
-   Diffusive face metric          inverse-mean
+   Diffusive face metric          stencil
 
  Time
    Scheme                         Third-order Runge-Kutta

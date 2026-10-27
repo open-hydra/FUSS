@@ -25,7 +25,7 @@
 !> x1 across the face (x1 itself on a face of zero area, an axis); behind 103 and 104, which carry a flux and copy the
 !> cell, x1. The centres of every block are computed on every rank, from the nodes every rank holds until the end of
 !> the setup of the metrics, so no message is needed; the face metrics are stored for the blocks of the rank only
-!> (blk%fm(d)%Mf, interior faces) and in the boundary records (bc%Mf of the faces between blocks).
+!> (blk%fm(d)%Mf, interior faces) and in the boundary faces (blk%bm(f): walls and connections owned by their record).
 module FUSS_Lib_Stencil_Metrics
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
@@ -161,6 +161,7 @@ contains
       enddo
       call Interior_Face_Metrics ( b, domain % blk(b), xc(b) )
     enddo
+    call Allocate_Boundary_Metrics ( domain )
     do r = 1, domain % nbound
       if ( .not. is_local_block ( domain % bc(r) % b ) ) cycle
       select case ( domain % bc(r) % type )
@@ -174,6 +175,49 @@ contains
     deallocate ( xc )
 
   end subroutine Setup_Face_Metrics
+
+
+  !> Boundary-face metric arrays of the block faces of this rank that have walls or connections owned by their record.
+  subroutine Allocate_Boundary_Metrics ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_BC_Fluxes, only: Face_Tangential
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: r, b, f, nt(2)
+    logical, allocatable :: wall(:,:), conn(:,:)
+
+    allocate ( wall(domain % nb, 6), conn(domain % nb, 6) )
+    wall = .false. ; conn = .false.
+    do r = 1, domain % nbound
+      b = domain % bc(r) % b
+      if ( .not. is_local_block(b) ) cycle
+      f = domain % bc(r) % f
+      select case ( domain % bc(r) % type )
+        case (301:305)
+          wall(b,f) = .true.
+        case (101)
+          if ( domain % bc(r) % owner ) conn(b,f) = .true.
+      end select
+    enddo
+    do b = 1, domain % nb
+      if ( .not. is_local_block(b) ) cycle
+      do f = 1, 6
+        nt = Face_Tangential ( f, domain % blk(b) % dim(1), domain % blk(b) % dim(2), domain % blk(b) % dim(3) )
+        if ( wall(b,f) .and. .not. allocated ( domain % blk(b) % bm(f) % wM ) ) then
+          allocate ( domain % blk(b) % bm(f) % wM(3,3,2,nt(1),nt(2)), domain % blk(b) % bm(f) % wset(nt(1),nt(2)) )
+          domain % blk(b) % bm(f) % wset = .false.
+          domain % blk(b) % bm(f) % wM = 0d0
+        end if
+        if ( conn(b,f) .and. .not. allocated ( domain % blk(b) % bm(f) % cM ) ) then
+          allocate ( domain % blk(b) % bm(f) % cM(3,3,nt(1),nt(2)) )
+          domain % blk(b) % bm(f) % cM = 0d0
+        end if
+      enddo
+    enddo
+
+  end subroutine Allocate_Boundary_Metrics
 
 
   !> Position of the first ghost cell of boundary record r (not a face between blocks).
@@ -312,11 +356,12 @@ contains
   end subroutine Interior_Face_Metrics
 
 
-  !> Face metric of the face of boundary record r between blocks, stored in the record (bc%Mf). The two cells in the
+  !> Face metric of the face of boundary record r between blocks, stored in blk%bm(f)%cM. The two cells in the
   !> order of growing index of block b (L, R) and their tangential neighbours: in block b, and for the ghost cell the
   !> cells of the source block that Fill_BC_Ghost_Connection takes for Tg(3:6).
   subroutine Connection_Face_Metric ( domain, xc, r )
     use FUSS_Advanced_Types_m
+    use FUSS_Lib_BC_Fluxes, only: Face_Tangential
     use FUSS_Global_m, only: ndir
     use FUSS_Parameters_m, only: guide
     implicit none
@@ -324,7 +369,7 @@ contains
     type(centres_t), intent(in) :: xc(:)
     integer, intent(in) :: r
     ! Local
-    integer :: b, bs, Im, Jm, Km, Fm, dir, t, tb(2), q, n(3)
+    integer :: b, bs, Im, Jm, Km, Fm, dir, t, tb(2), q, n(3), tf(2)
     integer :: e(3,3), sc(3,4)
     real(R8) :: JT(3,3), xg(3,4), dloc(3), dgh(3), Mc(3,3)
 
@@ -366,7 +411,8 @@ contains
         JT(:,t) = 0.25d0 * ( dgh + dloc )
       end if
     enddo
-    domain % bc(r) % Mf = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'between blocks' )
+    tf = Face_Tangential ( Fm, Im, Jm, Km )
+    domain % blk(b) % bm(Fm) % cM(:,:,tf(1),tf(2)) = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'between blocks' )
 
   end subroutine Connection_Face_Metric
 
@@ -382,12 +428,13 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m, only: ndir
     use FUSS_Lib_Diffusive, only: Inverse3
+    use FUSS_Lib_BC_Fluxes, only: Face_Tangential
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     type(centres_t), intent(in) :: xc(:)
     integer, intent(in) :: r
     ! Local
-    integer :: b, Im, Jm, Km, Fm, dir, d, v, n(3), c(3), lo(3), hi(3), modfm2
+    integer :: b, Im, Jm, Km, Fm, dir, d, v, n(3), c(3), lo(3), hi(3), modfm2, tf(2)
     real(R8) :: JT(3,3), Ac(3,3), xf(3), nf(3)
     logical :: changed
 
@@ -398,6 +445,7 @@ contains
     n  = domain % blk(b) % dim
     dir = (Fm + 1) / 2
     modfm2 = 1 - 2 * mod(Fm,2)
+    tf = Face_Tangential ( Fm, Im, Jm, Km )
     call Face_Centre_Normal ( domain % blk(b) % node, Im, Jm, Km, Fm, xf, nf )
     Ac = Inverse3 ( domain % blk(b) % M(Im,Jm,Km) % c )        ! columns: the edges of the cell
     do v = 1, 2
@@ -418,12 +466,12 @@ contains
         changed = .true.
       enddo
       if ( changed ) then
-        domain % bc(r) % wM(:,:,v) = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'wall' )
+        domain % blk(b) % bm(Fm) % wM(:,:,v,tf(1),tf(2)) = Face_Inverse ( JT, b, Im, Jm, Km, Fm, 'wall' )
       else
-        domain % bc(r) % wM(:,:,v) = domain % blk(b) % M(Im,Jm,Km) % c
+        domain % blk(b) % bm(Fm) % wM(:,:,v,tf(1),tf(2)) = domain % blk(b) % M(Im,Jm,Km) % c
       end if
     enddo
-    domain % bc(r) % wstencil = .true.
+    domain % blk(b) % bm(Fm) % wset(tf(1),tf(2)) = .true.
 
   end subroutine Wall_Face_Metric
 

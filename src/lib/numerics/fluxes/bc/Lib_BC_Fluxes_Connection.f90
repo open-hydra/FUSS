@@ -2,7 +2,7 @@ module FUSS_Lib_BC_Fluxes_Connection
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
-  use FUSS_Lib_BC_Fluxes, only: Face_Index
+  use FUSS_Lib_BC_Fluxes, only: Face_Index, Face_Tangential
 
   implicit none
   public
@@ -132,7 +132,7 @@ contains
 
   !> Block connection (101) with the stencil face metric: the flux of the face as an interior face, from one gradient of
   !> the two cells in the order of growing index of the block (L, R), the tangential neighbours of the other block
-  !> in Tg(3:6), the metric of Lib_Stencil_Metrics (bc%Mf) and the conductivity of the interior faces
+  !> in Tg(3:6), the metric of Lib_Stencil_Metrics (blk%bm(Fm)%cM) and the conductivity of the interior faces
   !> (Diffusive_Flux): k at the mean temperature for one material, the two half cells in series between two. The
   !> chimera faces (102) keep BC_Connection. Flux: heat through the face along the normal of growing index.
   subroutine Connection_Face_Flux ( Im, Jm, Km, Fm, Blk, bc, Flux )
@@ -144,7 +144,7 @@ contains
     type(FUSS_bc_type), intent(in)    :: bc
     real(R8), intent(out) :: Flux
     ! Local
-    integer  :: Dir, Face_im, Face_jm, Face_km, aa, bb, cc, t, q, tb(2), e(3,3), c(3)
+    integer  :: Dir, Face_im, Face_jm, Face_km, aa, bb, cc, t, q, tb(2), e(3,3), c(3), tf(2)
     real(R8) :: T_loc, T_con, T1, T2, Normal(3), Area, Gradient(3), kappa, dloc, dgh
     real(R8) :: Mi_loc(3,3), Mi_con(3,3), h_loc, h_con, mat1, mat2
 
@@ -182,7 +182,8 @@ contains
         Gradient(t) = 0.25d0 * ( dgh + dloc )
       end if
     enddo
-    Gradient = matmul ( Gradient, bc % Mf )
+    tf = Face_Tangential ( Fm, Im, Jm, Km )
+    Gradient = matmul ( Gradient, Blk % bm(Fm) % cM(:,:,tf(1),tf(2)) )
 
     ! Conductivity as at an interior face (lower cell first)
     if ( Blk % matID(Im,Jm,Km) == bc % matIDg ) then

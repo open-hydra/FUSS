@@ -45,6 +45,25 @@ contains
   end subroutine Face_Index
 
 
+  !> The two indices of the cell (i,j,k) along the block face f (the indices of the boundary-face arrays
+  !> blk%bm(f), and the dimensions of a block along f when called with the cell counts)
+  pure function Face_Tangential ( f, i, j, k ) result ( t )
+    implicit none
+    integer, intent(in) :: f, i, j, k
+    integer :: t(2)
+
+    select case ( f )
+      case (1:2)
+        t = [ j, k ]
+      case (3:4)
+        t = [ i, k ]
+      case default
+        t = [ i, j ]
+    end select
+
+  end function Face_Tangential
+
+
   subroutine Compute_Wall_Properties(Tw, qw, exit_array)
     implicit none
     real(R8), dimension(2), intent(inout) :: exit_array

@@ -42,7 +42,7 @@ ctest --test-dir build -R Qvol -V     # one test, with its output
 
 | Label | Tests | What passes |
 |---|---|---|
-| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, and the unit programs `CellVolume` and `VolatileOrder` | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass |
+| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, and the unit programs `CellVolume` and `VolatileOrder`, `PatchTest` and `ConnectionSplit` | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
 | `validation` | the 10 verification cases (also `convective_Plate`), `ChimeraEdge`, `Skewed3D` and `MetricChecks` | same |
 | `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |
 | `needs-mpi` | chimera, chimera_mg, multigrid with IRS, FAS W + IRS, multimat_liner (MPI builds only), `MPIBitIdentity` and the MPI tests below | 2 ranks write the same files as 1 process, bit for bit; `MPIBitIdentity`: 1×4, 2×1, 4×1 and 2×2 (ranks × threads) write the same files as 1×1, on a box of 4 blocks and a chimera pair of overlapping blocks, steady with IRS and time-accurate (`test/mpi/bit-identity/`) |
@@ -61,6 +61,11 @@ The tests of `test/input-io/` run scripts on copies of the cases; each prints on
 | `MPIExitCodes` | `needs-mpi` | the STOP line of both ranks, exit code 1, for an input error, a `bc.txt` error, an initial condition that rank 1 alone cannot read or holds a NaN, `ini-error = stop` at a reading during the run |
 | `MPIRestart` | `needs-mpi` | the split restart on 2 ranks (`nominal`, and `mg_irs` with two grid levels), 0 differing files |
 | `MPIDecompositionMap` | `needs-mpi` | the two blocks reversed on 2 ranks, and on 4 ranks (two idle), write the files of the serial run; a map for 3 ranks run on 2 stops every rank |
+
+Two tests of the diffusive fluxes are scripts of their own (`test/numerics-features/patch_test/`, `connection_split/`):
+
+- **`PatchTest`** (`run_patch.sh`). One forward-Euler step from the exact linear field $T = A + \mathbf{g}\cdot\mathbf{x}$, whose heat flux is uniform: the flux sum of every cell and the wall output $q_w$ must vanish to round-off on non-smooth meshes. Part 1, with the default `diffusive-metric = stencil`: the families `para` (sheared cells, control), `rand` (random nodes), `jump` (cell sizes alternating 1 : 1.5), `fold2` (two blocks joined by a connection with a fold), `sym` (symmetry plane), `wallmix` (wall types 302, 303, 301, 305), `box3d` (two 3-D blocks, fold) and `step` (one jump of the cell size), every group at most $10^{-11}$ of $k|\mathbf{g}|A_\text{cell}$. Part 2, `metric-mean`: with `diffusive-metric = mean`, `para` exact and `step` interior $= 6.4201\times10^{-3}$ within $10^{-7}$, the expected bias $(1+r)^2/(4r) - 1$ of that metric at $r = 1.5$, which the alternating sizes of `jump` cancel. The mesh generators are `patch_case.py` (`patch_case.py case <family> <dir> [--metric mean]`, `check <dir>`).
+- **`ConnectionSplit`** (`run_split.sh`). The `rand` mesh as one block and as two blocks joined by a block connection (same nodes, records also in reversed order), 50 RK3 iterations: the fields agree to $10^{-12}$ relative (one flux per connection face on the stencil metric) and the two orders of the records give the same bits.
 
 `run_case.sh <case> <work dir> <binary> [--iters N] [--verify] [--mpi N]` caps the run at N iterations by rewriting `iter-threshold` and every `level<m>-iter` of the copy.
 

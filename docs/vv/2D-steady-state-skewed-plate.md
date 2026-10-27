@@ -37,7 +37,9 @@ The wall data vary from cell to cell, so `make_inputs.py` writes `MESH/mesh.tec`
 |---|---|---|
 | Field, max \|T − T<sub>exact</sub>\| | 2.0 × 10⁻¹¹ K | 10⁻⁶ K |
 | Faces 1–4, max \|T<sub>w</sub> − T<sub>exact</sub>\| | ≤ 2.0 × 10⁻¹¹ K | 10⁻⁶ K |
-| Faces 1–4, max \|q<sub>w</sub> − q\| / \|q\| | ≤ 9.4 × 10⁻¹³ | 10⁻⁶ |
+| Faces 1–4, max \|q<sub>w</sub> − q\| / \|q\| | ≤ 9.6 × 10⁻¹³ | 10⁻⁶ |
+
+Since October 2026 the face and wall metrics are built from the same differences of the cell centres as the gradients (`diffusive-metric = stencil`), so the linear field is reproduced exactly on any mesh, not only on parallelograms: the linear-field patch test of the CTest suite (`PatchTest`) checks it on random, folded, symmetric and 3-D meshes (≤ 10⁻¹³ of k\|g\|A).
 
 The test needs the three ingredients of the wall formulation (see [Boundary Conditions](../user/boundary-conditions.md)): the tangential part of the face gradient in every wall flux, the wall temperature solved with it, and ghost cells $2T_w - T$. Before October 2026 the walls ignored the tangential term (303–305), mirrored the ghost cells and had sign errors in BC 301 (odd faces) and in the tangential term of BC 302: the same case ended with a maximum error of 190 K. With only the sign errors fixed the error was still 4.6 K, at the cells next to the walls.
 

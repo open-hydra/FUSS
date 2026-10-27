@@ -40,19 +40,30 @@ $$
 
 $\hat{\mathbf n}_f$ points from $L$ to $R$: $Q_f A_f$ enters $L$ and leaves $R$.  The tangential differences of the cells next to a block boundary read the ghost cells.
 
-!!! info "Face metric"
+!!! info "Face metric (`diffusive-metric`)"
 
-    The face metric is built from the inverse metrics of the two cells (their edge vectors),
+    The key `diffusive-metric` of `[FUSS-Numerics]` (read at set-up only) selects how $M_f$ is built; the values are `stencil` (default) and `mean`.
+
+    | `diffusive-metric` | interior faces | block connections (101) | walls (301-305) | chimera (102) |
+    |:------------------:|----------------|-------------------------|-----------------|---------------|
+    | `stencil` | $M_f = J_f^{-1}$, $J_f$ from the differences of the cell centres | same, one gradient as at an interior face | $J$ from the same position differences the wall gradient takes | two-sided balance with the cell metrics |
+    | `mean` | $M_f = \tfrac12(M_L + M_R)$ | two-sided balance with the cell metrics | metric of the cell | two-sided balance |
+
+    **`stencil`.** The gradient takes of $T$ one difference across the face and, along each tangential direction, the mean of the central differences of the two cells. The metric takes the same differences of the cell-centre positions $\mathbf{x}$ (centre of a cell = mean of its eight nodes), as the columns of the face Jacobian
 
     $$
-    M_f = \left[\tfrac12\left(A_L + A_R\right)\right]^{-T},
+    J_f = \bigl[D_a\mathbf{x},\; D_b\mathbf{x},\; D_c\mathbf{x}\bigr],
+    \qquad
+    M_f = J_f^{-1},
     $$
 
-    so the normal difference is divided by the centre-to-centre distance and a linear field is reproduced exactly on stretched orthogonal meshes. FUSS stores $A^{T}$ per cell (9 values), so each face needs one $3\times 3$ inversion.
+    with $D_a\mathbf{x} = \mathbf{x}_R - \mathbf{x}_L$ and $D_{b,c}\mathbf{x}$ the tangential differences built like those of $T$. For a linear field $T = T_0 + \mathbf{g}\cdot\mathbf{x}$ every difference is $D T = J_f^{T}\mathbf{g}$, so the face gradient is $\mathbf{g}$ on any mesh: skewed, stretched, with jumps of cell size, folded at a block connection (M. Vinokur, NASA CR-177416, 1986: the two difference approximations must be the same). The mean of the two cell edges, $[\tfrac12(A_L+A_R)]^{-T}$ (the former metric, `inverse-mean`), has the right column across the face but not along it, and gave a patch-test residual of $10^{-2}$ to $10^{-1}$ of $k|\mathbf{g}|A$ on non-smooth meshes; `stencil` gives $\le 10^{-13}$. The column across the face, and the columns of index directions with one cell (the $k$ direction of a 2-D mesh), are kept from the mean of the two cell edges. A stencil that does not span the space (a degenerate face or cell) stops the run at set-up, naming block, cell, face and the three differences.
 
-    Until October 2026 a second choice, `diffusive-metric = mean`, averaged the metrics themselves, $M_f = \tfrac12(M_L + M_R)$. In one dimension $M = 1/h$, so that divides $T_R - T_L$ by the harmonic mean of $h_L$ and $h_R$ instead of the centre-to-centre distance $\tfrac12(h_L + h_R)$ and overstates the heat flux by $(1+r)^2/(4r)$ at a cell-size ratio $r = h_R/h_L$ ($+4.2\,\%$ at $r = 1.5$, $+8.9\,\%$ at $1.8$), a bias that does not decrease with grid refinement. The option was removed.
+    **`mean`.** The arithmetic mean of the two cell metrics, the metric of FUSS before October 2026. In one dimension $M = 1/h$, so it divides $T_R - T_L$ by the harmonic mean of $h_L$ and $h_R$ instead of the centre-to-centre distance $\tfrac12(h_L + h_R)$, and **overstates the heat flux by $(1+r)^2/(4r) - 1$ at a cell-size ratio $r = h_R/h_L$** ($+4.2\,\%$ at $r = 1.5$, $+8.9\,\%$ at $1.8$), a bias that does not decrease with grid refinement; it is exact only where the two cells are identical. Use it to reproduce older results; the `step` family of the patch test (one jump of the cell size, ratio 1.5) shows the bias directly. The block connections and chimera faces keep the two-sided balance below, the walls the metric of the cell. `inverse-mean`, the metric between the two (a24b17c, never released), is not accepted: a deck that names it stops at set-up.
 
-    This applies to interior faces only. Block-connection and wall faces use the metric of each cell over half a cell (below).
+    The ghost cells sit, for the metric, where their value is right for a linear field: the source cell across a block connection, $2\mathbf{x}_f - \mathbf{x}_1$ behind a wall and a chimera face ($\mathbf{x}_f$ the centre of the face, $\mathbf{x}_1$ the cell), the mirror image of $\mathbf{x}_1$ behind a symmetry or null face, $\mathbf{x}_1$ behind a coupling face (103, 104).
+
+    The cell metrics $M$ and the face metrics are stored per cell and per face (the inverse cell metric is no longer stored): a 2-D block holds 18 values per cell for $M_f$ with `stencil`, a 3-D block 27.
 
 ---
 
@@ -78,7 +89,7 @@ Until October 2026 the face took the material of the lower-index cell only: at a
 
 ### Block connections (101) and chimera faces (102)
 
-At a block connection the two sides are treated as two half cells in series.  The normal flux $k\,\nabla T\cdot\hat{\mathbf n}_f$ is written on each side with that side's metric, conductivity (at its cell temperature, for its material) and tangential differences, as a function of the interface temperature $T_\text{int}$; on the side of cell $P$
+With `diffusive-metric = stencil` a block connection is an interior face: one gradient of the two cells (the tangential neighbours of the other block are the cells of its side), the stencil metric above, and the interior conductivity rule (k at the mean temperature for one material, the two half cells in series between two). With `mean` and at every chimera face the two sides are treated as two half cells in series.  The normal flux $k\,\nabla T\cdot\hat{\mathbf n}_f$ is written on each side with that side's metric, conductivity (at its cell temperature, for its material) and tangential differences, as a function of the interface temperature $T_\text{int}$; on the side of cell $P$
 
 $$
 q_P(T_\text{int}) = k_P\Bigl[2\,(T_\text{int} - T_P)\,\nabla\xi_n^P\cdot\hat{\mathbf n}_f\,s + \sum_{t}\tfrac12\bigl(T_{P,t+1} - T_{P,t-1}\bigr)\,\nabla\xi_t^P\cdot\hat{\mathbf n}_f\Bigr],
@@ -93,6 +104,8 @@ $$
 which for $\Delta x_P = \Delta x_N = \Delta x$ is the harmonic mean $2k_Pk_N/(k_P + k_N)$ over $\Delta x$.  As $k_N \to \infty$ the flux tends to $2k_P(T_N - T_P)/\Delta x_P$; as $k_N \to 0$ it vanishes.
 
 For a block connection the neighbour values are the cells of the connected block (copied into the ghost cells) and its metric; for a chimera face they are the ghost cell, filled from the donor cells, and the ghost cell's own (extrapolated) metric.
+
+**One flux per connection face.** The two records of a connection face (one per block) are paired at set-up; the record whose face is the high-index one of its cell (the cell on the low-index side) owns the face (with equal parity, the smaller block, face, $k$, $j$, $i$), computes the flux once and gives it with opposite signs to the two cells (between MPI ranks one double per face travels from the owner). The two cells receive exactly opposite shares, and a mesh split into blocks gives the fluxes of the unsplit mesh when the index directions agree and the face nodes have the same bits (test `ConnectionSplit`).
 
 ---
 
@@ -114,7 +127,7 @@ G = 2\,k_P\,\nabla\xi_n\cdot\hat{\mathbf n}_f,
 C = k_P\sum_{t}\tfrac12\bigl(T_{P,t+1} - T_{P,t-1}\bigr)\,\nabla\xi_t\cdot\hat{\mathbf n}_\text{out},
 $$
 
-where $k_P = k(T_P)$, $\nabla\xi_d$ are the rows of the cell metric $M_P$, $\hat{\mathbf n}_f$ is the face normal oriented towards increasing $\xi_n$ and $\hat{\mathbf n}_\text{out}$ the outward normal.  $G$ is the conductance of the half cell ($2k_P/h_n$, with $h_n$ the cell height normal to the face, on a parallelepiped cell).  $C$ is the cross-diffusion term: it vanishes on orthogonal cells and is needed for a linear field to be exact on skewed ones.
+where $k_P = k(T_P)$, $\nabla\xi_d$ are the rows of the wall-face metric $M_w$, $\hat{\mathbf n}_f$ is the face normal oriented towards increasing $\xi_n$ and $\hat{\mathbf n}_\text{out}$ the outward normal.  With `stencil`, $M_w = J_w^{-1}$ with $J_w = [\,2s(\mathbf{x}_f - \mathbf{x}_P),\; (\mathbf{x}_{hi} - \mathbf{x}_{lo})/(hi - lo)\,]$, the same differences of the positions that the gradient takes of the temperature (half cell across the face, central differences of the cell centres along it), so a linear field gives $T_w = T(\mathbf{x}_f)$ and the exact flux on any mesh; with `mean`, $M_w$ is the metric of the cell $M_P$.  $G$ is the conductance of the half cell ($2k_P/h_n$, with $h_n$ the cell height normal to the face, on a parallelepiped cell).  $C$ is the cross-diffusion term: it vanishes on orthogonal cells and is needed for a linear field to be exact on skewed ones.
 
 | Code | Prescribed | $T_w$ | $q_\text{in}$ |
 |:----:|------------|-------|---------------|
@@ -163,7 +176,7 @@ $$
 \begin{pmatrix}\Delta\xi \\ \Delta\eta \\ \Delta\zeta\end{pmatrix}
 $$
 
-Each cell stores the metric tensor $M = A^{-T}$, computed from the cofactors of $A$ (and $A^{T}$, for the face metric); the rows of $M$ are $\nabla\xi$, $\nabla\eta$, $\nabla\zeta$, and it maps index differences of the temperature to its Cartesian gradient.  At an interior face the metrics of the two cells are combined as described in [Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces); the time step uses the cell metric (see [Time Integration](time-integration.md#diffusive-stability-condition-vnn)).
+Each cell stores the metric tensor $M = A^{-T}$, computed from the cofactors of $A$; the rows of $M$ are $\nabla\xi$, $\nabla\eta$, $\nabla\zeta$, and it maps index differences of the temperature to its Cartesian gradient.  The inverse $A^{T}$ (the edge vectors) is computed where it is needed (the widths of a material jump).  At an interior face the metric is the stencil metric or the mean of the two cells, as described in [Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces); the time step uses the cell metric (see [Time Integration](time-integration.md#diffusive-stability-condition-vnn)).
 
 The face area vector $A_f\,\hat{\mathbf{n}}_f$ is half the cross product of the two diagonals of the face, oriented towards increasing index.  The cell volume is the integral of $\det J$ of the trilinear map of its eight nodes, whose faces are the bilinear faces above (shared with the cell next door):
 

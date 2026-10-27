@@ -99,6 +99,19 @@ add_fortran_executable(volatile_order_check unit/volatile_order_check.f90)
 add_test(NAME VolatileOrder COMMAND volatile_order_check 1 18014398509481984 3)
 set_tests_properties(VolatileOrder PROPERTIES LABELS "fast;unit" TIMEOUT 60)
 
+# Linear-field patch test of the diffusive fluxes (stencil metric exact on non-smooth meshes, 8 families, and the
+# metric-mean part), and the same mesh as one block and as two blocks joined by a connection (one flux per face)
+foreach(_t IN ITEMS "PatchTest|patch_test|run_patch.sh" "ConnectionSplit|connection_split|run_split.sh")
+  string(REPLACE "|" ";" _p "${_t}")
+  list(GET _p 0 _name)
+  list(GET _p 1 _dir)
+  list(GET _p 2 _script)
+  add_test(NAME ${_name}
+           COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/numerics-features/${_dir}/${_script}
+                   ${CMAKE_CURRENT_SOURCE_DIR}/numerics-features/${_dir} ${_WORK}/${_name} $<TARGET_FILE:${solver}>)
+  set_tests_properties(${_name} PROPERTIES LABELS "fast" TIMEOUT 300)
+endforeach()
+
 # MPI: 1 process vs 2 ranks
 if (USE_MPI)
   fuss_add_test(ChimeraMPI   numerics-features/chimera                      300 "needs-mpi" --iters 300 --mpi 2)

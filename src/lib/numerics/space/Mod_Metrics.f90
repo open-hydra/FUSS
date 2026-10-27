@@ -10,7 +10,6 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Lib_Metrics
-    use FUSS_Lib_Diffusive, only: Inverse3
     use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
     use FUSS_Mod_dt, only: Skew_Factor
@@ -28,14 +27,8 @@ contains
     ! A cell folded at one of its corners, or turned against its block, stops the run here
     call Check_Folded_Cells ( domain, bad )
     call mpi_stop_if_any ( bad, 'degenerate or folded cell in the mesh (see above)', '' )
-
-    ! Inverse metric of the interior cells, for the diffusive face metric: the face then needs
-    ! one 3x3 inversion instead of three. Same bounds as M.
-
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
-      if ( .not. allocated(domain % blk(b) % Minv) ) &
-        allocate( domain % blk(b) % Minv, mold = domain % blk(b) % M )
       !$omp parallel
       ! Compute metric tensor and cell dimension across i,j,k. => block % M, & block % dl      
       !$omp do collapse(3) private(i, j, k, N1, N2, N3, N4, N5, N6, N7, N8)
@@ -52,7 +45,6 @@ contains
         N8 % c = domain % blk(b) % node(i  ,j  ,k  ) % c
         call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, domain % blk(b) % M(i,j,k), domain % blk(b) % dl(i,j,k), domain % blk(b) % vol(i,j,k), &
                                      loc = [b, i, j, k, 0] )
-        domain % blk(b) % Minv(i,j,k) % c = Inverse3 ( domain % blk(b) % M(i,j,k) % c )
       enddo; enddo; enddo
       !$omp end parallel
       ! A degenerate or inverted cell (Compute_Metric_Tensor wrote the first one): no further block here; every rank

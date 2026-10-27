@@ -200,7 +200,7 @@ After a header that reports the threads and ranks of the build, FUSS checks its 
  Numerical scheme
  =========================================================================================
  Space
-   Diffusive face metric          inverse-mean
+   Diffusive face metric          stencil
 
  Time
    Scheme                         Third-order Runge-Kutta

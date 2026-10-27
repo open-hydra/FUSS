@@ -2,7 +2,7 @@ module FUSS_Lib_BC_Fluxes_Wall
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
-  use FUSS_Lib_BC_Fluxes, only: Face_Index, Compute_Modfm
+  use FUSS_Lib_BC_Fluxes, only: Face_Index, Compute_Modfm, Face_Tangential
 
   implicit none
   private
@@ -33,7 +33,7 @@ contains
   !> 302 prescribes Tw; 301, 303, 304, 305 prescribe q_in = q + hconv (Tref - Tw) + eps sigma (Tref^4 - Tw^4),
   !> with q = qw (301) or qrad (303). Tangential differences use the ghost cells (ghosts = .true.) or
   !> stay inside the block, one-sided at the face edges (ghosts = .false., used to fill the ghosts).
-  !> The metric M is that of the same differences of the positions (bc%wM, Lib_Stencil_Metrics, one variant per
+  !> The metric M is that of the same differences of the positions (blk%bm(Fm)%wM, Lib_Stencil_Metrics, one variant per
   !> value of ghosts): D = J g for a linear field, so Tw balances the prescribed flux at T(x_f) exactly.
   subroutine Wall_Temperature ( Im, Jm, Km, Fm, Blk, bc, ghosts, Tw, q_in )
     use FUSS_Lib_Solid, only: co_Kappa
@@ -45,14 +45,17 @@ contains
     logical, intent(in) :: ghosts
     real(R8), intent(out) :: Tw, q_in
     ! Local
-    integer  :: modfm, modfm1, modfm2, modfm3, Dir, Face_i, Face_j, Face_k, d, it, lo(3), hi(3)
+    integer  :: modfm, modfm1, modfm2, modfm3, Dir, Face_i, Face_j, Face_k, d, it, lo(3), hi(3), tf(2)
     real(R8) :: Normal(3), M(3,3), T, kappa, G, C, q, h, es, Tref, f, df, dT
 
     call Compute_Modfm ( Fm, modfm, modfm1, modfm2, modfm3 )
     call Face_Index ( Fm, Dir, Im, Jm, Km, Face_i, Face_j, Face_k )
     Normal = Blk % dir(Dir) % f(Face_i,Face_j,Face_k) % n
     M = Blk % M (Im,Jm,Km) % c
-    if ( bc % wstencil ) M = bc % wM(:,:, merge(1, 2, ghosts))
+    if ( allocated ( Blk % bm(Fm) % wM ) ) then
+      tf = Face_Tangential ( Fm, Im, Jm, Km )
+      if ( Blk % bm(Fm) % wset(tf(1),tf(2)) ) M = Blk % bm(Fm) % wM(:,:, merge(1, 2, ghosts), tf(1), tf(2))
+    end if
     T = Blk % T(Im,Jm,Km)
     call co_Kappa( Blk % matID(Im,Jm,Km), T, kappa )
 

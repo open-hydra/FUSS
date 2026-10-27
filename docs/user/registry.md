@@ -50,6 +50,7 @@
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
 | irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; the value is re-read at runtime) |
+| diffusive-metric | stencil | stencil, mean |  no | Face metric of the diffusive fluxes: stencil takes the face Jacobian from the same differences of the cell centres as the face gradient, exact for a linear field on any mesh except at the chimera faces (102), which take the two-sided balance with the cell metrics with every value; mean takes the mean of the two cell metrics at the interior faces (the block connections the two-sided balance, the walls the cell metric) and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r; read at set-up only |
 
 ## FUSS-Multigrid
 
