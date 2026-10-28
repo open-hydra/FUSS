@@ -102,6 +102,8 @@ FUSS prints the loading checks, a summary of the set-up, and one line per iterat
    Blocks                         1
    Cells                          2400
    Boundary faces                 5000
+   Mesh type                      2-D, plane
+   Time-step skew factor (max)    1.000000
 
  Boundary conditions
    Viscous wall                   200
@@ -145,7 +147,7 @@ FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-0
  =========================================================================================
 ```
 
-`Boundary faces` counts every record of `bc.txt`, zero-flux faces included; `Viscous wall` counts the wall records (codes 301–305). Time-accurate runs print `Time` and `Delta t` instead of the residual, and multigrid runs prefix the line with the grid level.
+`Mesh type` is 1-D, 2-D plane, 2-D axisymmetric wedge of an angle, or 3-D; `Time-step skew factor (max)` is the largest factor of the explicit step over the cells (1.000000 unless 3-D cells are skewed in all three pairs of directions). `Boundary faces` counts every record of `bc.txt`, zero-flux faces included; `Viscous wall` counts the wall records (codes 301–305). Time-accurate runs print `Time` and `Delta t` instead of the residual, and multigrid runs prefix the line with the grid level.
 
 ---
 

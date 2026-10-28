@@ -39,17 +39,17 @@ FUSS/
 
 | Directory | Files | Content |
 |-----------|-------|---------|
-| `base/` | `Parameters_m`, `Global_m`, `Base_Types_m`, `Advanced_Types_m`, `Series_Data_m` | Constants, ghost layers `gc` and dimensions `ndir`, block/domain/BC types, time tables of BCs 301/302 |
+| `base/` | `Parameters_m`, `Global_m`, `Base_Types_m`, `Advanced_Types_m`, `Series_Data_m`, `Finite_m` | Constants, ghost layers `gc` and dimensions `ndir`, block/domain/BC types, time tables of BCs 301/302, test of a value for NaN and infinities (`Not_Finite`) |
 | `config/` | `Config_Types_m`, `Registry`, `Backend_INI`, `Read_Ini`, `Register_Sim_Param`, `Register_IO`, `Register_Numerics`, `Assign_Setup` | Settings objects (`obj_*`), `input.ini` key registry and reader, scheme selection |
 | `driver/` | `Procedures_m`, `Wrap_Setup`, `Wrap_Solve`, `Wrap_Postprocess`, `Mod_Allocate_Data` | `FUSS_type` with `setup`, `solve`, `postprocess`; allocation |
 | `io/` | `Load_Table`, `IO_Solution`, `IO_BC`, `IO_Wall`, `IO_Probes` | Property tables, initial condition and solution files, `bc.txt`, wall output, probes |
 | `numerics/fluxes/` | `Mod_Fluxes`, `Lib_Diffusive` | Interior diffusive fluxes |
 | `numerics/fluxes/bc/` | `Mod_BC_Fluxes`, `Lib_BC_Fluxes`, `Lib_BC_Fluxes_Connection`, `Lib_BC_Fluxes_Wall` | Boundary fluxes: dispatch, face helpers, block connection and chimera (101, 102), walls (301–305) |
-| `numerics/space/` | `Mod_Metrics`, `Lib_Metrics`, `Lib_Ghost` | Metrics, face normals and areas; ghost-cell fill for every BC type |
+| `numerics/space/` | `Mod_Metrics`, `Lib_Metrics`, `Lib_Stencil_Metrics`, `Lib_Ghost` | Metrics, face normals and areas; stencil face metrics (`diffusive-metric = stencil`); ghost-cell fill for every BC type |
 | `numerics/time/` | `Mod_dt` | Local and global time step |
 | `numerics/time/explicit/` | `Mod_Explicit`, `Mod_Newstate`, `Lib_Newstate`, `Lib_RK`, `Lib_IRS` | Iteration loop, state update (`cons`/`prim`), Runge–Kutta stages, residual smoothing |
-| `numerics/multigrid/` | `Mod_Multigrid`, `Lib_Multigrid` | Coarse levels, restriction, prolongation |
-| `parallel/` | `Mod_MPI`, `Mod_GhostExchange`, `Mod_Timers` | MPI set-up, block partition, reductions; ghost and chimera exchange, gathers to rank 0; wall-clock timers |
+| `numerics/multigrid/` | `Mod_Multigrid`, `Lib_Multigrid`, `Mod_FAS` | Coarse levels, restriction, prolongation; FAS V and W cycles |
+| `parallel/` | `Mod_MPI`, `Mod_GhostExchange`, `Mod_Timers` | MPI set-up, block partition, reductions, the stops of the errors (`mpi_stop_all`, `mpi_stop_if_any`, `stop_from_thread`); ghost and chimera exchange, gathers to rank 0; wall-clock timers |
 | `physics/` | `Lib_Solid` | Property interpolation `co_Kappa`, `co_Rho`, `co_Cp`, `co_H` and inversion `co_T` |
 | `diagnostic/` | `Mod_Diagnostic` | Residual norm, `diagnostic.tec` |
 
@@ -264,7 +264,7 @@ classDiagram
     }
     class FUSS_block_type {
         +dim : integer
-        +node, M, Minv, dl, vol, dir
+        +node, M, dl, vol, dir, fm, bm
         +T, TO, R, qvol, matID : real64
         +dtlocal : real64
         +RS0, RS1, RS2 : real64
@@ -293,7 +293,9 @@ classDiagram
 | `qvol`, `matID` | `1-gc:n+gc` | Volumetric source; material index (stored as real) |
 | `dtlocal` | `1:n` | Local time step |
 | `RS0`, `RS1`, `RS2` | `1-gc:n+gc` | IRS work arrays (allocated with IRS only) |
-| `M`, `Minv`, `dl`, `vol` | `1-gc:n+gc` | Metric (rows ∇ξ_d), its inverse (edge vectors, for the face metric), cell lengths, volume |
+| `M`, `dl`, `vol` | `1-gc:n+gc` | Metric (rows ∇ξ_d), cell lengths, volume |
+| `fm(d)%Mf` | `1:n-1` along `d`, `1:n` in the others | Stencil face metric (3×3) of the interior face between a cell and the next one along `d` (`diffusive-metric = stencil`) |
+| `bm(f)` | six block faces | Stencil metrics of the walls (`wM`) and of the block connections (`cM`) that the record owns |
 | `node` | `0:n` | Grid nodes |
 | `dir(d)%f` | faces normal to `d` | Unit normal `N` and area `A` |
 

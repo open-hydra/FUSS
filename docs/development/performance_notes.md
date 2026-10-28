@@ -17,7 +17,7 @@ This page lists what the code already does for speed and the known costs that ha
 | Item | Where |
 |------|-------|
 | `RELEASE` flags: CMake's default optimisation plus the first accepted of each list: loop unrolling (`-funroll-loops` / `-unroll`), inlining (`-finline-functions` / `-inline`), interprocedural optimisation (`-ipo` / `-flto`); host architecture in every build type (`-march=native` for GNU, `-xHost` for Intel). No `-ffast-math`. | `cmake/SetFortranFlags.cmake` |
-| The inverse metric of each cell (`Minv`) is stored at set-up, so a face needs one 3×3 inversion instead of three. | `Mod_Metrics`, `Lib_Diffusive` |
+| The metric of each interior face (stencil, `diffusive-metric = stencil`) is stored at set-up, one 3×3 per face and direction with more than one cell (9, 18 or 27 doubles per cell in 1-D, 2-D, 3-D), so the flux loops do not build it. | `Lib_Stencil_Metrics`, `Lib_Diffusive` |
 | One OpenMP parallel region per iteration around all Runge–Kutta stages, with orphaned `!$omp do` loops inside. | `Mod_Explicit` |
 | MPI ghost and chimera-donor exchange with persistent, non-blocking requests; the local boundary conditions are processed while the messages are in flight. Every MPI call is made by the primary thread (`!$omp master` plus a barrier where the team needs the result: `MPI_THREAD_FUNNELED`); on one rank the exchange and its barriers are skipped. | `Lib_Ghost` (`Fill_Ghost_Cell`), `Lib_IRS`, `Mod_GhostExchange` |
 | The boundary fluxes of a rank run over its own records only, listed by block and face once at set-up (`local_bf_*`), not over the records of the whole mesh. | `Mod_BC_Fluxes`, `Mod_GhostExchange` (`build_local_bc_index`) |
@@ -32,11 +32,11 @@ This page lists what the code already does for speed and the known costs that ha
 ### Property look-ups
 
 - `Diffusive_Flux` calls `co_Kappa` once per interior face, at the mean of the two cell temperatures, so each cell's table is interpolated on up to $2\,n_\text{dir}$ faces per stage; a face between two materials needs two lookups (one per side, see [face conductivity](../theory/numerics.md#face-conductivity)).
-- `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration.
+- `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration, and, where a face carries a conductivity other than the cell's, a second pass of up to nine lookups per cell (seven in 2-D; see [Time Integration](../theory/time-integration.md#face-conductivities)).
 
 ### Flux loops
 
-- `Diffusive_Flux` receives the stencil as ten scalar temperatures and two 3×3 metrics per face. Whether the compiler vectorises the face loops has not been checked (`-fopt-info-vec-missed` for GNU, `-qopt-report` for Intel).
+- `Diffusive_Flux` receives the stencil as ten scalar temperatures and three 3×3 metrics per face (the face metric and the two cell metrics, for the widths of a material jump). Whether the compiler vectorises the face loops has not been checked (`-fopt-info-vec-missed` for GNU, `-qopt-report` for Intel).
 - `Fluxes_blk` sweeps each block once per direction: three loop nests, each reading `T` and updating `R`.
 
 ### Data layout
