@@ -157,6 +157,16 @@ if (USE_MPI)
 
   # The same output bits on 1x1, 1x4, 2x1, 4x1 and 2x2 (ranks x threads) on a box of 4 blocks and a chimera pair
   fuss_add_mpi_script(MPIBitIdentity       mpi/bit-identity/run.sh        900 "needs-mpi;implementation")
+  # MPI calls only from the main thread (MPI_THREAD_FUNNELED): a probe library preloaded into the solver counts the calls made
+  # by the other threads (2x2, 2x4 and 2x2 with IRS, ranks x threads); Linux only (LD_PRELOAD)
+  if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Threads REQUIRED)
+    add_library(mpi_thread_probe MODULE mpi/thread-funnel/mpi_thread_probe.c)
+    target_link_libraries(mpi_thread_probe PRIVATE ${CMAKE_DL_LIBS} Threads::Threads)
+    set_target_properties(mpi_thread_probe PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+    fuss_add_mpi_script(MPIThreadFunnel mpi/thread-funnel/run.sh 600 "needs-mpi;implementation")
+    set_property(TEST MPIThreadFunnel APPEND PROPERTY ENVIRONMENT "FUSS_MPI_THREAD_PROBE=$<TARGET_FILE:mpi_thread_probe>")
+  endif()
   fuss_add_mpi_script(MPIRuntimeInput      input-io/mpi-runtime-input.sh  300 "needs-mpi;implementation")
   fuss_add_mpi_script(MPIExitCodes         input-io/mpi-exit-codes.sh     300 "needs-mpi;implementation")
   fuss_add_mpi_script(MPIRestart           input-io/mpi-restart.sh        300 "needs-mpi;implementation")

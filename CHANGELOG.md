@@ -59,6 +59,10 @@ listed here: the pages of `docs/` describe them.
   "needs-mpi|verification"`, a build without MPI and TecIO) and the MPI tier under gfortran + Open MPI (`ctest -L needs-mpi`);
   the labels carry MOSE's second-level tags `physics`, `numerics`, `implementation`, `unit`; the MPI script tests reserve 4
   processors under `ctest -j`. This file.
+- `MPIThreadFunnel` (MPI tier), ported from MOSE's `test/mpi/thread-funnel`: a probe library (`mpi_thread_probe.c`, preloaded
+  with `LD_PRELOAD`, Linux) wraps the Fortran MPI entry points that FUSS calls and counts the calls made by a thread other
+  than the one that called `MPI_INIT_THREAD`; the test asserts none on every rank at 2 ranks x 2 threads, 2 x 4 and 2 x 2 with
+  IRS, that the exchanges were seen on every rank, and that the largest tag is at most 32767.
 - Set-up stop for a block one cell across, on every grid level, before the ghost metrics are built (`Check_Thin_Blocks`,
   exit code 1 on every rank): a block connection (101) whose block across has fewer than `gc` = 2 cells across its face (as MOSE
   2e31d8a; a build with bounds checking stopped in `BC_Connect_Metrics` with an index out of bounds, a release build read past
