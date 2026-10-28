@@ -12,6 +12,7 @@ contains
     use FUSS_Config_Types_m, only: obj_io
     use FUSS_Global_m
     use Lib_ORION_data
+    use FUSS_Mod_MPI, only: mpi_stop_all
     
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -35,7 +36,8 @@ contains
     if ( size(IOfield%block(1)%vars, 1) < 3 ) then
       write(*,'(A)')         '[ERROR] Number of variables in IOfield does not match FUSS expectation.'
       write(*,'(A,I0,A,I0)') '        Expected: ', 3, ', Found: ', size(IOfield%block(1)%vars, 1)
-      stop
+      ! Every rank read the same file: the ranks stop together, with exit code 1 (a bare stop ended with exit code 0)
+      call mpi_stop_all('initial condition has too few variables (see above)')
     end if
 
     do b = 1, nblocks
@@ -107,17 +109,20 @@ contains
     integer :: b, d, i, c
     logical, allocatable :: needs_remote_T(:)
 
-    ! Build mask of remote blocks whose T (and dir) must be kept:
-    !  - chimera (102): donorID(:,1) can reference remote blocks
-    ! Not 104: its donors are blocks of the other solver, which hydra exchanges
+    ! Build mask of remote blocks whose T and matID (and dir) must be kept:
+    !  - chimera (102): remote donors of a receiver block this rank owns.
+    !    Ghost_Chimera reads both: T (refreshed by the chimera exchange) and
+    !    matID (static, as loaded from the initial condition).
+    !    Not 104: its donors are cells of the other solver.
     allocate(needs_remote_T(domain%nb))
     needs_remote_T = .false.
     do i = 1, domain%nbound
       select case (domain%bc(i)%type)
-        case (102) ! chimera
-          if (allocated(domain%bc(i)%donorID)) then
+        case (102) ! chimera: only donors of a receiver this rank owns
+          if (allocated(domain%bc(i)%donorID) .and. is_local_block(domain%bc(i)%b)) then
             do c = 1, size(domain%bc(i)%donorID, 1)
               b = domain%bc(i)%donorID(c, 1)
+              if (b < 1 .or. b > domain%nb) cycle
               if (.not. is_local_block(b)) needs_remote_T(b) = .true.
             end do
           end if
@@ -130,15 +135,17 @@ contains
       ! Computation arrays — free on all ranks
       if (allocated(domain%blk(b)%TO))           deallocate(domain%blk(b)%TO)
       if (allocated(domain%blk(b)%R))            deallocate(domain%blk(b)%R)
+      if (allocated(domain%blk(b)%fas_f))        deallocate(domain%blk(b)%fas_f)
+      if (allocated(domain%blk(b)%fas_h0))       deallocate(domain%blk(b)%fas_h0)
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
       if (allocated(domain%blk(b)%RS2))          deallocate(domain%blk(b)%RS2)
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)
-      if (allocated(domain%blk(b)%matID))        deallocate(domain%blk(b)%matID)
 
-      ! T — free unless this remote block is a chimera donor or manifold source
+      ! T and matID — free unless this remote block is a chimera donor
       if (.not. needs_remote_T(b)) then
-        if (allocated(domain%blk(b)%T)) deallocate(domain%blk(b)%T)
+        if (allocated(domain%blk(b)%T))     deallocate(domain%blk(b)%T)
+        if (allocated(domain%blk(b)%matID)) deallocate(domain%blk(b)%matID)
       end if
 
       ! Metrics — free on non-root ranks only (root needs them for wall I/O)

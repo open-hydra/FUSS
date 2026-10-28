@@ -10,6 +10,8 @@ module FUSS_Mod_Diagnostic
 contains
 
 
+  !> The sum over the cells of the block is taken in a fixed order, the same for any number of threads: each thread sums
+  !> whole i lines, and the sums of the lines are added in turn.
   subroutine Compute_Residual ( new, old, dt, n, average, total )
     use FUSS_Global_m
     implicit none
@@ -21,30 +23,35 @@ contains
     real(R8), intent(inout) :: total
     ! Local
     integer :: i, j, k
-    real(R8) :: resn, residuo, reslocal ( n(1), n(2), n(3) )
-    
-    residuo = 0d0
-    
-    !$omp parallel
-    !$omp do private ( resn ) reduction ( + : residuo ) collapse (3)
+    real(R8) :: resn, residuo
+    real(R8), allocatable :: line(:,:)   ! sum over each i line
+
+    allocate ( line(n(2), n(3)) )
+
+    !$omp parallel do private ( i, resn ) collapse (2)
     do k = 1, n(3)
     do j = 1, n(2)
-    do i = 1, n(1)
-      
-      resn = abs ( new(i,j,k) - old(i,j,k) ) ! delta(T)
-      reslocal(i,j,k) = resn
-      residuo = residuo + resn*resn  ! sum ( r(i)**2 )
+      line(j,k) = 0d0
+      do i = 1, n(1)
 
-    enddo; enddo; enddo
-    !$omp end parallel
+        resn = abs ( new(i,j,k) - old(i,j,k) ) ! delta(T)
+        line(j,k) = line(j,k) + resn*resn  ! sum ( r(i)**2 )
 
-    ! Local max residual (UNUSED)
-    ! resmax_ = maxval ( reslocal(:,:,:) )
+      enddo
+    enddo; enddo
+    !$omp end parallel do
+
+    residuo = 0d0
+    do k = 1, n(3)
+    do j = 1, n(2)
+      residuo = residuo + line(j,k)
+    enddo; enddo
 
     ! Average residual of this block
     average = sqrt ( residuo / float ( n(1)*n(2)*n(3) ) )
     ! Overall residual
     total = total + residuo
+    deallocate ( line )
 
   end subroutine Compute_Residual
 
@@ -67,6 +74,8 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
+    character(len=llen) :: vtknames
+    character(len=llen) :: name
     integer             :: E_IO, b, i, j, k
     character(len=clen) :: format(2), extension
 
@@ -91,10 +100,15 @@ contains
       select case(trim(format(1)))
       case('vtk')
         IOfield%vtk%format = trim(format(2))
-        localpath_vtk = trim(path)//'/vtk'
+        ! As the field files (IO_Solution): the .vtm lists the block files relative to its own folder (no leading '/' in
+        ! the name), and the time is the solution time, minus the global iteration count in a steady run
+        name = file
+        if ( name(1:1) == '/' ) name = name(2:)
+        localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
-        E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(file), &
-                                                            vtmpath=trim(path)//trim(file),varnames=Dvarnames,time=domain%time)
+        vtknames = unquoted(Dvarnames)
+        E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(name), &
+                                               vtmpath=trim(path)//trim(name),varnames=vtknames,time=IOfield%solutiontime)
       case('tecplot')
         IOfield%tec%format = trim(format(2))
         ! TecIO refuses a binary stream unless the name ends in .plt/.szplt, so

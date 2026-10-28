@@ -1,191 +1,92 @@
 # Testing
 
-FUSS ships with a test suite that exercises the solver on problems
-with known analytical or reference solutions, and cases that verify
-the behaviour of numerical features.  This page describes the test
-organisation, how to run tests, and how to add new cases.
+The test cases in `test/` run FUSS on problems with analytical or benchmark solutions and check numerical features. CTest runs them all; each case can also be run by hand.
 
 ---
 
-## Test Organisation
+## Test cases
 
-```mermaid
-graph TD
-    subgraph test ["test/"]
-        subgraph ss ["steady-state/ — Steady-state V&V"]
-            TP["temperature_Plate"]
-            CP["convective_Plate"]
-            RR["radiative_Rod"]
-            QP["qvol_Plate"]
-        end
-        subgraph tr ["transient/ — Time-accurate V&V"]
-            OR["oscillating_Rod"]
-            MP["multimat_Plate"]
-        end
-        subgraph nf ["numerics-features/ — Numerical features"]
-            RC["residual_convergence"]
-            TC["time_convergence"]
-        end
-    end
+| Case | Checks | Verifier |
+|---|---|---|
+| `steady-state/temperature_Plate` | Prescribed temperatures (NAFEMS T9 (i)) | `verify.py` |
+| `steady-state/qvol_Plate` | Volumetric heat source (NAFEMS T9 (ii)) | `verify.py` |
+| `steady-state/convective_Plate` | Convection (BC 303, NAFEMS T4) | `verify.py` |
+| `steady-state/convective_qrad_Rod` | Convection with an imposed flux (BC 303), exact solution | `verify.py` |
+| `steady-state/skewed_Plate` | Linear patch test on a 45° sheared mesh, walls 301, 302, 303, 305 | `verify.py` |
+| `steady-state/radiative_Rod` | Radiation (BC 304, NAFEMS T9 (iii)) | `verify.py` |
+| `steady-state/multilayer_Slab` | Three materials in series inside one block, unequal cells, exact solution | `verify.py` |
+| `transient/oscillating_Rod` | Oscillating wall temperature (NAFEMS T5), probes | `verify.py` |
+| `transient/multimat_Plate` | Three material layers (two materials), Fourier-series solution (LANL) | `verify.py` |
+| `transient/variable_cp_Plate` | Temperature-dependent heat capacity, exact solution | `verify.py` |
+| `numerics-features/skewed_3D` | Time step of 3-D rhombohedral cells (115°), two materials: the step of every cell against a replica of the formula and the skew factor | `verify.py` |
+| `mesh-checks` | Set-up checks (`run.sh`, `make_case.py` writes the decks): a block one cell thick in k next to a 3-D block (exact linear field), a wedge next to a plane block, a folded cell (2-D, 3-D), a turned ghost layer behind a chimera face and the same mesh with a wall | `run.sh`: exit status, messages, field |
+| `mesh-checks/thin-blocks.sh` | Blocks one cell across (`ThinBlocks`; `make_case.py` thin1, thin1s, thin1j, thin1ws, thin1jws, thin1w, thin1jw): the block across a connection has one cell, or a sheared block has one cell in a direction: set-up stops with exit code 1 and the block named; the orthogonal thin blocks run; with 2 ranks (`MPIExitCodes`) both stop | exit status, messages |
+| `unit/cell_volume_check`, `unit/volatile_order_check` | Cell volume against its exact value (rational arithmetic, `cell_volume_exact.py`); order of rounding of the node differences | unit programs |
+| `numerics-features/chimera` | Chimera (overset) interface | smoke run |
+| `numerics-features/chimera_mg` | Chimera donors on 3 multigrid levels, FAS cycle | smoke run |
+| `numerics-features/anisotropic_Plate` | Cells of aspect ratio 100, 3 levels, W + IRS | smoke run |
+| `numerics-features/multimat_liner` | Material jumps inside a block (four-layer liner in 2 blocks) at vnn 0.5 | smoke run |
+| `numerics-features/residual_convergence/*` | Six convergence strategies (IRS, multigrid) | smoke runs; `plot.py` |
+| `numerics-features/time_convergence/simdir` | Parallel timing study | smoke run; `plot.py` |
 
-    style test fill:#263238,stroke:#90a4ae,color:#eceff1
-    style ss fill:#1a237e,stroke:#7986cb,color:#e8eaf6
-    style tr fill:#004d40,stroke:#80cbc4,color:#e0f2f1
-    style nf fill:#4a148c,stroke:#ce93d8,color:#f3e5f5
+Each case directory holds `input.ini`, `MESH/mesh.tec`, `INPUT/` (`ic.tec`, `bc.txt`, `phase.txt`, `properties.dat`, optionally `st.tec`) and `FUSS.sh`. A `verify.py` reads the run's `OUTPUT/`, prints `Result: PASS` or `FAIL` and exits with 1 on failure. The two studies keep their data in `SOLUTION/`: `plot.py` draws the figures of the [V&V pages](../vv/index.md) from it. `numerics-features/convergence_figure/` is not a case: its `run_configs.sh` and `plot_convergence.py` run six configurations (none, IRS, V, W, V + IRS, W + IRS) on four of the cases and draw the figures of [Multigrid Cycles (FAS)](../vv/fas-cycles.md).
+
+## CTest
+
+`test/CMakeLists.txt` registers every case; `test/run_case.sh` runs one in a copy under the build tree (`build/test/runs/`), with one thread, so the source tree is never written.
+
+```bash
+ctest --test-dir build -L fast                        # 22 tests (23 with TecIO), about a minute
+ctest --test-dir build -LE "needs-mpi|verification"   # what the pull-request check runs (.github/workflows/ctest.yml)
+ctest --test-dir build -j 4                           # everything, a few minutes
+ctest --test-dir build -R Qvol -V                     # one test, with its output
 ```
 
-### Categories
+The labels are those of MOSE (`fast`, `validation`, `verification`, `needs-mpi`) and `smoke`. A test also carries a tag: `physics` (a model or a boundary condition against its solution), `numerics` (a property of the discretisation), `implementation` (inputs, stops, restart, parallel runs) and `unit` (a program that calls a routine).
 
-| Category | Location | What is checked |
-|----------|----------|-----------------|
-| **Steady-state V&V** | `test/steady-state/` | Converged temperature fields against NAFEMS benchmark values or analytical solutions |
-| **Transient V&V** | `test/transient/` | Time-accurate temperature histories against analytical Fourier-series solutions |
-| **Numerics features** | `test/numerics-features/` | Residual convergence behaviour and parallel scaling performance |
+| Label | Tests | What passes |
+|---|---|---|
+| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, `ThinBlocks`, `PatchTest`, `ConnectionSplit`, the unit programs `CellVolume` and `VolatileOrder`, and the tests of `test/input-io/` that need no MPI (table below) | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
+| `validation` | the 10 verification cases (also `convective_Plate`, about two minutes), `ChimeraEdge`, `Skewed3D`, `MetricChecks` and `PatchTest` | same |
+| `verification` | the full forms of verification cases (families of grids, long runs); none yet | run on request, `ctest -L verification`; the pull-request check leaves the label out |
+| `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |
+| `needs-mpi` | chimera, chimera_mg, multigrid with IRS, FAS W + IRS, multimat_liner (MPI builds only), `MPIBitIdentity` and the MPI tests below | 2 ranks write the same files as 1 process, bit for bit; `MPIBitIdentity`: 1×4, 2×1, 4×1 and 2×2 (ranks × threads) write the same files as 1×1, on a box of 4 blocks and a chimera pair of overlapping blocks, steady with IRS and time-accurate (`test/mpi/bit-identity/`); `MPIThreadFunnel`: a probe library preloaded into the solver (`mpi_thread_probe.c`, Linux) counts the MPI calls made by threads other than the one that called `MPI_INIT_THREAD` (MPI is `FUNNELED`): zero on every rank at 2×2, 2×4 and 2×2 with IRS, with the halo exchange seen on every rank and the largest tag at most 32767 (`test/mpi/thread-funnel/`) |
 
-### Steady-state test matrix
+The tests of `test/input-io/` run scripts on copies of the cases; each prints one `CASE <name> PASS|FAIL` line per check, and the test fails if one case does:
 
-| Case | Boundary condition tested | Reference |
-|------|--------------------------|-----------|
-| `temperature_Plate` | Prescribed temperature | NAFEMS Thermal Test 9(I) – Study 1 |
-| `qvol_Plate` | Volumetric heat generation | NAFEMS Thermal Test 9(I) – Study 2 |
-| `convective_Plate` | Convective heat transfer (mixed BCs) | NAFEMS Thermal Test 9(I) |
-| `radiative_Rod` | Surface radiation (nonlinear BC) | NAFEMS Thermal Test 9(iii) |
+| Test | Label | What it checks |
+|---|---|---|
+| `InputChecks` | `fast` | values out of their rule or that do not read (`vnn = -1`, `NaN`, `sol-diter = 2.5`, `sol-overwrite = yes`, `levels = 2.0`), a probe index out of range, a gap in the probe numbers, an `input.ini` that is missing, empty or only comments: exit code 1 with the key and the value; a comment with `=` and an unread key |
+| `RuntimeInput` | `fast` | `input.ini` changed during the run: with `ini-error = warn` one warning and a residual history byte for byte that of the run without the change, with `stop` exit code 1 at the reading; a reading that changes nothing leaves every file |
+| `ExitCodes` | `fast` | `bc.txt` (record line, short or null property line, record count, missing file, a block, face or cell index outside its range in the record itself, in the partner of a connection and in the donor of a chimera record, with their controls), time tables (decreasing, missing, empty, bad row, NaN), probes (block, index, variable), FAS with one level, the initial condition (missing file, NaN cell), a wall temperature that is NaN, a restart without a solution: exit code 1, the message, no solution |
+| `Restart` | `fast` | the run split in two writes the files of the run in one go (`vtk raw` and Tecplot ASCII; multigrid; FAS; probes and `sol-dtime`; numbered solutions; splits that end on an output); a solution without counters; the rows after the solution; a transient run from a steady solution; `INPUT/st.*` read with `ic-format`; a vtk solution without `TIME` or with a NaN counter |
+| `RestartBinary` | `fast`, needs TecIO | the same split with `tecplot binary` (`.szplt`) |
+| `DecompositionMap` | `fast` | a map with every block on rank 0 is the run without a map; every error of the map stops the run (exit code 1); a map is read only when the key names it |
+| `MPIRuntimeInput` | `needs-mpi` | two ranks in two folders: a missing, different or rewritten `input.ini` in the folder of rank 1 changes nothing |
+| `MPIExitCodes` | `needs-mpi` | the STOP line of both ranks, exit code 1, for an input error, a `bc.txt` error, an initial condition that rank 1 alone cannot read or holds a NaN, `ini-error = stop` at a reading during the run, a thin block next to a connection, a partner block or a donor block or cell outside its range in `bc.txt` (with the chimera deck's control) |
+| `MPIRestart` | `needs-mpi` | the split restart on 2 ranks (`nominal`, and `mg_irs` with two grid levels), 0 differing files |
+| `MPIDecompositionMap` | `needs-mpi` | the two blocks reversed on 2 ranks, and on 4 ranks (two idle), write the files of the serial run; a map for 3 ranks run on 2 stops every rank |
 
-### Transient test matrix
+Two tests of the diffusive fluxes are scripts of their own (`test/numerics-features/patch_test/`, `connection_split/`):
 
-| Case | Physics | Reference |
-|------|---------|-----------|
-| `oscillating_Rod` | 1-D conduction with oscillating wall temperature | NAFEMS Thermal Test 5 |
-| `multimat_Plate` | 2-D transient conduction across three-material plate | LANL multi-material diffusion benchmark |
+- **`PatchTest`** (`run_patch.sh`). One forward-Euler step from the exact linear field $T = A + \mathbf{g}\cdot\mathbf{x}$, whose heat flux is uniform: the flux sum of every cell and the wall output $q_w$ must vanish to round-off on non-smooth meshes. Part 1, with the default `diffusive-metric = stencil`: the families `para` (sheared cells, control), `rand` (random nodes), `jump` (cell sizes alternating 1 : 1.5), `fold2` (two blocks joined by a connection with a fold), `sym` (symmetry plane), `wallmix` (wall types 302, 303, 301, 305), `box3d` (two 3-D blocks, fold) and `step` (one jump of the cell size), every group at most $10^{-11}$ of $k|\mathbf{g}|A_\text{cell}$. Part 2, `metric-mean`: with `diffusive-metric = mean`, `para` exact and `step` interior $= 6.4201\times10^{-3}$ within $10^{-7}$, the expected bias $(1+r)^2/(4r) - 1$ of that metric at $r = 1.5$, which the alternating sizes of `jump` cancel. The mesh generators are `patch_case.py` (`patch_case.py case <family> <dir> [--metric mean]`, `check <dir>`).
+- **`ConnectionSplit`** (`run_split.sh`). The `rand` mesh as one block and as two blocks joined by a block connection (same nodes, records also in reversed order), 50 RK3 iterations: the fields agree to $10^{-12}$ relative (one flux per connection face on the stencil metric) and the two orders of the records give the same bits.
 
-### Numerics-features test matrix
+`run_case.sh <case> <work dir> <binary> [--iters N] [--verify] [--mpi N]` caps the run at N iterations by rewriting `iter-threshold` and every `level<m>-iter` of the copy.
 
-| Case | What is measured | Output |
-|------|-----------------|--------|
-| `residual_convergence` | Iteration count to convergence for baseline RK3, IRS, and multigrid on coarse and fine meshes | Residual history plot |
-| `time_convergence` | Wall-clock time per run across openMP and MPI×openMP configurations | Execution time vs. core count plot |
-
----
-
-## Test Case Structure
-
-### Verification cases (steady-state / transient)
-
-Each case is a self-contained directory:
-
-```
-test/steady-state/temperature_Plate/
-├── input.ini          # Solver configuration (time scheme, VNN, BCs, …)
-├── INPUT/             # Mesh-coupled initial condition, BC table, material data
-├── MESH/              # Pre-generated structured grid
-├── OUTPUT/            # Solver output (created at runtime)
-├── verify.py          # Comparison script
-└── FUSS.sh            # Run helper
-```
-
-| File / Dir | Purpose |
-|------------|---------|
-| `input.ini` | Solver configuration |
-| `MESH/` | Pre-generated structured grid |
-| `INPUT/` | Initial-condition field, BC table, phase descriptor, property table |
-| `OUTPUT/` | Solver output (field, wall, probes, residual history) — used by `verify.py` |
-| `verify.py` | Reads solver output, compares against reference, writes figure |
-| `FUSS.sh` | Launch wrapper (serial, OpenMP, MPI) |
-
-### Numerics-features cases
-
-These cases do not run the solver directly — they post-process data already stored in `SOLUTION/`:
-
-```
-test/numerics-features/residual_convergence/
-├── <case>/            # One subdirectory per configuration (coarse, fine, …)
-│   └── input.ini
-├── SOLUTION/          # Pre-collected residual-history files
-└── verify.py          # Reads SOLUTION/, plots residual histories
-```
-
-```
-test/numerics-features/time_convergence/
-├── simdir/            # Reference simulation setup
-├── SOLUTION/          # Timing log files (one per parallelisation config)
-└── verify.py          # Reads SOLUTION/, plots execution time vs. cores
-```
-
----
-
-## Running Tests
-
-### Single verification case
+## Running a case by hand
 
 ```bash
 cd test/steady-state/temperature_Plate
-
-# Run the solver (serial)
-./FUSS.sh solve
-
-# Run with OpenMP (4 threads)
-./FUSS.sh -p 4 solve
-
-# Run with MPI (2 ranks)
-./FUSS.sh -m 2 solve
-
-# Compare results against reference
+./FUSS.sh solve               # serial; -p <n> threads, -m <n> MPI ranks, before 'solve'
 python3 verify.py
 ```
 
-### Numerics-features cases
+`FUSS.sh solve` copies `bin/FUSS` of the repository into the case when it is newer.
 
-These scripts read from `SOLUTION/` directly — no solver run needed:
+## Adding a case
 
-```bash
-cd test/numerics-features/residual_convergence
-python3 verify.py    # plots residual histories → RESULTS/residual_comparison.svg
-
-cd test/numerics-features/time_convergence
-python3 verify.py    # plots execution times → timing_comparison.svg
-```
-
----
-
-## Test Workflow Diagram
-
-```mermaid
-flowchart LR
-    Build["Build FUSS\n(install.sh compile)"] --> Run["./FUSS.sh solve\nin test directory"]
-    Run --> Output["FUSS writes\nSOLUTION/"]
-    Output --> Verify["python3 verify.py"]
-    Verify --> Pass{"Result?"}
-    Pass -->|within tolerance| OK["✅ Pass"]
-    Pass -->|deviation| Fail["❌ Fail"]
-
-    style Build fill:#263238,stroke:#90a4ae,color:#eceff1
-    style OK fill:#1b5e20,stroke:#a5d6a7,color:#fff
-    style Fail fill:#b71c1c,stroke:#ef9a9a,color:#fff
-```
-
----
-
-## Adding a New Test Case
-
-### Steady-state case
-
-1. Create a directory under `test/steady-state/` (e.g. `test/steady-state/MyCase/`).
-2. Provide `input.ini`, `MESH/`, and `INPUT/` with the problem setup.
-3. Run the solver to generate the solution; store reference output in `SOLUTION/`.
-4. Write `verify.py` to compare against the analytical or benchmark solution.
-5. Copy `FUSS.sh` from an existing case (it is generic).
-
-### Transient case
-
-Same structure, but place the directory under `test/transient/`.
-Set `time-accurate = true` and a `res-threshold` or `iter-threshold` in `input.ini`.
-Use point probes (`[FUSS-Probes]`) to record time histories for comparison against analytical solutions.
-
-### Numerics-features case
-
-1. Create a directory under `test/numerics-features/`.
-2. Collect solver output (residual histories, log files) into a `SOLUTION/` subfolder
-   — one file per configuration, named to encode the configuration (e.g. `MPI-2x10`, `openMP-20`).
-3. Write `verify.py` to read `SOLUTION/` directly, parse the relevant quantity,
-   and produce a comparison plot saved next to `verify.py`.
-4. Document the case in `docs/vv/` following the format of the existing entries.
+1. Create the directory with `input.ini` and the mesh. The `[GRIB-*]`, `[GPB-*]`, `[ICB-*]` and `[BCB-*]` sections of `input.ini` describe how ATLAS generates `MESH/` and `INPUT/`; the first line of `phase.txt` must be `solid-bulk` for ATLAS. A case whose data ATLAS cannot express carries a script that writes them (`skewed_Plate/make_inputs.py`).
+2. Write `verify.py`: read `OUTPUT/`, compare with the reference, print `Result: PASS` or `FAIL`, exit 1 on failure.
+3. Register it in `test/CMakeLists.txt` with `fuss_add_test(<Name> <dir> <timeout> "<labels>" --verify)`.
+4. Add a page to `docs/vv/` and to the `nav` of `mkdocs.yml`.

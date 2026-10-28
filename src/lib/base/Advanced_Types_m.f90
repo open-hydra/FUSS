@@ -10,6 +10,23 @@ module FUSS_Advanced_Types_m
   !! ------------------------------------------------------
   !! ------------------------------------------------------
   !! FUNDAMENTAL TYPES
+  !> Stencil face metric (Lib_Stencil_Metrics) of the interior faces of one block: Mf(i,j,k) is the face between cell
+  !> (i,j,k) and the next one along the direction
+  type :: face_metric_type
+    type(FUSS_tensor_3D_type), allocatable :: Mf(:,:,:)
+  end type face_metric_type
+
+  !> Stencil face metrics of the boundary faces of one block face (Lib_Stencil_Metrics), indexed by the two tangential
+  !> cell indices (Face_Tangential), allocated only on the block faces that have walls (wM, wset) or connections
+  !> that the record owns (cM): a thin 2-D block has two k faces of null records per cell, which carry nothing here.
+  !> wM(:,:,v,t1,t2): metric of the wall gradient, variant 1 with the ghost cells (flux), 2 one-sided inside the block
+  !> (ghost fill, wall output); cM: metric of a block connection
+  type :: boundary_metric_type
+    real(R8), allocatable :: wM(:,:,:,:,:)
+    logical,  allocatable :: wset(:,:)
+    real(R8), allocatable :: cM(:,:,:,:)
+  end type boundary_metric_type
+
   type :: block_type
     integer                                :: dim(3)           ! Number of cells in i-j-k (ghost not included)
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
@@ -17,6 +34,8 @@ module FUSS_Advanced_Types_m
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
+    type(face_metric_type)                 :: fm(3)            ! Stencil face metrics of the interior faces of the three directions
+    type(boundary_metric_type)             :: bm(6)            ! Stencil face metrics of the walls and connections of the six block faces
   end type block_type
 
   type :: bc_type
@@ -45,10 +64,20 @@ module FUSS_Advanced_Types_m
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
     real(R8), dimension(:,:,:), allocatable :: matID           ! ID of material for each cell
+    ! FAS multigrid (coarse levels, cycle /= none): forcing and the restricted state in h
+    real(R8), dimension(:,:,:), allocatable :: fas_f           ! Volume-integrated forcing P_k
+    real(R8), dimension(:,:,:), allocatable :: fas_h0          ! h of the restricted state w0
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
-    real(R8) :: qw, Tw, hconv, qrad, Tref, eps                 ! BC viscous wall specifications
+    ! Wall BC specifications. Each wall type reads only its own subset: the default 0 makes a
+    ! component a type does not set read as 0, not as whatever the allocation left there
+    real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
+    ! One flux per connection face (101): the record of the same face seen from the other block, whether this record
+    ! computes the face (owner), and the share of this cell (heat into the cell, W) that the owner leaves in it
+    integer  :: partner = 0
+    logical  :: owner = .false.
+    real(R8) :: Fc = 0d0
     type(time_series_type) :: BCtime
   end type FUSS_bc_type
   !! ------------------------------------------------------
@@ -61,7 +90,9 @@ module FUSS_Advanced_Types_m
     real(R8)                                         :: time             ! Solution time
     real(R8)                                         :: dtglobal         ! Global dt for time accurate simulation
     integer                                          :: iter, itermax    ! Iteration number
+    integer                                          :: mg_level = 1     ! Multigrid level of this domain (selects exchange schedules)
     integer                                          :: nb, nbound       ! Number of blocks, number of boundary faces
+    logical                                          :: fas_forcing = .false.   ! Add fas_f to the residual (FAS coarse-level visit)
     integer, dimension(:,:), allocatable             :: n_bf             ! Number of bc elements per faces per block
     type(FUSS_block_type), dimension(:), allocatable :: blk              ! Allocatable block type
     type(FUSS_bc_type),    dimension(:), allocatable :: bc               ! Allocatable bc object
@@ -70,6 +101,11 @@ module FUSS_Advanced_Types_m
     integer, dimension(:), allocatable               :: local_bc_idx
     integer                                          :: n_local_bs = 0
     integer, dimension(:), allocatable               :: local_bs_idx
+    ! The same local BC indices grouped by block and face, for BC_Fluxes: the records of face f
+    ! of block b are local_bf_idx(local_bf_first(b,f) : local_bf_first(b,f) + local_bf_count(b,f) - 1)
+    integer, dimension(:,:), allocatable             :: local_bf_first
+    integer, dimension(:,:), allocatable             :: local_bf_count   ! 0 on blocks of other ranks
+    integer, dimension(:), allocatable               :: local_bf_idx
   end type FUSS_domain_type
 
   type :: FUSS_simulation_type

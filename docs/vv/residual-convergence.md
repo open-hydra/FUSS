@@ -8,20 +8,20 @@ Steady-state heat conduction across a two-material plate in the X direction. The
 
 A rectangular plate (1.0 m × 0.1 m × 0.01 m) is partitioned into two material zones in the X direction:
 
-| Block | X extent (m) | Material | k (W/mK) | ρ (kg/m³) | c_v (J/kgK) |
+| Block | X extent (m) | Material | k (W/mK) | ρ (kg/m³) | c_p (J/kgK) |
 |---|---|---|---|---|---|
 | Block 1 | 0.0 – 0.5 | mat1 | 10.0 | 8000 | 450 |
 | Block 2 | 0.5 – 1.0 | mat2 | 100.0 | 8000 | 450 |
 
-The two blocks are connected at x = 0.5 m via a `connection` (continuity) interface. No heat flux crosses the remaining faces (2-D plane geometry).
+The two blocks are joined at x = 0.5 m by a block connection (101). No heat crosses the other faces (`null`).
 
 **Boundary conditions**
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 1 – Block 1 | x = 0.0 m | Prescribed temperature – cold wall | T = 1000 K |
-| Face 2 – Block 2 | x = 1.0 m | Prescribed temperature – hot wall  | T = 2000 K |
-| All other faces   | y, z directions | Adiabatic (2-D plane) | q = 0 |
+| Face 1 – Block 1 | x = 0.0 m | Prescribed temperature (302) – cold wall | T = 1000 K |
+| Face 2 – Block 2 | x = 1.0 m | Prescribed temperature (302) – hot wall  | T = 2000 K |
+| All other faces   | y, z directions | `null` (no flux) | — |
 
 **Initial condition**
 
@@ -49,14 +49,14 @@ All cases use RK3 time-marching in pseudo-time (time-accurate = false) with prim
 
 | Case | VNN | IRS | IRS β | Multigrid levels | level2-iter |
 |---|---|---|---|---|---|
-| nominal | 0.5 | No  | —   | — | — |
-| irs     | 2.0 | Yes | 0.5 | — | — |
-| mg1     | 0.5 | No  | —   | 2 |  25 000 |
-| mg2     | 0.5 | No  | —   | 2 |  50 000 |
-| mg3     | 0.5 | No  | —   | 2 |  75 000 |
-| mg_irs  | 2.0 | Yes | 0.5 | 2 | 100 000 |
+| nominal | 0.25 | No  | —   | — | — |
+| irs     | 1.0 | Yes | 0.5 | — | — |
+| mg1     | 0.25 | No  | —   | 2 |  25 000 |
+| mg2     | 0.25 | No  | —   | 2 |  50 000 |
+| mg3     | 0.25 | No  | —   | 2 |  75 000 |
+| mg_irs  | 1.0 | Yes | 0.5 | 2 | 100 000 |
 
-IRS (Implicit Residual Smoothing) allows a larger effective CFL number by filtering the explicit residual before the update step. The multigrid strategy uses 2 levels; `level2-iter` is the maximum number of iterations spent on the coarse-grid correction per multigrid cycle.
+IRS (Implicit Residual Smoothing) smooths the residual before the update, which allows a larger VNN. Multigrid is grid sequencing: level 2 (50 × 5 cells per block) runs `level2-iter` iterations, or until the residual reaches `res-threshold`; its solution is prolongated once to level 1, which runs to `res-threshold` (`level1-iter = 1 000 000` is only a cap). The coarse level is not visited again.
 
 ## Results
 
@@ -68,16 +68,24 @@ Summary of iterations required to reach res-threshold = 1 × 10⁻⁸:
 
 | Case | Initial residual | Final residual | Iterations |
 |---|---|---|---|
-| nominal | 6.88 × 10² | ~1.0 × 10⁻⁸ | 369 089 |
-| irs     | 2.00 × 10³ | ~1.0 × 10⁻⁸ |  99 305 |
-| mg1     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 294 094 |
-| mg2     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 219 100 |
-| mg3     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 144 106 |
-| mg_irs  | 1.42 × 10³ | ~1.0 × 10⁻⁸ |  80 603 |
+| nominal | 6.88 × 10² | ~1.0 × 10⁻⁸ | 369 498 |
+| irs     | 2.00 × 10³ | ~1.0 × 10⁻⁸ |  99 415 |
+| mg1     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 294 644 |
+| mg2     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 223 371 |
+| mg3     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 212 414 |
+| mg_irs  | 1.42 × 10³ | ~1.0 × 10⁻⁸ |  79 816 |
 
 **Key observations**
 
-- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 089 → 99 305), because the larger allowable VNN = 2.0 effectively damps low-frequency error components more aggressively per iteration.
-- **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 094 to 144 106. Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 305).
-- **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 80 603 iterations — about 19 % faster than IRS alone and 4.6× faster than the nominal baseline.
+- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 498 → 99 415), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
+- **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 644 to 212 414 (mg2: 223 371). Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 415): more than twice the iterations.
+- **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 79 816 iterations — about 20 % fewer iterations than IRS alone and 4.6× faster than the nominal baseline.
+
+All six runs reach the same solution: the final fields differ from the piecewise-linear profile above by at most 6.4 × 10⁻⁶ K (1.6 × 10⁻⁶ K with IRS). The iteration counts, the initial residuals, the final fields and the figure (with its data in `SOLUTION/*.dat`) are those of one re-measurement of the six cases as shipped, none of them capped, with the final binary of the sync of October 2026 (`verify/sync-2026-10` a616ef8, `USE_IPO` on, ifx 2024.1, one thread); the counts are the same, to the digit, as those of the runs of the sync before the IPO switch (`chimera-mpi` af13cab). The histories in `SOLUTION/*.dat` are thinned to every 100th row (the first 100 rows, the 300 rows after each multigrid level change, the first and the last row are kept, so the last row of each file is the converged iteration of the table); the full history is reproduced by re-running the case.
+
+```bash
+cd test/numerics-features/residual_convergence/<case> && ./FUSS.sh solve   # one case
+cd test/numerics-features/residual_convergence && python3 plot.py         # the figure, from SOLUTION/
+# SOLUTION/<case>.dat: the OUTPUT/residual-history.dat of that case run to the threshold, thinned to every 100th row
+```
 - All six cases reach the same residual threshold of 1 × 10⁻⁸, confirming that none of the acceleration strategies compromises the converged solution.

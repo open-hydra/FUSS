@@ -72,7 +72,8 @@ FUSS uses several dependencies, each with its own license:
 | Dependency | License | Compatibility |
 |------------|---------|---------------|
 | **ORION** | GPL v3.0 | ✅ Same license |
-| **FiNeR** | GPL v3.0 | ✅ Same license |
+| **FiNeR** (and PENF, StringiFor, FACE, FLAP, BeFoR64) | GPL v3.0, BSD 2/3-Clause or MIT | ✅ GPL v3.0 option |
+| **TecIO** (optional, shipped with ORION) | Tecplot TecIO license agreement | See the agreement in ORION's `lib/TecIO/` |
 
 See [Acknowledgements](acknowledgements.md) for full attribution.
 

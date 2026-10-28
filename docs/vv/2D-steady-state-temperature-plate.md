@@ -1,8 +1,8 @@
 # 2-D Steady State Temperature Distribution in a Plate
 
-Steady-state heat conduction in a rectangular solid plate with prescribed temperatures on all four edges. This is a two-dimensional Laplace problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Study 1). Verification is performed by bilinear interpolation of the computed temperature field at point A (x = 0.2 m, y = 0.2 m) and comparison against the NAFEMS reference value of 260.5 °C.
+Steady-state heat conduction in a rectangular solid plate with prescribed temperatures on all four edges. This is a two-dimensional Laplace problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Test 9 (i)). Verification is performed by bilinear interpolation of the computed temperature field at point A (x = 0.2 m, y = 0.2 m) and comparison against the NAFEMS reference value of 260.5 °C.
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (I) and 9 (ii), YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (i), YR3087, Vol. 2, 1986.
 
 ---
 
@@ -18,10 +18,10 @@ $$\frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} = 0$$
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 1 | x = 0 (left) | Prescribed temperature | T = 1000 °C (1273.15 K) |
-| Face 2 | x = 0.6 m (right) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 3 | y = 0 (bottom) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 4 | y = 0.4 m (top) | Prescribed temperature | T = 0 °C (273.15 K) |
+| Face 1 | x = 0 (left) | Prescribed temperature (302) | T = 1000 °C (1273.15 K) |
+| Face 2 | x = 0.6 m (right) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 3 | y = 0 (bottom) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 4 | y = 0.4 m (top) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
 
 **Material properties**
 
@@ -36,7 +36,7 @@ $$\frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} = 0$$
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | conservative |
 | Implicit residual smoothing | enabled (β = 0.5) |
@@ -66,13 +66,18 @@ The target point A is located at (x = 0.2 m, y = 0.2 m) inside the domain. Since
 
 | Cell centre | T_FUSS |
 |---|---|
-| (0.195, 0.195) | 270.50 °C |
-| (0.205, 0.195) | 250.55 °C |
-| (0.195, 0.205) | 270.50 °C |
-| (0.205, 0.205) | 250.55 °C |
+| (0.195, 0.195) | 270.48 °C |
+| (0.205, 0.195) | 250.54 °C |
+| (0.195, 0.205) | 270.48 °C |
+| (0.205, 0.205) | 250.54 °C |
 
 | Location | NAFEMS | FUSS (interpolated) | Error |
 |---|---|---|---|
-| A (x = 0.2 m, y = 0.2 m) | 260.50 °C | 260.52 °C | 0.004 % |
+| A (x = 0.2 m, y = 0.2 m) | 260.50 °C | 260.51 °C | 0.0018 % |
 
-The interpolated temperature at point A agrees with the NAFEMS reference to within 0.02 °C (0.004 % relative error), confirming the accuracy of the FUSS solver for two-dimensional steady-state conduction with Dirichlet boundary conditions.
+The interpolated temperature at point A differs from the NAFEMS reference by 0.009 K (0.0018 % of the reference in K; the acceptance criterion is 1 %). The run starts from 273.15 K and converges in 4 894 iterations.
+
+```bash
+cd test/steady-state/temperature_Plate
+./FUSS.sh solve && python3 verify.py
+```

@@ -5,6 +5,18 @@ module FUSS_Lib_Newstate
   private
   public :: Newstate_Conservative, Newstate_Primitive
 
+  !> FAS coarse-level updates halved because the forcing pushed T outside the table (no-IRS
+  !> conservative path, which otherwise stops); reported and reset by FUSS_postprocess every
+  !> shell-diter iterations.
+  integer, public :: fas_update_fallbacks = 0
+
+  !> The FAS guards (the prolongated correction in Lib_Multigrid, the coarse smoothing update here)
+  !> halve down to 2**-10, then do not apply. The IRS admissibility fallback that used the same
+  !> constant was removed in October 2026 (decision D2 of the hydra sync, as MOSE): a smoothed
+  !> update that leaves the properties table stops the run like an explicit one.
+  integer, parameter, public :: FAS_HALVINGS = 10
+  public :: Admissible_T
+
 contains
 
   ! ===========================================================================
@@ -86,7 +98,8 @@ contains
                                    domain%blk(b)%dtlocal(i,j,k), &
                                    domain%blk(b)%vol(i,j,k),     &
                                    domain%blk(b)%qvol(i,j,k),    &
-                                   irk, n_rk, b, i, j, k         )
+                                   irk, n_rk, b, i, j, k,        &
+                                   domain%fas_forcing            )
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -103,7 +116,9 @@ contains
         residual = ( - residual/volume + qvol) * dt
       end subroutine Scale_Residual_Cons
 
-      ! Apply RK stage + cons2prim after IRS smoothing
+      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table stops
+      ! the run, as an explicit one does (Check_And_Fix_State): the halving fallback of 2026-10-14
+      ! was removed in October 2026 (decision D2 of the hydra sync, as MOSE a24a236).
       subroutine Update_State_Cons_IRS( T, TO, matID, residual, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T, residual
@@ -115,34 +130,50 @@ contains
         call co_H( matID, TO, hO )
         call co_H( matID, T, h )
 
-        h = RK_stage ( irk, n_rk, h, hO, residual )
-
-        call co_T( matID, h, T )
-
+        call co_T( matID, RK_stage ( irk, n_rk, h, hO, residual ), T )
         call Check_And_Fix_State( T, b, i, j, k )
 
       end subroutine Update_State_Cons_IRS
 
-      ! Full compute+update without IRS
-      subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k )
+      ! Full compute+update without IRS. On a FAS coarse level (guarded = the level carries a
+      ! forcing) an update that leaves the properties table is halved until admissible (at most
+      ! FAS_HALVINGS times, then not applied) instead of stopping the run: a forced coarse
+      ! problem is not a physical time evolution.
+      subroutine Compute_Cons_NoIRS ( T, TO, matID, residual, dt, volume, qvol, irk, n_rk, b, i, j, k, guarded )
         implicit none
         real(R8), intent(inout) :: T, residual
         real(R8), intent(in)    :: TO, matID, dt, volume, qvol
         integer,  intent(in)    :: irk, n_rk, b, i, j, k
+        logical,  intent(in)    :: guarded
         ! Local
-        real(R8) :: hO, h
+        real(R8) :: hO, h, h0stage, theta
+        integer  :: n
 
         residual = ( - residual/volume + qvol) * dt
 
         call co_H( matID, TO, hO )
         call co_H( matID, T, h )
+        h0stage = h
 
         h = RK_stage ( irk, n_rk, h, hO, residual )
 
         call co_T( matID, h, T )
 
+        if ( guarded .and. .not. Admissible_T( T ) ) then
+          !$omp atomic
+          fas_update_fallbacks = fas_update_fallbacks + 1
+          theta = 0.5d0
+          do n = 1, FAS_HALVINGS
+            call co_T( matID, RK_stage ( irk, n_rk, h0stage, hO, theta * residual ), T )
+            if ( Admissible_T( T ) ) exit
+            theta = 0.5d0 * theta
+          enddo
+          ! theta = 0: a convex combination of the admissible stage and time-level states
+          if ( .not. Admissible_T( T ) ) call co_T( matID, RK_stage ( irk, n_rk, h0stage, hO, 0d0 ), T )
+        endif
+
         call Check_And_Fix_State( T, b, i, j, k )
-      
+
       end subroutine Compute_Cons_NoIRS
 
   end subroutine Newstate_Conservative
@@ -203,11 +234,10 @@ contains
         do k = 1, domain%blk(b)%dim(3)
         do j = 1, domain%blk(b)%dim(2)
         do i = 1, domain%blk(b)%dim(1)
-          domain%blk(b)%T(i,j,k) = RK_stage( irk, n_rk,               &
-                                             domain%blk(b)%T(i,j,k),  &
-                                             domain%blk(b)%TO(i,j,k), &
-                                             domain%blk(b)%R(i,j,k)   )
-          call Check_And_Fix_State( domain%blk(b)%T(i,j,k), b, i, j, k )
+          call Update_State_Prim_IRS( domain%blk(b)%T(i,j,k),   &
+                                      domain%blk(b)%TO(i,j,k),  &
+                                      domain%blk(b)%R(i,j,k),   &
+                                      irk, n_rk, b, i, j, k     )
         enddo; enddo; enddo
         !$omp end do
       enddo
@@ -243,17 +273,28 @@ contains
         real(R8), intent(inout) :: T, residual
         real(R8), intent(in)    :: matID, dt, qvol, volume
         ! Local
-        real(R8) :: rho, cp, drhodT, dcpdT
-        
+        real(R8) :: rho, cp
+
         call co_Rho(matID, T, rho)
         call co_Cp(matID, T, cp)
-        call co_DrhoDT(matID, T, drhodT)
-        call co_DcpDT(matID, T, dcpdT)
 
-        ! Residuo sulle primitive (proprietà variabili)
-        residual = ( - residual/volume + qvol) *dt / (T*cp*drhodT + rho*cp + T*rho*dcpdT)
+        ! dT = dh / (dh/dT), h = int rho cp dT (the Energy column): dh/dT = rho cp
+        residual = ( - residual/volume + qvol) * dt / ( rho * cp )
 
       end subroutine Compute_Prim_Residual
+
+      ! Apply the RK stage after IRS smoothing; an update outside the table stops the run, as
+      ! in Update_State_Cons_IRS
+      subroutine Update_State_Prim_IRS ( T, TO, residual, irk, n_rk, b, i, j, k )
+        implicit none
+        real(R8), intent(inout) :: T
+        real(R8), intent(in)    :: TO, residual
+        integer,  intent(in)    :: irk, n_rk, b, i, j, k
+
+        T = RK_stage ( irk, n_rk, T, TO, residual )
+        call Check_And_Fix_State( T, b, i, j, k )
+
+      end subroutine Update_State_Prim_IRS
 
       ! Full primitive residual + RK update in one shot (no IRS)
       subroutine Compute_And_Update_Prim ( T, TO, matID, qvol, residual, dt, volume, irk, n_rk, b, i, j, k )
@@ -273,18 +314,36 @@ contains
 
 
   ! ===========================================================================
-  !  STATE SANITY CHECK AND FLOOR ENFORCEMENT
+  !  STATE SANITY CHECK
   ! ===========================================================================
+  ! T the property lookups can evaluate (they read the entries int(T) and int(T)+1): Tmin <= T < Tmax
+  logical function Admissible_T ( T )
+    use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Finite_m, only: Not_Finite
+    implicit none
+    real(R8), intent(in) :: T
+
+    Admissible_T = .false.
+    if ( Not_Finite(T) ) return
+    if ( T < real(obj_table%Tmin, R8) .or. T >= real(obj_table%Tmax, R8) ) return
+    Admissible_T = .true.
+
+  end function Admissible_T
+
+
   subroutine Check_And_Fix_State ( T, b, i, j, k )
+    use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Mod_MPI, only: stop_from_thread
     implicit none
     real(R8), intent(in) :: T
     integer, intent(in)  :: b, i, j, k
 
-    ! Bail out on NaN or negative temperature
-    if ( isnan(T) .or. T < 0d0 ) then
-      write(*,'(A,4I4)') "Integration failed at b, i, j, k:", b, i, j, k
-      write(*,*) T
-      stop "NaN or T<0 detected"
+    ! stop_from_thread (exit code 1), not mpi_stop_all or mpi_abort_all: this runs in OpenMP threads, MPI is FUNNELED
+    if ( .not. Admissible_T( T ) ) then
+      write(*,'(A,4I5)') ' [ERROR] Integration failed at b, i, j, k:', b, i, j, k
+      write(*,'(A,ES14.6,A,I0,A,I0,A)') ' [ERROR] T = ', T, ' K, outside the properties table [', &
+        obj_table%Tmin, ', ', obj_table%Tmax, ') K'
+      call stop_from_thread('NaN or T outside the properties table')
     endif
 
   end subroutine Check_And_Fix_State

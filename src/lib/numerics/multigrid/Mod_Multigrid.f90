@@ -10,7 +10,7 @@ contains
   subroutine Setup_Multigrid ( simulation )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_multigrid
-    use FUSS_Lib_Multigrid, only: Check_Multigrid, Coarse_Grid, Coarse_IOfield
+    use FUSS_Lib_Multigrid, only: Check_Multigrid, Coarse_Grid, Coarse_IOfield, Coarse_matID
     use FUSS_Mod_Allocate_Data, only: Allocate_Block
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -32,9 +32,16 @@ contains
         simulation%domain(m) % Blk(b) % Dim = simulation%domain(m-1) % Blk(b) % Dim / rap
         simulation%domain(m) % Blk(b) % Dim(3) = Max ( 1, simulation%domain(m) % Blk(b) % Dim(3) ) ! 2D case
         call Allocate_Block ( simulation%domain(m) % Blk(b), simulation%domain(m) % Blk(b) % Dim )
+        if (trim(obj_multigrid%cycle) /= 'none') then
+          associate ( d => simulation%domain(m) % Blk(b) % Dim )
+            allocate ( simulation%domain(m) % Blk(b) % fas_f  (d(1), d(2), d(3)), source=0d0 )
+            allocate ( simulation%domain(m) % Blk(b) % fas_h0 (d(1), d(2), d(3)), source=0d0 )
+          end associate
+        endif
       enddo
 
       call Coarse_Grid ( simulation%domain(m-1), simulation%domain(m) )
+      call Coarse_matID ( simulation%domain(m-1), simulation%domain(m) )
 
       call Coarse_IOfield ( simulation%IOfield(m-1), simulation%IOfield(m) )
 

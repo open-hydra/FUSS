@@ -41,14 +41,14 @@ def save_bc_plot(t_tw, T_tw, svg_path):
     fig, ax = plt.subplots(figsize=(8, 4))
 
     ax.plot(t_tw, T_tw, color="tab:red", linewidth=1.8,
-            label=r"Right wall BC  $T_w(t) = a\,(\sin\omega t + \theta)$")
+            label=r"Right wall BC  $T_w(t) = 2000 + a\,\sin(\omega t + \theta)$")
     ax.axhline(T_BASELINE, color="tab:blue", linewidth=1.4, linestyle="--",
                label="Left wall BC (fixed, $T = 2000$ K)")
 
     ax.set_xlabel("Time  (s)", fontsize=11)
     ax.set_ylabel("Temperature  (K)", fontsize=11)
     ax.set_title(
-        "1-D Oscillating Transient Thermal Analysis – Boundary Conditions\n"
+        "1-D Oscillating Transient Thermal Analysis - Boundary Conditions\n"
         r"$\omega/2\pi = 0.0125$ Hz,  $\theta = 0$,  $a = 1000$ K",
         fontsize=10, fontweight="bold"
     )
@@ -60,7 +60,7 @@ def save_bc_plot(t_tw, T_tw, svg_path):
     fig.tight_layout()
     fig.savefig(svg_path, format="svg", bbox_inches="tight")
     plt.close(fig)
-    print(f"  BC plot saved → {svg_path}")
+    print(f"  BC plot saved -> {svg_path}")
 
 
 def save_probe_plot(t, T_mean, T_p1, T_p2, T_ref, svg_path):
@@ -79,7 +79,7 @@ def save_probe_plot(t, T_mean, T_p1, T_p2, T_ref, svg_path):
     ax.set_xlabel("Time  (s)", fontsize=11)
     ax.set_ylabel("Temperature  (K)", fontsize=11)
     ax.set_title(
-        "1-D Oscillating Transient Thermal Analysis – Probe Temperature at x ≈ 0.09 m",
+        "1-D Oscillating Transient Thermal Analysis - Probe Temperature at x ~ 0.09 m",
         fontsize=10, fontweight="bold"
     )
     ax.legend(fontsize=9)
@@ -90,7 +90,7 @@ def save_probe_plot(t, T_mean, T_p1, T_p2, T_ref, svg_path):
     fig.tight_layout()
     fig.savefig(svg_path, format="svg", bbox_inches="tight")
     plt.close(fig)
-    print(f"  Probe plot saved → {svg_path}")
+    print(f"  Probe plot saved -> {svg_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -101,10 +101,10 @@ def main():
 
     for fp in (P1_FILE, P2_FILE, TW_FILE):
         if not os.path.isfile(fp):
-            print(f"ERROR: file not found – {fp}")
+            print(f"ERROR: file not found - {fp}")
             sys.exit(1)
 
-    print("  Loading probe data …", end="", flush=True)
+    print("  Loading probe data ...", end="", flush=True)
     t1, T1 = load_probe(P1_FILE)
     t2, T2 = load_probe(P2_FILE)
     print(" done.")
@@ -119,7 +119,7 @@ def main():
         T_mean = 0.5 * (T1 + T2_interp)
 
     T_max  = float(np.max(T_mean))
-    dT_max = T_max - T_BASELINE           # peak temperature rise above baseline [K = °C]
+    dT_max = T_max - T_BASELINE           # peak temperature rise above baseline [K = degC]
 
     error_abs = dT_max - REFERENCE_DT
     error_pct = abs(error_abs) / REFERENCE_DT * 100.0
@@ -143,7 +143,8 @@ def main():
     print(sep)
     print()
 
-    if error_pct < 1.0:
+    passed = error_pct < 1.0
+    if passed:
         print("  Result: PASS  (relative error < 1 %)")
     else:
         print("  Result: FAIL  (relative error >= 1 %)")
@@ -153,6 +154,7 @@ def main():
     save_bc_plot(t_tw, T_tw, SVG_BC)
     save_probe_plot(t_common, T_mean, T1, T2, REFERENCE_DT, SVG_PROBE)
     print()
+    sys.exit(0 if passed else 1)
 
 
 if __name__ == "__main__":

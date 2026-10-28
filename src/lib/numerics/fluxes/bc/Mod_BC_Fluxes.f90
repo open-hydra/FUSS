@@ -11,68 +11,47 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block
     use FUSS_Lib_BC_Fluxes_Connection
-    use FUSS_Lib_BC_Fluxes_Symmetry
-    use FUSS_Lib_BC_Fluxes_Wall_Heat
-    use FUSS_Lib_BC_Fluxes_Wall_Temperature
-    use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
-    use FUSS_Lib_BC_Fluxes_Wall_Radiation
-    use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+    use FUSS_Lib_BC_Fluxes_Wall
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer  :: f, lower, upper, i, b
+    integer  :: f, lower, upper, i, ii, b
     integer  :: Bm, Im, Jm, Km, Fm
     
-    ! BC fluxes are computed in order of block and face type.
-    upper = 0
-
+    ! BC fluxes are computed block by block and, within a block, face by face, over the
+    ! records of the blocks this rank owns only (lists built once by build_local_bc_index):
+    ! no rank scans the records of the whole domain. The records of one face of one block
+    ! write distinct target cells, so one worksharing loop over them is race-free; its
+    ! implicit barrier keeps the face contributions of a corner cell summed in the order 1..6.
     blocks: do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle blocks
       faces: do f = 1, 6
 
-        lower = upper + 1                   ! Update lower bound
-        upper = upper + domain % n_bf(b,f)  ! Upper bound: add number of cells on face f of block b
-        
-        !$omp do schedule ( dynamic ) private(i, Bm, Im, Jm, Km, Fm)
-        do i = lower, upper
+        lower = domain % local_bf_first(b,f)
+        upper = lower + domain % local_bf_count(b,f) - 1
+
+        !$omp do schedule ( dynamic ) private(ii, i, Bm, Im, Jm, Km, Fm)
+        do ii = lower, upper
+          i  = domain % local_bf_idx(ii)
           Bm = domain % bc(i) % b
-          if (.not. is_local_block(Bm)) cycle
           Im = domain % bc(i) % i 
           Jm = domain % bc(i) % j 
           Km = domain % bc(i) % k 
           Fm = domain % bc(i) % f
           select case ( domain % bc(i) % type )
           
-            case (101,102) ! connection & chimera (101=block connect, 102=chimera)
+            case (101) ! block connection: the share of the flux of the face that its owner left in this cell (Connection_Fluxes)
+              domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % Fc
+
+            case (102) ! chimera: two-sided balance with the cell metric and the ghost metric
               call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
                                    domain % bc(i) % Tg , domain % bc(i) % matIDg )
 
-            case (300) ! symmetry
-              call BC_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
+            ! 300 (symmetry) and 0 (null): no flux across the face
 
-            case (301) ! wall: prescribed heat flux
-              if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                  domain % bc(i) % qw )
+            case (301:305) ! walls: heat flux (301), temperature (302), convection (303), radiation (304, 305)
+              call BC_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) )
 
-            case (302) ! wall: prescribed temperature
-              if (domain % bc(i) % BCtime % exists) &
-                domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), & 
-                                         domain % bc(i) % Tw )
-
-            case (303) ! wall: prescribed hconv, Tref, qrad
-              call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qw )
-
-            case (304) ! wall: prescribed epsilon, Tref
-              call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                       domain % bc(i) % eps, domain % bc(i) % Tref )
-              
-            case (305) ! wall: prescribed hconv, epsilon, Tref
-              call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref )
-            
             case(103,104) ! Multi-Solver Coupling (104 = with chimera)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % ext_flux
           

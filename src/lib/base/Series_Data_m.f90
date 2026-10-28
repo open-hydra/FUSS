@@ -17,11 +17,13 @@ module FUSS_Series_Data_m
 
 contains
 
-  subroutine initialize(self,file,bar)
+  !> Reads a time table. Every rank reads the same file, so an error stops every rank together (mpi_stop_all, exit code 1).
+  subroutine initialize(self,file)
+    use FUSS_Mod_MPI,  only: mpi_stop_all
+    use FUSS_Finite_m, only: Not_Finite
     implicit none
     class(time_series_type), intent(inout) :: self
     character(len=*), intent(in)     :: file
-    logical, intent(in)              :: bar
     character(len=256)               :: line
     integer :: ios, i
     integer :: UnitFree
@@ -29,7 +31,10 @@ contains
     self%exists = .true.
     self%n = -1
     open(newunit=UnitFree, file = trim(file), status = 'OLD', action = 'READ', form = 'FORMATTED', iostat=ios)
-    ios = 0
+    if (ios /= 0) then
+      write(*,'(A)') ' [ERROR] time table "'//trim(file)//'" not found'
+      call mpi_stop_all('time table not found')
+    endif
     do while (ios==0)
       read(UnitFree,'(A)',iostat=ios) line
       self%n = self%n+1
@@ -42,12 +47,30 @@ contains
     allocate(self%time(1:self%n))
     allocate(self%var(1:self%n))
     if (self%periodic) read(UnitFree,*) 
+    if (self%n < 1) then
+      write(*,'(A)') ' [ERROR] time table "'//trim(file)//'" is empty'
+      call mpi_stop_all('empty time table')
+    endif
     do i = 1, self%n
-      read(UnitFree,*) self%time(i), self%var(i)
+      read(UnitFree,*,iostat=ios) self%time(i), self%var(i)
+      if (ios /= 0) then
+        write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": cannot read row ', i
+        call mpi_stop_all('bad time table row')
+      endif
+      ! Every time and every value is finite. A NaN passes every comparison as false: the check of the times below lets a NaN
+      ! time through. Not_Finite reads the bits, with no such operation
+      if (Not_Finite(self%time(i)) .or. Not_Finite(self%var(i))) then
+        write(*,'(A,I0,A)') ' [ERROR] time table "'//trim(file)//'", row ', i, ': a value that is not finite (NaN or infinity)'
+        call mpi_stop_all('time table value not finite')
+      endif
+      if (i > 1) then
+        if (self%time(i) <= self%time(i-1)) then
+          write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": times must increase, row ', i
+          call mpi_stop_all('non-increasing time table')
+        endif
+      endif
     enddo
     close(UnitFree)
-    
-    if (bar) self%var = self%var
 
   end subroutine initialize
 
@@ -67,7 +90,7 @@ contains
       if (period > 0d0) t_ = time_(1) + modulo(t_ - time_(1), period)
     endif
 
-    if (t_ == time_(1)) then
+    if (t_ <= time_(1)) then
         varout = var_(1)
         return
     endif

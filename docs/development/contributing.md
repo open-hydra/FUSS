@@ -1,185 +1,115 @@
 # Contributing
 
-Thank you for your interest in contributing to FUSS.  This page
-describes the development workflow, coding conventions, and review
-process.
+This page describes how to prepare a change to FUSS: workflow, build, code conventions, and the files to touch for the most common extensions.
 
 ---
 
-## Development Workflow
+## Workflow
 
-```mermaid
-gitGraph
-    commit id: "main"
-    branch feature/my-change
-    checkout feature/my-change
-    commit id: "implement"
-    commit id: "test"
-    checkout main
-    merge feature/my-change id: "merge"
-    commit id: "release"
-```
-
-1. **Fork or branch** — create a feature branch from `main`.
-2. **Implement** — make your changes in small, focused commits.
-3. **Test** — run the relevant test suite (see [Testing](testing.md)).
-4. **Push** — push your branch and open a pull request.
-5. **Review** — address feedback; maintainers will merge when ready.
+1. Create a branch from `main`.
+2. Make small commits. Subjects in the history are short and usually start with the area changed (`Ghost fill: ...`, `Tests: ...`, `BC 303: ...`).
+3. Build and run the tests (see [Testing](testing.md)).
+4. Push the branch and open a pull request.
 
 ---
 
-## Setting Up a Development Environment
+## Development build
 
 ```bash
-# 1. Clone with submodules
-git clone --recurse-submodules https://github.com/open-hydra/FUSS.git
+git clone https://github.com/open-hydra/FUSS.git
 cd FUSS
-
-# 2. Build in debug mode
-./install.sh build --compilers=gnu
-
-# 3. (Optional) Update submodules to latest
-./install.sh update --remote
-
-# 4. Iterative recompilation
-./install.sh compile
+./install.sh build --compilers=gnu --use-openmp --use-mpi   # first build, writes CMakePresets.json
+./install.sh compile                                        # after each change
 ```
 
-!!! tip "CMakePresets.json"
+`install.sh` always builds `RELEASE`. For a debug build (`-O0`, warnings, traceback, bounds checking) reconfigure `build/` by hand:
 
-    After the first `install.sh build`, a `CMakePresets.json` is
-    generated with your compiler paths and library locations.
-    Subsequent builds only need `./install.sh compile` (or
-    `cmake --build build`).
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=DEBUG
+cmake --build build
+```
+
+`./install.sh compile` reapplies the preset and so returns to `RELEASE`. `./install.sh update --remote` moves the submodules to the latest commits of their remotes, away from the commits recorded in FUSS. See [Installation](../getting-started/installation.md).
 
 ---
 
-## Coding Conventions
+## Code conventions
 
-### Fortran Style
+These are the conventions the current sources follow:
 
-| Rule | Detail |
-|------|--------|
-| **Standard** | Fortran 2008 (`-std=f2008`) |
-| **Line length** | Hard limit of **132 characters**; use `&` continuation |
-| **Indentation** | 2 spaces; no tabs |
-| **Module naming** | `FUSS_<Name>` for public modules |
-| **Variable naming** | `snake_case` for locals; `obj_` prefix for global singletons |
-| **Implicit typing** | Always use `implicit none` |
-| **Intent** | Declare `intent(in)`, `intent(out)`, or `intent(inout)` for all arguments |
-| **Precision** | Use `iso_fortran_env` kinds: `int32`, `real64` |
-
-### File Organisation
-
-- One module per file (exceptions: small helper modules).
-- File name matches module name minus the `FUSS_` prefix
-  (e.g. `Lib_Solid.f90` → module `FUSS_Lib_Solid`).
-- Computational routines go in `Lib_*.f90`; types and pointers in
-  `Mod_*.f90`.
-
-### Commit Messages
-
-Use imperative mood, present tense:
-
-```
-Add radiation boundary condition with view-factor input
-
-Implement surface-to-ambient radiation BC using the Stefan–Boltzmann
-law.  Emissivity and reference temperature are read from input.ini.
-Includes test case in test/steady-state/radiative_Rod.
-```
+- One module per `.f90` file, named `FUSS_` plus the file name (the exceptions are listed in [Code Structure](structure.md#naming)). New files under `src/lib/` are picked up by CMake without editing `CMakeLists.txt`.
+- `implicit none` in every module; kinds from `iso_fortran_env`, as `use iso_fortran_env, only: I4 => int32, R8 => real64`.
+- Sources are preprocessed (`-cpp`): MPI code sits in `#ifdef USE_MPI`; OpenMP is used only through `!$omp` directives.
+- **OpenMP.** `Explicit_Step` opens one `!$omp parallel` region around the Runge–Kutta stages. The routines it calls (`Fill_Ghost_Cell`, `Fluxes`, `BC_Fluxes`, `RK_Newstate`) contain orphaned `!$omp do` loops, and MPI calls go in `!$omp single`. A new loop on that path follows the same pattern.
+- **MPI.** Every loop over blocks skips the blocks of other ranks with `is_local_block(b)` (`Mod_MPI`). Global quantities use the reductions of `Mod_MPI`; output is gathered on rank 0. Results must not depend on the number of ranks: the `needs-mpi` tests compare the files of 1 process and 2 ranks.
+- **Input keys.** A key is declared once with `reg%add(section, key, variable, default, description, allowed, required)` in `config/Register_*.f90`. After adding or changing one, regenerate the parameter table from the repository root with `bin/DocGen` (it writes `docs/user/registry.md`).
+- Comments in English.
 
 ---
 
-## Adding a New Boundary Condition
+## Adding a wall boundary condition
 
-As a concrete example of extending FUSS, here is how to add a new
-boundary condition:
+The wall conditions 301–305 share one routine, `Wall_Temperature` in `src/lib/numerics/fluxes/bc/Lib_BC_Fluxes_Wall.f90`. It splits the face gradient into a normal part, from $T_w - T$ across the half cell, and tangential parts from the cells along the face, so the heat flux into the solid is
+
+$$q_\text{in} = G\,(T_w - T) + C, \qquad G = 2k\,\nabla\xi_n\cdot\mathbf{n},$$
+
+with $C$ the tangential (cross-diffusion) term. 302 prescribes $T_w$; 301, 303, 304 and 305 prescribe $q_\text{in} = q + h\,(T_\text{ref} - T_w) + \varepsilon\sigma\,(T_\text{ref}^4 - T_w^4)$ and solve for $T_w$ by Newton iteration. A new wall model with code `30x`:
 
 ```mermaid
 flowchart TD
-    A["1. Create<br/>Lib_BC_Fluxes_New.f90<br/>in numerics/fluxes/bc/"] --> B["2. Implement<br/>BC_Flux_New(...)"]
-    B --> C["3. Register in<br/>Mod_BC_Fluxes.f90"]
-    C --> D["4. Add case to<br/>Assign_Setup.f90"]
-    D --> E["5. Add test case<br/>in test/steady-state/"]
-    E --> F["6. Document in<br/>docs/theory/governing-equations.md"]
-
-    style A fill:#1a237e,stroke:#7986cb,color:#e8eaf6
-    style F fill:#1b5e20,stroke:#a5d6a7,color:#fff
+    A["1. Advanced_Types_m.f90<br/>parameters in FUSS_bc_type"] --> B["2. IO_BC.f90<br/>Check_BC and Read_BCfile"]
+    B --> C["3. Lib_BC_Fluxes_Wall.f90<br/>case in Wall_Temperature"]
+    C --> D["4. Mod_BC_Fluxes.f90 · Lib_Ghost.f90 · IO_Wall.f90<br/>extend the range 301:305"]
+    D --> E["5. Test case<br/>test/ + test/CMakeLists.txt"]
+    E --> F["6. Documentation"]
 ```
 
-1. Create `src/lib/numerics/fluxes/bc/Lib_BC_Fluxes_New.f90` with a
-   subroutine matching the boundary-flux interface.
-2. Implement the BC; the interface receives the ghost-cell data and
-   BC parameters, and updates the ghost cell temperature/flux.
-3. In `Mod_BC_Fluxes.f90`, add the new BC type to the dispatch logic.
-4. In `config/Assign_Setup.f90`, bind any procedure pointer or
-   register the new BC keyword.
-5. Add a verification test case with a known analytical solution.
-6. Document the mathematical formulation.
+1. **Data.** Add the model's parameters to `FUSS_bc_type` in `src/lib/base/Advanced_Types_m.f90`, with default 0.
+2. **Parsing**, `src/lib/io/IO_BC.f90`:
+    - `Check_BC`: add the code to the types followed by one data line (`case(101,301,302,303,304,305,103)`).
+    - `Read_BCfile`: add a `case` that reads the data line into the new fields, increments `nwall` and sets `obj_io_bc%viscous_flag(b,f)`; the flag puts the face in the wall output.
+3. **Model**, `Wall_Temperature`: add a `case`. A flux of the form above only needs `q`, `h`, `es` ($\varepsilon\sigma$) and `Tref`; the Newton loop then returns `Tw` and `q_in`. Any other model must return `Tw` and `q_in` consistent with $q_\text{in} = G\,(T_w - T) + C$.
+4. **Dispatch**: extend the range `301:305` where the wall routine is selected:
+    - `BC_Fluxes` in `src/lib/numerics/fluxes/bc/Mod_BC_Fluxes.f90` (`BC_Wall`: residual $-A\,q_\text{in}$);
+    - `Fill_Ghost_Cell` in `src/lib/numerics/space/Lib_Ghost.f90` (`Ghost_Wall`: ghosts $2T_w - T$; time tables of 301/302 are evaluated there);
+    - `Extract_Properties_From_BC` in `src/lib/io/IO_Wall.f90` (`Tw` and `qw` in `wall.tec`).
+5. **Test.** Add a case with an exact or reference solution and register it in `test/CMakeLists.txt` (see [Testing](testing.md#adding-a-case)). A linear temperature field is reproduced exactly by the wall treatment; `test/steady-state/skewed_Plate` checks this for 301, 302, 303 and 305 on a sheared mesh and is a starting point.
+6. **Documentation**: [Boundary Conditions](../user/boundary-conditions.md), [Governing Equations](../theory/governing-equations.md), and a V&V page.
+
+ATLAS writes `bc.txt` from the wall sections of `input.ini` (`builder_300.f90` in the ATLAS repository); until it knows the new code, the test case writes `bc.txt` by script.
+
+A boundary type that is not a wall also needs its ghost fill in `Fill_Ghost_Cell` (the default case mirrors the interior cells), its flux in `BC_Fluxes` (types without a case add no flux), and, if it reads cells of other blocks, an entry in the MPI exchange of `Mod_GhostExchange`.
 
 ---
 
-## Adding a New Material
+## Adding a material
 
-```mermaid
-flowchart TD
-    A["1. Add property data<br/>to material table file"] --> B["2. Verify tabulated<br/>κ · ρ · cp · h vs. reference"]
-    B --> C["3. Add test case<br/>using the new material"]
-    C --> D["4. Validate against<br/>analytical or experimental data"]
+No code change is needed. Materials are tables in `INPUT/properties.dat`, one Tecplot zone per material in the order of the names in `INPUT/phase.txt`; the `matID` field of `ic.tec` selects the material of each cell.
 
-    style A fill:#4a148c,stroke:#ce93d8,color:#f3e5f5
-    style D fill:#1b5e20,stroke:#a5d6a7,color:#fff
-```
+- Columns: Temperature, Cp, Density, Conductivity, Energy, in 1 K steps; every zone covers the same temperature range (FUSS takes it from the first zone).
+- Energy must be $h = \int \rho c_p\, dT$: FUSS warns when it departs from it by more than 1 %.
+- The range must contain every temperature reached in the run.
 
-Material properties are stored in tabulated form and interpolated at
-run time by the routines in `Lib_Solid`.  To add a new material:
-
-| Step | Action |
-|------|--------|
-| Property table | Add temperature-dependent entries for `κ`, `ρ`, `cp`, `h` to the material database file |
-| Range | Ensure the table covers the full expected temperature range |
-| Validation | Cross-check interpolated values against datasheet or literature |
-| Test case | Add a case to `test/` that exercises the new material |
+ATLAS builds the tables from the `[GPB-*]` sections. See [Material Properties](../theory/thermo.md).
 
 ---
 
-## Layer Boundaries
+## Documentation
 
-Respect the separation between layers:
+The site is built with MkDocs and mkdocs-material (plus mkdocs-macros-plugin). A new page goes into the `nav` of `mkdocs.yml`. The GitHub workflow `.github/workflows/docs.yml` builds it with
 
-```mermaid
-graph TB
-    A["driver/"] -->|calls| B["numerics/ · physics/"]
-    B -->|calls| C["base/ · io/"]
-    A -->|calls| C
-    D["config/"] -->|configures| B
-    D -->|reads| C
-
-    A x-.-x|never| D
-    B x-.-x|never| A
-
-    style A fill:#263238,stroke:#90a4ae,color:#eceff1
-    style B fill:#004d40,stroke:#80cbc4,color:#e0f2f1
-    style C fill:#3e2723,stroke:#a1887f,color:#efebe9
-    style D fill:#1a237e,stroke:#7986cb,color:#e8eaf6
+```bash
+mkdocs build --strict
 ```
 
-- **driver/** calls numerics/physics and io but never config.
-- **numerics/** and **physics/** never call upward into driver.
-- **config/** configures numerics/physics but does not call driver.
-- **base/** is a leaf layer with no upward dependencies.
+which must pass.
 
 ---
 
-## Pull Request Checklist
+## Pull request checklist
 
-Before submitting a PR, please verify:
-
-- [ ] Code compiles with `-std=f2008 -Wall -Wextra` without warnings
-- [ ] No line exceeds 132 characters
-- [ ] All new subroutines have `implicit none` and argument intents
-- [ ] Existing tests pass
-- [ ] New functionality has at least one test case
-- [ ] Documentation updated if user-facing behaviour changed
-- [ ] Commit messages follow the convention above
+- [ ] Builds without and with `--use-openmp --use-mpi`.
+- [ ] `ctest --test-dir build -L fast` passes; with MPI, `ctest --test-dir build -L needs-mpi` too.
+- [ ] New behaviour has a test case registered in `test/CMakeLists.txt`.
+- [ ] `docs/user/registry.md` regenerated with `bin/DocGen` if input keys changed.
+- [ ] Documentation updated; `mkdocs build --strict` passes.

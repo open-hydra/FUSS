@@ -20,8 +20,8 @@ contains
     obj_io%error_message   = 'none'
     obj_io%description     = 'none'
     
-    call reg%add( section, 'ic-format', obj_io%ic_format, 'tecplot ascii', 'Initial condition (INPUT/ic.*) format', 'tecplot ascii, tecplot binary, vtk ascii, vtk raw', .false. )
-    call reg%add( section, 'sol-format', obj_io%sol_format, 'tecplot ascii', 'Solution (OUTPUT/field.*) format', 'tecplot ascii, tecplot binary, vtk ascii, vtk raw', .false. )
+    call reg%add( section, 'ic-format', obj_io%ic_format, 'tecplot ascii', 'Initial condition (INPUT/ic.*) format', 'tecplot ascii, tecplot binary, vtk ascii, vtk binary, vtk raw', .false. )
+    call reg%add( section, 'sol-format', obj_io%sol_format, 'tecplot ascii', 'Solution (OUTPUT/field.*) format', 'tecplot ascii, tecplot binary, vtk ascii, vtk binary, vtk raw', .false. )
 
     call reg%add( section, 'sol-diter', obj_io%sol_diter, '1000000000', 'Solution output iter frequency', '> 0', .false. )
     call reg%add( section, 'sol-dtime', obj_io%sol_dtime, '1e30', 'Solution output time frequency', '> 0', .false. )
@@ -33,6 +33,9 @@ contains
     ! Shell options
     call reg%add( section, 'shell-diter', obj_io%shell_diter, '1', 'Shell update iter frequency', '> 0', .false. )
     call reg%add( section, 'ini-diter', obj_io%ini_diter, '10000', 'input.ini update iter frequency', '> 0', .false. )
+    call reg%add( section, 'decomposition-map', obj_io%decomposition_map, 'none', &
+                  'File of INPUT/ (name only, with the phase prefix) that gives the MPI rank of every block, in the format of the ATLAS mesh decomposer; none: blocks balanced by cell count', '', .false. )
+    call reg%add( section, 'ini-error', obj_io%ini_error, 'warn', 'input.ini read again with an error: warn (the reading is not taken, the run goes on) or stop', 'warn, stop', .false. )
 
     ! Wall-clock instrumentation
     call reg%add( section, 'timer-diter', obj_io%timer_diter, '0', 'Wall-clock timing report iter frequency (0 = off)', '>= 0', .false. )

@@ -3,8 +3,11 @@ module FUSS_Lib_Multigrid
 
   implicit none
   private
-  public :: Check_Multigrid, Coarse_Grid, Coarse_IOfield
+  public :: Check_Multigrid, Coarse_Grid, Coarse_IOfield, Coarse_matID
   public :: fine2coarse_prim, coarse2fine_prim
+  public :: fas_store_h0, fas_build_forcing, coarse2fine_corr
+
+  integer, public :: fas_fallbacks = 0   ! corrections halved or dropped by the admissibility guard
 
 contains
 
@@ -12,6 +15,7 @@ subroutine Check_Multigrid ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_multigrid
     use ir_precision, only: str
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -21,15 +25,26 @@ subroutine Check_Multigrid ( domain )
     do b = 1, domain % nb
       check = 0
       do d = 1, 3
-        if ( Mod ( domain % Blk(b) % Dim(d), rap ) == 0 ) check = check + 1
-        if (d == 3) then
-          if ( domain % Blk(b) % Dim(d) == 1 ) check = check + 1
+        if ( Mod ( domain % Blk(b) % Dim(d), rap ) == 0 ) then
+          check = check + 1
+        elseif ( d == 3 .and. domain % Blk(b) % Dim(d) == 1 ) then
+          check = check + 1
         endif
       enddo
       if ( check < 3 ) then
-        write(*,'(A90)') ' [ERROR] in Check_Multigrid, block: '//trim(str(.true.,b))
-        stop
+        write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels needs block cells '// &
+                       'divisible by '//trim(str(.true.,rap))//'; block '//trim(str(.true.,b))//' is not'
+        call mpi_stop_all('multigrid: block cells not divisible')
       endif
+      ! The coarsest level needs at least 2 cells per coarsened direction
+      do d = 1, 3
+        if ( domain % Blk(b) % Dim(d) > 1 .and. domain % Blk(b) % Dim(d) / rap < 2 ) then
+          write(*,'(A)') ' [ERROR] multigrid with '//trim(str(.true.,obj_multigrid%MGL))//' levels leaves block '// &
+                         trim(str(.true.,b))//' with '//trim(str(.true.,domain % Blk(b) % Dim(d) / rap))// &
+                         ' cell in direction '//trim(str(.true.,d))//' on the coarsest level; at least 2 are needed'
+          call mpi_stop_all('multigrid: coarsest level thinner than 2 cells')
+        endif
+      enddo
     enddo
 
   end subroutine Check_Multigrid
@@ -110,7 +125,7 @@ subroutine Check_Multigrid ( domain )
 
       endif
       
-      cmatID(i,j,k) = fmatID(i2,j2,k2)
+      cmatID(i,j,k) = fmatID(i2,j2,min(k2,fDim(3)))  ! 2D: k2 would be the ghost layer
 
     enddo; enddo; enddo
 
@@ -131,6 +146,21 @@ subroutine Check_Multigrid ( domain )
     integer, intent(in), dimension(3) :: fDim, cDim
     real(R8), intent(out), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fPrim
     real(R8), intent(in),  dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cPrim
+
+    call prolong_trilinear ( cPrim, fPrim, cDim, fDim, gc, gc )
+
+  end subroutine coarse2fine_prim
+
+
+  !> Trilinear prolongation of one coarse-cell field onto the fine interior cells, stencils
+  !> clamped at the block boundary; ch and fh are the halo widths of the two arrays. The
+  !> worksharing directive is inert when the caller is outside a parallel region.
+  subroutine prolong_trilinear ( c, f, cDim, fDim, ch, fh )
+    implicit none
+    integer, intent(in), dimension(3) :: cDim, fDim
+    integer, intent(in) :: ch, fh
+    real(R8), intent(in),  dimension(1-ch:cDim(1)+ch,1-ch:cDim(2)+ch,1-ch:cDim(3)+ch) :: c
+    real(R8), intent(out), dimension(1-fh:fDim(1)+fh,1-fh:fDim(2)+fh,1-fh:fDim(3)+fh) :: f
     ! Local
     integer :: i, j, k, rap, i2, j2, k2, i2d, j2d, k2d, im, jm, km, ip, jp, kp
     integer :: ii, jj, kk, counter, mask(3), id(6)
@@ -200,24 +230,143 @@ subroutine Check_Multigrid ( domain )
           if (counter==8) mask(1:3) = [4,5,6]
         endif  
 
-        interp = coeffs(1) * cPrim(i,j,k) &
-               + coeffs(2) * cPrim(id(mask(1)),j,k) &
-               + coeffs(3) * cPrim(i,id(mask(2)),k)    &
-               + coeffs(4) * cPrim(i,j,id(mask(3)))    &
-               + coeffs(5) * cPrim(id(mask(1)),id(mask(2)),k)   &
-               + coeffs(6) * cPrim(id(mask(1)),j,id(mask(3)))   &
-               + coeffs(7) * cPrim(i,id(mask(2)),id(mask(3)))   &
-               + coeffs(8) * cPrim(id(mask(1)),id(mask(2)),id(mask(3)))
+        interp = coeffs(1) * c(i,j,k) &
+               + coeffs(2) * c(id(mask(1)),j,k) &
+               + coeffs(3) * c(i,id(mask(2)),k)    &
+               + coeffs(4) * c(i,j,id(mask(3)))    &
+               + coeffs(5) * c(id(mask(1)),id(mask(2)),k)   &
+               + coeffs(6) * c(id(mask(1)),j,id(mask(3)))   &
+               + coeffs(7) * c(i,id(mask(2)),id(mask(3)))   &
+               + coeffs(8) * c(id(mask(1)),id(mask(2)),id(mask(3)))
 
-        fPrim(ii,jj,kk) = interp
+        f(ii,jj,kk) = interp
 
-        counter = counter + 1          
-        
+        counter = counter + 1
+
       enddo; enddo; enddo
-    
+
     enddo; enddo; enddo
-      
-  end subroutine coarse2fine_prim
+
+  end subroutine prolong_trilinear
+
+
+  subroutine fas_store_h0 ( cT, cmatID, h0, cDim )
+    use FUSS_Global_m
+    use FUSS_Lib_Solid, only: co_H
+    implicit none
+    integer, intent(in), dimension(3) :: cDim
+    real(R8), intent(in),  dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cT, cmatID
+    real(R8), intent(out), dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: h0
+    ! Local
+    integer :: i, j, k
+
+    do k = 1, cDim(3); do j = 1, cDim(2); do i = 1, cDim(1)
+      call co_H ( cmatID(i,j,k), cT(i,j,k), h0(i,j,k) )
+    enddo; enddo; enddo
+
+  end subroutine fas_store_h0
+
+
+  !> FAS forcing of a coarse block: the volume-integrated steady residual of the fine children,
+  !> summed (conservative), minus the coarse one at the restricted state. The residual convention is
+  !> N = -R + qvol*V (see Scale_Residual_Cons); R of a level under forcing already carries -fas_f,
+  !> so the sum telescopes the forcing of the finer level (Jameson's Q = sum, P_k collected).
+  subroutine fas_build_forcing ( fR, fqvol, fVol, cR, cqvol, cVol, fas_f, fDim, cDim )
+    use FUSS_Global_m
+    implicit none
+    integer, intent(in), dimension(3) :: fDim, cDim
+    real(R8), intent(in), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fR, fqvol, fVol
+    real(R8), intent(in), dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cR, cqvol, cVol
+    real(R8), intent(out), dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: fas_f
+    ! Local
+    integer :: i, j, k, i2, j2, k2, i2d, j2d, k2d
+    real(R8) :: s
+
+    do k = 1, cDim(3); do j = 1, cDim(2); do i = 1, cDim(1)
+      i2 = 2*i; j2 = 2*j; k2 = 2*k
+      i2d = i2-1; j2d = j2-1; k2d = k2-1
+      if ( fDim(3) == 1 ) then ! 2D
+        s = - fR(i2d,j2d,1) + fqvol(i2d,j2d,1)*fVol(i2d,j2d,1) &
+            - fR(i2, j2d,1) + fqvol(i2, j2d,1)*fVol(i2, j2d,1) &
+            - fR(i2d,j2, 1) + fqvol(i2d,j2, 1)*fVol(i2d,j2, 1) &
+            - fR(i2, j2, 1) + fqvol(i2, j2, 1)*fVol(i2, j2, 1)
+      else
+        s = - fR(i2d,j2d,k2d) + fqvol(i2d,j2d,k2d)*fVol(i2d,j2d,k2d) &
+            - fR(i2, j2d,k2d) + fqvol(i2, j2d,k2d)*fVol(i2, j2d,k2d) &
+            - fR(i2d,j2, k2d) + fqvol(i2d,j2, k2d)*fVol(i2d,j2, k2d) &
+            - fR(i2, j2, k2d) + fqvol(i2, j2, k2d)*fVol(i2, j2, k2d) &
+            - fR(i2d,j2d,k2 ) + fqvol(i2d,j2d,k2 )*fVol(i2d,j2d,k2 ) &
+            - fR(i2, j2d,k2 ) + fqvol(i2, j2d,k2 )*fVol(i2, j2d,k2 ) &
+            - fR(i2d,j2, k2 ) + fqvol(i2d,j2, k2 )*fVol(i2d,j2, k2 ) &
+            - fR(i2, j2, k2 ) + fqvol(i2, j2, k2 )*fVol(i2, j2, k2 )
+      endif
+      fas_f(i,j,k) = s - ( - cR(i,j,k) + cqvol(i,j,k)*cVol(i,j,k) )
+    enddo; enddo; enddo
+
+  end subroutine fas_build_forcing
+
+
+  !> FAS: prolong the coarse correction in h, delta = h(w_2h) - h0, with the trilinear weights of
+  !> coarse2fine_prim, and add it to the fine state.
+  subroutine coarse2fine_corr ( fT, fmatID, cT, cmatID, h0, fDim, cDim )
+    use FUSS_Global_m
+    use FUSS_Lib_Solid, only: co_H, co_T
+    use FUSS_Lib_Newstate, only: Admissible_T, FAS_HALVINGS
+    implicit none
+    integer, intent(in), dimension(3) :: fDim, cDim
+    real(R8), intent(inout), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fT
+    real(R8), intent(in),    dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fmatID
+    real(R8), intent(in),    dimension(1-gc:cDim(1)+gc,1-gc:cDim(2)+gc,1-gc:cDim(3)+gc) :: cT, cmatID
+    real(R8), intent(in),    dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: h0
+    ! Local
+    integer :: i, j, k, n
+    real(R8) :: h, Tnew, theta
+    real(R8), dimension(1:cDim(1),1:cDim(2),1:cDim(3)) :: dh
+    real(R8), dimension(1:fDim(1),1:fDim(2),1:fDim(3)) :: dhf
+
+    ! Correction on the coarse cells, prolongated with the weights of coarse2fine_prim
+    do k = 1, cDim(3); do j = 1, cDim(2); do i = 1, cDim(1)
+      call co_H ( cmatID(i,j,k), cT(i,j,k), h )
+      dh(i,j,k) = h - h0(i,j,k)
+    enddo; enddo; enddo
+    call prolong_trilinear ( dh, dhf, cDim, fDim, 0, 0 )
+
+    do k = 1, fDim(3)
+    do j = 1, fDim(2)
+    do i = 1, fDim(1)
+
+      call co_H ( fmatID(i,j,k), fT(i,j,k), h )
+      theta = 1d0
+      do n = 0, FAS_HALVINGS
+        call co_T ( fmatID(i,j,k), h + theta*dhf(i,j,k), Tnew )
+        if ( Admissible_T( Tnew ) ) exit
+        theta = 0.5d0 * theta
+        if (n == FAS_HALVINGS) Tnew = fT(i,j,k)
+      enddo
+      if (theta < 1d0) fas_fallbacks = fas_fallbacks + 1
+      fT(i,j,k) = Tnew
+
+    enddo; enddo; enddo
+
+  end subroutine coarse2fine_corr
+
+
+  subroutine Coarse_matID ( Fine, Coarse )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: Fine, Coarse
+    ! Local
+    integer :: b, i, j, k
+
+    do b = 1, Coarse % nb
+      do k = 1, Coarse % Blk(b) % dim(3)
+      do j = 1, Coarse % Blk(b) % dim(2)
+      do i = 1, Coarse % Blk(b) % dim(1)
+        Coarse % Blk(b) % matID(i,j,k) = Fine % Blk(b) % matID(2*i, 2*j, min(2*k, Fine % Blk(b) % dim(3)))
+      enddo; enddo; enddo
+    enddo
+
+  end subroutine Coarse_matID
 
 
   subroutine Coarse_Grid ( Fine, Coarse )

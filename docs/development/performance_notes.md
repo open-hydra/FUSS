@@ -1,153 +1,44 @@
-# FUSS Performance Optimization Notes
+# Performance Notes
 
-> Target files: `src/lib/numerics/fluxes/Mod_Fluxes.f90`, `Lib_Diffusive.f90`, and related routines
-
----
-
-## Priority 1 — Cache material properties per cell instead of per face
-
-`co_Kappa` (thermal conductivity from the material table) is called inside
-`Diffusive_Flux` **once per face**, computing a face-average temperature and
-performing a linear table interpolation.  For a cell shared by 6 faces, this
-means the same cell-center state contributes to up to 6 separate interpolation
-calls.
-
-### Suggested fix
-
-Precompute `kappa` at cell centres before the face loops:
-
-```fortran
-real(R8) :: kappa_cell(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc)
-
-!$omp do collapse(3)
-do k = 1-gc, n(3)+gc
-do j = 1-gc, n(2)+gc
-do i = 1-gc, n(1)+gc
-  call co_Kappa( matID(i,j,k), T(i,j,k), kappa_cell(i,j,k) )
-end do; end do; end do
-```
-
-Then average the two cell values at the face instead of interpolating from
-the face-average temperature:
-
-```fortran
-kappa = 0.5d0 * ( kappa_cell(i,j,k) + kappa_cell(i+1,j,k) )
-```
-
-**Expected gain:** 10–20% (eliminates repeated table lookups in the innermost
-loop).
+This page lists what the code already does for speed and the known costs that have not been addressed. Gains are quoted only where they were measured; none of the open items has been tried.
 
 ---
 
-## Priority 2 — Replace scalar stencil arguments with array slices
+## Measuring
 
-`Diffusive_Flux` currently receives the temperature stencil as ten individual
-scalar arguments (`T1 … T10`).  This prevents the compiler from seeing the
-full array and inhibits auto-vectorization of the face loop.
-
-### Suggested fix
-
-Pass the full temperature array and index coordinates:
-
-```fortran
-subroutine Diffusive_Flux ( matID, normal, area, T, M, Res, &
-                             i, j, k, aa, bb, cc, n, gc )
-  real(R8), intent(in)    :: T(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc)
-  real(R8), intent(inout) :: Res(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc)
-  integer,  intent(in)    :: i, j, k, aa, bb, cc
-```
-
-The compiler can then vectorize the `j`-`k` loop with `i` fixed, or the
-calling loop can be reshaped for better SIMD utilization.
-
-**Expected gain:** 5–15% (vectorization of inner loop).
+- The end-of-run summary prints the iterations, the solver time, the time per iteration and the elapsed time (`Mod_Timers`).
+- `timer-diter = N` (`[FUSS-IO]`) prints, every N iterations, the iteration time on the slowest, fastest and mean rank, the load imbalance, and the fractions of time spent waiting for the ghost exchange and for collectives.
+- Scaling measurements: [Parallel Scaling Analysis](../vv/parallel-scaling.md).
 
 ---
 
-## Priority 3 — Fuse direction loops
+## In the code
 
-`Fluxes_blk` currently computes direction-1, direction-2, and direction-3
-fluxes in separate triple loops.  Each pass streams through the full `T` and
-`Res` arrays, causing redundant cache misses when the arrays do not fit in
-L2/L3.
-
-### Suggested fix
-
-Merge all three direction sweeps into a single pass using a direction index:
-
-```fortran
-do dir = 1, ndir
-  !$omp do collapse(2)
-  do k = 1, n(3)
-  do j = 1, n(2)
-  do i = 1, n(dir) - 1
-    call Diffusive_Flux( ..., dir )
-  enddo; enddo; enddo
-end do
-```
-
-**Expected gain:** 5–10% (improved cache reuse).
+| Item | Where |
+|------|-------|
+| `RELEASE` flags: CMake's default optimisation plus the first accepted of each list: loop unrolling (`-funroll-loops` / `-unroll`), inlining (`-finline-functions` / `-inline`), interprocedural optimisation (`-ipo` / `-flto`); host architecture in every build type (`-march=native` for GNU, `-xHost` for Intel). No `-ffast-math`. | `cmake/SetFortranFlags.cmake` |
+| The metric of each interior face (stencil, `diffusive-metric = stencil`) is stored at set-up, one 3×3 per face and direction with more than one cell (9, 18 or 27 doubles per cell in 1-D, 2-D, 3-D), so the flux loops do not build it. | `Lib_Stencil_Metrics`, `Lib_Diffusive` |
+| One OpenMP parallel region per iteration around all Runge–Kutta stages, with orphaned `!$omp do` loops inside. | `Mod_Explicit` |
+| MPI ghost and chimera-donor exchange with persistent, non-blocking requests; the local boundary conditions are processed while the messages are in flight. Every MPI call is made by the primary thread (`!$omp master` plus a barrier where the team needs the result: `MPI_THREAD_FUNNELED`); on one rank the exchange and its barriers are skipped. | `Lib_Ghost` (`Fill_Ghost_Cell`), `Lib_IRS`, `Mod_GhostExchange` |
+| The boundary fluxes of a rank run over its own records only, listed by block and face once at set-up (`local_bf_*`), not over the records of the whole mesh. | `Mod_BC_Fluxes`, `Mod_GhostExchange` (`build_local_bc_index`) |
+| After set-up each rank frees the large arrays of the blocks it does not own (keeping the chimera donors it needs). | `Mod_Allocate_Data` (`deallocate_remote_computation_data`) |
+| The IRS / no-IRS choice is made once per stage, outside the cell loops. | `Lib_Newstate` |
+| `co_T` finds the row of $T(h)$ by bisection when the material's Energy column does not decrease (checked at load), by a scan from $T_\text{min}$ otherwise: the same row, so the results are bit-identical. Serial solver time with `cons`, against the scan it replaced: ×3–4 at 1000–2000 K on a 1–3000 K table, ×2.0–2.2 under FAS cycles with IRS, ×1.24 at 300–373 K on a 1–1000 K table; `prim` unchanged (it calls `co_T` only in chimera ghosts and multigrid restriction). | `Lib_Solid`, `Load_Table` |
 
 ---
 
-## Priority 4 — AoS → SoA for metric types
+## Open items
 
-The derived types used for mesh metrics store small arrays inside structs:
+### Property look-ups
 
-```fortran
-type :: FUSS_vector_3D_type
-  real(R8) :: c(3)         ! dl(i,j,k)%c(d) — Array of Structures
-end type
-type :: FUSS_tensor_3D_type
-  real(R8) :: c(3,3)       ! M(i,j,k)%c(d1,d2) — Array of Structures
-end type
-```
+- `Diffusive_Flux` calls `co_Kappa` once per interior face, at the mean of the two cell temperatures, so each cell's table is interpolated on up to $2\,n_\text{dir}$ faces per stage; a face between two materials needs two lookups (one per side, see [face conductivity](../theory/numerics.md#face-conductivity)).
+- `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration, and, where a face carries a conductivity other than the cell's, a second pass of up to nine lookups per cell (seven in 2-D; see [Time Integration](../theory/time-integration.md#diffusive-stability-condition-vnn)).
 
-This layout causes stride-3 (or stride-9) access when sweeping over cells
-for a single metric component, which prevents SIMD vectorization.  The
-optimal layout is Structure of Arrays:
+### Flux loops
 
-```fortran
-real(R8) :: dl(3, 1-gc:n1+gc, 1-gc:n2+gc, 1-gc:n3+gc)    ! dl(d,i,j,k)
-real(R8) :: M (3, 3, 1-gc:n1+gc, 1-gc:n2+gc, 1-gc:n3+gc) ! M(d1,d2,i,j,k)
-```
+- `Diffusive_Flux` receives the stencil as ten scalar temperatures and three 3×3 metrics per face (the face metric and the two cell metrics, for the widths of a material jump). Whether the compiler vectorises the face loops has not been checked (`-fopt-info-vec-missed` for GNU, `-qopt-report` for Intel).
+- `Fluxes_blk` sweeps each block once per direction: three loop nests, each reading `T` and updating `R`.
 
-### Impact
+### Data layout
 
-This is a large refactor affecting mesh setup, I/O, boundary conditions,
-and all flux routines.  Best addressed incrementally, starting with the
-metric tensor `M` inside `Diffusive_Flux`, where the matrix–vector product
-`matmul(Gradient, M)` is the dominant operation.
-
-**Expected gain:** 5–10% (better vectorization on the metric matmul).
-
----
-
-## Priority 5 — Compiler flags
-
-### Currently used (Release)
-
-`-O3`, `-funroll-loops`, `-ffast-math`, `-march=native`, `-finline-functions`
-
-### Additions to consider
-
-| Flag (gfortran) | Effect |
-|---|---|
-| `-flto` | Link-time optimization — enables cross-module inlining of small routines such as `co_Kappa` and `Tangential_Gradient`. |
-| `-fopt-info-vec-missed` | Diagnostic: reports what the compiler fails to vectorize — useful for identifying remaining bottlenecks. |
-| `-fopenmp-simd` | Enables `!$omp simd` directives for explicit SIMD hints without full OpenMP threading overhead. |
-
-**Expected gain:** 5–10% from `-flto` alone (cross-module inlining of
-table-interpolation and gradient routines).
-
----
-
-## Summary
-
-| # | Action | Effort | Expected gain |
-|---|---|---|---|
-| 1 | Cache `kappa` per cell before face loops | small | 10–20% |
-| 2 | Replace scalar stencil args with array + indices | medium | 5–15% |
-| 3 | Fuse direction loops | small | 5–10% |
-| 4 | AoS → SoA for metric types | large | 5–10% |
-| 5 | Enable `-flto` | trivial | 5–10% |
+The metric is stored per cell as a derived type holding `c(3,3)` (`FUSS_tensor_3D_type`), and the cell lengths as `c(3)` (`FUSS_vector_3D_type`): an array of structures, with strided access when a loop reads one component. Moving to arrays indexed `(d1, d2, i, j, k)` would touch the metric set-up, the ghost cells, the boundary conditions and the fluxes.

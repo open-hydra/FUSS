@@ -8,20 +8,23 @@
 | newrun | true | true , false |  no | Start a new simulation (false = restart) |
 | res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold |
 | time-threshold | 1e30 | > 0 |  no | Maximum simulation time |
-| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations |
+| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations (re-read at runtime); with more than one multigrid level each level stops at its level<m>-iter instead |
 
 ## FUSS-IO
 
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
-| ini-format | tecplot ascii | tecplot ascii, tecplot binary, vtk ascii, vtk raw |  no | Initial condition (INPUT/ic.*) format |
-| sol-format | tecplot ascii | tecplot ascii, tecplot binary, vtk ascii, vtk raw |  no | Solution (OUTPUT/field.*) format |
+| ic-format | tecplot ascii | tecplot ascii, tecplot binary, vtk ascii, vtk binary, vtk raw |  no | Initial condition (INPUT/ic.*) format |
+| sol-format | tecplot ascii | tecplot ascii, tecplot binary, vtk ascii, vtk binary, vtk raw |  no | Solution (OUTPUT/field.*) format |
 | sol-diter | 1000000000 | > 0 |  no | Solution output iter frequency |
 | sol-dtime | 1e30 | > 0 |  no | Solution output time frequency |
 | sol-overwrite | true | true, false |  no | Overwrite solution files |
 | res-diter | 1 | > 0 |  no | Residual history iter frequency |
 | shell-diter | 1 | > 0 |  no | Shell update iter frequency |
 | ini-diter | 10000 | > 0 |  no | input.ini update iter frequency |
+| decomposition-map | none |  |  no | File of INPUT/ (name only, with the phase prefix) that gives the MPI rank of every block, in the format of the ATLAS mesh decomposer; none: blocks balanced by cell count |
+| ini-error | warn | warn, stop |  no | input.ini read again with an error: warn (the reading is not taken, the run goes on) or stop |
+| timer-diter | 0 | >= 0 |  no | Wall-clock timing report iter frequency (0 = off) |
 
 ## FUSS-Probes
 
@@ -44,16 +47,21 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | time-scheme | euler | euler, RK2, RK3 |  no | Time integration solver |
-| vnn | 0.3 | > 0 |  no | VNN parameter |
+| vnn | 0.15 | > 0 |  no | Diffusion number: dt = vnn rho cp / sum_d k_d |grad xi_d|^2 (limits 0.5 euler/RK2, 0.628 RK3; MOSE's convention; until October 2026 twice this value) |
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
-| irs | .false. | logical |  no | Implicit Residual Smoothing |
-| irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
+| irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; the value is re-read at runtime) |
+| diffusive-metric | stencil | stencil, mean |  no | Face metric of the diffusive fluxes: stencil takes the face Jacobian from the same differences of the cell centres as the face gradient, exact for a linear field on any mesh except at the chimera faces (102), which take the two-sided balance with the cell metrics with every value; mean takes the mean of the two cell metrics at the interior faces (the block connections the two-sided balance, the walls the cell metric) and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r; read at set-up only |
 
 ## FUSS-Multigrid
 
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
-| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 |
-| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 |
+| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
+| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |
+| prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime) |
+| cycle | none | none, v, w |  no | FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). w is the robust choice: v without IRS can limit-cycle on 4 or more levels |
+| pre-iter | 2 | >= 0 |  no | FAS: smoothing iterations on a level before its coarse-grid visit |
+| post-iter | 1 | >= 0 |  no | FAS: smoothing iterations on a level after the coarse-grid correction |
+| coarse-iter | 10 | > 0 |  no | FAS: smoothing iterations on the coarsest level of a cycle |

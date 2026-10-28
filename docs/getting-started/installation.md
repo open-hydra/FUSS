@@ -1,159 +1,147 @@
 # Installation
 
-This document describes how to obtain and build **FUSS**. The instructions describe the current `install.sh` script, CMake configuration and Git submodule layout.
-
-!!! note
-    FUSS has a dual nature: it is both a library and an executable. The installation process described here produces both the static library `libFUSSL.a` and the main executable `bin/FUSS`. If you are only interested in using FUSS as a library, you can link against `libFUSSL.a` without caring about the executable.
+FUSS is built with CMake, either through the `install.sh` script or by calling CMake directly. A build produces the static library `libFUSSL.a` and two executables in `bin/`: `FUSS` (the solver) and `DocGen` (writes the [input parameter table](../user/registry.md)).
 
 ## Prerequisites
 
-Before attempting to build FUSS make sure your system provides the following external tools and compilers:
+- **CMake** 3.23 or newer.
+- **Fortran compiler**: GNU (`gfortran`) or Intel oneAPI (`ifx`).
+- **C and C++ compilers**: the project enables C and C++ (ORION and TecIO).
+- **git**: the dependencies are Git submodules (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of the pins).
+- **OpenMP** and **MPI**: optional.
 
-- **CMake** – 3.23 or newer.
-- **Fortran compiler** – either the GNU toolchain (`gfortran`) or Intel/oneAPI (`ifort`/`ifx`) are supported.
-- **C / C++ compiler** – required by the ORION I/O library and the optional TecIO component.
-- **OpenMP** – needed for optional shared-memory parallelisation.
-- **MPI** – needed for optional distributed-memory parallelisation.
+### Dependencies
 
-### Git submodules
+| Path | Repository | Purpose |
+|------|------------|---------|
+| `lib/ORION` | [MarcoGrossi92/ORION](https://github.com/MarcoGrossi92/ORION) (submodule) | Tecplot/VTK reading and writing; bundles TecIO |
+| `lib/third_party/FiNeR` | [szaghi/FiNeR](https://github.com/szaghi/FiNeR) (submodule) | `input.ini` parser |
+| `lib/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (submodules) | FiNeR's own libraries, added by CMake before FiNeR; pinned at the tags of MOSE (PENF v2.0.1, FACE v1.1.17, FLAP v2.5.3, BeFoR64 v1.2.4, StringiFor v1.8.0) |
 
-FUSS depends on two repositories that are included as Git submodules.
+### ifx 2024.1 and IPO
 
-| Path | Repository URL | Purpose |
-|------|----------------|---------|
-| `lib/ORION` | `https://github.com/MarcoGrossi92/ORION.git` | I/O routines (TecIO, VTK) |
-| `lib/third_party/FiNeR` | `https://github.com/szaghi/FiNeR.git` | INI file parser |
+ifx 2024.1 (tested: 2024.1.0, build 20240308) compiles a loop of the ghost metrics of MOSE wrongly at `-O2` and `-O3` without interprocedural optimization: a minimal program in standard Fortran gives wrong values at `-O2` and `-O3`, also at the default level with no `-O` option, and the right ones at `-O0`, `-O1` and with `-ipo`. FUSS built without IPO (the RELEASE build of ifx up to 2026-10-28, whose `-ipo` was dropped silently; see the CHANGELOG) passes every case of the stress battery and of the patch tests, so no miscompiled loop is known in FUSS; CMake refuses that build all the same, as MOSE does, because the pattern is ordinary Fortran. The refused builds are the RELEASE build with `-DUSE_IPO=OFF` (`--no-ipo`) or whose toolchain cannot do IPO, and the TESTING build (`-O2`); the RELEASE build with IPO (the default) and the DEBUG build (`-O0`) are accepted. `-DFUSS_ALLOW_IFX_NOIPO=ON` turns the refusal into a warning. Other versions of ifx have not been tested.
 
-## Build methods
-
-First clone the repository with submodules:
+## Build with `install.sh`
 
 ```bash
 git clone https://github.com/open-hydra/FUSS.git
 cd FUSS
-# initialise submodules
-git submodule update --init --recursive
+./install.sh build --compilers=gnu --use-openmp
 ```
-
-To fully install FUSS, you may either use the bundled install script or invoke CMake manually. The script is convenient and is the preferred route for most users.
-
-### Build with `install.sh` (recommended)
-
-The script exposes three commands: `build`, `compile`, and `update`. It also maintains a `CMakePresets.json` file that records the configuration used for the most recent `build` invocation.
 
 ```bash
 ./install.sh [GLOBAL_OPTIONS] COMMAND [COMMAND_OPTIONS]
 ```
 
-**Global options**
+Global options: `-h`, `--help` (usage) and `-v`, `--verbose` (log the configuration).
 
-* `-v`, `--verbose` – enable verbose logging.
+### `build`
 
-**`build` command**
+1. Initialises the submodules `lib/ORION`, `lib/third_party/FiNeR` and FiNeR's five libraries under `lib/third_party/` (ORION and FiNeR unless an external path is given).
+2. Sets the compilers, deletes `build/`, configures CMake in `build/` with `CMAKE_BUILD_TYPE=RELEASE` and builds.
+3. Writes `CMakePresets.json` with the configuration just used.
 
-Performs a clean configure+build cycle. Example usage:
-
-```bash
-# minimal GNU build with OpenMP enabled
-./install.sh build --compilers=gnu --use-openmp
-
-# full configuration with Intel compilers and all optional features
-./install.sh build --compilers=intel \
-                   --use-openmp --use-mpi \
-                   --use-tecio
-```
-
-Options accepted by `build`:
-
-* `--compilers=<gnu|intel>` – select the compiler family (default: `gnu`).
-* `--use-openmp` – enable OpenMP parallelisation.
-* `--use-mpi` – enable MPI parallelisation.
-* `--use-tecio` – enable TecIO support (requires a C++ compiler).
-* `--include-orion=PATH` – use an external ORION tree instead of the submodule.
-* `--include-finer=PATH` – same for FiNeR.
-
-The script sets up environment variables for the chosen compilers and then invokes CMake. After a successful build, a `CMakePresets.json` file is written in the source root so that subsequent compilations can reuse the configuration.
-
-**`compile` command**
-
-Re-runs CMake using the previously generated preset and rebuilds the project without clearing the build directory. This is useful during development when only the source has changed. Example usage:
+| Option | Effect |
+|--------|--------|
+| `--compilers=gnu` | `gfortran`, `gcc`, `g++` |
+| `--compilers=intel` | `ifx`, `icx`, `icpx` |
+| (none) | CMake chooses the compilers (`FC`, `CC`, `CXX` from the environment if set) |
+| `--use-openmp` | OpenMP |
+| `--use-mpi` | MPI |
+| `--use-tecio` | TecIO, for Tecplot binary (`.szplt`) files |
+| `--no-ipo` | Without interprocedural (link-time) optimization in the RELEASE build (`-DUSE_IPO=OFF`) |
+| `--include-orion=PATH` | Use an external ORION tree instead of the submodule |
+| `--include-finer=PATH` | Use an external FiNeR tree instead of the submodule |
 
 ```bash
-./install.sh compile
+./install.sh build --compilers=intel --use-openmp --use-mpi --use-tecio
 ```
 
-**`update` command**
+### `compile`
 
-Synchronises the Git submodules. By default it checks out the commit recorded in `.gitmodules`; passing `--remote` will fetch the latest commit from each remote branch.
+Rebuilds without deleting `build/`, with the configuration stored in `CMakePresets.json` (so it needs one earlier `build`):
 
 ```bash
-./install.sh update            # sync to recorded commit
-./install.sh update --remote   # update to newest remote commit
+./install.sh compile        # cmake --preset default && cmake --build build
 ```
 
-### Build with CMake
+### `update`
 
-If you prefer fine-grained control, perform the configuration yourself. This is essentially what `install.sh` does under the hood.
+Runs `git submodule update --init` (with `--remote`: moves each submodule to the latest commit of its remote branch instead of the commit recorded in FUSS), FiNeR's libraries included.
 
 ```bash
-mkdir build && cd build
-cmake .. \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_Fortran_COMPILER=gfortran \  # or ifx
-    -DUSE_OPENMP=ON \                    # or OFF
-    -DUSE_MPI=OFF \                      # optional
-    -DUSE_TECIO=ON \                     # optional (needs C++ compiler)
-    -DORION_PATH=/path/to/ORION \        # optional
-    -DFINER_PATH=/path/to/FiNeR          # optional
-cmake --build . --parallel
+./install.sh update
+./install.sh update --remote
 ```
 
-The resulting artifacts are placed in `build/` by default. The static library is `lib/libFUSSL.a` and the main executable is `bin/FUSS` (inside the build directory unless you set `CMAKE_INSTALL_PREFIX`).
+### Build output
 
-## CMake presets
+| File | Content |
+|------|---------|
+| `bin/FUSS` | Solver |
+| `bin/DocGen` | Writes `docs/user/registry.md` (run it from the repository root) |
+| `build/src/lib/libFUSSL.a` | FUSS library |
+| `build/modules/` | Fortran module files |
 
-The file `CMakePresets.json` produced by the install script records all of the cache variables that were used during configuration. You can build the project later simply with
+## Build with CMake
+
+`install.sh build` runs the equivalent of:
+
+```bash
+./install.sh update          # submodules (ORION, FiNeR and its five libraries)
+cmake -B build \
+      -DORION_PATH=$PWD/lib/ORION/ \
+      -DFINER_PATH=$PWD/lib/third_party/FiNeR/ \
+      -DUSE_OPENMP=true -DUSE_MPI=false -DUSE_TECIO=false \
+      -DCMAKE_BUILD_TYPE=RELEASE
+cmake --build build
+```
+
+- `ORION_PATH` and `FINER_PATH` default to `lib/ORION/` and `lib/third_party/FiNeR/`; `FINER_DEPS_PATH` (default `lib/third_party/`) is where CMake finds PENF, FACE, FLAP, BeFoR64 and StringiFor, which it adds before FiNeR. A submodule that is not initialised is initialised by CMake (`git submodule update --init`); FiNeR older than v2.1.0 stops the configuration.
+- `USE_IPO` (default ON) adds the interprocedural optimization (`-ipo` with Intel; `-flto` with GNU) to the RELEASE flags (results of a RELEASE build with ifx change at round-off against builds before 2026-10-28, see the CHANGELOG); with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler (`-DIPO_AR`, `-DIPO_RANLIB` give them for another layout of the installation), and IPO is dropped with a warning when they are not found. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`.
+- `USE_TECIO` is an ORION option and defaults to ON there: pass `-DUSE_TECIO=false` to build without TecIO.
+- `CMAKE_BUILD_TYPE` is `RELEASE` (default), `DEBUG` (`-O0`, warnings, traceback, bounds checking) or `TESTING` (`-O2`); see `cmake/SetFortranFlags.cmake`.
+- Use the `build/` directory: ORION, FiNeR and its libraries are built in `lib/` of the build directory (`-B` elsewhere leaves the source tree clean), and the executables always go to `bin/`.
+
+The configuration stored by `install.sh` can be reused with:
 
 ```bash
 cmake --preset default
 cmake --build build
 ```
 
-or using the `compile` command of the install script as described above.
-
 ## Optional components
 
 ### TecIO
 
-FUSS can be built with support for TecIO, a library for writing Tecplot binary files. This is an optional feature shipped with ORION. If enabled, FUSS will be able to write solution output in Tecplot binary format (`.szplt`), which is useful for post-processing and visualisation of large datasets where ASCII Tecplot files would be impractical. Enabling TecIO requires a working C++ compiler.
+TecIO writes Tecplot binary files (`.szplt`, with `sol-format = tecplot binary`). Its sources ship with ORION, whose CMake builds it at configure time (the MPI variant when `USE_MPI` is on).
 
-### MPI
+### OpenMP and MPI
 
-When MPI is enabled, FUSS distributes whole blocks across ranks and exchanges ghost-cell layers across block boundaries at every time step. MPI is most useful for multi-block cases where the block count is greater than or equal to the rank count.
+OpenMP shares the cell loops of each block among threads; MPI distributes whole blocks over the ranks. See [Parallel Execution](../user/parallel.md).
+
+## Testing the build
+
+```bash
+ctest --test-dir build -L fast
+```
+
+See [Testing](../development/testing.md) for the labels and the cases.
 
 ## Library linking (advanced)
 
-To use FUSS from an external Fortran program you can compile as follows:
-
-```bash
-gfortran -I/path/to/FUSS/include \
-         -L/path/to/FUSS/lib \
-         -lFUSSL \
-         your_program.f90 -o your_program
-```
-
-or, from a CMake project:
+`src/lib/CMakeLists.txt` has no install rules (they are commented out), so `cmake --install` and `find_package(FUSS)` are not available. A program that uses FUSS as a library adds the FUSS source tree to its own CMake project, as hydra does: the parent project defines the ORION and FiNeR targets (FUSS adds them itself only when it is the top-level project) and links the `FUSSL` target.
 
 ```cmake
-find_package(FUSS REQUIRED)
-add_executable(myapp main.f90)
-target_link_libraries(myapp FUSS::FUSSL)
+add_subdirectory(lib/ORION)
+add_subdirectory(lib/third_party/FiNeR)
+add_subdirectory(FUSS)
+target_link_libraries(myapp PRIVATE FUSSL FiNeR::FiNeR)
 ```
 
-Installation prefix and other details may be customised via standard CMake variables such as `CMAKE_INSTALL_PREFIX` and by running `cmake --install`.
+`src/app/main.f90` is the reference driver: it calls `setup`, `solve` and `postprocess` of `FUSS_type` (module `FUSS_Procedures_m`).
 
 ## Next steps
 
-* **[Quick Start Tutorial](quick-start.md)** – build and verify the installation.
-
----
+- [Quick Start](quick-start.md): run and check a first case.

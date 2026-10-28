@@ -26,9 +26,9 @@ $$\frac{k\,(T_1 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\rig
 
 | Face | Condition | Value |
 |---|---|---|
-| Face 1 (x = 0) | Prescribed temperature | T = 1000 K |
-| Face 2 (x = L) | Radiation to ambient | ε = 0.98, T_ref = 300 K |
-| Faces 3–6 | Adiabatic (symmetry) | — |
+| Face 1 (x = 0) | Prescribed temperature (302) | T = 1000 K |
+| Face 2 (x = L) | Radiation to ambient (304) | ε = 0.98, T_ref = 300 K |
+| Faces 3–6 | `null` (no flux) | — |
 
 **Material properties**
 
@@ -45,11 +45,12 @@ $$\frac{k\,(T_1 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\rig
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ |
+| Residual threshold | 1 × 10⁻⁸ (reached at iteration 56 507) |
+| Initial condition | 1000 K |
 
 ## Grid structure
 
@@ -59,7 +60,7 @@ Boundary conditions (FUSS block-face notation):
 
 - **Face 1** (x = 0): Prescribed wall temperature (`type = wall`, `T = 1000`)
 - **Face 2** (x = L): Radiation (`type = wall`, `eps = 0.98`, `Tref = 300`)
-- **Faces 3–6**: `null` (degenerate 2-D y- and z-directions; effectively adiabatic)
+- **Faces 3–4**: `null` (no flux); **faces 5–6**: `null` (2-D plane)
 
 ## Results and verification
 
@@ -67,6 +68,11 @@ The FUSS solution is compared against the NAFEMS benchmark target temperature at
 
 | Location | NAFEMS | FUSS | Error |
 |---|---|---|---|
-| x = 0.1 m (Face 2) | 927 K | 926.356 K | 0.069 % |
+| x = 0.1 m (Face 2) | 927 K | 926.971 K | 0.0032 % |
 
-The computed wall temperature at the radiation boundary agrees with the NAFEMS reference to within 0.07 %, well below the 1 % acceptance criterion.
+The wall temperature differs from the NAFEMS value by −0.029 K (0.0032 %; the acceptance criterion is 1 %). The exact root of the balance above is 926.9707 K: the difference is the rounding of the reference value.
+
+```bash
+cd test/steady-state/radiative_Rod
+./FUSS.sh solve && python3 verify.py
+```

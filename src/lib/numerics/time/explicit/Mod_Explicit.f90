@@ -3,11 +3,11 @@ module FUSS_Mod_Explicit
 
   implicit none
   private
-  public :: Explicit_Step
+  public :: Explicit_Step, Evaluate_Residual
 
 contains
 
-  subroutine Explicit_Step ( domain, External_Function )
+  subroutine Explicit_Step ( domain, External_Function, inner )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m
     use FUSS_Global_m
@@ -17,57 +17,84 @@ contains
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
     use FUSS_Mod_Diagnostic, only: Compute_Residual
-    use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
+    use FUSS_IO_BC,          only: has_tdep_bc
+    use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8_array, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
                                timer_sync_begin, timer_sync_end
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     external :: External_Function
+    logical, intent(in), optional :: inner
     ! Local
-    logical  :: endsim, iosim, endmg
+    logical  :: endsim, iosim, endmg, inner_
     integer  :: i_rk, b, level
-    real(R8) :: average
+    real(R8) :: average, t_n
+    real(R8), allocatable :: res_block(:)   ! residual sum over the cells of each block
+    logical  :: advance, converged
+    ! Stage times t_n + c dt of euler, RK2 (Heun) and SSP RK3
+    real(R8), parameter :: c_stage(3,3) = reshape([0d0, 0d0, 0d0, 0d0, 1d0, 0d0, 0d0, 1d0, 0.5d0], [3,3], order=[2,1])
+
+    inner_ = .false.
+    if (present(inner)) inner_ = inner
 
     call timer_iter_begin()
 
     level = obj_multigrid%MG_level
-    obj_multigrid%change_MG = .false.
+    if (.not. inner_) obj_multigrid%change_MG = .false.
     domain(level) % iter = domain(level) % iter + 1
-    obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
-    obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
+    if (.not. inner_) then
+      obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
+      obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
+    endif
 
+    t_n = domain(level) % time
+    advance = obj_sim_param%HYDRA_time_accurate .or. obj_time_scheme%time_accurate
     if (obj_sim_param%HYDRA_time_accurate) then
       call Set_Global_dt ( domain(level) )
-      domain(level) % time = domain(level) % time + domain(level) % dtglobal
     else
       domain(level) % dtglobal = 1d5
       call Compute_dt ( domain(level), obj_time_scheme%vnn, obj_time_scheme%rampa_vnn_iter )  ! Compute local and minimum time step
-      if ( obj_time_scheme%time_accurate ) then
-        call Set_Global_dt ( domain(level) )  ! Time-accurate: apply global minimum time step
-        domain(level) % time = domain(level) % time + domain(level) % dtglobal
-      endif
+      if ( obj_time_scheme%time_accurate ) call Set_Global_dt ( domain(level) )  ! Time-accurate: global minimum time step
     endif
 
     !$omp parallel
     call Copy_State ( domain(level) )
 
     rk: do i_rk = 1, obj_time_scheme%n_RK
-        
+
+      if (advance) then
+        !$omp single
+        domain(level) % time = t_n + c_stage(obj_time_scheme%n_RK, i_rk) * domain(level) % dtglobal   ! BC time tables
+        !$omp end single
+      endif
       call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
       call Fluxes ( domain(level) )                        ! Diffusive fluxes 
       call BC_Fluxes ( domain(level) )                     ! Boundary fluxes
 
       call External_Function ( domain(level) )             ! External function (e.g. source terms)
 
+      if (domain(level) % fas_forcing) call Add_FAS_Forcing ( domain(level) )   ! FAS coarse level
+
       call RK_Newstate ( domain(level), i_rk )             ! State update
 
     enddo rk
     !$omp end parallel
+    if (advance) domain(level) % time = t_n + domain(level) % dtglobal
+
+    if (inner_) then
+      call timer_iter_end()
+      return
+    endif
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then
+      ! Sums in a fixed order, the same for any number of threads and ranks: over the cells of each block
+      ! (Compute_Residual), then over the blocks in turn on the root; each entry of res_block comes from the one rank
+      ! that holds the block, so its sum over the ranks is exact
       obj_sim_param%residuotot = 0.d0
+      allocate ( res_block(domain(level)%nb) )
+      res_block = 0.d0
       do b = 1, domain(level) % nb
         if (.not. is_local_block(b)) cycle
         call Compute_Residual ( new=domain(level)%blk(b)%T, &
@@ -75,23 +102,34 @@ contains
                                 dt=domain(level)%blk(b)%dtlocal, &
                                 n=domain(level)%blk(b)%dim, &
                                 average=average, &
-                                total=obj_sim_param%residuotot )
+                                total=res_block(b) )
       enddo
       call timer_sync_begin()
-      call mpi_reduce_sum_r8(obj_sim_param%residuotot)
+      call mpi_reduce_sum_r8_array(res_block, domain(level)%nb)
       call timer_sync_end()
-      if (mpi_is_root) obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
+      if (mpi_is_root) then
+        do b = 1, domain(level) % nb
+          obj_sim_param%residuotot = obj_sim_param%residuotot + res_block(b)
+        enddo
+        obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
+      endif
+      deallocate ( res_block )
     endif
     
-    ! Determine simulation control flags on root, then broadcast to all ranks
+    ! Determine simulation control flags on root, then broadcast to all ranks.
+    ! Only one of endsim (finest level) and endmg (coarse levels) is evaluated below.
     if (mpi_is_root) then
+      endsim = .false.
+      endmg  = .false.
+      ! With time tables a time-accurate run goes on to time-threshold even when T stops changing
+      converged = ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) .and. .not. (advance .and. has_tdep_bc)
       if (level == 1) then
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. converged &
             .or. ( domain(1) % time >= obj_sim_param%time_threshold )
       else
         endmg = ( obj_sim_param%iter_from_call >= domain(level) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. converged &
             .or. ( domain(level) % time >= obj_sim_param%time_threshold )
       endif
 
@@ -124,6 +162,50 @@ contains
     endif
 
   end subroutine Explicit_Step
+
+
+  !> Residual of the current state of one level, with no update: ghost fill, interior and boundary
+  !> fluxes (and the FAS forcing when the level carries one). Used by the FAS transfers.
+  subroutine Evaluate_Residual ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_Ghost,     only: Fill_Ghost_Cell
+    use FUSS_Mod_Fluxes,    only: Fluxes
+    use FUSS_Mod_BC_Fluxes, only: BC_Fluxes
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+
+    !$omp parallel
+    call Fill_Ghost_Cell ( domain )
+    call Fluxes ( domain )
+    call BC_Fluxes ( domain )
+    !$omp end parallel
+    if (domain % fas_forcing) call Add_FAS_Forcing ( domain )
+
+  end subroutine Evaluate_Residual
+
+
+  !> R <- R - fas_f: the volume-integrated FAS forcing enters the update as +fas_f/V
+  !> (Scale_Residual_Cons applies -R/V + qvol), identically for cons and prim.
+  subroutine Add_FAS_Forcing ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: i, j, k, b
+
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3)
+      do k = 1, domain % blk(b) % dim(3)
+      do j = 1, domain % blk(b) % dim(2)
+      do i = 1, domain % blk(b) % dim(1)
+        domain % blk(b) % R (i,j,k) = domain % blk(b) % R (i,j,k) - domain % blk(b) % fas_f (i,j,k)
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Add_FAS_Forcing
 
 
   subroutine Copy_State ( domain )

@@ -1,8 +1,8 @@
 # 2-D Steady State Temperature Distribution in a Plate with Volumetric Heat Generation
 
-Steady-state heat conduction in a rectangular solid plate with prescribed temperatures of 0 °C on all four edges and a uniform internal heat generation rate. This is a two-dimensional Poisson problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Study 2). Verification is performed by bilinear interpolation of the computed temperature field at point B (x = 0.3 m, y = 0.2 m) and comparison against the NAFEMS reference value of 310.1 °C.
+Steady-state heat conduction in a rectangular solid plate with prescribed temperatures of 0 °C on all four edges and a uniform internal heat generation rate. This is a two-dimensional Poisson problem whose reference solution is provided by the NAFEMS P16 thermal benchmark suite (Test 9 (ii)). Verification is performed by bilinear interpolation of the computed temperature field at point B (x = 0.3 m, y = 0.2 m) and comparison against the NAFEMS reference value of 310.1 °C.
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (I) and 9 (ii), YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (ii), YR3087, Vol. 2, 1986.
 
 ---
 
@@ -20,10 +20,10 @@ where $\dot{q} = 10^6$ W/m³ and $k = 52$ W/mK. The symmetry of the domain and b
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 1 | x = 0 (left) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 2 | x = 0.6 m (right) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 3 | y = 0 (bottom) | Prescribed temperature | T = 0 °C (273.15 K) |
-| Face 4 | y = 0.4 m (top) | Prescribed temperature | T = 0 °C (273.15 K) |
+| Face 1 | x = 0 (left) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 2 | x = 0.6 m (right) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 3 | y = 0 (bottom) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
+| Face 4 | y = 0.4 m (top) | Prescribed temperature (302) | T = 0 °C (273.15 K) |
 
 **Material properties and source term**
 
@@ -39,7 +39,7 @@ where $\dot{q} = 10^6$ W/m³ and $k = 52$ W/mK. The symmetry of the domain and b
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 2.0 |
+| VNN | 1.0 |
 | Steady-state convergence | time-accurate = false |
 | Integration variables | conservative |
 | Implicit residual smoothing | enabled (β = 0.5) |
@@ -57,7 +57,7 @@ Boundary conditions (FUSS block-face notation):
 - **Face 4** (y = 0.4 m): Prescribed wall temperature (`type = wall`, `T = 273.15`)
 - **Faces 5–6**: `null` (degenerate 2-D z-direction)
 
-The volumetric heat source is set via the source-term block (`[STB-Block1]`, `qvol = 1e6` W/m³).
+The volumetric heat source is set via the source-term block (`[STB-Block1]`, `qvol = 1e6` W/m³): ATLAS STB writes it to `INPUT/st.tec`, which FUSS reads at start. The initial condition is 273.15 K.
 
 ## Temperature field
 
@@ -81,3 +81,8 @@ The target point B is located at (x = 0.3 m, y = 0.2 m), the geometric centre of
 | B (x = 0.3 m, y = 0.2 m) | 310.10 °C | 309.98 °C | 0.021 % |
 
 The interpolated temperature at point B agrees with the NAFEMS reference to within 0.12 °C (0.02 % relative error), demonstrating excellent accuracy for the two-dimensional Poisson problem with uniform heat generation and Dirichlet boundary conditions.
+
+```bash
+cd test/steady-state/qvol_Plate
+./FUSS.sh solve && python3 verify.py
+```

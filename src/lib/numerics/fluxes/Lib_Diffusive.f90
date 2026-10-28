@@ -3,24 +3,25 @@ module FUSS_Lib_Diffusive
 
   implicit none
   private
-  public :: Diffusive_Flux, Compute_Diffusive_Flux
+  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa
 
 contains
 
-  subroutine Diffusive_Flux ( matID, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, M1, M2, Res1, Res2, aa, bb, cc )
+  subroutine Diffusive_Flux ( matID1, matID2, normal, area, T1, T2, T3, T4, T5, T6, T7, &
+                              T8, T9, T10, Mf, M1, M2, Res1, Res2, aa, bb, cc )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
-    real(R8), intent(in) :: matID
+    real(R8), intent(in) :: matID1, matID2          ! materials of the two cells
     integer, intent(in) :: aa, bb, cc
     real(R8), intent(in) :: normal(3), area
     real(R8), intent(in) :: T1, T2, T3, T4, T5
     real(R8), intent(in) :: T6, T7, T8, T9, T10
-    real(R8), intent(in), dimension(3,3) :: M1, M2
+    real(R8), intent(in), dimension(3,3) :: Mf       ! metric of the face (Lib_Stencil_Metrics)
+    real(R8), intent(in), dimension(3,3) :: M1, M2   ! metrics of the two cells (blk%M), for the widths of a material jump
     real(R8), intent(inout) :: Res1, Res2
     ! Local
-    real(R8) :: Gradient(3), T, M(3,3), Flux, kappa
+    real(R8) :: Gradient(3), T, Flux, kappa, Mi1(3,3), Mi2(3,3)
 
     ! Gradient in the same direction of the face: 1 and 2
     Gradient ( aa ) = T2 - T1
@@ -31,11 +32,21 @@ contains
 
     if (ndir==2) Gradient(cc) = 0.0
     
-    M = 0.5d0 * ( M1 + M2 )
-    Gradient = matmul ( Gradient, M )
+    ! Metric tensor at the face (stencil: built from the same differences of the cell centres as the
+    ! gradient, Lib_Stencil_Metrics)
+    Gradient = matmul ( Gradient, Mf )
 
-    T = 0.5d0 * ( T1 + T2 )
-    call co_Kappa( matID, T, kappa )
+    ! Face conductivity. One material: k at the mean face temperature. A material jump
+    ! inside the block: the two half cells in series, as at a block connection
+    if ( matID1 == matID2 ) then
+      T = 0.5d0 * ( T1 + T2 )
+      call co_Kappa( matID1, T, kappa )
+    else
+      Mi1 = Inverse3 ( M1 )
+      Mi2 = Inverse3 ( M2 )
+      kappa = Series_Kappa ( matID1, T1, dot_product ( Mi1(:,aa), normal ), &
+                             matID2, T2, dot_product ( Mi2(:,aa), normal ) )
+    end if
 
     call Compute_Diffusive_Flux ( kappa, Gradient, area, normal, Flux )
 
@@ -43,6 +54,54 @@ contains
     Res2 = Res2 + Flux
 
   end subroutine Diffusive_Flux
+
+
+  !> Conductivity of a face between two materials: the two half cells in series, each with its
+  !> own material at its own temperature, k = (h1 + h2) / (h1/k1 + h2/k2), h the cell widths
+  !> normal to the face (column of the inverse metric dotted with the face normal). Over the
+  !> centre-to-centre distance (h1 + h2)/2 this is the 1-D flux of two layers in series, the
+  !> one BC_Connection balances at a block connection; for h1 = h2 the harmonic mean of k.
+  !> A non-conducting side (k = 0) gives 0.
+  function Series_Kappa ( matID1, T1, h1, matID2, T2, h2 ) result ( kappa )
+    use FUSS_Lib_Solid
+    implicit none
+    real(R8), intent(in) :: matID1, T1, h1, matID2, T2, h2
+    real(R8)             :: kappa
+    real(R8) :: k1, k2
+
+    call co_Kappa( matID1, T1, k1 )
+    call co_Kappa( matID2, T2, k2 )
+    if ( k1 <= 0d0 .or. k2 <= 0d0 ) then
+      kappa = 0d0
+    else
+      kappa = ( h1 + h2 ) * k1 * k2 / ( h1 * k2 + h2 * k1 )
+    end if
+
+  end function Series_Kappa
+
+
+  !> Inverse of a 3x3 matrix by its adjugate (transposed cofactors). Works for M
+  !> as stored by Compute_Metric_Tensor (cofactors/det = transposed inverse of the
+  !> edge vectors): transposition commutes with averaging and inversion.
+  pure function Inverse3 ( A ) result ( B )
+    implicit none
+    real(R8), intent(in) :: A(3,3)
+    real(R8)             :: B(3,3)
+    real(R8) :: det
+
+    B(1,1) =  ( A(2,2)*A(3,3) - A(2,3)*A(3,2) )
+    B(1,2) = -( A(1,2)*A(3,3) - A(1,3)*A(3,2) )
+    B(1,3) =  ( A(1,2)*A(2,3) - A(1,3)*A(2,2) )
+    B(2,1) = -( A(2,1)*A(3,3) - A(2,3)*A(3,1) )
+    B(2,2) =  ( A(1,1)*A(3,3) - A(1,3)*A(3,1) )
+    B(2,3) = -( A(1,1)*A(2,3) - A(1,3)*A(2,1) )
+    B(3,1) =  ( A(2,1)*A(3,2) - A(2,2)*A(3,1) )
+    B(3,2) = -( A(1,1)*A(3,2) - A(1,2)*A(3,1) )
+    B(3,3) =  ( A(1,1)*A(2,2) - A(1,2)*A(2,1) )
+    det = A(1,1)*B(1,1) + A(1,2)*B(2,1) + A(1,3)*B(3,1)
+    B = B / det
+
+  end function Inverse3
 
 
   subroutine Tangential_Gradient ( T1, T2, T3, T4, Gradient )

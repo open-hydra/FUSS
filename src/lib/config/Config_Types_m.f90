@@ -13,10 +13,10 @@ module FUSS_Config_Types_m
     character(len=llen) :: error_message
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
-    logical   :: newrun           ! Flag di restart
-    real(R8)  :: res_threshold    ! Residuo min. per arresto esecuzione
-    real(R8)  :: time_threshold   ! Tempo max per arresto esecuzione 
-    integer   :: iter_threshold            ! Numero max iterate per arresto esecuzione
+    logical   :: newrun           ! New run (false = restart)
+    real(R8)  :: res_threshold    ! Stop below this residual
+    real(R8)  :: time_threshold   ! Stop at this time
+    integer   :: iter_threshold   ! Stop after this many iterations
     ! Useful variables
     integer         :: iter_general     ! Number of iteration - including all MG levels
     integer         :: iter_from_call
@@ -34,6 +34,21 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
   !! Input-Output -----------------------------------------
   !! ------------------------------------------------------
+  !> What a solution file says about the run that wrote it, read back by a restart (Read_vtk_tec): the kind of the
+  !> run, the global iteration count and the counters that decide the next iteration of the run (see
+  !> restart_counter_names in IO_Solution)
+  type :: restart_counters_t
+    logical  :: time_found = .true.     ! the solution holds a time (vtk TIME, Tecplot SOLUTIONTIME)
+    logical  :: steady     = .false.    ! the solution is that of a steady run (negative time, or Tecplot STRANDID = 0)
+    logical  :: found      = .false.    ! the solution holds all four counters below
+    logical  :: resumed    = .false.    ! the counters are applied (same kind of run): Wrap_Setup
+    integer  :: cycle      = 0          ! global iteration count of the run that wrote it (CYCLE)
+    integer  :: iteration  = 0          ! FUSS_ITERATION: iteration count of the written level (domain%iter)
+    integer  :: output_number = 0       ! FUSS_OUTPUT_NUMBER: number of the last numbered output
+    integer  :: grid_level = 1          ! FUSS_GRID_LEVEL: level being computed
+    real(R8) :: last_output_time = 0.d0 ! FUSS_LAST_OUTPUT_TIME: time of the last time-based output
+  end type restart_counters_t
+
   type :: io_t
     character(len=llen)  :: warning_message
     character(len=llen)  :: error_message
@@ -45,6 +60,8 @@ module FUSS_Config_Types_m
     character(len=llen)  :: sol_format, ic_format   ! solution format (native,tecplot,vtk) and formatting (ascii,raw)
     integer              :: shell_diter  ! Shell update
     integer              :: ini_diter    ! input.ini update
+    character(len=llen)  :: decomposition_map ! File of INPUT/ with the MPI rank of every block (none: balanced by cell count)
+    character(len=llen)  :: ini_error    ! input.ini read again with an error: warn (the reading not taken) or stop
     integer              :: timer_diter  ! Wall-clock timing report (0 = off)
     ! Useful variables
     character(len=llen)  :: nameinit    ! Initial file name
@@ -58,6 +75,8 @@ module FUSS_Config_Types_m
     integer              :: Onwall
     integer              :: unitRES             ! Residuals file unit
     character(len=llen)  :: unitRES_format      ! Format for residual_history_file
+    integer              :: output_number = 0   ! Number of the last numbered output (field<n>); restored by a restart
+    type(restart_counters_t) :: restart         ! What the solution that a restart reads says about its run
   end type io_t
 
   type :: io_probes_t
@@ -92,14 +111,19 @@ module FUSS_Config_Types_m
     character(len=llen) :: description
     ! USER-DEFINED INPUTS
     character(len=llen) :: solver_type      ! Solver type (explicit/implicit)
-    real(R8)            :: vnn              ! Parametro di stabilita' diffusiva
-    integer             :: rampa_vnn_iter   ! Numero di iterazioni per rampa di vnn
-    logical             :: time_accurate    ! Flag per integrazione time-accurate
+    real(R8)            :: vnn              ! Diffusion number (von Neumann)
+    integer             :: rampa_vnn_iter   ! Iterations of the vnn ramp
+    logical             :: time_accurate    ! Time-accurate (global dt) run
     integer             :: n_RK
     character(len=llen) :: integration_variables ! Integration variables (cons/prim)
     ! Useful variables
     ! ...
   end type time_scheme_t
+
+  type :: space_scheme_t
+    character(len=llen) :: diffusive_metric                ! Face metric of the diffusive fluxes (stencil/mean)
+    logical             :: stencil_metric = .true.         ! diffusive_metric == stencil, fixed at set-up
+  end type space_scheme_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 
@@ -114,6 +138,7 @@ module FUSS_Config_Types_m
     real(R8)  :: beta
     ! Useful variables
     logical   :: enabled
+    logical   :: at_setup = .false.   ! IRS on at setup: only then are its arrays allocated
   end type irs_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -128,9 +153,15 @@ module FUSS_Config_Types_m
     ! USER-DEFINED INPUTS
     integer              :: MGL                ! Number of multigrid levels
     integer, allocatable :: iter_threshold(:)  ! Number of iterations for each level
+    integer              :: prolongated_diter = 0  ! Level iterations between two prolongated writes (0: with every field write)
+    character(len=llen)  :: cycle = 'none'     ! FAS cycle: none (grid sequencing), v, w
+    integer              :: pre_iter  = 2      ! Smoothing iterations before the coarse-grid visit
+    integer              :: post_iter = 1      ! Smoothing iterations after the correction
+    integer              :: coarse_iter = 10   ! Iterations on the coarsest level of a cycle
     ! Useful variables
     integer, public :: MG_level    ! Current MG-level being solved
     logical, public :: change_MG   ! Logical variable to change MG-level
+    integer, public :: prolongated_last = 0  ! Level iteration of the last prolongated write on the current level
   end type multigrid_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -169,8 +200,10 @@ module FUSS_Config_Types_m
     ! ...
     ! Useful variables
     integer                               :: n
+    integer                               :: Tmin, Tmax   ! First and last temperature of the tables [K]
     character(len=clen), allocatable      :: name(:)
     real(R8), dimension(:,:), allocatable :: cp, rho, kappa, h
+    logical, dimension(:), allocatable    :: h_monotone   ! Energy column non-decreasing in T (co_T bisects it)
   end type table_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -186,6 +219,7 @@ module FUSS_Config_Types_m
   type(io_probes_t), allocatable, public:: obj_io_probes(:)
   type(io_bc_t), public                 :: obj_io_bc
   type(time_scheme_t), public           :: obj_time_scheme
+  type(space_scheme_t), public          :: obj_space_scheme
   type(irs_t), public                   :: obj_irs
   type(multigrid_t), public             :: obj_multigrid
   type(table_t), public                 :: obj_table

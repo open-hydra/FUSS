@@ -1,6 +1,6 @@
 # 1-D Oscillating Transient Thermal Analysis
 
-Transient heat conduction in a one-dimensional rod subjected to a sinusoidally oscillating temperature at its right-hand end and a constant temperature at its left-hand end, starting from a uniform initial temperature. This is NAFEMS Thermal Benchmark Test 5. Verification is performed by tracking the temperature evolution in time at the probe locations nearest to x = 0.09 m and comparing the peak temperature rise against the NAFEMS reference value of 94.69 °C.
+Transient heat conduction in a one-dimensional rod subjected to a sinusoidally oscillating temperature at its right-hand end and a constant temperature at its left-hand end, starting from a uniform initial temperature. This is NAFEMS Thermal Benchmark Test 5. Verification is performed by tracking the temperature evolution in time at the probe locations nearest to x = 0.09 m and comparing the peak temperature rise against the NAFEMS reference value of 94.69 K.
 
 **Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 5, YR3087, Vol. 2, 1986.
 
@@ -18,9 +18,9 @@ $$\rho c_p \frac{\partial T}{\partial t} = k \frac{\partial^2 T}{\partial x^2}$$
 
 | Face | Location | Condition | Value |
 |---|---|---|---|
-| Face 1 | x = 0 (left) | Prescribed temperature | T = 2000 K (≡ 0 °C in NAFEMS) |
-| Face 2 | x = 0.1 m (right) | Prescribed oscillating temperature | T(t) = 2000 + 1000 sin(2π f t) K |
-| Faces 3–6 | lateral faces | Adiabatic (no-flux) | — |
+| Face 1 | x = 0 (left) | Prescribed temperature (302) | T = 2000 K (≡ 0 in NAFEMS) |
+| Face 2 | x = 0.1 m (right) | Prescribed temperature from a time table (302) | T(t) = 2000 + 1000 sin(2π f t) K |
+| Faces 3–6 | lateral faces | `null` (no flux) | — |
 
 The oscillating BC parameters match the NAFEMS specification:
 
@@ -52,7 +52,7 @@ The oscillating wall temperature is pre-computed by `bc_time.py` and stored in `
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 0.5 |
+| VNN | 0.25 |
 | Time-accurate | true |
 | Integration variables | primitive |
 | Implicit residual smoothing | disabled |
@@ -66,12 +66,12 @@ The mesh is a 2D structured grid (100 × 2 cells) spanning the physical domain (
 Boundary conditions (FUSS block-face notation):
 
 - **Face 1** (x = 0): Prescribed wall temperature (`type = wall`, `T = 2000`)
-- **Face 2** (x = 0.1 m): Prescribed wall temperature, time-varying (`type = wall`, `T-timefile = Tw_time.dat`)
-- **Faces 3–6**: `null` (degenerate 2-D y- and z-directions; effectively adiabatic)
+- **Face 2** (x = 0.1 m): Prescribed wall temperature, time-varying (`type = wall`, `T-time-file = Tw_time.dat`)
+- **Faces 3–4**: `null` (no flux); **faces 5–6**: `null` (2-D plane)
 
 ## Probes
 
-Two point probes record the temperature history with a time step of 0.1 s:
+Two point probes record the temperature history (`dtime = 0.1` s requested; a probe writes at most once per solver step and starts at the first multiple of `dtime` after t = 0, here Δt = 0.545 s: 293 records to t = 160.1 s):
 
 | Probe | Grid index (block, i, j, k) | Nominal x position |
 |---|---|---|
@@ -88,19 +88,24 @@ The figure below shows one full period of the oscillating right-wall temperature
 
 ## Probe temperature evolution
 
-The figure below shows the temperature recorded at probes p1 and p2 and their arithmetic mean throughout the simulation, plotted as the deviation from the baseline temperature. The NAFEMS reference maximum at x = 0.09 m is shown as a dashed horizontal line for comparison.
+The figure below shows the temperature recorded at probes p1 and p2 and their arithmetic mean. The dashed line is the NAFEMS reference maximum at x = 0.09 m, 2000 + 94.69 K.
 
 ![Probe temperature evolution](images/1D-transient-oscillating-rod-probes.svg)
 
 ## Results and verification
 
-The verification quantity is the maximum temperature rise above the baseline recorded by the mean of probes p1 and p2 during the simulation. This is compared to the NAFEMS benchmark value of 94.69 °C at x = 0.09 m.
+The verification quantity is the maximum temperature rise above the baseline recorded by the mean of probes p1 and p2 during the simulation. This is compared to the NAFEMS benchmark value of 94.69 K at x = 0.09 m; `verify.py` passes below 1 % relative error.
 
 | Location | NAFEMS reference | FUSS (mean probe) | Error |
 |---|---|---|---|
-| x = 0.09 m | 94.69 °C | — | — |
+| x = 0.09 m | 94.69 K | 95.449 K | +0.80 % |
 
-> The table above is populated automatically when `verify.py` is executed. The relative-error threshold for PASS is 1 %.
+The exact solution of the problem as set up here peaks at 96.60 K at t ≈ 56.5 s (Crank–Nicolson with 1600 cells, converged to 0.1 K). FUSS is 1.2 % below it: with Δx = 1 mm the penetration depth of the oscillation spans only about 3 cells. The origin of the 94.69 K reference (point, time window) is worth checking against the NAFEMS publication.
+
+```bash
+cd test/transient/oscillating_Rod
+./FUSS.sh solve && python3 verify.py
+```
 
 The thermal diffusivity of the material is:
 

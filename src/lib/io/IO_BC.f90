@@ -8,7 +8,10 @@ module FUSS_IO_BC
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
   integer :: nconnect, nwall, nsym, nchimera, ncoupled
-  logical :: has_tdep_bc
+  logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
+  character(len=64) :: bc_name = 'bc.txt'               ! the file being read, for the messages of its errors
+  real(R8), parameter :: EMPTY  = -huge(1.0_R8)         ! a value of a property line that the read has not given
+  integer,  parameter :: IEMPTY = -huge(1_I4)
 
 contains
 
@@ -18,7 +21,8 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     ! Local
-    integer :: m, error
+    integer :: m, error, b
+    integer, allocatable :: dims(:,:)
 
     do m = 1, obj_multigrid%MGL
 
@@ -36,8 +40,13 @@ contains
       error = Check_BC ( domain(m) % nbound, m )
       if (error /= 0) cycle
 
-      !! Phase 2: Read
-      call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m )
+      !! Phase 2: Read; the cells of each block of this level are the admissible range of the block numbers and cell indices
+      allocate ( dims(3, domain(m) % nb) )
+      do b = 1, domain(m) % nb
+        dims(:,b) = domain(m) % blk(b) % dim
+      end do
+      call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m, dims )
+      deallocate ( dims )
       
     end do
 
@@ -89,7 +98,7 @@ contains
       return
     endif
 
-    ! Cheak BC file consistency
+    ! Check BC file consistency
     ios = 0; n_proof = -1
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
@@ -118,7 +127,7 @@ contains
   end function Check_BC
 
 
-  subroutine Read_BCfile ( bc, n_bf, level )
+  subroutine Read_BCfile ( bc, n_bf, level, dims )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_io, obj_io_bc
     use FUSS_Global_m
@@ -127,10 +136,15 @@ contains
     type(FUSS_bc_type), dimension(:), intent(inout) :: bc
     integer, intent(in)                             :: level
     integer, dimension(1:,1:), intent(inout)        :: n_bf
+    integer, dimension(1:,1:), intent(in)           :: dims      ! cells of each block of this level: dims(1:3,b)
     ! Local
-    integer :: cc, i, s, nzero_chim
+    integer :: cc, i, s
     integer :: unitfile, ios, cios
-    character(len=32) :: BCfile
+    integer :: nline                         ! lines of the file read so far (Next_Line)
+    integer :: nzero_chim
+    character(len=256) :: BCfile
+    character(len=:), allocatable :: pline   ! a line of the file, read whole
+    integer :: lc
 
     cios = 0
 
@@ -143,6 +157,11 @@ contains
     if (ios/=0) then
       obj_io_bc%error_message = '[ERROR] Boundary condition file not found for grid '//trim(str(.true.,level))
       return
+    endif
+    if (level == 1) then
+      bc_name = trim(FUSS_phase_prefix)//'bc.txt'
+    else
+      bc_name = trim(FUSS_phase_prefix)//'bc'//trim(str(.true.,level))//'.txt'
     endif
 
     ! Counters for specific BC types
@@ -159,12 +178,24 @@ contains
     n_bf = 0
     nzero_chim = 0
 
-    ! Read file
+    ! Read file: every line is read whole (Next_Line, which counts the lines of the file and skips the blank ones as a
+    ! list-directed read does), then as its values; a line that is short or holds a value that is not a number stops
+    ! every rank (BC_Line_Error: every rank reads the same file)
+    nline = 0
     do i = 1, size(bc)
 
       ! First line is equal for every BC type
-      read( unitfile,*,iostat=ios ) bc(i)%b, bc(i)%i, bc(i)%j, bc(i)%k, bc(i)%f, bc(i)%type
-      if (ios/=0) write(*,'(A)') '  Error in BC file'
+      call Next_Line ( unitfile, pline, ios, nline )
+      if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%b, bc(i)%i, bc(i)%j, bc(i)%k, bc(i)%f, bc(i)%type
+      if ( ios /= 0 ) call BC_Line_Error ( i, -1, nline, pline )
+
+      ! The block, the cell and the face index the tables that follow (n_bf, the flags of the faces, and later the owner
+      ! rank of the block, Pair_Connections, Check_Thin_Blocks): in range before any use
+      call Check_Range ( i, bc(i)%type, nline, 'block b', bc(i)%b, 1, size(dims,2) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index i of block '//trim(str(.true.,bc(i)%b)), bc(i)%i, 1, dims(1,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index j of block '//trim(str(.true.,bc(i)%b)), bc(i)%j, 1, dims(2,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index k of block '//trim(str(.true.,bc(i)%b)), bc(i)%k, 1, dims(3,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'face f of block '//trim(str(.true.,bc(i)%b)), bc(i)%f, 1, 6 )
 
       ! n_bf update
       n_bf( bc(i) % b, bc(i) % f ) = n_bf( bc(i) % b, bc(i) % f ) + 1
@@ -173,8 +204,23 @@ contains
       select case( bc(i)%type )
         case(101)
           if (level == 1) nconnect = nconnect + 1
-          read( unitfile,*,iostat=ios ) &
-          bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22
+          bc(i)%bs = IEMPTY ; bc(i)%is = IEMPTY ; bc(i)%js = IEMPTY ; bc(i)%ks = IEMPTY ; bc(i)%fs = IEMPTY
+          bc(i)%d11 = IEMPTY ; bc(i)%d12 = IEMPTY ; bc(i)%d21 = IEMPTY ; bc(i)%d22 = IEMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios ) &
+            bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_I ( i, bc(i)%type, nline, [ bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, &
+                                                bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22 ], 'bs is js ks fs d11 d12 d21 d22' )
+          ! The partner is a cell of a block of this file (a 103 names a block of the other solver: not tested)
+          call Check_Range ( i, bc(i)%type, nline, 'partner block bs', bc(i)%bs, 1, size(dims,2) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index is of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%is, 1, dims(1,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index js of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%js, 1, dims(2,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index ks of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%ks, 1, dims(3,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner face fs of block '//trim(str(.true.,bc(i)%bs)), bc(i)%fs, 1, 6 )
 
         case(300)
           if (level == 1) nsym = nsym + 1
@@ -182,68 +228,121 @@ contains
         case(301)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          BCfile = adjustl(pline)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%qw
+          if (cios==0) call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%qw ], 'q_wall' )
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
           endif
         
         case(302)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          BCfile = adjustl(pline)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%Tw
+          if (cios==0) call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%Tw ], 'T_wall' )
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
           endif
 
         case(303)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios)  bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
+          bc(i)%hconv = EMPTY ; bc(i)%qrad = EMPTY ; bc(i)%Tref = EMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
+          call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
         
         case(304)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios)  bc(i)%eps, bc(i)%Tref
+          bc(i)%eps = EMPTY ; bc(i)%Tref = EMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%eps, bc(i)%Tref
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%eps, bc(i)%Tref ], 'eps Tref' )
+          call Need_R ( i, bc(i)%type, nline, [ bc(i)%eps, bc(i)%Tref ], 'eps Tref' )
 
         case(305)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios)  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+          bc(i)%hconv = EMPTY ; bc(i)%eps = EMPTY ; bc(i)%Tref = EMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
+          call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
 
         case(102,104)
-          if (level == 1) nchimera = nchimera + 1
-          read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
+          if (level == 1 .and. bc(i)%type == 102) nchimera = nchimera + 1
+          bc(i)%ni = IEMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_I ( i, bc(i)%type, nline, bc(i)%ni, 'n1 n2' )
+          if ( any(bc(i)%ni < 0) ) call BC_Value_Error ( i, bc(i)%type, nline, pline, 'the numbers of donors are negative' )
           allocate(bc(i)%donorID(1:sum(bc(i)%ni),1:4))
           allocate(bc(i)%volume_fraction(1:sum(bc(i)%ni)))
-          do s = 1, bc(i)%ni(1)
-            read( unitfile,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
-          enddo
-          do s = bc(i)%ni(1)+1, bc(i)%ni(1)+bc(i)%ni(2)
-            read( unitfile,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
+          bc(i)%donorID = IEMPTY
+          bc(i)%volume_fraction = EMPTY
+          do s = 1, bc(i)%ni(1)+bc(i)%ni(2)
+            call Next_Line ( unitfile, pline, ios, nline )
+            if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
+            if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+            call Need_I ( i, bc(i)%type, nline, bc(i)%donorID(s,1:4), 'bD iD jD kD' )
+            call Need_Finite ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
+            call Need_R ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
+            ! The donors of a 102 are cells of the blocks of this file (those of a 104 are cells of the other solver: not tested)
+            if (bc(i)%type == 102) then
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', block bD', bc(i)%donorID(s,1), 1, size(dims,2) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index iD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,2), 1, dims(1,bc(i)%donorID(s,1)) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index jD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,3), 1, dims(2,bc(i)%donorID(s,1)) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index kD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,4), 1, dims(3,bc(i)%donorID(s,1)) )
+            end if
           enddo
           if (bc(i)%type == 104) then
-            ! 104: coupled wall as for 103 (coupling flux, wall output)
+            ! Coupled wall as 103 (coupling flux, wall output); the donors are cells of the other solver
+            if (level == 1) ncoupled = ncoupled + 1
             obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
             bc(i)%ext_flux = 0.0
-            ! Both ghost rows need MOSE donors, as checked on the MOSE side: without
-            ! them the blended fluid state is 0 and cons2prim divides by rho = 0
-            if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
-                sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
-              nzero_chim = nzero_chim + 1
-            endif
+          endif
+          if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
+              sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
+            nzero_chim = nzero_chim + 1
           endif
 
         case(103)
           if (level == 1) ncoupled = ncoupled + 1
           obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
-          read( unitfile,*,iostat=ios ) &
-          bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22
+          bc(i)%bs = IEMPTY ; bc(i)%is = IEMPTY ; bc(i)%js = IEMPTY ; bc(i)%ks = IEMPTY ; bc(i)%fs = IEMPTY
+          bc(i)%d11 = IEMPTY ; bc(i)%d12 = IEMPTY ; bc(i)%d21 = IEMPTY ; bc(i)%d22 = IEMPTY
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios ) &
+            bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22
+          if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
+          call Need_I ( i, bc(i)%type, nline, [ bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, &
+                                                bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22 ], 'bs is js ks fs d11 d12 d21 d22' )
           bc(i)%ext_flux = 0.0
       
       end select
@@ -256,12 +355,12 @@ contains
 
     if (nzero_chim > 0) then
       block
-        use FUSS_Mod_MPI, only: mpi_abort_all
+        use FUSS_Mod_MPI, only: mpi_stop_all
         character(len=256) :: msg
-        write(msg,'(I0,A,I0,A)') nzero_chim, ' coupled chimera (104) entries in the level-', level, &
-          ' BC file have MOSE donor volume fractions summing to ~0 (no donors found by the BC '// &
+        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera (102/104) entries in the level-', level, &
+          ' BC file have donor volume fractions summing below 0.5 (no donors found by the BC '// &
           'builder). Their ghost states would be garbage; fix the BC file before running.'
-        call mpi_abort_all(trim(msg))
+        call mpi_stop_all(trim(msg))
       end block
     endif
 
@@ -281,5 +380,225 @@ contains
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
 
   end subroutine Print_BC_Summary
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Next_Line: the next line of the boundary file that is not blank (Read_Line), as a list-directed read skips
+  !   blank lines; nline counts every line read, blank ones included, so it is the line number in the file.
+  subroutine Next_Line ( unit, line, ios, nline )
+    implicit none
+    integer, intent(in)                        :: unit
+    character(len=:), allocatable, intent(out) :: line
+    integer, intent(out)                       :: ios
+    integer, intent(inout)                     :: nline
+
+    do
+      call Read_Line ( unit, line, ios )
+      if ( ios /= 0 ) exit
+      nline = nline + 1
+      if ( len_trim(line) > 0 ) exit
+    end do
+
+  end subroutine Next_Line
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Read_Line: the next line of a formatted file, whole, whatever its length (read in pieces without advancing).
+  !   ios < 0 at the end of the file; a last line without its end-of-line mark is still a line.
+  subroutine Read_Line ( unit, line, ios )
+    implicit none
+    integer, intent(in)                        :: unit
+    character(len=:), allocatable, intent(out) :: line
+    integer, intent(out)                       :: ios
+    ! Local
+    character(len=256) :: piece
+    integer :: nread
+
+    line = ''
+    do
+      read ( unit, '(A)', advance='no', iostat=ios, size=nread ) piece
+      line = line // piece(1:nread)
+      if ( ios /= 0 ) exit
+    end do
+    if ( is_iostat_eor(ios) ) ios = 0
+    if ( is_iostat_end(ios) .and. len(line) > 0 ) ios = 0
+
+  end subroutine Read_Line
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! BC_Line_Error: stop every rank on line nline of the boundary file, of record n, that cannot be read as the values it
+  !   must hold (short, or a value that is not a number): its record line (btype < 0) or a property line of type btype;
+  !   an empty line is the end of the file. Every rank reads the file, so every rank reaches this stop.
+  subroutine BC_Line_Error ( n, btype, nline, line )
+    use FUSS_Mod_MPI, only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    character(len=*), intent(in) :: line
+    ! Local
+    character(len=160) :: head
+
+    if ( len_trim(line) == 0 ) then
+      write(head,'(3A,I0,A,I0)') '[ERROR] ', trim(bc_name), ' ends at line ', nline, ', before the end of record ', n
+      call mpi_stop_all ( trim(head) )
+    end if
+    if ( btype < 0 ) then
+      write(head,'(3A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, &
+        '): the line is not block, i, j, k, face and type'
+    else
+      write(head,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, &
+        '): the line is short or holds a value that is not a number'
+    end if
+    call mpi_stop_all ( trim(head)//': "'//trim(line(1:min(len(line),200)))//'"' )
+
+  end subroutine BC_Line_Error
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! BC_Value_Error: stop every rank on a value of line nline of record n that reads but is not valid (why).
+  subroutine BC_Value_Error ( n, btype, nline, line, why )
+    use FUSS_Mod_MPI, only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    character(len=*), intent(in) :: line, why
+    ! Local
+    character(len=160) :: head
+
+    write(head,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, '): '
+    call mpi_stop_all ( trim(head)//trim(why)//': "'//trim(line(1:min(len(line),200)))//'"' )
+
+  end subroutine BC_Value_Error
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Check_Range: stop every rank if the value v of line nline of record n (type btype), a block number or a cell index
+  !   or a face, is outside lo..hi. what names the value. Every rank reads the file, so every rank reaches this stop.
+  subroutine Check_Range ( n, btype, nline, what, v, lo, hi )
+    use IR_Precision, only: str
+    use FUSS_Mod_MPI, only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline, v, lo, hi
+    character(len=*), intent(in) :: what
+
+    if ( v >= lo .and. v <= hi ) return
+    call mpi_stop_all ( '[ERROR] '//trim(bc_name)//' line '//trim(str(.true.,nline))//' (record '//trim(str(.true.,n))// &
+      ', type '//trim(str(.true.,btype))//'): '//what//' = '//trim(str(.true.,v))//' is outside the admissible range '// &
+      trim(str(.true.,lo))//' to '//trim(str(.true.,hi)) )
+
+  end subroutine Check_Range
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Need_R, Need_I: stop every rank on the first of the values v of record n, type btype, line nline of the file, still
+  !   EMPTY after the read of its property line (a null value, ",,"). names: their names, blank-separated, in the order
+  !   of the line; the last name stands for the values after it.
+  subroutine Need_R ( n, btype, nline, v, names )
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    real(R8), intent(in)         :: v(:)
+    character(len=*), intent(in) :: names
+    ! Local
+    integer :: k
+
+    do k = 1, size(v)
+      if ( v(k) == EMPTY ) call Empty_Field ( n, btype, nline, Name_Of ( names, k ) )
+    end do
+
+  end subroutine Need_R
+
+
+  subroutine Need_I ( n, btype, nline, v, names )
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    integer, intent(in)          :: v(:)
+    character(len=*), intent(in) :: names
+    ! Local
+    integer :: k
+
+    do k = 1, size(v)
+      if ( v(k) == IEMPTY ) call Empty_Field ( n, btype, nline, Name_Of ( names, k ) )
+    end do
+
+  end subroutine Need_I
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Need_Finite: stop every rank on the first of the values v of record n, type btype, line nline of the file that is not
+  !   finite (NaN or infinity): the numbers of a property line. names as for Need_R. The test reads the bits of each value
+  !   (Not_Finite), and comes before the test of EMPTY (Need_R): every comparison with a NaN is false, so that test lets a
+  !   NaN through, and with -ffast-math, an option of the RELEASE build, the compiler can take a NaN for EMPTY.
+  subroutine Need_Finite ( n, btype, nline, v, names )
+    use FUSS_Finite_m, only: Not_Finite
+    use FUSS_Mod_MPI,  only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    real(R8), intent(in)         :: v(:)
+    character(len=*), intent(in) :: names
+    ! Local
+    integer :: k
+    character(len=240) :: msg
+
+    do k = 1, size(v)
+      if ( Not_Finite ( v(k) ) ) then
+        write(msg,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, &
+          '): the value of '//trim(Name_Of ( names, k ))//' is not finite (NaN or infinity)'
+        call mpi_stop_all ( trim(msg) )
+      end if
+    end do
+
+  end subroutine Need_Finite
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Empty_Field: stop every rank on the field what of the property line of record n, type btype, line nline of the
+  !   file, left empty.
+  subroutine Empty_Field ( n, btype, nline, what )
+    use FUSS_Mod_MPI, only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline
+    character(len=*), intent(in) :: what
+    ! Local
+    character(len=240) :: msg
+
+    write(msg,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, &
+      '): the value of '//trim(what)//' is empty'
+    call mpi_stop_all ( trim(msg) )
+
+  end subroutine Empty_Field
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Name_Of: the k-th blank-separated word of names, or the last one when there are fewer.
+  pure function Name_Of ( names, k ) result ( w )
+    implicit none
+    character(len=*), intent(in) :: names
+    integer, intent(in)          :: k
+    character(len=len(names))    :: w
+    ! Local
+    integer :: p, q, m
+
+    w = ' '
+    p = 1
+    m = 0
+    do
+      do while ( p <= len_trim(names) )
+        if ( names(p:p) /= ' ' ) exit
+        p = p + 1
+      end do
+      if ( p > len_trim(names) ) exit
+      q = index ( names(p:), ' ' )
+      if ( q == 0 ) then
+        q = len(names) + 1
+      else
+        q = p + q - 1
+      end if
+      m = m + 1
+      w = names(p:q-1)
+      if ( m == k ) exit
+      p = q
+    end do
+
+  end function Name_Of
+
 
 end module FUSS_IO_BC
