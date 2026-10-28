@@ -83,6 +83,13 @@ Iterations to 1e-10 (wall time, s):
 | **W + IRS** | **4 450 (44)** | **3 615 (150)** | **94 (1.9)** | **1 030 (9.4)** |
 | W + IRS vs none, iterations / wall | 54× / 14× | 96× / 29× | 137× / 24× | 1.4× / 0.3× |
 
+This campaign (24 runs, threshold 1e-10) ran before the sync of October 2026 (the stencil face metric, the
+exact cell volume and the removal of the IRS fallback came after it) and has not been repeated: *to be re-measured*
+with `test/numerics-features/convergence_figure/run_configs.sh`, together with the two figures. The FAS acceptance set
+of the sync (`fuss-stress/results/fas-vv-s10/fas_vv.md`) reruns some of the same configurations at 1e-8
+(for instance liner `none` 276 700, `w` 2 278, `w + irs` 5 346 iterations; chimera `none` 13 365,
+`v` 2 615, `w` 1 699), but at another threshold, so its counts do not replace these.
+
 What the figures say:
 
 - **Every cycle is one to two orders of magnitude below the single grid** in iterations and
@@ -111,20 +118,25 @@ verified configuration, and the one the `fas_v` / `fas_w` / `fas_w_irs` test cas
 
 | Configuration | Fine iterations | Wall (s) | Iterations vs `nominal` | Wall vs `nominal` |
 |---|---:|---:|---:|---:|
-| nominal (single grid) | 369 090 | 473 | 1× | 1× |
-| irs | 99 305 | 236 | 3.7× | 2.0× |
-| mg3 (sequencing) | 144 108 | 121 | 2.6× | 3.9× |
-| mg + irs | 80 603 | 126 | 4.6× | 3.8× |
-| **cycle = v** | 25 756 | 63 | 14× | 7.5× |
-| **cycle = w** | 13 345 | 53 | 28× | 9.0× |
-| **cycle = v + irs** | 6 934 | 25 | 53× | 19× |
-| **cycle = w + irs** | **3 593** | **19** | **103×** | **24×** |
-| cycle = v, coarse-iter 50 | 5 458 | 57 | 68× | 8.3× |
-| cycle = v, coarse-iter 1 | 158 191 | — | 2.3× | (cripples the cycle) |
+| nominal (single grid) | 369 498 | 473 † | 1× | 1× † |
+| irs | 99 415 | 236 † | 3.7× | 2.0× † |
+| mg3 (sequencing) | 212 414 | 121 † | 1.7× | 3.9× † |
+| mg + irs | 79 816 | 126 † | 4.6× | 3.8× † |
+| **cycle = v** | 25 817 | 63 † | 14× | 7.5× † |
+| **cycle = w** | 13 378 | 53 † | 28× | 9.0× † |
+| **cycle = v + irs** | 6 934 † | 25 † | 53× † | 19× † |
+| **cycle = w + irs** | **3 602** | **19** † | **103×** | **24×** † |
+| cycle = v, coarse-iter 50 | 5 458 † | 57 † | 68× † | 8.3× † |
+| cycle = v, coarse-iter 1 | 158 191 † | — | 2.3× † | (cripples the cycle) |
+
+† Not re-measured since the earlier campaign (before the sync of October 2026): all the wall times and wall
+ratios, and the rows without a counterpart in the FAS acceptance set (`fuss-stress/results/fas-vv-s10/fas_vv.md`). The
+other iteration counts are those of the rows `rc-*` of that set, run on the binary of the sync (af13cab); *to be re-measured*
+with an idle node: the wall columns, the rows `v + irs`, `coarse-iter` 1 / 50, and the `coarse-iter` list below.
 
 The cycle rows use the defaults (`coarse-iter = 10`, `pre-iter = 2`, `post-iter = 1`). On a
-2-level hierarchy the coarse solve is the knob: `w + irs` needs 15 686 / 8 518 / 3 593 iterations
-with `coarse-iter` 2 / 4 / 10, and on two levels `w` is exactly `v` with twice the coarse
+2-level hierarchy the coarse solve is the knob: `w + irs` needed 15 686 / 8 518 / 3 593 iterations
+with `coarse-iter` 2 / 4 / 10 (earlier campaign; the last is 3 602 now), and on two levels `w` is exactly `v` with twice the coarse
 iterations (`w` with `coarse-iter = 2` reproduces `v` with 4 bit for bit). The wall gains are
 smaller than the iteration gains because every cycle adds its coarse work and transfers to the
 fine smoothing. With deep hierarchies (below) the default is already optimal and W becomes
@@ -149,9 +161,9 @@ iterations at 128² and, against the extrapolated single-grid run (10 000 iterat
 
 | Case | none | cycle | Gain (iterations / wall) |
 |---|---:|---:|---:|
-| k(T)×3, cp(T)×2 nonlinear (64², 3 levels, 1e-10) | 43 353 (167 s) | w: 211 (1.4 s) | 205× / ~120× |
-| Bi-material k×10, interface on all levels (64², 3 levels, 1e-11) | 44 955 (114 s) | w: 217 (1.3 s) | 207× / ~90× |
-| 3D box 16³ (2 levels, 1e-12) | 2 983 (7.7 s) | v: 263 (1.0 s), w: 185 (0.9 s) | 11–16× / 8–9× |
+| k(T)×3, cp(T)×2 nonlinear (64², 3 levels, 1e-10) | 43 391 (167 s †) | w: 211 (1.4 s †) | 206× / ~120× † |
+| Bi-material k×10, interface on all levels (64², 3 levels, 1e-11) | 45 041 (114 s †) | w: 219 (1.3 s †) | 206× / ~90× † |
+| 3D box 16³ (2 levels, 1e-12) | 2 983 (7.7 s †) | v: 267 (1.0 s †), w: 195 (0.9 s †) | 11–15× / 8–9× † |
 
 Fields equal to the `none` fields within 3e-9 K at threshold.
 
@@ -173,7 +185,7 @@ applies to every non-connection ghost. Threshold 1e-8 at the case's `vnn = 0.25`
 | `v` / `w`: 1 process vs 2 ranks (one block per rank, donors cross ranks on all levels) | bit-identical |
 | Field vs `none` at 1e-8 | v: 3.0e-7 K, w: 3.0e-7 K |
 | Admissibility fallbacks (`FAS:` reports) | none |
-| Iterations (wall): none 13 367 (37 s) | v 2 613 (7.3 s; 5.1× / 5.1×), **w 1 700 (2.7 s; 7.9× / 14×)** (iterations / wall, busy node) |
+| Iterations (wall): none 13 365 (37 s †) | v 2 615 (7.3 s †; 5.1× / 5.1× †), **w 1 699 (2.7 s †; 7.9× / 14× †)** (iterations / wall, busy node) |
 
 **W is safe with chimera.** The study provisioned a V-only constraint near 102 boundaries
 (CFL3D practice); the data shows W converging faster than V, bit-reproducibly across ranks and

@@ -35,8 +35,8 @@ The wall data vary from cell to cell, so `make_inputs.py` writes `MESH/mesh.tec`
 
 | Quantity | Error | Tolerance |
 |---|---|---|
-| Field, max \|T − T<sub>exact</sub>\| | 2.0 × 10⁻¹¹ K | 10⁻⁶ K |
-| Faces 1–4, max \|T<sub>w</sub> − T<sub>exact</sub>\| | ≤ 2.0 × 10⁻¹¹ K | 10⁻⁶ K |
+| Field, max \|T − T<sub>exact</sub>\| | 1.8 × 10⁻¹¹ K | 10⁻⁶ K |
+| Faces 1–4, max \|T<sub>w</sub> − T<sub>exact</sub>\| | ≤ 1.8 × 10⁻¹¹ K | 10⁻⁶ K |
 | Faces 1–4, max \|q<sub>w</sub> − q\| / \|q\| | ≤ 9.6 × 10⁻¹³ | 10⁻⁶ |
 
 Since October 2026 the face and wall metrics are built from the same differences of the cell centres as the gradients (`diffusive-metric = stencil`), so the linear field is reproduced exactly on any mesh, not only on parallelograms: the linear-field patch test of the CTest suite (`PatchTest`) checks it on random, folded, symmetric and 3-D meshes (≤ 10⁻¹³ of k\|g\|A).

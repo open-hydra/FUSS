@@ -1,6 +1,6 @@
 # Verification & Validation
 
-The test cases compare FUSS with analytical solutions and benchmark values, and measure the effect of the numerical features on convergence and parallel speed. The numbers on these pages come from runs of the current code.
+The test cases compare FUSS with analytical solutions and benchmark values, and measure the effect of the numerical features on convergence and parallel speed. The numbers on these pages are measurements of FUSS: the verification errors and iteration counts of the single-case pages were checked against the runs of the test suite at the sync of October 2026 (`chimera-mpi` af13cab), the iteration counts of the [residual convergence](residual-convergence.md) and [FAS cycles](fas-cycles.md) pages are those of that sync, while the wall times of those two pages, the figures, and the timings of [Parallel Scaling](parallel-scaling.md) come from earlier runs; the pages say so or mark those numbers *to be re-measured*.
 
 ## Test suite
 

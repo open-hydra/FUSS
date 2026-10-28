@@ -69,7 +69,7 @@ The target point A is located at (x = 0.6 m, y = 0.2 m) on the convective face (
 |---|---|---|---|
 | A (x = 0.6 m, y = 0.2 m) | 18.25 °C | 18.26 °C | 0.004 % |
 
-The interpolated wall temperature differs from the NAFEMS reference by 0.012 K (0.004 % of the reference in K; the acceptance criterion is 1 %). The case takes about 3 minutes and is in the CTest label `validation`, not `fast`.
+The interpolated wall temperature differs from the NAFEMS reference by 0.012 K (0.004 % of the reference in K; the acceptance criterion is 1 %). The case takes about two minutes and is in the CTest label `validation`, not `fast`.
 
 ```bash
 cd test/steady-state/convective_Plate
