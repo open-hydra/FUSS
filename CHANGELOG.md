@@ -70,6 +70,15 @@ listed here: the pages of `docs/` describe them.
   an index direction (not k of a 1-D or 2-D mesh) whose lines are not orthogonal to the other directions (|cos| > 1e-3: the
   face gradient takes no difference along a direction with one cell, so a sheared block one cell across gave a wrong wall heat
   flux, 0.16 to 0.30 of k|g|, with no message). Orthogonal thin blocks run as before; no deck of the test suite changes.
+- `USE_IPO` (default ON; `install.sh build --no-ipo` gives OFF) switches the interprocedural optimization of the RELEASE
+  build; the `-ipo` probe now links, and with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler, found
+  next to it (`-DIPO_AR` and `-DIPO_RANLIB` give them for another layout; IPO is dropped with a warning when they are not
+  found), as in MOSE. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`. The default
+  build of ifx 2024.1 configures with the same compile and link lines and gives the same results.
+- CMake refuses ifx 2024.1 at `-O2` or above without IPO (RELEASE with `USE_IPO=OFF`, or whose toolchain cannot do IPO, and
+  the TESTING build), as MOSE does, with a message: that compiler builds a loop of MOSE's ghost metrics wrongly there. FUSS
+  built so gave the same bytes as with IPO on every case of the quick tier of the stress battery (2026-10-28), so no such loop is known in
+  FUSS; `-DFUSS_ALLOW_IFX_NOIPO=ON` turns the refusal into a warning. See `docs/getting-started/installation.md`.
 
 ### Changed
 
