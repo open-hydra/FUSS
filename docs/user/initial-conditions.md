@@ -92,7 +92,7 @@ I=2000, F=POINT
 - The rows are 1 K apart. FUSS takes the first temperature of the first zone as $T_\text{min}$ and the number of rows to set $T_\text{max} = T_\text{min} + I - 1$; it does not read the other temperatures. Every zone must cover the same range.
 - Properties are interpolated linearly between the two integer temperatures around $T$.
 - The Energy column is used up to an additive constant. At load FUSS warns if its increments differ from $\rho\,c_p$ by more than 1 %.
-- A cell temperature outside $[T_\text{min}, T_\text{max})$ stops the run with an error; with IRS the smoothed update is replaced first (see [Time Integration](../theory/time-integration.md#admissible-updates)).
+- A cell temperature outside $[T_\text{min}, T_\text{max})$ (or not finite) stops the run with an error and exit code 1, also with IRS (see [Time Integration](../theory/time-integration.md#admissible-updates)).
 
 The property model, the Energy column and a script for temperature-dependent tables are described in [Material Properties](../theory/thermo.md).
 
@@ -114,7 +114,7 @@ With constant `cp`, `rho`, `k` (one value per material, in the order of `materia
 
 ## Multi-Material Domains
 
-Give each material its own blocks and join them with block connections (code 101, `connection` in ATLAS). At a connection the interface temperature follows from the continuity of the heat flux, each side with its own conductivity over half a cell: a series resistance, which on a uniform orthogonal mesh is the harmonic mean of the two conductivities. Inside a block the flux through a face uses the conductivity of the lower-index cell at the mean temperature of the two cells, so a material change inside a block is not treated as a series resistance. Test case: [2D Transient Multi-Material Plate](../vv/2D-transient-multimat-plate.md).
+Give each material its own blocks and join them with block connections (code 101, `connection` in ATLAS). At a connection the interface temperature follows from the continuity of the heat flux, each side with its own conductivity over half a cell: a series resistance, which on a uniform orthogonal mesh is the harmonic mean of the two conductivities. Inside a block a face between two materials takes the series conductivity of the two half cells (see [Face Conductivity](../theory/numerics.md#face-conductivity)), at the mean temperature of the two cells for one material. Test case: [2D Transient Multi-Material Plate](../vv/2D-transient-multimat-plate.md).
 
 ---
 
@@ -132,4 +132,4 @@ With `newrun = false` FUSS reads `OUTPUT/field.*` in `sol-format`, or, when it i
 - With `sol-overwrite = false` the numbering continues from `FUSS_OUTPUT_NUMBER` of the solution: the snapshots of the previous run are kept. For a solution without counters it continues after the last `field<n>.*` found in `OUTPUT/` (legacy path).
 - With multigrid (`levels > 1`) a solution with counters, written at level 1 (`field.*`, `field<n>.*`), goes on at level 1: the coarse levels are restricted from it and the run does not start again from the coarsest level. A solution without counters starts from the coarsest level, as before.
 
-**Limits.** The residual threshold `res-threshold` is absolute, so no reference value is stored. With `res-diter > 1` the first iteration of a restart computes a fresh residual where the uninterrupted run tests the one of its last multiple, so an end by `res-threshold` can come earlier within that window. With `vnn-rise-threshold > 0` and FAS cycles the counters of the coarse levels' ramp are not stored. A `.szplt` written before the signed time (ORION 5a1234c) reads as time-accurate at $t = |{\rm iteration}|$: a steady restart from it counts right, a time-accurate restart from it starts at that time.
+**Limits.** The residual threshold `res-threshold` is absolute, so no reference value is stored. With `res-diter > 1` the first iteration of a restart computes a fresh residual where the uninterrupted run tests the one of its last multiple, so an end by `res-threshold` can come earlier within that window. With `vnn-rise-threshold > 0` and FAS cycles the counters of the coarse levels' ramp are not stored. A `.szplt` written before the signed time (ORION before a978930) reads as time-accurate at $t = |{\rm iteration}|$: a steady restart from it counts right, a time-accurate restart from it starts at that time.

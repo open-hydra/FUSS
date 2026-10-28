@@ -97,7 +97,7 @@ Where the properties are evaluated:
 
 | Property | Used for | Temperature |
 |---|---|---|
-| $k$ | interior faces | mean of the two cell temperatures, material of the lower-index cell |
+| $k$ | interior faces | mean of the two cell temperatures; between two materials the series conductivity of the two half cells |
 | $k$ | block-connection, chimera and wall faces | temperature of each cell |
 | $\rho\,c_p$ | `prim` update | cell temperature |
 | $\alpha = k/(\rho\,c_p)$ | time step | cell temperature |
@@ -208,7 +208,7 @@ material = aluminium
 T        = 300.0
 ```
 
-The `material` keyword must match one of the names declared in `[GPB-Phase1]`.  Interior faces take the conductivity of the lower-index cell's material, so a material may change only across a block boundary.
+The `material` keyword must match one of the names declared in `[GPB-Phase1]`.  A material may also change inside a block: the face between two materials takes the series conductivity of the two half cells (see [Face Conductivity](numerics.md#face-conductivity)).
 
 ---
 
