@@ -32,7 +32,7 @@ This page lists what the code already does for speed and the known costs that ha
 ### Property look-ups
 
 - `Diffusive_Flux` calls `co_Kappa` once per interior face, at the mean of the two cell temperatures, so each cell's table is interpolated on up to $2\,n_\text{dir}$ faces per stage; a face between two materials needs two lookups (one per side, see [face conductivity](../theory/numerics.md#face-conductivity)).
-- `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration, and, where a face carries a conductivity other than the cell's, a second pass of up to nine lookups per cell (seven in 2-D; see [Time Integration](../theory/time-integration.md#face-conductivities)).
+- `Compute_dt` interpolates $k$, $\rho$ and $c_p$ in every cell at every iteration, and, where a face carries a conductivity other than the cell's, a second pass of up to nine lookups per cell (seven in 2-D; see [Time Integration](../theory/time-integration.md#diffusive-stability-condition-vnn)).
 
 ### Flux loops
 
