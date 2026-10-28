@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+This entry covers the sync of October 2026. The 78 commits between `main` (830f228) and the first commit of the sync
+(FAS cycles and their keys `cycle`, `pre-iter`, `post-iter`, `coarse-iter`, `prolongated-diter`; the series face
+conductivity and the face-conductivity time step; wall boundary conditions 301-305; probes; the MPI exchange) are not
+listed here: the pages of `docs/` describe them.
+
 ### Added
 
 - The key `diffusive-metric` of `[FUSS-Numerics]` (read at set-up only; an edit during the run is ignored) chooses the face
@@ -24,8 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The key `decomposition-map` of `[FUSS-IO]` names a file of `INPUT/` that gives the MPI rank of every block; rank 0 reads it
   and every rank checks it; ranks without blocks idle with a warning. `none`, the default, assigns the blocks as before. The map
   changes the rank of each block, not the solution.
-- At set-up FUSS reports, with the line number, every `key = value` of `input.ini` that no reader asks for (such a key is not
-  read and its parameter keeps its default). A value that does not read as the type of its key, a number that is not finite, a
+- At set-up FUSS reports, with the line number, every `key = value` of `input.ini` that the INI reader does not give in its
+  section (a line after a malformed header, for instance; such a key is not read and its parameter keeps its default). A
+  misspelled name in a well-formed section is not reported. A value that does not read as the type of its key, a number that is not finite, a
   list of the wrong length or a logical other than true/false is an error of the reading, and the rules of the registry
   (bounds, intervals, lists, logicals) are checked in every form. Inputs whose keys are all read do not change.
 - Every field solution stores the counters of the run (the global iteration count `CYCLE`; `FUSS_ITERATION`,
@@ -65,14 +71,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with this change (the stability checks of the stress battery are 0.6 and 0.65, were 1.2 and 1.3). The default of `vnn` is
   0.15 (it was 0.3: a deck without the key keeps its step). A runtime re-read of `vnn` is in the new convention. `vnn` appears
   nowhere else in the code (`vnn-rise-threshold` is an iteration count, `irs-beta` is unrelated). **Decks outside this
-  repository**: see "Decks of hydra" in the draft notes.
+  repository** follow the same rule: halve every `vnn` before running them.
 - Interior faces and block connections (101) take the stencil metric J⁻¹, J = [D_a x, D_b x, D_c x] of the cell centres (see
   Added): exact for a linear field on any mesh, skewed, stretched, with jumps of size, folded at a connection. The linear-field
   patch test fell from 1.2e-2 … 1.2e-1 of k|g|A to ≤ 7e-14 on every family. The walls 301-305 take the metric of the
   differences their gradient takes: wall flux and `qw` from up to 1.2e-1 to ≤ 1e-13 of k|g|. Chimera faces (102) are unchanged.
   Results change at round-off on Cartesian meshes: measured on the integrated tree against the 17-digit reference of the
   input/io theme, max |ΔT| ≤ 1.2e-11 K on the 15 short decks of the test suite (one unit of the last printed digit at 2000 K),
-  3.0e-11 … 4.3e-11 K on the eight runs of 80 000-370 000 iterations (`nominal`, `irs`, `mg1`, `mg2`, `mg_irs`, `fas_v`,
+  3.0e-11 … 4.3e-11 K on the eight runs of 27 000-295 000 iterations (`nominal` is capped at 100 000 by the gate: `nominal`, `irs`, `mg1`, `mg2`, `mg_irs`, `fas_v`,
   `fas_w`, `fas_w_irs`: round-off accumulated over the iterations) and 3.4e-10 K on `mg3`, all within the declared 1e-7 K; and
   wherever cells are skewed, stretched or non-smooth.
 - A block connection carries one flux, computed by the owner record (the cell on the low-index side of the face) and given with
@@ -163,6 +169,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Setup_Metrics`; the `vnn` of the test scripts of the parallel and input/io themes was halved (bit-identity and chimera-edge
   1.0 → 0.5, divergence probe 1.4 → 0.7, transient-from-steady restart 0.5 → 0.25, runtime bad-value 0.4 → 0.2). `TAG_FC` is
   declared once, in the tag table of `Mod_GhostExchange`.
+
+- An update of a cell temperature that is not finite or leaves the properties table, also with IRS, stops the run with exit
+  code 1, as an explicit update does and as MOSE (decision D2, 354bf28). The rank that finds the cell writes
+  `[RANK r] STOP:` and ends with exit code 1 (the check runs inside an OpenMP loop, where no MPI call is allowed) and the
+  launcher ends the other ranks. Until now an IRS-smoothed update that failed was halved up to 10 times and else dropped, with an
+  `IRS:` report every `shell-diter` iterations; no case of the test suite or of the FAS acceptance set used it. The two guards of
+  the FAS cycles stay (a prolongated correction that leaves the table, a coarse smoothing update under a forcing: halved or
+  dropped, `FAS:` reports); the counter of the halvings is `FAS_HALVINGS` (it was `IRS_HALVINGS`).
 
 ### Removed
 
