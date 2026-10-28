@@ -70,6 +70,16 @@ listed here: the pages of `docs/` describe them.
   an index direction (not k of a 1-D or 2-D mesh) whose lines are not orthogonal to the other directions (|cos| > 1e-3: the
   face gradient takes no difference along a direction with one cell, so a sheared block one cell across gave a wrong wall heat
   flux, 0.16 to 0.30 of k|g|, with no message). Orthogonal thin blocks run as before; no deck of the test suite changes.
+- Set-up stop for a block number, a face or a cell index of `bc.txt` outside its range (exit code 1 on every rank, no solution
+  written), at the reading of the file and on every grid level: `b`, `i`, `j`, `k` and `f` of every record (a block of the file;
+  a cell of that block; a face 1 to 6), `bs`, `is`, `js`, `ks` and `fs` of a connection (101), `bD`, `iD`, `jD` and `kD` of every
+  donor of a chimera record (102). The message gives the file, the line, the record, the value and the admissible range
+  (`bc.txt line 22 (record 11, type 101): partner block bs = 9 is outside the admissible range 1 to 2`). Before, a partner or a
+  donor block that does not exist ended the run inside the MPI library (exit code 6, `Invalid rank`; a segmentation fault on one
+  rank) with no message, and a chimera donor cell outside its block was read past the array: exit code 0, no message, a field
+  that agrees with the control (the owner-rank table, `Pair_Connections` and `Check_Thin_Blocks` took the numbers as valid).
+  The partner of a coupled wall (103) and the donors of a 104 are cells of the other solver and are not tested. A deck whose
+  numbers are all in range is read as before. `ExitCodes` and `MPIExitCodes` gained the cases.
 - `USE_IPO` (default ON; `install.sh build --no-ipo` gives OFF) switches the interprocedural optimization of the RELEASE
   build, as in MOSE. Before, the `-ipo` of `cmake/SetFortranFlags.cmake` never reached the compile line of ifx: its probe only
   compiled, and a program of IR objects does not link, so the flag was dropped without a message and the RELEASE build of

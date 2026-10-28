@@ -67,4 +67,22 @@ run "$WORK/thin" 2; both thin thin 'block 2 across it has 1 cell\(s\) across its
 grep -q 'block 2 has one cell in direction 1.*not orthogonal' "$WORK/thin/run.log" \
   && case_result thin-lines 0 "message of the rank of block 2" || case_result thin-lines 1 "no 'not orthogonal' message in $WORK/thin/run.log"
 
+# 8. a block number or a cell index of bc.txt outside its range: every rank reads the file, so every rank stops at the same record,
+# at the reading and before the table of the owner ranks is indexed with the number (partner block 9 of 2: the MPI library
+# ended the run with exit 6; donor block 9: exit 6; a donor cell outside its block: no message, exit 0); chimera deck with its control
+chim() { prep numerics-features/chimera "$WORK/$1"; setkey "$WORK/$1" iter-threshold 20; }
+chim range-ctl; run "$WORK/range-ctl" 2; expect_ok range-ctl "$WORK/range-ctl"
+base range-partner-block; sed -i '22s/.*/       9       1       1       1       1       1       0       0       1/' "$WORK/range-partner-block/INPUT/bc.txt"
+run "$WORK/range-partner-block" 2
+both range-partner-block range-partner-block 'bc.txt line 22 \(record 11, type 101\): partner block bs = 9 is outside the admissible range 1 to 2'
+base range-partner-index; sed -i '22s/.*/       2       1      99       1       1       1       0       0       1/' "$WORK/range-partner-index/INPUT/bc.txt"
+run "$WORK/range-partner-index" 2
+both range-partner-index range-partner-index 'bc.txt line 22 \(record 11, type 101\): partner cell index js of block 2 = 99 is outside the admissible range 1 to 10'
+chim range-donor-block; sed -i '23s/^ *2 /       9 /' "$WORK/range-donor-block/INPUT/bc.txt"
+run "$WORK/range-donor-block" 2
+both range-donor-block range-donor-block 'bc.txt line 23 \(record 11, type 102\): donor 1, block bD = 9 is outside the admissible range 1 to 2'
+chim range-donor-index; sed -i '23s/^ *2 *1 *1 /       2       1      99 /' "$WORK/range-donor-index/INPUT/bc.txt"
+run "$WORK/range-donor-index" 2
+both range-donor-index range-donor-index 'bc.txt line 23 \(record 11, type 102\): donor 1, cell index jD of block 2 = 99 is outside the admissible range 1 to 7'
+
 finish

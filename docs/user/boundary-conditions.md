@@ -105,6 +105,7 @@ Each record is a header line followed by the data line(s) of its code (none for 
 `b` is the block, `(i, j, k)` the cell (1-based) and `f` its face (1–6). Values are free format, separated by blanks or commas.
 
 - The number of records must equal the number of boundary faces, $\sum_\text{blocks} 2\,(n_i n_j + n_j n_k + n_i n_k)$, or FUSS stops with `Boundary conditions number (...) is different than the one of the initial conditions (...)`.
+- Every block number, face number and cell index that a record carries is checked when the file is read, on every grid level: `b` (1 to the number of blocks), `i`, `j`, `k` (1 to the cells of block `b` in that direction) and `f` (1 to 6); of a connection (`101`) `bs`, `is`, `js`, `ks` (the cells of block `bs`) and `fs` (1 to 6); of a chimera record (`102`) `bD`, `iD`, `jD`, `kD` of every donor. A value outside its range stops every rank with exit code 1 and writes no solution, with the line, the record and the range, for example `bc.txt line 22 (record 11, type 101): partner block bs = 9 is outside the admissible range 1 to 2`. The partner of a `103` and the donors of a `104` are cells of the other solver and are not tested.
 - Records are grouped by block (1, 2, ...) and, within a block, by face (1 to 6), the order ATLAS writes; the wall output relies on it.
 
 Records from the test cases, as ATLAS writes them:

@@ -21,7 +21,8 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     ! Local
-    integer :: m, error
+    integer :: m, error, b
+    integer, allocatable :: dims(:,:)
 
     do m = 1, obj_multigrid%MGL
 
@@ -39,8 +40,13 @@ contains
       error = Check_BC ( domain(m) % nbound, m )
       if (error /= 0) cycle
 
-      !! Phase 2: Read
-      call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m )
+      !! Phase 2: Read; the cells of each block of this level are the admissible range of the block numbers and cell indices
+      allocate ( dims(3, domain(m) % nb) )
+      do b = 1, domain(m) % nb
+        dims(:,b) = domain(m) % blk(b) % dim
+      end do
+      call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m, dims )
+      deallocate ( dims )
       
     end do
 
@@ -121,7 +127,7 @@ contains
   end function Check_BC
 
 
-  subroutine Read_BCfile ( bc, n_bf, level )
+  subroutine Read_BCfile ( bc, n_bf, level, dims )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_io, obj_io_bc
     use FUSS_Global_m
@@ -130,6 +136,7 @@ contains
     type(FUSS_bc_type), dimension(:), intent(inout) :: bc
     integer, intent(in)                             :: level
     integer, dimension(1:,1:), intent(inout)        :: n_bf
+    integer, dimension(1:,1:), intent(in)           :: dims      ! cells of each block of this level: dims(1:3,b)
     ! Local
     integer :: cc, i, s
     integer :: unitfile, ios, cios
@@ -182,6 +189,14 @@ contains
       if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%b, bc(i)%i, bc(i)%j, bc(i)%k, bc(i)%f, bc(i)%type
       if ( ios /= 0 ) call BC_Line_Error ( i, -1, nline, pline )
 
+      ! The block, the cell and the face index the tables that follow (n_bf, the flags of the faces, and later the owner
+      ! rank of the block, Pair_Connections, Check_Thin_Blocks): in range before any use
+      call Check_Range ( i, bc(i)%type, nline, 'block b', bc(i)%b, 1, size(dims,2) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index i of block '//trim(str(.true.,bc(i)%b)), bc(i)%i, 1, dims(1,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index j of block '//trim(str(.true.,bc(i)%b)), bc(i)%j, 1, dims(2,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'cell index k of block '//trim(str(.true.,bc(i)%b)), bc(i)%k, 1, dims(3,bc(i)%b) )
+      call Check_Range ( i, bc(i)%type, nline, 'face f of block '//trim(str(.true.,bc(i)%b)), bc(i)%f, 1, 6 )
+
       ! n_bf update
       n_bf( bc(i) % b, bc(i) % f ) = n_bf( bc(i) % b, bc(i) % f ) + 1
 
@@ -197,6 +212,15 @@ contains
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
           call Need_I ( i, bc(i)%type, nline, [ bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, &
                                                 bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22 ], 'bs is js ks fs d11 d12 d21 d22' )
+          ! The partner is a cell of a block of this file (a 103 names a block of the other solver: not tested)
+          call Check_Range ( i, bc(i)%type, nline, 'partner block bs', bc(i)%bs, 1, size(dims,2) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index is of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%is, 1, dims(1,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index js of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%js, 1, dims(2,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner cell index ks of block '//trim(str(.true.,bc(i)%bs)), &
+                             bc(i)%ks, 1, dims(3,bc(i)%bs) )
+          call Check_Range ( i, bc(i)%type, nline, 'partner face fs of block '//trim(str(.true.,bc(i)%bs)), bc(i)%fs, 1, 6 )
 
         case(300)
           if (level == 1) nsym = nsym + 1
@@ -286,6 +310,16 @@ contains
             call Need_I ( i, bc(i)%type, nline, bc(i)%donorID(s,1:4), 'bD iD jD kD' )
             call Need_Finite ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
             call Need_R ( i, bc(i)%type, nline, bc(i)%volume_fraction(s:s), 'vol_frac' )
+            ! The donors of a 102 are cells of the blocks of this file (those of a 104 are cells of the other solver: not tested)
+            if (bc(i)%type == 102) then
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', block bD', bc(i)%donorID(s,1), 1, size(dims,2) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index iD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,2), 1, dims(1,bc(i)%donorID(s,1)) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index jD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,3), 1, dims(2,bc(i)%donorID(s,1)) )
+              call Check_Range ( i, bc(i)%type, nline, 'donor '//trim(str(.true.,s))//', cell index kD of block '// &
+                                 trim(str(.true.,bc(i)%donorID(s,1))), bc(i)%donorID(s,4), 1, dims(3,bc(i)%donorID(s,1)) )
+            end if
           enddo
           if (bc(i)%type == 104) then
             ! Coupled wall as 103 (coupling flux, wall output); the donors are cells of the other solver
@@ -434,6 +468,24 @@ contains
     call mpi_stop_all ( trim(head)//trim(why)//': "'//trim(line(1:min(len(line),200)))//'"' )
 
   end subroutine BC_Value_Error
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Check_Range: stop every rank if the value v of line nline of record n (type btype), a block number or a cell index
+  !   or a face, is outside lo..hi. what names the value. Every rank reads the file, so every rank reaches this stop.
+  subroutine Check_Range ( n, btype, nline, what, v, lo, hi )
+    use IR_Precision, only: str
+    use FUSS_Mod_MPI, only: mpi_stop_all
+    implicit none
+    integer, intent(in)          :: n, btype, nline, v, lo, hi
+    character(len=*), intent(in) :: what
+
+    if ( v >= lo .and. v <= hi ) return
+    call mpi_stop_all ( '[ERROR] '//trim(bc_name)//' line '//trim(str(.true.,nline))//' (record '//trim(str(.true.,n))// &
+      ', type '//trim(str(.true.,btype))//'): '//what//' = '//trim(str(.true.,v))//' is outside the admissible range '// &
+      trim(str(.true.,lo))//' to '//trim(str(.true.,hi)) )
+
+  end subroutine Check_Range
 
 
   !─────────────────────────────────────────────────────────────────────────────
