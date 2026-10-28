@@ -12,14 +12,19 @@ repetition reproduced them exactly. Wall times come from a shared machine and ar
 reproducible as it is idle: repeated runs differ by up to 1.9×, so read the wall ratios to
 within that factor. Each section states its threshold and which timing line it reports.
 
-The four-case campaign and the liner numbers were measured on the current code (series face
-conductivity at material jumps inside a block and the face-conductivity time step, both always
-on, October 2026). The tables of the earlier FAS review (reference plate to stress campaign)
-were measured before those two changes. Blocks of one material are bit-identical under them,
-and at a block connection between two materials (the reference plate) only the time step of
-the cells on the less conductive side shortens; a material jump inside a block (the bi-material
-patch of the nonlinear table, the liner) now carries the series face flux instead, and the
-liner, the case the defect had broken, is the one re-measured below.
+The iteration counts of this page were measured with the final binary of the sync of October 2026
+(`verify/sync-2026-10` a616ef8, `USE_IPO` on, ifx 2024.1, one thread per run, `vnn` in the current
+convention), except the extrapolated 64³ single-grid baseline and the liner rows that describe the
+code before the fix; the binary carries the series face conductivity at material jumps inside a block and the
+face-conductivity time step (both always on), the stencil face metric and the exact cell volume.
+The counts of the six-configuration campaign differ from those of the earlier campaign by at most 12
+iterations (0.005 %). A wall time marked † is a number of that earlier campaign (before the sync) and
+was not re-measured: wall times are valid only on an idle node, and the node of the re-measurement was
+busy (load of 70 to 270 on 192 cores). Blocks of one material are bit-identical under the two
+face-conductivity changes, and at a block connection between two materials (the reference plate) only
+the time step of the cells on the less conductive side shortens; a material jump inside a block (the
+bi-material patch of the nonlinear table, the liner) now carries the series face flux instead, and
+the liner, the case the defect had broken, is the one described in detail below.
 
 !!! note "The two invariants behind every number"
     1. **`cycle = none` is the solver without FAS.** When the cycles were introduced this was
@@ -52,7 +57,7 @@ written every iteration, one thread:
 `none` and `IRS` run on one grid; the cycles on the case's levels, descending with one
 iteration per coarse level and the default `pre-iter = 2`, `post-iter = 1`, `coarse-iter = 10`.
 Without IRS `vnn = 0.5`; with IRS `vnn = 1.0` and `irs-beta = 0.5`. All `vnn` values of this page are in the
-current convention; the campaigns ran before October 2026 at twice these values with the former definition (the same steps).
+current convention; the earlier campaign (the wall times †) ran before October 2026 at twice these values with the former definition (the same steps).
 
 ![Residual against finest-level iterations, six configurations on four cases](images/fas-cycles-convergence-iterations.png)
 
@@ -68,27 +73,31 @@ which each run reaches the threshold.*
 *The same histories against wall time: the `Elapsed` line of each run's timing summary
 (set-up, iterations and output), spread uniformly over the iterations of the run. One core per
 run, two runs at a time on a node shared with other jobs: the times carry that noise, the
-iteration counts do not. This campaign ran on a busy node; the same runs on a quieter node
+iteration counts do not. This figure is the one of the earlier campaign (†, before the sync, not
+redrawn). That campaign ran on a busy node; the same runs on a quieter node
 took about half the time (plate `none` 318 s instead of 639 s) with similar ratios.*
 
-Iterations to 1e-10 (wall time, s):
+Iterations to 1e-10 (wall time, s †):
 
 | Configuration | plate | liner | chimera | anisotropic |
 |---|---:|---:|---:|---:|
-| none | 238 484 (639) | 347 466 (4 402) | 12 840 (46) | 1 412 (3.2) |
-| IRS | 122 777 (418) | 179 272 (3 226) | 6 613 (35) | 1 023 (3.7) |
-| V | 16 666 (80) | 2 885 (58) | 235 (1.8) | 1 031 (4.3) |
-| W | 8 638 (61) | 2 980 (92) | 101 (1.3) | 1 031 (7.1) |
+| none | 238 496 (639) | 347 456 (4 402) | 12 841 (46) | 1 412 (3.2) |
+| IRS | 122 773 (418) | 179 270 (3 226) | 6 613 (35) | 1 023 (3.7) |
+| V | 16 667 (80) | 2 885 (58) | 235 (1.8) | 1 031 (4.3) |
+| W | 8 637 (61) | 2 980 (92) | 101 (1.3) | 1 031 (7.1) |
 | V + IRS | 8 584 (62) | 3 857 (103) | 129 (1.3) | 1 029 (6.0) |
 | **W + IRS** | **4 450 (44)** | **3 615 (150)** | **94 (1.9)** | **1 030 (9.4)** |
-| W + IRS vs none, iterations / wall | 54× / 14× | 96× / 29× | 137× / 24× | 1.4× / 0.3× |
+| W + IRS vs none, iterations / wall † | 54× / 14× | 96× / 29× | 137× / 24× | 1.4× / 0.3× |
 
-This campaign (24 runs, threshold 1e-10) ran before the sync of October 2026 (the stencil face metric, the
-exact cell volume and the removal of the IRS fallback came after it) and has not been repeated: *to be re-measured*
-with `test/numerics-features/convergence_figure/run_configs.sh`, together with the two figures. The FAS acceptance set
-of the sync (`fuss-stress/results/fas-vv-s10/fas_vv.md`) reruns some of the same configurations at 1e-8
-(for instance liner `none` 276 700, `w` 2 278, `w + irs` 5 346 iterations; chimera `none` 13 365,
-`v` 2 615, `w` 1 699), but at another threshold, so its counts do not replace these.
+† Wall times and wall ratios: the earlier campaign, before the sync (a shared machine), not re-measured.
+
+The iteration counts and the figure of iterations are from the 24 runs of
+`test/numerics-features/convergence_figure/run_configs.sh` with the binary above (threshold 1e-10, none of the
+runs prints a `FAS:` or `IRS:` report). The figure against wall time was not redrawn: it shows the earlier
+campaign, with the `vnn` of its footnote in the former convention (twice the values of this page, the same steps).
+The FAS acceptance set of the sync (`fuss-stress/results/fas-vv-a616ef8/fas_vv.md`) reruns some of the same
+configurations at 1e-8 (for instance liner `none` 276 700, `w` 2 278, `w + irs` 5 346 iterations; chimera `none`
+13 365, `v` 2 615, `w` 1 699), but at another threshold, so its counts do not replace these.
 
 What the figures say:
 
@@ -103,16 +112,16 @@ What the figures say:
   smoothing.** A W cycle visits its coarse sub-tree twice and IRS adds two Jacobi sweeps per
   stage, so the cost per fine iteration grows from `v` to `w + IRS`: on the plate (2 levels, a
   cheap coarse grid) and the chimera case the time still falls with the iterations, on the
-  liner `v` is the fastest on the clock (58 s against 150 s for
-  `w + IRS`, both against 4 402 s for the single grid).
+  liner `v` is the fastest on the clock (58 s † against 150 s † for
+  `w + IRS`, both against 4 402 s † for the single grid).
 - **On the anisotropic plate nothing pays**: all six runs reach 1e-10 in 1 023–1 412
-  iterations and the single-grid run is the cheapest in time ([below](#anisotropic-cells-the-honest-limit)).
+  iterations and the single-grid run is the cheapest in time † ([below](#anisotropic-cells-the-honest-limit)).
 
 ## Reference plate (residual_convergence)
 
 The two-material plate of the [residual convergence study](residual-convergence.md) (2 blocks of
 100 × 10 cells, 101 connection, `cons`, the case's `vnn = 0.25`), to threshold 1e-8; wall times
-are the `Solver` line (without set-up and output), the minimum of three or four runs. The
+(†) are the `Solver` line (without set-up and output), the minimum of three or four runs. The
 10-cell height caps the hierarchy at 2 levels, which caps the cycle gain: this is the *worst*
 verified configuration, and the one the `fas_v` / `fas_w` / `fas_w_irs` test cases ship.
 
@@ -124,37 +133,42 @@ verified configuration, and the one the `fas_v` / `fas_w` / `fas_w_irs` test cas
 | mg + irs | 79 816 | 126 † | 4.6× | 3.8× † |
 | **cycle = v** | 25 817 | 63 † | 14× | 7.5× † |
 | **cycle = w** | 13 378 | 53 † | 28× | 9.0× † |
-| **cycle = v + irs** | 6 934 † | 25 † | 53× † | 19× † |
+| **cycle = v + irs** | 6 950 | 25 † | 53× | 19× † |
 | **cycle = w + irs** | **3 602** | **19** † | **103×** | **24×** † |
-| cycle = v, coarse-iter 50 | 5 458 † | 57 † | 68× † | 8.3× † |
-| cycle = v, coarse-iter 1 | 158 191 † | — | 2.3× † | (cripples the cycle) |
+| cycle = v, coarse-iter 50 | 5 471 | 57 † | 68× | 8.3× † |
+| cycle = v, coarse-iter 1 | 158 481 | — | 2.3× | (cripples the cycle) |
 
-† Not re-measured since the earlier campaign (before the sync of October 2026): all the wall times and wall
-ratios, and the rows without a counterpart in the FAS acceptance set (`fuss-stress/results/fas-vv-s10/fas_vv.md`). The
-other iteration counts are those of the rows `rc-*` of that set, run on the binary of the sync (af13cab); *to be re-measured*
-with an idle node: the wall columns, the rows `v + irs`, `coarse-iter` 1 / 50, and the `coarse-iter` list below.
+† Wall times and wall ratios: the earlier campaign (before the sync of October 2026), not re-measured (the node was busy;
+*to be re-measured* on an idle node). The iteration counts are those of the binary above: the rows `rc-*` of the FAS acceptance
+set (`fuss-stress/results/fas-vv-a616ef8/fas_vv.md`) and, for `v + irs` and the two `coarse-iter` rows, runs of the same decks
+with those keys (`fuss-stress/results/p2vv-a616ef8/extras`).
 
 The cycle rows use the defaults (`coarse-iter = 10`, `pre-iter = 2`, `post-iter = 1`). On a
-2-level hierarchy the coarse solve is the knob: `w + irs` needed 15 686 / 8 518 / 3 593 iterations
-with `coarse-iter` 2 / 4 / 10 (earlier campaign; the last is 3 602 now), and on two levels `w` is exactly `v` with twice the coarse
-iterations (`w` with `coarse-iter = 2` reproduces `v` with 4 bit for bit). The wall gains are
+2-level hierarchy the coarse solve is the knob: `w + irs` needs 15 725 / 8 539 / 3 602 iterations
+with `coarse-iter` 2 / 4 / 10, and on two levels `w` is exactly `v` with twice the coarse
+iterations (`w` with `coarse-iter = 2` reproduces `v` with 4 bit for bit: residual history and field identical,
+58 416 iterations). The wall gains are
 smaller than the iteration gains because every cycle adds its coarse work and transfers to the
 fine smoothing. With deep hierarchies (below) the default is already optimal and W becomes
 insensitive to it.
 
 ## Grid independence (deep hierarchies)
 
-Unit-square patch case, full hierarchies, `coarse-iter 10`. Root iterations to 1e-12 (wall):
+Unit-square patch case, full hierarchies, `coarse-iter 10`. Root iterations to 1e-12 (wall †):
 
 | Fine mesh | none | w | w + irs |
 |---|---:|---:|---:|
-| 32² (3 levels) | 12 854 (9.8 s) | 184 (0.5 s) | 103 (0.3 s) |
-| 64² (4 levels) | 49 077 (184 s) | 191 (1.1 s) | 107 (1.0 s) |
-| 128² (5 levels) | ~201 700 (~3 600 s), extrapolated | 207 (5.3 s) | 111 (4.2 s) |
+| 32² (3 levels) | 12 854 (9.8 s †) | 184 (0.5 s †) | 103 (0.3 s †) |
+| 64² (4 levels) | 49 077 (184 s †) | 191 (1.1 s †) | 107 (1.0 s †) |
+| 128² (5 levels) | 186 324 (~3 300 s †, from the timing below) | 207 (5.3 s †) | 111 (4.2 s †) |
 
-The W-cycle iteration count is essentially **independent of N** (textbook behaviour): ~1800× fewer
-iterations at 128² and, against the extrapolated single-grid run (10 000 iterations timed,
-17.9 ms each), ~700× (`w`) to ~850× (`w + irs`) less wall time. Rates per cycle 0.37–0.41 for
+The 128² single grid was run to the threshold in the re-measurement (the earlier campaign extrapolated
+~201 700 iterations from a capped run); its wall time is the iteration count times the 17.9 ms per iteration
+timed earlier (†).
+
+The W-cycle iteration count is essentially **independent of N** (textbook behaviour): ~900× (`w`) to
+~1700× (`w + irs`) fewer iterations than the single grid at 128² and, with the time per iteration above,
+~630× (`w`) to ~790× (`w + irs`) less wall time †. Rates per cycle 0.37–0.41 for
 `w + irs`.
 
 ## Nonlinear, layered, 3D
@@ -165,7 +179,10 @@ iterations at 128² and, against the extrapolated single-grid run (10 000 iterat
 | Bi-material k×10, interface on all levels (64², 3 levels, 1e-11) | 45 041 (114 s †) | w: 219 (1.3 s †) | 206× / ~90× † |
 | 3D box 16³ (2 levels, 1e-12) | 2 983 (7.7 s †) | v: 267 (1.0 s †), w: 195 (0.9 s †) | 11–15× / 8–9× † |
 
-Fields equal to the `none` fields within 3e-9 K at threshold.
+Fields equal to the `none` fields within 3e-9 K at threshold (2.8e-9, 2.7e-10 and 2.2e-11 K). The 16³ box takes 267 and 195
+iterations under `v` and `w` where the campaign before the sync took 261 and 186: the histories agree to 1e-12 K until the
+residual reaches the round-off floor of the field, and the threshold 1e-12 lies on that floor (see the
+[re-validation](#re-validation-at-the-sync-of-october-2026)).
 
 ## Chimera (overset blocks)
 
@@ -199,14 +216,14 @@ field (≤ 5e-7 K) or, for the 3D patch cases, against the exact linear solution
 
 | Case | none | v | w | w + irs | w + irs gain (iterations / wall) |
 |---|---:|---:|---:|---:|---:|
-| 4 conformal blocks, 101 connections (2×2 × 32², 3 levels) | 14 047 (66 s) | 261 | 96 | **57** (1.0 s) | 246× / 66× |
-| Localized q̇ hot spot (64², discontinuous source, 3 levels) | 34 637 (102 s) | 610 | 169 | **49** (0.8 s) | 707× / ~130× |
-| 3D box 32³ (3 levels) | 8 493 (323 s) | 1 324 | 135 | **66** (5.3 s) | 129× / 61× |
-| 3D box 64³ (4 levels) | ~33 000 extrap. (~2.7 h)¹ | — | 139 (39 s) | **69** (42 s) | ~480× / ~230× |
+| 4 conformal blocks, 101 connections (2×2 × 32², 3 levels) | 14 047 (66 s †) | 261 | 96 | **57** (1.0 s †) | 246× / 66× † |
+| Localized q̇ hot spot (64², discontinuous source, 3 levels) | 34 637 (102 s †) | 610 | 169 | **49** (0.8 s †) | 707× / ~130× † |
+| 3D box 32³ (3 levels) | 8 493 (323 s †) | 1 324 | 135 | **66** (5.3 s †) | 129× / 61× † |
+| 3D box 64³ (4 levels) | ~33 000 extrap. (~2.7 h †)¹ | — | 139 (39 s †) | **69** (42 s †) | ~480× / ~230× † |
 
 ¹ The 64³ baseline was stopped at 10 000 iterations (residual 1.3e-2, rate 0.9994/iter); its
 wall time is extrapolated from 1 500 timed iterations (0.29 s each). The cycles reach the
-*exact* discrete solution (max error ≤ 8e-10 K) in ~100 iterations: the W-cycle
+*exact* discrete solution (max error ≤ 9e-10 K) in ~100 iterations: the W-cycle
 iteration count barely moves from 32³ to 64³ (135 → 139, 66 → 69), the same N-independence
 measured in 2D.
 
@@ -241,21 +258,24 @@ the severest face conductivity of each direction, evaluated as the flux evaluate
 ([VNN](../theory/time-integration.md#diffusive-stability-condition-vnn)); both are always on,
 and blocks of one material keep their step bit for bit. Measured on the one-block liner at 1e-8
 (RK3, `cons`, 4 levels with a one-iteration descent, `cycle = none` for the rows without a
-cycle; wall times the `Elapsed` line):
+cycle; wall times † the `Elapsed` line). The iteration counts of the rows from `none, vnn = 0.6` to `w + IRS` were
+re-measured with the final binary of the sync (they are the same as before it, to the digit); the first and the last row
+were measured when the face flux was fixed, against the per-layer reference and with the old time step, and cannot be
+repeated with this code:
 
 | Configuration | Result |
 |---|---|
 | Field vs the per-layer-block reference | 1.2e-8 K (was 35.7 K) |
-| none, `vnn = 0.6` | converges: 231 890 iterations, 1 596 s |
+| none, `vnn = 0.6` | converges: 231 890 iterations, 1 596 s † |
 | none, ceiling | `vnn = 0.625` stable (20 000 iterations), `vnn = 0.65` fails at iteration 91 (T = −43 K, outside the properties table): the RK3 limit is 0.628 ([VNN](../theory/time-integration.md#diffusive-stability-condition-vnn)) |
-| IRS, `vnn = 1.0` | descends cleanly, no halved update, but slowly: 2.4e-6 after 100 000 iterations (1 009 s) |
-| w, `vnn = 0.5` / `0.6` | 1 697 iterations (30 s) / 1 438 (26 s) |
-| w + IRS, `vnn = 0.5` | 2 842 iterations (67 s), **zero** halved updates |
+| IRS, `vnn = 1.0` | descends cleanly, no halved update, but slowly: 2.4e-6 after 100 000 iterations (1 009 s †) |
+| w, `vnn = 0.5` / `0.6` | 1 697 iterations (30 s †) / 1 438 (26 s †) |
+| w + IRS, `vnn = 0.5` | 2 842 iterations (67 s †), **zero** halved updates |
 | series faces with the old cell time step, `vnn` 0.25 / 0.5 / 0.6 | stable over 3 000 iterations (residual 2.3 / 1.4 / 1.1, still descending): the face flux was the defect, the face step is what lets the run go at `vnn ≥ 0.5` |
 
 The two-block `multimat_liner` converges in all six configurations on the current code
-([campaign table](#six-configurations-on-four-cases): to 1e-10 none 347 466
-iterations, IRS 179 272, the cycles 2 885 to 3 857, every run
+([campaign table](#six-configurations-on-four-cases): to 1e-10 none 347 456
+iterations, IRS 179 270, the cycles 2 885 to 3 857, every run
 without a single halved update). The liner is now a normal case, and the robustness ranking
 the review had measured on it — cycles first, IRS last — was an artefact of the face flux.
 
@@ -265,18 +285,18 @@ Reference case `numerics-features/anisotropic_Plate` (128 × 16 cells on 1 m × 
 aspect ratio 100, 3 levels, exact linear solution), the campaign settings above (RK3, `cons`,
 residual every iteration; the shipped case writes it every 100 and runs `w` + IRS):
 
-| Configuration | Iterations to 1e-10 | Wall (s) | Residual floor at 1e-13 (iterations run) |
+| Configuration | Iterations to 1e-10 | Wall (s) † | Residual floor at 1e-13 (iterations run) |
 |---|---:|---:|---:|
 | none | 1 412 | 3.2 | 7.9e-13 (400 000) |
-| IRS | 1 023 | 3.7 | 2.2e-12 (400 000) |
-| v | 1 031 | 4.3 | 4.5e-12 (100 000) |
-| w | 1 031 | 7.1 | 4.3e-12 (100 000) |
-| v + IRS | 1 029 | 6.0 | 9.8e-13 (100 000) |
-| w + IRS | 1 030 | 9.4 | 1.0e-12 (100 000) |
+| IRS | 1 023 | 3.7 | 3.5e-12 (400 000) |
+| v | 1 031 | 4.3 | 3.9e-12 (100 000) |
+| w | 1 031 | 7.1 | 3.9e-12 (100 000) |
+| v + IRS | 1 029 | 6.0 | 8.0e-13 (100 000) |
+| w + IRS | 1 030 | 9.4 | 1.1e-12 (100 000) |
 
 V and W need the same iterations and IRS does not change the count either: the coarse
 correction, not the cycle shape, is the bottleneck. Full coarsening with a pointwise explicit
-smoother cannot represent the strong transverse coupling on the coarse levels. **In wall time
+smoother cannot represent the strong transverse coupling on the coarse levels. **In wall time †
 the cycles cost more than the single grid here.** The threshold is reached early on this case
 for a reason that has nothing to do with the solvers: the time step of an aspect-ratio-100 cell
 is tiny, so the residual ‖ΔT‖ per iteration is small long before the field has converged, and at
@@ -302,18 +322,29 @@ of the IRS admissibility fallback) was accepted against a 45-row FAS set run wit
 before the sync (237c9c2, `fuss-stress/ref/237c9c2/fas_vv.md`) and on the integrated binary with the halved `vnn` values
 (the same steps; `fuss-stress/results/fas-vv-s10/fas_vv.md`): the plates, chimera, liner, anisotropic and textbook cases
 above, the 16³ and 32³ boxes, the k(T)/c_p(T) and bi-material plates, the stress cases and the guard probes, under `none`,
-`v`, `w` and IRS. 43 rows reproduce their iteration counts (40 exactly, three within one or three iterations:
-`residual_convergence` `mg3` 212 413 → 212 414, `mg_irs` 79 817 → 79 816, the narrow-table `v` probe 942 → 939) and
-their rates; the two probes built to fire the removed fallback (IRS on a table of 995–1705 K started at 1700 K, alone and
-under `v`) now stop with exit code 1 instead of running, as the rule above says; every other row reports zero FAS guard
-events, as before. The 16³ box under `v` and `w` to the threshold 1e-12 takes 267 and 195 iterations instead of 261 and
-186: the residual histories agree to ten digits until the residual reaches 1e-10 and then separate in the round-off tail
-(4.1e-12 against 4.5e-12 at iteration 250 on `v`), the single-grid run of the same box keeps its 2 983 iterations along an
-identical history, and the final fields of the three runs agree to 6e-12 K (the last-bit changes of the cell volume and
-of the stencil metric of the sync). The ranks × threads bit identity under cycles (1×4, 2×1, 2×4, 4×1, 4×4 against
-1×1 on `fas_w_irs`, chimera `w`, the liner `w` + IRS, the 128² plate `w` + IRS and the 16³ box `w`) holds on the
-integrated binary, 25 of 25 layouts, and the restart of a `v` run (302 + the rest against 535 in one go) reproduces the
-field to the last bit.
+`v`, `w` and IRS. The set was run once more with the final binary of the sync (`verify/sync-2026-10` a616ef8, `USE_IPO`
+on, ifx 2024.1; `fuss-stress/results/fas-vv-a616ef8/fas_vv.md`) and compared with `tools/fas_vv_summary.py compare`.
+
+- **Against the binary before the sync (237c9c2):** 41 of the 45 rows reproduce their iteration counts and rates (38
+  exactly, three within one iteration: `residual_convergence` `mg3` 212 413 → 212 414, `mg_irs` 79 817 → 79 816, the
+  narrow-table `v` probe 942 → 941). The two probes built to fire the removed fallback (IRS on a table of 995–1705 K
+  started at 1700 K, alone and under `v`) stop with exit code 1 instead of running, as the rule above says; every other
+  row reports the same FAS guard events as before the sync (none, except the two probes under `v`: 4 corrections halved on
+  the narrow table and 43 603 corrections and 181 143 coarse updates on the deep V without IRS). The 16³ box under `v` and
+  `w` to the threshold 1e-12 takes 267 and 195 iterations instead of 261 and 186, the only rows outside the rule, and a
+  round-off effect: the residual histories of the two binaries differ by at most 1.0e-12 K (absolute) while the residual
+  is above 1e-9 (1.6e-7 and 3.2e-8 relative above 1e-6), they separate in the round-off tail (4.1e-12 against 4.5e-12 at
+  iteration 250 on `v`) where the threshold 1e-12 lies, the single-grid run of the same box keeps its 2 983 iterations along
+  an identical history, and the final fields differ by 5.7e-12 K (`v`) and 5.5e-12 K (`w`) (the last-bit changes of the cell
+  volume and of the stencil metric of the sync).
+- **Against the integrated binary without IPO (s10, 354bf28):** 45 rows, none failing, every iteration count
+  and rate equal (the narrow-table `v` probe 939 → 941, with the same 4 halved corrections). 31 of the 45 residual histories
+  are identical to the byte; in the other 14 the printed residuals differ in their last digits (by at most 1.0e-10 K, one unit
+  of the tenth digit of a residual of order 1; 4e-5 relative in the tail near 1e-8), and the final fields differ by at most
+  6.6e-12 K: the effect of IPO on the rounding (`CHANGELOG.md`), not of the code.
+- **Ranks × threads and restart:** the bit identity under cycles (1×4, 2×1, 2×4, 4×1, 4×4 against 1×1 on `fas_w_irs`,
+  chimera `w`, the liner `w` + IRS, the 128² plate `w` + IRS and the 16³ box `w`) holds on the final binary, 25 of 25 layouts,
+  and the restart of a `v` run (302 + the rest against 535 in one go) reproduces the field to the last bit.
 
 ## Practical guidance
 
@@ -326,8 +357,8 @@ field to the last bit.
 - **Wall time is not iterations.** `w` + IRS costs more per fine iteration than `v` or `w`
   alone; where the cycles converge within a few hundred iterations of each other the cheapest
   cycle per iteration wins the clock, and on the two-block liner plain `v` even needs the
-  fewest iterations (`v` 58 s, `w` + IRS 150 s, both against
-  4 402 s for the single grid). For a case that will be run many times, measure the
+  fewest iterations (`v` 58 s †, `w` + IRS 150 s †, both against
+  4 402 s † for the single grid). For a case that will be run many times, measure the
   candidates on it.
 - **Strongly anisotropic cells (AR ≫ 1):** the cycles do not pay; the single grid or IRS alone
   is as fast ([above](#anisotropic-cells-the-honest-limit)).

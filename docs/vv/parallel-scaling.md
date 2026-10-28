@@ -40,7 +40,7 @@ Initial temperature 1500 K. Numerics: RK3, VNN 0.75, local time step, primitive 
 - Threads alone scale by 2.0× from 10 to 40 cores (0.302 → 0.150 min); the 2-rank series by 2.3× (0.221 → 0.097 min).
 - With 4 blocks, 4 ranks hold one block each and 2 ranks two blocks each: both partitions are balanced. More ranks than blocks leave ranks idle (see [Parallel Execution](../user/parallel.md)).
 
-The logs come from the initial public release; the absolute times depend on the machine, which the logs do not record. They predate the changes of the MPI layer (FUNNELED threading, per-rank boundary records, residual summation order, the exchange tags) and of the face metric of the sync of October 2026, and have not been repeated since: *to be re-measured* on an idle node (the eight configurations of `numerics-features/time_convergence/simdir`).
+The logs come from the initial public release; the absolute times depend on the machine, which the logs do not record. They predate the changes of the MPI layer (FUNNELED threading, per-rank boundary records, residual summation order, the exchange tags) and of the face metric of the sync of October 2026, and have not been repeated since: *to be re-measured* on an idle node (the eight configurations of `numerics-features/time_convergence/simdir`). The re-measurement of the other V&V pages at the end of the sync (`verify/sync-2026-10` a616ef8) did not include them: the node was busy (load of 70 to 270 on 192 cores), and these timings need 10 to 40 cores of an idle one.
 
 ## Reproducing
 

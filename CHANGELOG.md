@@ -92,6 +92,7 @@ listed here: the pages of `docs/` describe them.
   iteration count of `steady-state/skewed_Plate` is 3171 instead of 3152 at the same threshold); the byte gate against the
   references recorded without IPO shows a difference on the 14 non-affine cases of the quick tier, and `-DUSE_IPO=OFF`
   (with `-DFUSS_ALLOW_IFX_NOIPO=ON` on ifx 2024.1) gives the former bytes.
+  The V&V pages (`docs/vv/`) were re-measured with this IPO binary (a616ef8): iteration counts and figures; wall times were not.
 - CMake refuses ifx 2024.1 at `-O2` or above without IPO (RELEASE with `USE_IPO=OFF`, or whose toolchain cannot do IPO, and
   the TESTING build), as MOSE does, with a message: that compiler builds a loop of MOSE's ghost metrics wrongly there. FUSS
   built so gave the same bytes as with IPO on every case of the quick tier of the stress battery (2026-10-28), so no such loop is known in
