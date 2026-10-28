@@ -55,7 +55,12 @@ contains
       call Compute_Norm_Area ( domain % blk(b) )
     enddo
     call Stop_On_Bad_Metric ( )
-    
+
+    ! A block too thin for the ghost cells and the face gradients that its boundary faces need: every rank stops together,
+    ! before the ghost metrics are built (BC_Connect_Metrics would read node planes outside the block across)
+    call Check_Thin_Blocks ( domain, bad )
+    call mpi_stop_if_any ( bad, 'block too thin for its connections or its faces (see above)', '' )
+
     ! Largest time-step skew factor of the cells of the finest level (1 unless 3-D cells are skewed in all pairs of
     ! directions), for the set-up summary and for the tests: the factor is 1 on every cell of a 2-D mesh
     if ( domain % mg_level == 1 ) then
@@ -216,5 +221,107 @@ contains
     end function Triple
 
   end subroutine Check_Folded_Cells
+
+  !> Blocks too thin for the ghost cells and the face gradients of their boundary faces. Two defects, one stop each, on
+  !> every multigrid level (Setup_Metrics runs on each; the domain is that of the level):
+  !>  - A connection (101): the gc ghost cells of its face are the first gc cells of the block across it, and their
+  !>    metrics come from the first gc node planes of that block (BC_Connect_Metrics). With fewer cells across its face
+  !>    (the same rule as MOSE's Pair_Connections, MOSE 2e31d8a), the second ghost cell is a ghost cell of that block,
+  !>    which another record fills, and the node plane lies outside the node array: a build with bounds checking stops in
+  !>    BC_Connect_Metrics; a release build reads past the array and runs on with a wrong or zero metric (a wrong wall
+  !>    flux, or a stop on a cell with zero corner nodes). The record names the block, its face and the cell count.
+  !>  - A direction d with one cell, other than the k direction of a 1-D or 2-D mesh (the field does not vary along it,
+  !>    no flux reads its ghost cells; j is checked also in a 1-D mesh, whose walls on the j faces read it): the face gradient takes no difference along d (the interior
+  !>    faces keep the cell edge in that column, the walls skip the one-sided difference of the wall output and of the
+  !>    ghost fill: hi = lo), which loses the part of the gradient that the face normal takes from d. That part is
+  !>    M(d,:) . n_e, zero where the lines of d are orthogonal to those of every other direction e (Cartesian blocks:
+  !>    thin3d, one cell in k), and the stop is for cells where cos(M(d,:), M(e,:)) exceeds COS_MAX. A sheared block
+  !>    one cell across gave a wrong wall flux (qw error 0.16 to 0.30 of k |g|) with no message and no out-of-range read.
+  subroutine Check_Thin_Blocks ( domain, bad )
+    use FUSS_Advanced_Types_m
+    use FUSS_Global_m, only: ndir, gc
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    logical, intent(out) :: bad   !< A thin block was found on this rank (its message is written)
+    ! Local
+    character(len=3), parameter :: DIRS = 'ijk'
+    real(R8), parameter :: COS_MAX = 1d-3   ! cosine of the angle between the lines of two directions: 0 for orthogonal cells
+    integer  :: r, b, bs, f, fs, n, nb, d, e, i, j, k, ie(3), iw(3)
+    real(R8) :: c, cmax, vd(3), ve(3)
+    logical, allocatable :: seen(:,:)
+    character(len=32) :: lev
+
+    bad = .false.
+    nb  = domain % nb
+    lev = ''
+    if ( domain % mg_level > 1 ) write(lev,'(A,I0)') ' of multigrid level ', domain % mg_level
+
+    ! Connections: the block across has at least gc cells across its face (one message per block face)
+    allocate ( seen(nb,6) )
+    seen = .false.
+    do r = 1, domain % nbound
+      if ( domain % bc(r) % type /= 101 ) cycle
+      b  = domain % bc(r) % b
+      f  = domain % bc(r) % f
+      bs = domain % bc(r) % bs
+      fs = domain % bc(r) % fs
+      if ( .not. is_local_block(b) ) cycle
+      if ( bs < 1 .or. bs > nb .or. fs < 1 .or. fs > 6 ) cycle      ! Pair_Connections stops on these
+      n = domain % blk(bs) % dim((fs + 1) / 2)
+      if ( n >= gc .or. seen(b,f) ) cycle
+      seen(b,f) = .true.
+      write(*,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A)') ' [ERROR] Mesh'//trim(lev)//': block ', b, ', face ', f, &
+        ' (connection record ', r, '): block ', bs, ' across it has ', n, ' cell(s) across its face ', fs, &
+        ', fewer than the ', gc, ' that the ghost cells of a connection need'
+      bad = .true.
+    enddo
+    deallocate ( seen )
+
+    ! One cell in an index direction of the mesh, with lines of another direction that are not orthogonal to it
+    do b = 1, nb
+      if ( .not. is_local_block(b) ) cycle
+      do d = 1, 3
+        if ( d == 3 .and. ndir < 3 ) cycle      ! the k direction of a 1-D or 2-D mesh: the field does not vary along it
+        if ( domain % blk(b) % dim(d) /= 1 ) cycle
+        do e = 1, 3
+          if ( e == d ) cycle
+          cmax = 0d0 ; iw = 1
+          do k = 1, domain % blk(b) % dim(3)
+          do j = 1, domain % blk(b) % dim(2)
+          do i = 1, domain % blk(b) % dim(1)
+            vd = domain % blk(b) % M(i,j,k) % c(d,:)
+            ve = domain % blk(b) % M(i,j,k) % c(e,:)
+            c  = norm2 ( vd ) * norm2 ( ve )
+            if ( c > 0d0 ) c = abs ( dot_product ( vd, ve ) ) / c
+            if ( c > cmax ) then
+              cmax = c ; iw = [i, j, k]
+            end if
+          enddo ; enddo ; enddo
+          if ( cmax <= COS_MAX ) cycle
+          ie = iw
+          write(*,'(A,I0,A,I0,A,I0,A,ES10.3,A)') ' [ERROR] Mesh'//trim(lev)//': block ', b, ' has one cell in direction ', d, &
+            ' and its lines in direction ', e, ' are not orthogonal to it (cos up to ', cmax, ', cell '// &
+            trim(Cell_Text(ie))//'):'
+          write(*,'(A)') ' [ERROR]   the face gradient takes no difference along a direction with one cell, so the heat flux'// &
+            ' of the faces of this block would miss that part'
+          write(*,'(A,I0,A,I0,A)') ' [ERROR]   give block ', b, ' at least 2 cells in direction ', d, &
+            ', or make its direction '//DIRS(d:d)//' orthogonal to the others'
+          bad = .true.
+          exit
+        enddo
+      enddo
+    enddo
+
+  contains
+
+    function Cell_Text ( c3 ) result ( t )
+      integer, intent(in) :: c3(3)
+      character(len=40) :: t
+      write(t,'(I0,1X,I0,1X,I0)') c3
+    end function Cell_Text
+
+  end subroutine Check_Thin_Blocks
+
 
 end module FUSS_Mod_Metrics

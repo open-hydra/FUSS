@@ -20,6 +20,7 @@ The test cases in `test/` run FUSS on problems with analytical or benchmark solu
 | `transient/variable_cp_Plate` | Temperature-dependent heat capacity, exact solution | `verify.py` |
 | `numerics-features/skewed_3D` | Time step of 3-D rhombohedral cells (115°), two materials: the step of every cell against a replica of the formula and the skew factor | `verify.py` |
 | `mesh-checks` | Set-up checks (`run.sh`, `make_case.py` writes the decks): a block one cell thick in k next to a 3-D block (exact linear field), a wedge next to a plane block, a folded cell (2-D, 3-D), a turned ghost layer behind a chimera face and the same mesh with a wall | `run.sh`: exit status, messages, field |
+| `mesh-checks/thin-blocks.sh` | Blocks one cell across (`ThinBlocks`; `make_case.py` thin1, thin1s, thin1j, thin1ws, thin1jws, thin1w, thin1jw): the block across a connection has one cell, or a sheared block has one cell in a direction: set-up stops with exit code 1 and the block named; the orthogonal thin blocks run; with 2 ranks (`MPIExitCodes`) both stop | exit status, messages |
 | `unit/cell_volume_check`, `unit/volatile_order_check` | Cell volume against its exact value (rational arithmetic, `cell_volume_exact.py`); order of rounding of the node differences | unit programs |
 | `numerics-features/chimera` | Chimera (overset) interface | smoke run |
 | `numerics-features/chimera_mg` | Chimera donors on 3 multigrid levels, FAS cycle | smoke run |

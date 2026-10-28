@@ -89,6 +89,10 @@ fuss_add_folder_script(ConnectionSplit numerics-features/connection_split run_sp
 fuss_register(MetricChecks 600 "fast;validation;implementation"
               bash ${CMAKE_CURRENT_SOURCE_DIR}/mesh-checks/run.sh $<TARGET_FILE:${solver}> ${_WORK}/MetricChecks)
 
+# A block one cell across stops the set-up (connection to a block of one cell across its face; one cell in a direction whose
+# lines are not orthogonal to the others), the exact thin blocks run (test/mesh-checks/thin-blocks.sh)
+fuss_add_script(ThinBlocks mesh-checks/thin-blocks.sh 300 "fast;implementation")
+
 # Input checks and stops: the values of input.ini are checked and every error ends the run with exit code 1; input.ini read
 # again during the run (ini-error); the errors of bc.txt, time tables, probes, the initial condition and the registry
 fuss_add_script(InputChecks  input-io/input-checks.sh  300 "fast;implementation")

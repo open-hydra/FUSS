@@ -2,7 +2,7 @@
 # MPIExitCodes: with two ranks every error stop ends the run with exit code 1, the STOP line of both ranks where the
 # decision is collective, and no hang. The errors: an input error found by rank 0 (broadcast), a bc.txt error (every
 # rank reads it), an initial-condition read error on rank 1 only (MPMD: its folder has no ic.tec), a value of rank 1's
-# initial condition that is not finite, the reading of input.ini during the run with ini-error = stop.
+# initial condition that is not finite, the reading of input.ini during the run with ini-error = stop, a thin block next to a connection.
 #   usage: mpi-exit-codes.sh <FUSS binary> <work folder>
 BIN=$(readlink -f "$1"); WORK=$(readlink -m "$2"); source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -59,5 +59,12 @@ base diverge; setkey "$WORK/diverge" vnn 0.7 FUSS-Numerics; setkey "$WORK/diverg
 ( cd "$WORK/diverge" && timeout 120 mpirun -np 2 "$BIN" > run.log 2>&1; echo $? > exit.code )
 c=$(code "$WORK/diverge")
 if [[ $c == 1 ]] && grep -q 'STOP: NaN or T outside the properties table' "$WORK/diverge/run.log"; then case_result diverge 0 "exit 1, STOP line"; else case_result diverge 1 "exit code $c"; fi
+
+# 7. a block one cell across a connection (mesh-checks/make_case.py thin1s, one block per rank): the rank of block 1 finds
+# the connection, the rank of block 2 the sheared thin block; both ranks stop together at the set-up
+rm -rf "$WORK/thin"; mkdir -p "$WORK/thin"; python3 -I "$(dirname "${BASH_SOURCE[0]}")/../mesh-checks/make_case.py" thin1s "$WORK/thin" > /dev/null
+run "$WORK/thin" 2; both thin thin 'block 2 across it has 1 cell\(s\) across its face 1, fewer than the 2'
+grep -q 'block 2 has one cell in direction 1.*not orthogonal' "$WORK/thin/run.log" \
+  && case_result thin-lines 0 "message of the rank of block 2" || case_result thin-lines 1 "no 'not orthogonal' message in $WORK/thin/run.log"
 
 finish

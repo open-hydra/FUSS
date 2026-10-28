@@ -59,6 +59,13 @@ listed here: the pages of `docs/` describe them.
   "needs-mpi|verification"`, a build without MPI and TecIO) and the MPI tier under gfortran + Open MPI (`ctest -L needs-mpi`);
   the labels carry MOSE's second-level tags `physics`, `numerics`, `implementation`, `unit`; the MPI script tests reserve 4
   processors under `ctest -j`. This file.
+- Set-up stop for a block one cell across, on every grid level, before the ghost metrics are built (`Check_Thin_Blocks`,
+  exit code 1 on every rank): a block connection (101) whose block across has fewer than `gc` = 2 cells across its face (as MOSE
+  2e31d8a; a build with bounds checking stopped in `BC_Connect_Metrics` with an index out of bounds, a release build read past
+  the node array and ran on with a wrong metric, or stopped on a cell with zero corner nodes), and a block with one cell in
+  an index direction (not k of a 1-D or 2-D mesh) whose lines are not orthogonal to the other directions (|cos| > 1e-3: the
+  face gradient takes no difference along a direction with one cell, so a sheared block one cell across gave a wrong wall heat
+  flux, 0.16 to 0.30 of k|g|, with no message). Orthogonal thin blocks run as before; no deck of the test suite changes.
 
 ### Changed
 
