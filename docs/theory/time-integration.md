@@ -71,7 +71,7 @@ With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ i
 
 !!! tip "Choosing VNN"
 
-    The default is 0.15. Without IRS stay below the limit of the scheme (0.5 for euler and RK2, 0.628 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 1 with `irs-beta = 0.5` (1.5 did not converge on a test plate); the [admissible-update check](#admissible-updates) stops the run on an overshoot out of the properties table.
+    The default is 0.15. Without IRS stay below the limit of the scheme (0.5 for euler and RK2, 0.628 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 1 with `irs-beta = 0.5`; the [admissible-update check](#admissible-updates) stops the run on an overshoot out of the properties table.
 
 ---
 
@@ -114,7 +114,7 @@ with smoothing parameter $\varepsilon$ specified by `irs-beta` in the input file
 
 ### Effect on stability
 
-The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D, allowing VNN values of 1 or more to be used without instability.
+The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D. This is the estimate behind the decks of the suite that run IRS at VNN = 1; the limit of a given case is not computed, and the admissible-update check below catches an overshoot.
 
 ### Admissible updates
 
