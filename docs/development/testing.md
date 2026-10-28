@@ -36,7 +36,7 @@ Each case directory holds `input.ini`, `MESH/mesh.tec`, `INPUT/` (`ic.tec`, `bc.
 `test/CMakeLists.txt` registers every case; `test/run_case.sh` runs one in a copy under the build tree (`build/test/runs/`), with one thread, so the source tree is never written.
 
 ```bash
-ctest --test-dir build -L fast                        # 21 tests (22 with TecIO), about a minute
+ctest --test-dir build -L fast                        # 22 tests (23 with TecIO), about a minute
 ctest --test-dir build -LE "needs-mpi|verification"   # what the pull-request check runs (.github/workflows/ctest.yml)
 ctest --test-dir build -j 4                           # everything, a few minutes
 ctest --test-dir build -R Qvol -V                     # one test, with its output
@@ -46,7 +46,7 @@ The labels are those of MOSE (`fast`, `validation`, `verification`, `needs-mpi`)
 
 | Label | Tests | What passes |
 |---|---|---|
-| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, `PatchTest`, `ConnectionSplit`, the unit programs `CellVolume` and `VolatileOrder`, and the tests of `test/input-io/` that need no MPI (table below) | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
+| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, `ThinBlocks`, `PatchTest`, `ConnectionSplit`, the unit programs `CellVolume` and `VolatileOrder`, and the tests of `test/input-io/` that need no MPI (table below) | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
 | `validation` | the 10 verification cases (also `convective_Plate`, about two minutes), `ChimeraEdge`, `Skewed3D`, `MetricChecks` and `PatchTest` | same |
 | `verification` | the full forms of verification cases (families of grids, long runs); none yet | run on request, `ctest -L verification`; the pull-request check leaves the label out |
 | `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |

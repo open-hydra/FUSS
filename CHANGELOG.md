@@ -54,7 +54,8 @@ listed here: the pages of `docs/` describe them.
   plus a chimera pair, steady with IRS and time-accurate) and `ChimeraEdge` (parallel); `Skewed3D`, `MetricChecks`,
   `CellVolume` and `VolatileOrder` (metrics); `PatchTest` (linear-field patch test of the conduction fluxes, 8 mesh families
   and the `metric-mean` part) and `ConnectionSplit` (the same mesh as one block and as two blocks joined by a connection)
-  (face metric). 18 tests; the suite had 30 (25 without MPI).
+  (face metric). With `ThinBlocks` and `MPIThreadFunnel` below, 20 new tests: the suite had 30 (25 without MPI) and has 50
+  with MPI and TecIO (49 without TecIO, 39 without MPI, 38 without both).
 - A GitHub workflow `.github/workflows/ctest.yml`, modelled on MOSE's: the pull-request tier under gfortran (`ctest -LE
   "needs-mpi|verification"`, a build without MPI and TecIO) and the MPI tier under gfortran + Open MPI (`ctest -L needs-mpi`);
   the labels carry MOSE's second-level tags `physics`, `numerics`, `implementation`, `unit`; the MPI script tests reserve 4
