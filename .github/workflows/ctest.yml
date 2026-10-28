@@ -67,7 +67,7 @@ jobs:
         run: cmake --build build --parallel $(nproc)
 
       - name: Run tests
-        # The PR tier: the 37 tests of a build without MPI and TecIO (21 fast, 14 validation, 15 smoke, as labelled by
+        # The PR tier: the 38 tests of a build without MPI and TecIO (22 fast, 14 validation, 15 smoke, as labelled by
         # ctest_alignment.patch), minus the full forms of the verification cases (label verification: none registered yet, so
         # the exclusion costs nothing). FUSS has no needs-cantera and needs-sundials. The longest test is ConvectivePlate
         # (about two minutes at one thread; TIMEOUT 1200 in its registration).
