@@ -32,8 +32,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # ifx 2024.1 compiles a loop wrongly at -O2 and -O3 without interprocedural optimization: in the ghost metrics of MOSE (the
   # sister code), a minimal program in standard Fortran (an automatic array of a derived type, bounds from a module variable,
   # filled element by element and passed to a procedure) gives wrong values at -O2 and -O3, also at the default level with no
-  # -O option, and the right ones at -O0, -O1 and with -ipo. FUSS built so (tested 2026-10-28, `-ipo` removed, quick tier of
-  # the stress battery) gives the same bytes as with IPO on its test cases, so no miscompiled loop is known in FUSS; the
+  # -O option, and the right ones at -O0, -O1 and with -ipo. FUSS built so (the RELEASE build of ifx before the
+  # port of this check: its -ipo was dropped by the probe) passes the stress battery, so no miscompiled loop is known in FUSS; the
   # build is refused all the same, as in MOSE, because the pattern is ordinary Fortran. The level is the last -O option of the
   # flags of the build type (-O2, the default of ifx, when there is none); IPO is -ipo in those flags (the RELEASE build adds
   # it with USE_IPO, the default, and drops it when the toolchain cannot do it) or CMAKE_INTERPROCEDURAL_OPTIMIZATION. This

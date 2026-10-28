@@ -71,11 +71,16 @@ listed here: the pages of `docs/` describe them.
   face gradient takes no difference along a direction with one cell, so a sheared block one cell across gave a wrong wall heat
   flux, 0.16 to 0.30 of k|g|, with no message). Orthogonal thin blocks run as before; no deck of the test suite changes.
 - `USE_IPO` (default ON; `install.sh build --no-ipo` gives OFF) switches the interprocedural optimization of the RELEASE
-  build; the `-ipo` probe now links, and with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler, found
-  next to it (`-DIPO_AR` and `-DIPO_RANLIB` give them for another layout; IPO is dropped with a warning when they are not
-  found), as in MOSE. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`. The default
-  build of ifx 2024.1 configures with the same compile lines and gives the same results; the link line carries `-ipo` twice
-  (the flag was in the compile flags, which CMake puts on the link line, and is now in the linker flags too).
+  build, as in MOSE. Before, the `-ipo` of `cmake/SetFortranFlags.cmake` never reached the compile line of ifx: its probe only
+  compiled, and a program of IR objects does not link, so the flag was dropped without a message and the RELEASE build of
+  ifx was `-O3` without IPO. The probe now links, with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler,
+  found next to it (`-DIPO_AR` and `-DIPO_RANLIB` give them for another layout; IPO is dropped with a warning when they are
+  not found), and `-ipo` is on the link flags too. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into
+  `CMakePresets.json`. **The RELEASE build of ifx is therefore a different binary**: results change at round-off (the
+  temperature of the skewed test cases by up to 7e-13 K of ~1e3 K, the patch residuals not at all at the printed digits; the
+  iteration count of `steady-state/skewed_Plate` is 3171 instead of 3152 at the same threshold); the byte gate against the
+  references recorded without IPO shows a difference on the 14 non-affine cases of the quick tier, and `-DUSE_IPO=OFF`
+  (with `-DFUSS_ALLOW_IFX_NOIPO=ON` on ifx 2024.1) gives the former bytes.
 - CMake refuses ifx 2024.1 at `-O2` or above without IPO (RELEASE with `USE_IPO=OFF`, or whose toolchain cannot do IPO, and
   the TESTING build), as MOSE does, with a message: that compiler builds a loop of MOSE's ghost metrics wrongly there. FUSS
   built so gave the same bytes as with IPO on every case of the quick tier of the stress battery (2026-10-28), so no such loop is known in
