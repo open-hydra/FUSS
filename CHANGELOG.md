@@ -74,7 +74,8 @@ listed here: the pages of `docs/` describe them.
   build; the `-ipo` probe now links, and with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler, found
   next to it (`-DIPO_AR` and `-DIPO_RANLIB` give them for another layout; IPO is dropped with a warning when they are not
   found), as in MOSE. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`. The default
-  build of ifx 2024.1 configures with the same compile and link lines and gives the same results.
+  build of ifx 2024.1 configures with the same compile lines and gives the same results; the link line carries `-ipo` twice
+  (the flag was in the compile flags, which CMake puts on the link line, and is now in the linker flags too).
 - CMake refuses ifx 2024.1 at `-O2` or above without IPO (RELEASE with `USE_IPO=OFF`, or whose toolchain cannot do IPO, and
   the TESTING build), as MOSE does, with a message: that compiler builds a loop of MOSE's ghost metrics wrongly there. FUSS
   built so gave the same bytes as with IPO on every case of the quick tier of the stress battery (2026-10-28), so no such loop is known in

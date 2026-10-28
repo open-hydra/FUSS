@@ -64,7 +64,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
                    "metrics of MOSE wrongly (an error of the compiler: a minimal program in standard Fortran gives wrong "
                    "values at -O2 and -O3 and the right ones at -O0, -O1 and with -ipo); no such loop is known in FUSS, "
                    "but the build is refused as in MOSE. Build with IPO (RELEASE with -DUSE_IPO=ON, the default), with -O0 "
-                   "or -O1 (DEBUG), or with gfortran; -DFUSS_ALLOW_IFX_NOIPO=ON accepts this build. See "
+                   "or -O1 (DEBUG), or with gfortran (-DFUSS_ALLOW_IFX_NOIPO=ON accepts this build). See "
                    "docs/getting-started/installation.md, \"ifx 2024.1 and IPO\".")
       if(FUSS_ALLOW_IFX_NOIPO)
         message(WARNING ${_ifx_msg})
