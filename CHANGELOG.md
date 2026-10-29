@@ -289,3 +289,10 @@ listed here: the pages of `docs/` describe them.
   the written flux differed from the applied one by 1e-4 to 1e-3 of the wall total (shear plate 4.1e-4 at N 32, 1.07e-4 at
   N 64, `fuss-stress/stress/B/balance_check.py`), so the energy balance of a converged run did not close. Fields,
   histories and restarts are unchanged to the last bit; `wall.*` changes only at those cells.
+- Tests (CTest): `PatchTest` covers 22 mesh families (it had 8: also cell-size jumps 1 : 2 and fans, 3 and 5 blocks around a
+  point, stretched folded 3-D blocks, every wall type on skewed 3-D cells, connections with a 1 : 4 jump and with reversed or
+  exchanged index axes) and the conservation of the connection fluxes; `VnnStability` (`fast`) checks the stability limits
+  of euler (0.5) and RK3 (0.628) on Cartesian and skewed 3-D cells; the label `verification` gets its first tests,
+  `ConvergenceOrder` (second order of the cell values on random, size-jump and sheared meshes, where `mean` is first order or
+  less) and `MultigridSolution` (FAS W and W + IRS against the single grid). The pull-request check leaves `verification`
+  out; `docs/development/testing.md` describes every test.

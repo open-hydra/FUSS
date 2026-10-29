@@ -21,7 +21,8 @@ plate bc-text;    sed -i '1s/302/303/; 2s/.*/ 750.0, 0.0, abc,/' "$WORK/bc-text/
 plate bc-count;  head -n -2 "$WORK/bc-count/INPUT/bc.txt" > "$WORK/bc-count/INPUT/bc.new"; mv "$WORK/bc-count/INPUT/bc.new" "$WORK/bc-count/INPUT/bc.txt"; go bc-count 'Boundary conditions number'
 plate bc-missing; rm "$WORK/bc-missing/INPUT/bc.txt"; go bc-missing 'Boundary condition file not found'
 # a code that FUSS does not know is read without a data line: its data line is read as the next record, and the stop names it
-plate bc-code;    sed -i '1s/302$/399/' "$WORK/bc-code/INPUT/bc.txt"; go bc-code 'bc.txt line 2 \(record 2\).*record 1 has code 399'
+# (the stop is the line of record 2 under ifx, the record count under gfortran, whose list-directed read of the count fails first)
+plate bc-code;    sed -i '1s/302$/399/' "$WORK/bc-code/INPUT/bc.txt"; go bc-code 'record 1 has code 399, not one of'
 
 # bc.txt: a block number, a face or a cell index outside the block, in the record itself (nominal, 2 blocks of 100 x 10 x 1 cells:
 # line 21 is the header of record 11, a connection of block 1 face 2, line 22 its partner), in the partner of a connection (101),
