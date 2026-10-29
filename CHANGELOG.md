@@ -37,7 +37,7 @@ listed here: the pages of `docs/` describe them.
 - Every field solution stores the counters of the run (the global iteration count `CYCLE`; `FUSS_ITERATION`,
   `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`) as vtk field data or Tecplot data set auxiliary data, and a
   restart reads them back: a run split in two writes the same files as the run in one go, byte for byte, in every format
-  (`.szplt` included), within the limits the guide lists (a FAS run cut inside a cycle is not exactly restartable). A Tecplot
+  (`.szplt` included), within the limits the guide lists. A Tecplot
   ASCII field ends with five `DATASETAUXDATA` records; a script that takes every number after the last zone must stop at them.
   Results of a run do not change; the field files gain those records.
 - The solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written with its number, wall and diagnostic files
@@ -215,6 +215,27 @@ listed here: the pages of `docs/` describe them.
   `IRS:` report every `shell-diter` iterations; no case of the test suite or of the FAS acceptance set used it. The two guards of
   the FAS cycles stay (a prolongated correction that leaves the table, a coarse smoothing update under a forcing: halved or
   dropped, `FAS:` reports); the counter of the halvings is `FAS_HALVINGS` (it was `IRS_HALVINGS`).
+- Under FAS cycles a run that reaches its level-1 budget (`level1-iter`) inside a cycle finishes that cycle and ends on its
+  boundary (up to `pre-iter` + `post-iter` − 1 more fine iterations): it ended after the iteration that reached the budget,
+  before the coarse correction of the cycle, and a restart from that solution started a new cycle, so a run split there did
+  not write the files of the run in one go (fas_v, w, w_irs cut at 100 and 101 of 3-iteration cycles: 4.7e-3 to 2.8 K). Now
+  every split is exact (`Restart`, `fas-inside`). The end by `res-threshold` or `time-threshold` stays immediate and the
+  coarse-level budgets of the FMG descent count per iteration: a run that ends on its residual, every case of the test
+  suite and of the battery, is unchanged to the last bit.
+- `res-threshold` is relative to the residual of the first iteration of the run (of each grid level), as in MOSE (3f3a4d9):
+  a run ends when its residual has fallen by that factor; the default 1e-10 is a fall of ten orders. The residual, the L2 norm
+  over the cells of the temperature change of one iteration, grows with the temperature level and with the square root of the
+  number of cells, so the absolute test ended the same problem at different depths (the first residuals of the battery's
+  decks range from 0.96 to 3573 K). The first residual is stored with every solution, in every format, as `FUSS_RES_REFERENCE`
+  (a sixth `DATASETAUXDATA` record of a Tecplot ASCII field): a restart ends where the run in one go ends; one from a solution
+  without it measures from its own first iteration, with a warning. An input written for the absolute test keeps its stop
+  with `res-threshold` divided by the residual of its first iteration. `res-threshold` is a test of steady runs, as in MOSE: a
+  time-accurate run without time tables ended on it too, it now goes on to `time-threshold` or `iter-threshold`.
+  At unchanged deck values: the 17 battery cases that end on `res-threshold` stop where their residual has fallen by it (1 to
+  43 % fewer iterations in 15, more in `radiative_Rod`, whose first residual is 0.96 K; final fields within 3.3e-3 K of
+  before), every `verify.py` passes, the FAS acceptance set ends 16 to 43 % earlier with no new fallback; the multigrid runs
+  measure from the first residual of level 1, after the prolongation, and end about two orders deeper than the single-grid
+  ones. The V&V pages give the new counts (residual convergence, FAS cycles, the steady cases).
 
 ### Removed
 
@@ -264,3 +285,28 @@ listed here: the pages of `docs/` describe them.
   nodes). The three sizes are now set from the mesh array, as MOSE does: the wall `.vts` files carry the face (1 × 11 × 2,
   1490 bytes on that case); field files, `.vtm`, Tecplot and every other output are byte-identical to before (proof: 3 decks,
   `nominal`, `chimera_mg`, `anisotropic_Plate`, in `vtk raw` with both binaries, 77 files, only the 34 wall `.vts` differ).
+- Input checks of the post-merge verification (consistent with MOSE; none changes a run that ran before):
+  a time table may hold blank lines, also at its end (they stopped the run with "cannot read row 3"); the rows of its messages
+  are the lines that hold a pair and give their line in the file (MOSE 13b7689, 1499d1f). An initial condition or a restart
+  solution with fewer than two variables in a block (T and matID) stops at set-up with the block named: it read matID out of
+  the bounds of its variables (the unreachable check in `Setup_Data_Structure` is removed). Every value of `properties.dat` is
+  checked at load (finite; Cp, Density > 0; Conductivity >= 0), with material, row and column: a NaN, an infinity or a zero Cp
+  in a row that the run reaches stopped one rank at its first iteration with "Integration failed", and in a row that no cell
+  reached went unseen. An error of `bc.txt` after a record whose code is not one of 0, 101-104, 200, 300-305 names that record:
+  such a code is read without a data line (it acts as 0), so a data line written after it is read as the next record, and
+  the stop it caused (a line that is not a record, or a record count that differs) did not name the code. A restart from
+  a solution without a time decides on every rank together (`mpi_stop_if_any`): with one folder per rank, a rank whose file
+  had no time stopped alone and the others hung.
+- The wall output (`wall.*`) gives the wall temperature and heat flux of the residual at the field written: the ghost cells
+  are filled from that field for the output, and what the fill overwrote is put back, so the run does not change with the
+  output cadence. It took the one-sided tangential differences of the ghost fill: at the face edges of non-orthogonal walls
+  the written flux differed from the applied one by 1e-4 to 1e-3 of the wall total (shear plate 4.1e-4 at N 32, 1.07e-4 at
+  N 64, `fuss-stress/stress/B/balance_check.py`), so the energy balance of a converged run did not close. Fields,
+  histories and restarts are unchanged to the last bit; `wall.*` changes only at those cells.
+- Tests (CTest): `PatchTest` covers 22 mesh families (it had 8: also cell-size jumps 1 : 2 and fans, 3 and 5 blocks around a
+  point, stretched folded 3-D blocks, every wall type on skewed 3-D cells, connections with a 1 : 4 jump and with reversed or
+  exchanged index axes) and the conservation of the connection fluxes; `VnnStability` (`fast`) checks the stability limits
+  of euler (0.5) and RK3 (0.628) on Cartesian and skewed 3-D cells; the label `verification` gets its first tests,
+  `ConvergenceOrder` (second order of the cell values on random, size-jump and sheared meshes, where `mean` is first order or
+  less) and `MultigridSolution` (FAS W and W + IRS against the single grid). The pull-request check leaves `verification`
+  out; `docs/development/testing.md` describes every test.

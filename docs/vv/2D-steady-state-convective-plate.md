@@ -46,7 +46,7 @@ where $h = 750$ W/m²°C and $T_\infty = 0$ °C.
 | Steady-state convergence | time-accurate = false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ (reached at iteration 27 705) |
+| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 21 838) |
 | Initial condition | 373.15 K |
 
 ## Grid structure

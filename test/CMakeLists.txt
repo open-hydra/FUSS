@@ -3,7 +3,8 @@
 # Tiers are expressed through LABELS, as in MOSE (test/TESTING-PLAN.md of MOSE):
 #   fast          under a minute each (the tier in about a minute at -j4): the selector of the pre-push check, ctest -L fast
 #   validation    comparison with an analytic or reference solution (also the cases of the fast tier that have one)
-#   verification  full forms of verification cases (families of grids, long runs); none yet; run on request, ctest -L verification
+#   verification  full forms of verification cases (families of grids, long runs): ConvergenceOrder, MultigridSolution; run on
+#                 request, ctest -L verification
 #   smoke         cases without a verifier, 300 iterations: the run must end cleanly (FUSS only; MOSE has none)
 #   needs-mpi     registered only with USE_MPI=ON: 2 ranks, or ranks x threads layouts, must give the same output files
 # Second-level tags, as MOSE's: physics (a model or a boundary condition against its solution), numerics (a property of the
@@ -75,10 +76,26 @@ fuss_add_test(Skewed3D           numerics-features/skewed_3D      300 "fast;vali
 fuss_register(ChimeraEdge 300 "fast;validation;numerics"
               bash ${CMAKE_CURRENT_SOURCE_DIR}/mpi/bit-identity/chimera_edge.sh $<TARGET_FILE:${solver}> ${_WORK}/ChimeraEdge)
 
-# Linear-field patch test of the diffusive fluxes (stencil metric exact on non-smooth meshes, 8 families, and the
-# metric-mean part), and the same mesh as one block and as two blocks joined by a connection (one flux per face)
+# Linear-field patch test of the diffusive fluxes (stencil metric exact on non-smooth meshes, 22 families, the metric-mean
+# part, and the conservation of the connection fluxes), and the same mesh as one block and as two blocks joined by a
+# connection (one flux per face)
 fuss_add_folder_script(PatchTest       numerics-features/patch_test       run_patch.sh 300 "fast;validation;numerics")
 fuss_add_folder_script(ConnectionSplit numerics-features/connection_split run_split.sh 300 "fast;numerics")
+
+# Stability limit of the time step (vnn 0.5 for euler, 0.628 for RK3, with the skew factor on rhombohedral cells): a noisy
+# constant field on Cartesian and skewed 16^3 boxes stays bounded for 500 iterations just under the limits and stops just over
+# them (test/numerics-features/vnn_stability; its decks come from the generator of test/verification/convergence-order)
+fuss_add_script(VnnStability numerics-features/vnn_stability/run.sh 300 "fast;numerics")
+
+# ===========================================================================
+#  Verification tier: families of grids, run on request (ctest -L verification)
+# ===========================================================================
+# Observed order of the discretisation on meshes that are not smooth (pois2 and harm2 on rand, jump, shear at N = 16, 32, 64:
+# p(L2) >= 1.8, p(Linf) >= 1.6 on the finest pair), and the FAS W and W + IRS solution against the single-grid one
+# (<= 1e-6 K) (test/verification/convergence-order/run.sh)
+fuss_add_script(ConvergenceOrder  verification/convergence-order/run.sh 1800 "verification;numerics" order)
+fuss_add_script(MultigridSolution verification/convergence-order/run.sh  900 "verification;numerics" fas)
+set_tests_properties(ConvergenceOrder PROPERTIES PROCESSORS 6)   # its six cases run in parallel
 
 # ===========================================================================
 #  Set-up checks, inputs, stops, restart (fast, implementation)

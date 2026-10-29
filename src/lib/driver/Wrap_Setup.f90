@@ -22,7 +22,7 @@ contains
     use FUSS_IO_Probes,            only: Setup_Probes, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
     use FUSS_IO_Wall,              only: Initialize_Wall_File, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_bcast_logical
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_stop_if_any, mpi_bcast_logical
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
@@ -65,17 +65,13 @@ contains
     call Check_IC ()
     ! A restart goes on from the time of the solution it reads: the physical time of a time-accurate solution, minus the
     ! global iteration count of a steady one. A solution that holds no time (a vtk file without TIME, a Tecplot ASCII
-    ! file without SOLUTIONTIME) cannot tell where to go on: stop
-    if ( .not. obj_sim_param%newrun .and. .not. obj_io%restart%time_found ) then
-      if (mpi_is_root) then
-        write(*,'(A)') ' [ERROR] Restart from '//trim(obj_io%nameinit)//': the solution holds no time '// &
-                       '(vtk TIME, Tecplot SOLUTIONTIME), and a restart goes on from the time of its solution.'
-        write(*,'(A)') ' [ERROR]   To start from this solution, use it as the initial condition: '// &
-                       'INPUT/ic.* with newrun = true.'
-      end if
-      ! Every rank has read the solution and found no time: the ranks stop together, once rank 0 has written the message
-      call mpi_stop_all ( 'restart from a solution without a time (see above)' )
-    end if
+    ! file without SOLUTIONTIME) cannot tell where to go on: stop. Each rank reads the solution itself (with one folder
+    ! per rank, its own file), so the ranks decide together: the first rank that found no time writes the message
+    call mpi_stop_if_any ( .not. obj_sim_param%newrun .and. .not. obj_io%restart%time_found, &
+      'restart from a solution without a time (see above)', &
+      ' [ERROR] Restart from '//trim(obj_io%nameinit)//': the solution holds no time (vtk TIME, Tecplot SOLUTIONTIME), '// &
+      'and a restart goes on from the time of its solution. To start from this solution, use it as the initial '// &
+      'condition: INPUT/ic.* with newrun = true.' )
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
@@ -223,6 +219,9 @@ contains
           simulation%domain(1)%iter    = obj_io%restart%iteration
           obj_sim_param%time_from_call = obj_io%restart%last_output_time
           obj_io%output_number         = obj_io%restart%output_number
+          ! The unit of res-threshold, when the solution holds it: the first iteration of the restart keeps it
+          obj_sim_param%res_reference  = obj_io%restart%res_reference
+          obj_sim_param%res_restored   = obj_io%restart%res_found
           ! A run that went on past the solution read left in residual-history.dat and in the probe files the rows of
           ! the iterations after it, which the restart writes again: drop them
           if (mpi_is_root) then
@@ -234,6 +233,11 @@ contains
           endif
           call Drop_Probe_Rows ( obj_io%restart%cycle, simulation%domain(1)%time )
         endif
+        ! Without it (a solution written before it was stored, or a time-accurate one), a steady restart takes the
+        ! residual of its own first iteration, as a new run (as MOSE)
+        if ( .not. ( obj_sim_param%newrun .or. obj_time_scheme%time_accurate .or. obj_sim_param%res_restored ) ) &
+          obj_io%warning_message = '[WARNING] The restart solution holds no residual reference of a steady run: '// &
+            'res-threshold is relative to the residual of the first iteration of the restart.'
         ! Time-based probe rows fall on the multiples of their dtime: a restart that goes on in time writes the next one
         ! not reached yet; a new transient starts from the first, as a new run
         if ( .not. obj_sim_param%newrun ) &

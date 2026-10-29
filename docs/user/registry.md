@@ -6,7 +6,7 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | newrun | true | true , false |  no | Start a new simulation (false = restart) |
-| res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold |
+| res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold, relative to the residual of the first iteration (steady runs only) |
 | time-threshold | 1e30 | > 0 |  no | Maximum simulation time |
 | iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations (re-read at runtime); with more than one multigrid level each level stops at its level<m>-iter instead |
 

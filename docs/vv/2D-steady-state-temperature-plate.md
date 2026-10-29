@@ -40,7 +40,7 @@ $$\frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} = 0$$
 | Steady-state convergence | time-accurate = false |
 | Integration variables | conservative |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ |
+| Residual threshold | 1 × 10⁻⁸ of the first residual |
 
 ## Grid structure
 
@@ -73,9 +73,9 @@ The target point A is located at (x = 0.2 m, y = 0.2 m) inside the domain. Since
 
 | Location | NAFEMS | FUSS (interpolated) | Error |
 |---|---|---|---|
-| A (x = 0.2 m, y = 0.2 m) | 260.50 °C | 260.51 °C | 0.0018 % |
+| A (x = 0.2 m, y = 0.2 m) | 260.50 °C | 260.51 °C | 0.0017 % |
 
-The interpolated temperature at point A differs from the NAFEMS reference by 0.009 K (0.0018 % of the reference in K; the acceptance criterion is 1 %). The run starts from 273.15 K and converges in 4 894 iterations.
+The interpolated temperature at point A differs from the NAFEMS reference by 0.009 K (0.0017 % of the reference in K; the acceptance criterion is 1 %). The run starts from 273.15 K and converges in 3 051 iterations.
 
 ```bash
 cd test/steady-state/temperature_Plate

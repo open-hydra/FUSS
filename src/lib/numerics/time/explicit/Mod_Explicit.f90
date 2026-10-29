@@ -17,7 +17,6 @@ contains
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
     use FUSS_Mod_Diagnostic, only: Compute_Residual
-    use FUSS_IO_BC,          only: has_tdep_bc
     use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8_array, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
@@ -114,6 +113,12 @@ contains
         obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
       endif
       deallocate ( res_block )
+      ! The unit of res-threshold: the residual of the first iteration of the run (of the grid level), or that of the
+      ! uninterrupted run, read with the restart solution (Wrap_Setup)
+      if ( obj_sim_param%iter_from_call == 1 ) then
+        if ( mpi_is_root .and. .not. obj_sim_param%res_restored ) obj_sim_param%res_reference = obj_sim_param%residuotot
+        obj_sim_param%res_restored = .false.
+      endif
     endif
     
     ! Determine simulation control flags on root, then broadcast to all ranks.
@@ -121,8 +126,11 @@ contains
     if (mpi_is_root) then
       endsim = .false.
       endmg  = .false.
-      ! With time tables a time-accurate run goes on to time-threshold even when T stops changing
-      converged = ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) .and. .not. (advance .and. has_tdep_bc)
+      ! res-threshold is a convergence test of steady runs, as in MOSE: the change per iteration does not end a
+      ! time-accurate run, which goes on to time-threshold or iter-threshold. A steady run ends when its residual has
+      ! fallen by res-threshold from the first iteration (of the grid level)
+      converged = ( .not. advance ) .and. &
+                  ( obj_sim_param%residuotot <= obj_sim_param%res_threshold * obj_sim_param%res_reference )
       if (level == 1) then
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
             .or. converged &
@@ -138,6 +146,11 @@ contains
 
       if ( endsim ) then
         obj_sim_param%TODO = 3
+        ! Under FAS cycles the end of the budget of level 1 alone (level1-iter) is acted on at the end of the cycle that
+        ! reaches it (FAS_Solve turns 4 into 3): a solution written inside a cycle, before its coarse correction, is not
+        ! where a restart goes on, which starts a new cycle. The end by res-threshold or time-threshold stays immediate
+        if ( level == 1 .and. trim(obj_multigrid%cycle) /= 'none' .and. .not. converged .and. &
+             .not. ( domain(1) % time >= obj_sim_param%time_threshold ) ) obj_sim_param%TODO = 4
       elseif ( iosim .or. endmg ) then
         obj_sim_param%TODO = 2
         if (endmg .and. obj_multigrid%MGL > 1) then

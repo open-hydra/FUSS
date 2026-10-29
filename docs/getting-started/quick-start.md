@@ -123,7 +123,7 @@ T = 273.15
 | Key | Meaning here |
 |-----|--------------|
 | `newrun = true` | Start from `INPUT/ic.tec` (`false` restarts from `OUTPUT/field.tec`) |
-| `res-threshold = 1e-8` | Stop when the residual (L2 norm over all cells of the temperature change of one iteration, K) falls below $10^{-8}$ |
+| `res-threshold = 1e-8` | Stop when the residual (L2 norm over all cells of the temperature change of one iteration, K) has fallen to $10^{-8}$ times its value at the first iteration |
 | `time-accurate = false` | Steady run: local time step in each cell |
 | `time-scheme = RK3`, `vnn = 1.0` | SSP RK3; `vnn` above the explicit limit (0.628 for RK3), allowed here by IRS |
 | `irs-beta = 0.5` | Implicit residual smoothing |
@@ -154,7 +154,7 @@ cd test/steady-state/temperature_Plate
 
 `./FUSS.sh compile` runs `install.sh compile` in the repository and copies the new `bin/FUSS`. Running with several threads or ranks needs a build with OpenMP or MPI; see [Parallel Execution](../user/parallel.md).
 
-The run takes 4894 iterations, under a minute on one thread.
+The run takes 3051 iterations, a few seconds on one thread.
 
 ---
 
@@ -218,8 +218,7 @@ FUSS | Iter =        1 | Global iter =        1 | Energy  residual = 0.357298E+0
 FUSS | Iter =     1000 | Global iter =     1000 | Energy  residual = 0.320304E+00
 FUSS | Iter =     2000 | Global iter =     2000 | Energy  residual = 0.378109E-02
 FUSS | Iter =     3000 | Global iter =     3000 | Energy  residual = 0.446604E-04
-FUSS | Iter =     4000 | Global iter =     4000 | Energy  residual = 0.527508E-06
-FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-08
+FUSS | Iter =     3051 | Global iter =     3051 | Energy  residual = 0.356132E-04
 ```
 
 The run ends with a timing summary (iterations, solver time, time per iteration, elapsed time).

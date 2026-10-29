@@ -9,10 +9,12 @@ contains
 
   !> One FAS cycle rooted at the running level (grid sequencing keeps handing finer roots: FMG).
   !> The root level's smoothing iterations are normal reported iterations; every coarser visit is
-  !> silent (inner). The cycle stops early when the root declares the end of the run or of the level.
+  !> silent (inner). The cycle stops early when the root declares the end of the run or of the level,
+  !> except the end of the budget of level 1 (TODO = 4, Explicit_Step), which ends the run at the end
+  !> of the cycle: the run then always stops on a cycle boundary, where a restart goes on exactly.
   subroutine FAS_Solve ( simulation, External_Function )
     use FUSS_Advanced_Types_m, only: FUSS_simulation_type
-    use FUSS_Config_Types_m,   only: obj_multigrid
+    use FUSS_Config_Types_m,   only: obj_multigrid, obj_sim_param
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     external :: External_Function
@@ -22,6 +24,7 @@ contains
     top = obj_multigrid%MG_level
     call FAS_Level ( simulation, External_Function, top, top )
     obj_multigrid%MG_level = top   ! the postprocess works on the root level
+    if (obj_sim_param%TODO == 4) obj_sim_param%TODO = 3   ! the budget of level 1 ran out in this cycle
 
   end subroutine FAS_Solve
 

@@ -1,6 +1,6 @@
 # Verification & Validation
 
-The test cases compare FUSS with analytical solutions and benchmark values, and measure the effect of the numerical features on convergence and parallel speed. The numbers on these pages are measurements of FUSS: the verification errors and iteration counts of the single-case pages were checked against the runs of the test suite at the sync of October 2026 (`chimera-mpi` af13cab), and the iteration counts and the iteration figures of the [residual convergence](residual-convergence.md) and [FAS cycles](fas-cycles.md) pages were re-measured at the end of the sync with its final binary (`verify/sync-2026-10` a616ef8, `USE_IPO` on). The wall times of those two pages (marked †), their wall-time figure and the timings of [Parallel Scaling](parallel-scaling.md) come from earlier runs: wall times need an idle node, and the pages mark them *to be re-measured*.
+The test cases compare FUSS with analytical solutions and benchmark values, and measure the effect of the numerical features on convergence and parallel speed. The numbers on these pages are measurements of FUSS: the verification errors and iteration counts of the seven steady single-case pages, the iteration counts and figures of the [residual convergence](residual-convergence.md) and [FAS cycles](fas-cycles.md) pages and the wall times of the FAS cycles page (marked ‡, a loaded node) were re-measured on 2026-10-29 with the binary of the post-merge branch (`post-merge/sync-followups` 0377da4, ifx 2024.1 with IPO), after `res-threshold` became relative to the first residual of the grid level; the three transient pages keep the check of the sync of October 2026 (`chimera-mpi` af13cab): a time-accurate run does not end on `res-threshold`. The timings of [Parallel Scaling](parallel-scaling.md) come from earlier runs: they need an idle node, and the page marks them *to be re-measured*.
 
 ## Test suite
 
@@ -8,9 +8,9 @@ The test cases compare FUSS with analytical solutions and benchmark values, and 
 |---|---|---|---|---|---|
 | [Radiative Rod](1D-steady-state-radiative-rod.md) | 1D | Steady | Conduction + radiation (BC 304) | Free-end temperature, 927 K | NAFEMS T9 (iii) |
 | [Convective Rod with Imposed Flux](1D-steady-state-convective-qrad-rod.md) | 1D | Steady | Convection + prescribed flux (BC 303) | Closed-form linear solution | Internal |
-| [Multilayer Slab](1D-steady-state-multilayer-slab.md) | 1D | Steady | Three materials in series inside one block, unequal cells | Piecewise-linear exact solution, to round-off | Internal |
+| [Multilayer Slab](1D-steady-state-multilayer-slab.md) | 1D | Steady | Three materials in series inside one block, unequal cells | Piecewise-linear exact solution, to the convergence tolerance (1.3 × 10⁻⁷ K) | Internal |
 | [Oscillating Rod](1D-transient-oscillating-rod.md) | 1D | Transient | Oscillating wall temperature | Peak temperature rise at x = 0.09 m, 94.69 K | NAFEMS T5 |
-| [Skewed Plate](2D-steady-state-skewed-plate.md) | 2D | Steady | Walls 301, 302, 303, 305 on a 45° sheared mesh | Linear patch test, exact to round-off | Internal |
+| [Skewed Plate](2D-steady-state-skewed-plate.md) | 2D | Steady | Walls 301, 302, 303, 305 on a 45° sheared mesh | Linear patch test, exact to the convergence tolerance (5.6 × 10⁻⁹ K) | Internal |
 | [Temperature Plate](2D-steady-state-temperature-plate.md) | 2D | Steady | Prescribed temperatures | Temperature at one point, 260.5 °C | NAFEMS T9 (i) |
 | [Volumetric Heat Plate](2D-steady-state-qvol-plate.md) | 2D | Steady | Volumetric heat source | Temperature at one point, 310.1 °C | NAFEMS T9 (ii) |
 | [Convective Plate](2D-steady-state-convective-plate.md) | 2D | Steady | Prescribed temperature, convection, insulated edge | Temperature at point E, 18.25 °C | NAFEMS T4 |
