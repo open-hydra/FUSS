@@ -138,6 +138,11 @@ contains
 
       if ( endsim ) then
         obj_sim_param%TODO = 3
+        ! Under FAS cycles the end of the budget of level 1 alone (level1-iter) is acted on at the end of the cycle that
+        ! reaches it (FAS_Solve turns 4 into 3): a solution written inside a cycle, before its coarse correction, is not
+        ! where a restart goes on, which starts a new cycle. The end by res-threshold or time-threshold stays immediate
+        if ( level == 1 .and. trim(obj_multigrid%cycle) /= 'none' .and. .not. converged .and. &
+             .not. ( domain(1) % time >= obj_sim_param%time_threshold ) ) obj_sim_param%TODO = 4
       elseif ( iosim .or. endmg ) then
         obj_sim_param%TODO = 2
         if (endmg .and. obj_multigrid%MGL > 1) then

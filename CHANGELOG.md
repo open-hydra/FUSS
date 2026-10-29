@@ -37,7 +37,7 @@ listed here: the pages of `docs/` describe them.
 - Every field solution stores the counters of the run (the global iteration count `CYCLE`; `FUSS_ITERATION`,
   `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`) as vtk field data or Tecplot data set auxiliary data, and a
   restart reads them back: a run split in two writes the same files as the run in one go, byte for byte, in every format
-  (`.szplt` included), within the limits the guide lists (a FAS run cut inside a cycle is not exactly restartable). A Tecplot
+  (`.szplt` included), within the limits the guide lists. A Tecplot
   ASCII field ends with five `DATASETAUXDATA` records; a script that takes every number after the last zone must stop at them.
   Results of a run do not change; the field files gain those records.
 - The solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written with its number, wall and diagnostic files
@@ -215,6 +215,13 @@ listed here: the pages of `docs/` describe them.
   `IRS:` report every `shell-diter` iterations; no case of the test suite or of the FAS acceptance set used it. The two guards of
   the FAS cycles stay (a prolongated correction that leaves the table, a coarse smoothing update under a forcing: halved or
   dropped, `FAS:` reports); the counter of the halvings is `FAS_HALVINGS` (it was `IRS_HALVINGS`).
+- Under FAS cycles a run that reaches its level-1 budget (`level1-iter`) inside a cycle finishes that cycle and ends on its
+  boundary (up to `pre-iter` + `post-iter` − 1 more fine iterations): it ended after the iteration that reached the budget,
+  before the coarse correction of the cycle, and a restart from that solution started a new cycle, so a run split there did
+  not write the files of the run in one go (fas_v, w, w_irs cut at 100 and 101 of 3-iteration cycles: 4.7e-3 to 2.8 K). Now
+  every split is exact (`Restart`, `fas-inside`). The end by `res-threshold` or `time-threshold` stays immediate and the
+  coarse-level budgets of the FMG descent count per iteration: a run that ends on its residual, every case of the test
+  suite and of the battery, is unchanged to the last bit.
 
 ### Removed
 

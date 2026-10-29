@@ -15,13 +15,14 @@ iters() {  # iters <dir> <n>: the iteration budget of the run (level 1 with mult
 }
 fmt() { setkey "$1" sol-format "$2" FUSS-IO; }
 
-# split <name> <case> <sol-format> <N> [extra edits as 'key value section' triples applied to every run]
+# split <name> <case> <sol-format> <N> [extra edits as 'key value section' triples applied to every run]; SPLIT_A=<n> gives
+# A a budget other than 2N
 split() {
   local n=$1 c=$2 f=$3 N=$4 a="$WORK/$1-A" b="$WORK/$1-B"; shift 4
   prep "$c" "$a"; prep "$c" "$b"
   for d in "$a" "$b"; do setkey "$d" res-threshold 1e-30; fmt "$d" "$f"; done
   while [[ $# -gt 0 ]]; do setkey "$a" "$1" "$2" "$3"; setkey "$b" "$1" "$2" "$3"; shift 3; done
-  iters "$a" $((2*N)); run "$a"
+  iters "$a" "${SPLIT_A:-$((2*N))}"; run "$a"
   iters "$b" "$N"; run "$b"; setkey "$b" newrun false; run "$b"
   if [[ $(code "$a") != 0 || $(code "$b") != 0 ]]; then case_result "$n" 1 "exit A $(code "$a") B $(code "$b")"; return; fi
   local nd; nd=$(ndiff "$a" "$b")
@@ -46,9 +47,12 @@ if [[ $GROUP == core || $GROUP == all ]]; then
   split nominal-tecplot     $R/nominal "tecplot ascii" 200
   # multigrid: the restart goes on at level 1 (FUSS_GRID_LEVEL), not from the coarsest level
   split mg-vtk-raw          $R/mg_irs  "vtk raw" 200 level2-iter 300 FUSS-Multigrid
-  # FAS cycles: no coarse state between cycles. A run cut by its iteration budget inside a cycle restarts from the cut
-  # state, not from the cycle: the split is on a cycle boundary (a cycle takes 3 iterations here)
+  # FAS cycles: no coarse state between cycles (a cycle takes 3 iterations here). A split on a cycle boundary; a budget
+  # that ends inside a cycle (100 = 33 cycles + 1) ends the run at the end of that cycle (102), so the restart goes on from
+  # a cycle boundary: 100 + 100 (or 101 + 101) end at 204, as one run with a budget of 204
   split fas-vtk-raw         $R/fas_w   "vtk raw" 99
+  SPLIT_A=204 split fas-inside-vtk-raw $R/fas_w "vtk raw" 100
+  SPLIT_A=204 split fas-inside-tecplot $R/fas_v "tecplot ascii" 101
   # time-based probes and outputs (sol-dtime), time-accurate: the split at half the time threshold
   split_time probes-vtk-raw transient/oscillating_Rod "vtk raw" 160
   # numbered solutions: the number goes on, no doubled rows (the split on 22, between the outputs at 20 and 25)
