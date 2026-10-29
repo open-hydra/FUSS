@@ -146,11 +146,18 @@ contains
 
   !> Compute wall BC properties on all ranks (local blocks only), reduce to root,
   !> and fill IOwall on root. Collective — all ranks must call.
+  !> The wall temperature and heat flux are those of the residual (BC_Wall: Wall_Temperature with ghosts = .true.) at
+  !> the field written. The ghost cells hold the input of the last stage of the step (Fill_Ghost_Cell runs before the
+  !> fluxes of every stage), not that field: they are filled from it here, and what the fill overwrote (the ghost cells
+  !> of every block this rank holds, chimera donor copies included, and the Tg, matIDg of the records) is put back
+  !> after, so that the run does not depend on the output: Compute_dt of the next step reads the ghost cells of the
+  !> connections before its first fill (boundary_k in Mod_dt).
   subroutine Extract_Properties_From_BC ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: mpi_is_root, is_local_block, mpi_reduce_sum_r8_array
     use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
+    use FUSS_Lib_Ghost, only: Fill_Ghost_Cell
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -158,8 +165,29 @@ contains
     integer :: f, lower, upper, i, b, bb, Bm, Im, Jm, Km, Fm, Is, Js, Ks
     integer :: n_wall_total, wall_i, lv
     real(R8), allocatable :: wall_buf(:)
+    type :: kept_block_t
+      real(R8), allocatable :: T(:,:,:), matID(:,:,:)
+    end type kept_block_t
+    type(kept_block_t), allocatable :: kept(:)
+    real(R8), allocatable :: kept_Tg(:,:), kept_matIDg(:)
 
     lv = domain%mg_level
+
+    ! The state that the ghost fill overwrites, then the fill from the field written (collective: exchanges between the
+    ! ranks)
+    allocate ( kept(domain%nb) )
+    do b = 1, domain%nb
+      if (allocated(domain%blk(b)%T))     kept(b)%T     = domain%blk(b)%T
+      if (allocated(domain%blk(b)%matID)) kept(b)%matID = domain%blk(b)%matID
+    end do
+    allocate ( kept_Tg(6, domain%nbound), kept_matIDg(domain%nbound) )
+    do i = 1, domain%nbound
+      kept_Tg(:,i)   = domain%bc(i)%Tg
+      kept_matIDg(i) = domain%bc(i)%matIDg
+    end do
+    !$omp parallel
+    call Fill_Ghost_Cell ( domain )
+    !$omp end parallel
 
     ! Count total BC cells across all viscous faces
     n_wall_total = 0
@@ -191,20 +219,26 @@ contains
           Fm = domain % bc(i) % f
           Ovar = 0d0
           if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) then
-            ! Time tables at the output time (the ghost fill leaves the last stage time)
-            if (domain % bc(i) % BCtime % exists) then
-              if (domain % bc(i) % type == 301) domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
-              if (domain % bc(i) % type == 302) domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
-            endif
-            ! ghosts=.false.: interior values only, current at any point of the step (the ghosts
-            ! hold the last stage); one-sided tangential differences at the face edges
-            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .false., Ovar(1), Ovar(2) )
+            ! As the residual: ghosts = .true., the ghost cells just filled from this field (above); the fill also set
+            ! the values of the time tables at the output time (Ghost_Wall)
+            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .true., Ovar(1), Ovar(2) )
           endif
           wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
         enddo
 
       enddo ! face
     enddo ! block
+
+    ! The state of the run back, as it was before the fill above
+    do b = 1, domain%nb
+      if (allocated(kept(b)%T))     domain%blk(b)%T     = kept(b)%T
+      if (allocated(kept(b)%matID)) domain%blk(b)%matID = kept(b)%matID
+    end do
+    do i = 1, domain%nbound
+      domain%bc(i)%Tg     = kept_Tg(:,i)
+      domain%bc(i)%matIDg = kept_matIDg(i)
+    end do
+    deallocate ( kept, kept_Tg, kept_matIDg )
 
     ! Reduce wall_buf to root. Each cell is owned by exactly one rank, so SUM gives
     ! correct values.

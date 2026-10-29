@@ -283,3 +283,9 @@ listed here: the pages of `docs/` describe them.
   the stop it caused (a line that is not a record, or a record count that differs) did not name the code. A restart from
   a solution without a time decides on every rank together (`mpi_stop_if_any`): with one folder per rank, a rank whose file
   had no time stopped alone and the others hung.
+- The wall output (`wall.*`) gives the wall temperature and heat flux of the residual at the field written: the ghost cells
+  are filled from that field for the output, and what the fill overwrote is put back, so the run does not change with the
+  output cadence. It took the one-sided tangential differences of the ghost fill: at the face edges of non-orthogonal walls
+  the written flux differed from the applied one by 1e-4 to 1e-3 of the wall total (shear plate 4.1e-4 at N 32, 1.07e-4 at
+  N 64, `fuss-stress/stress/B/balance_check.py`), so the energy balance of a converged run did not close. Fields,
+  histories and restarts are unchanged to the last bit; `wall.*` changes only at those cells.
