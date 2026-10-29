@@ -264,3 +264,15 @@ listed here: the pages of `docs/` describe them.
   nodes). The three sizes are now set from the mesh array, as MOSE does: the wall `.vts` files carry the face (1 × 11 × 2,
   1490 bytes on that case); field files, `.vtm`, Tecplot and every other output are byte-identical to before (proof: 3 decks,
   `nominal`, `chimera_mg`, `anisotropic_Plate`, in `vtk raw` with both binaries, 77 files, only the 34 wall `.vts` differ).
+- Input checks of the post-merge verification (consistent with MOSE; none changes a run that ran before):
+  a time table may hold blank lines, also at its end (they stopped the run with "cannot read row 3"); the rows of its messages
+  are the lines that hold a pair and give their line in the file (MOSE 13b7689, 1499d1f). An initial condition or a restart
+  solution with fewer than two variables in a block (T and matID) stops at set-up with the block named: it read matID out of
+  the bounds of its variables (the unreachable check in `Setup_Data_Structure` is removed). Every value of `properties.dat` is
+  checked at load (finite; Cp, Density > 0; Conductivity >= 0), with material, row and column: a NaN, an infinity or a zero Cp
+  in a row that the run reaches stopped one rank at its first iteration with "Integration failed", and in a row that no cell
+  reached went unseen. An error of `bc.txt` after a record whose code is not one of 0, 101-104, 200, 300-305 names that record:
+  such a code is read without a data line (it acts as 0), so a data line written after it is read as the next record, and
+  the stop it caused (a line that is not a record, or a record count that differs) did not name the code. A restart from
+  a solution without a time decides on every rank together (`mpi_stop_if_any`): with one folder per rank, a rank whose file
+  had no time stopped alone and the others hung.

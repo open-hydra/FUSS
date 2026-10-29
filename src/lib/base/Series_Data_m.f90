@@ -25,22 +25,25 @@ contains
     class(time_series_type), intent(inout) :: self
     character(len=*), intent(in)     :: file
     character(len=256)               :: line
-    integer :: ios, i
+    integer :: ios, i, nl
     integer :: UnitFree
 
     self%exists = .true.
-    self%n = -1
+    self%n = 0
     open(newunit=UnitFree, file = trim(file), status = 'OLD', action = 'READ', form = 'FORMATTED', iostat=ios)
     if (ios /= 0) then
       write(*,'(A)') ' [ERROR] time table "'//trim(file)//'" not found'
       call mpi_stop_all('time table not found')
     endif
-    do while (ios==0)
+    ! One (time, value) pair per line, the rows of the table; blank lines and the 'periodic' line are not rows (as MOSE).
+    ! The list-directed reads below skip the blank lines
+    do
       read(UnitFree,'(A)',iostat=ios) line
-      self%n = self%n+1
+      if (ios /= 0) exit
       if (index(line, 'periodic') > 0) then
         self%periodic = .true.
-        self%n = self%n -1 ! Do not count this one
+      elseif (len_trim(line) > 0) then
+        self%n = self%n + 1
       endif
     enddo
     rewind(UnitFree)
@@ -54,23 +57,49 @@ contains
     do i = 1, self%n
       read(UnitFree,*,iostat=ios) self%time(i), self%var(i)
       if (ios /= 0) then
-        write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": cannot read row ', i
+        nl = Line_Of_Pair(i)
+        write(*,'(A,I0,A,I0,A)') ' [ERROR] time table "'//trim(file)//'": cannot read row ', i, ' (line ', nl, ')'
         call mpi_stop_all('bad time table row')
       endif
       ! Every time and every value is finite. A NaN passes every comparison as false: the check of the times below lets a NaN
       ! time through. Not_Finite reads the bits, with no such operation
       if (Not_Finite(self%time(i)) .or. Not_Finite(self%var(i))) then
-        write(*,'(A,I0,A)') ' [ERROR] time table "'//trim(file)//'", row ', i, ': a value that is not finite (NaN or infinity)'
+        nl = Line_Of_Pair(i)
+        write(*,'(A,I0,A,I0,A)') ' [ERROR] time table "'//trim(file)//'", row ', i, ' (line ', nl, &
+          '): a value that is not finite (NaN or infinity)'
         call mpi_stop_all('time table value not finite')
       endif
       if (i > 1) then
         if (self%time(i) <= self%time(i-1)) then
-          write(*,'(A,I0)') ' [ERROR] time table "'//trim(file)//'": times must increase, row ', i
+          nl = Line_Of_Pair(i)
+          write(*,'(A,I0,A,I0,A)') ' [ERROR] time table "'//trim(file)//'": times must increase, row ', i, ' (line ', nl, ')'
           call mpi_stop_all('non-increasing time table')
         endif
       endif
     enddo
     close(UnitFree)
+
+  contains
+
+    !> The line of the file that holds row k: the rows are the lines that are not blank and hold no 'periodic', as
+    !> counted above (MOSE's Line_Of_Pair). For the messages of a stop only: it rewinds the file
+    integer function Line_Of_Pair ( k )
+      integer, intent(in) :: k
+      integer :: npair, ios_
+
+      rewind(UnitFree)
+      Line_Of_Pair = 0
+      npair = 0
+      do
+        read(UnitFree,'(A)',iostat=ios_) line
+        if (ios_ /= 0) exit
+        Line_Of_Pair = Line_Of_Pair + 1
+        if (index(line, 'periodic') > 0 .or. len_trim(line) == 0) cycle
+        npair = npair + 1
+        if (npair == k) return
+      enddo
+
+    end function Line_Of_Pair
 
   end subroutine initialize
 

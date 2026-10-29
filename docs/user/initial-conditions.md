@@ -18,7 +18,7 @@ A restart replaces `ic.*` by the last solution (see [Restart](#restart)).
 The extension follows `ic-format` in `[FUSS-IO]`: `ic.tec` (`tecplot ascii`, default), `ic.szplt` (`tecplot binary`) or `ic.vtm` (`vtk ascii`, `vtk raw`). The file is a structured multi-block field with one zone per block, in block order:
 
 - the node coordinates `x y z`, which are the grid of the run (see [Mesh](using.md#mesh));
-- two cell-centred variables, in this order: the temperature `T` (K) and the material index `matID`. FUSS takes them by position, not by name.
+- two cell-centred variables, in this order: the temperature `T` (K) and the material index `matID`. FUSS takes them by position, not by name; a block with fewer than two variables stops the run at set-up.
 
 `matID = n` selects the `n`-th material of `phase.txt`, i.e. the `n`-th zone of `properties.dat`. Every initial temperature must lie inside the table, $T_\text{min} \le T < T_\text{max}$.
 
@@ -92,6 +92,7 @@ I=2000, F=POINT
 - The rows are 1 K apart. FUSS takes the first temperature of the first zone as $T_\text{min}$ and the number of rows to set $T_\text{max} = T_\text{min} + I - 1$; it does not read the other temperatures. Every zone must cover the same range.
 - Properties are interpolated linearly between the two integer temperatures around $T$.
 - The Energy column is used up to an additive constant. At load FUSS warns if its increments differ from $\rho\,c_p$ by more than 1 %.
+- At load every Cp, Density, Conductivity and Energy must be finite, Cp and Density positive and Conductivity not negative (0 gives a material that conducts no heat, as the insulation of `test/transient/multimat_Plate`); a value outside stops the run at set-up, naming the material, the row and the column, also in a row that no cell reaches.
 - A cell temperature outside $[T_\text{min}, T_\text{max})$ (or not finite) stops the run with an error and exit code 1, also with IRS (see [Time Integration](../theory/time-integration.md#admissible-updates)).
 
 The property model, the Energy column and a script for temperature-dependent tables are described in [Material Properties](../theory/thermo.md).

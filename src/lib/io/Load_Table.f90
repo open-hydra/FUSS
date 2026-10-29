@@ -14,11 +14,13 @@ contains
     use Lib_Tecplot
     use Lib_ORION_data
     use strings, only: parse
+    use FUSS_Finite_m, only: Not_Finite
     implicit none
     ! Local
     character(len=llen)  :: wmfile, propertiesfile
-    integer              :: ios, i, unitFile, n, Ti1, Ti2, Tn, Tdev
-    real(R8)             :: cap, dev, devmax
+    integer              :: ios, i, unitFile, n, Ti1, Ti2, Tn, Tdev, c
+    real(R8)             :: cap, dev, devmax, val
+    character(len=12)    :: column
     character(llen)      :: wholestring, args(2)
     type(ORION_data)     :: orion
 
@@ -73,6 +75,36 @@ contains
         obj_table%kappa(i,Ti1:Ti2) = orion%block(i)%vars(3,:,1,1)
         obj_table%h(i,Ti1:Ti2)     = orion%block(i)%vars(4,:,1,1)
       enddo
+
+      ! Every Cp, Density, Conductivity and Energy of the table is finite, Cp and Density positive, Conductivity not
+      ! negative (0 makes a material that conducts no heat): a value outside is an error of the file, found here and not
+      ! at the first cell whose temperature reaches its row (or never, for a row no cell reaches). Not_Finite reads the
+      ! bits: the sign is compared only on a finite value, as a build that traps the invalid operations requires
+      table_check: do i = 1, obj_table%n
+        do Tn = Ti1, Ti2
+          do c = 1, 4
+            select case (c)
+            case (1); val = obj_table%cp(i,Tn);    column = 'Cp'
+            case (2); val = obj_table%rho(i,Tn);   column = 'Density'
+            case (3); val = obj_table%kappa(i,Tn); column = 'Conductivity'
+            case (4); val = obj_table%h(i,Tn);     column = 'Energy'
+            end select
+            if ( Not_Finite(val) ) then
+              write(obj_table%error_message,'(5A,I0,3A)') '[ERROR] ', trim(propertiesfile), ', material ', &
+                trim(obj_table%name(i)), ', row T = ', Tn, ' K: ', trim(column), ' is not finite (NaN or infinity)'
+              exit table_check
+            endif
+            if ( (c <= 2 .and. val <= 0d0) .or. (c == 3 .and. val < 0d0) ) then
+              write(obj_table%error_message,'(5A,I0,3A,ES10.3,A)') '[ERROR] ', trim(propertiesfile), ', material ', &
+                trim(obj_table%name(i)), ', row T = ', Tn, ' K: ', trim(column), ' = ', val, &
+                merge(' must be > 0 ', ' must be >= 0', c <= 2)
+              exit table_check
+            endif
+          enddo
+        enddo
+      enddo table_check
+      ! A table with an error stops at set-up (Check_Table): neither the order of its Energy column nor the warning below
+      if ( index(obj_table%error_message,'ERROR') > 0 ) return
 
       ! co_T bisects a non-decreasing Energy column (a NaN entry makes it a scan, as any other column)
       allocate(obj_table%h_monotone(1:obj_table%n))

@@ -243,8 +243,18 @@ contains
       return
     endif
 
-    ! Allocate IOfield
+    ! Every block of the initial condition (or of the solution) holds T and matID, the first two variables: one that
+    ! holds fewer would leave matID to an out-of-bounds read of its variables
     nblocks = size(IOinit%block)
+    do b = 1, nblocks
+      if ( size(IOinit%block(b)%vars, 1) < 2 ) then
+        write(obj_io%error_message,'(A,I0,A,I0,A)') '[ERROR] '//trim(obj_io%nameinit)//': block ', b, ' holds ', &
+          size(IOinit%block(b)%vars, 1), ' variable(s); FUSS needs T and matID, the first two'
+        return
+      endif
+    enddo
+
+    ! Allocate IOfield
     allocate(IOfield%block(1:nblocks))
     do b = 1, nblocks
       allocate(IOfield%block(b)%mesh(1:3,0:IOinit%block(b)%Ni,0:IOinit%block(b)%Nj,0:IOinit%block(b)%Nk))

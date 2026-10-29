@@ -10,6 +10,8 @@ module FUSS_IO_BC
   integer :: nconnect, nwall, nsym, nchimera, ncoupled
   logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
   character(len=64) :: bc_name = 'bc.txt'               ! the file being read, for the messages of its errors
+  integer :: rec_other = 0, ti_other = 0                 ! the first record of that file with a code outside the documented
+                                                         ! ones, and its code (Note_Code, Code_Hint)
   real(R8), parameter :: EMPTY  = -huge(1.0_R8)         ! a value of a property line that the read has not given
   integer,  parameter :: IEMPTY = -huge(1_I4)
 
@@ -86,6 +88,7 @@ contains
     integer              :: c, ci, cii
 
     ios = 0
+    rec_other = 0
 
     ! Open file
     if (level == 1) then
@@ -102,6 +105,7 @@ contains
     ios = 0; n_proof = -1
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
+      if ( ios == 0 ) call Note_Code ( n_proof + 2, ti )
       select case(ti)
       case(101,301,302,303,304,305,103)
         read( unitfile,*,iostat=ios )
@@ -116,6 +120,7 @@ contains
 
     if (n_proof /= n) then
       obj_io_bc%error_message = '[ERROR] Boundary conditions number ('//str(.true.,n_proof)//') is different than the one of the initial conditions ('//str(.true.,n)//')'
+      obj_io_bc%error_message = trim(obj_io_bc%error_message)//Code_Hint ( n + 1 )
       close(unitfile)
       return
     endif
@@ -177,6 +182,7 @@ contains
     ! Counter for number of cells per face in each block
     n_bf = 0
     nzero_chim = 0
+    rec_other = 0
 
     ! Read file: every line is read whole (Next_Line, which counts the lines of the file and skips the blank ones as a
     ! list-directed read does), then as its values; a line that is short or holds a value that is not a number stops
@@ -188,6 +194,7 @@ contains
       call Next_Line ( unitfile, pline, ios, nline )
       if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%b, bc(i)%i, bc(i)%j, bc(i)%k, bc(i)%f, bc(i)%type
       if ( ios /= 0 ) call BC_Line_Error ( i, -1, nline, pline )
+      call Note_Code ( i, bc(i)%type )
 
       ! The block, the cell and the face index the tables that follow (n_bf, the flags of the faces, and later the owner
       ! rank of the block, Pair_Connections, Check_Thin_Blocks): in range before any use
@@ -449,9 +456,43 @@ contains
       write(head,'(3A,I0,A,I0,A,I0,A)') '[ERROR] ', trim(bc_name), ' line ', nline, ' (record ', n, ', type ', btype, &
         '): the line is short or holds a value that is not a number'
     end if
-    call mpi_stop_all ( trim(head)//': "'//trim(line(1:min(len(line),200)))//'"' )
+    call mpi_stop_all ( trim(head)//': "'//trim(line(1:min(len(line),200)))//'"'//Code_Hint ( n ) )
 
   end subroutine BC_Line_Error
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Note_Code: remember record n when its code ti is the first of the file outside the codes of the documentation. Such a
+  ! code is read without a data line and acts as 0 (FUSS does not reject it), so a data line written after it is read as
+  ! the next record: Code_Hint adds that to the message of the error it causes.
+  subroutine Note_Code ( n, ti )
+    implicit none
+    integer, intent(in) :: n, ti
+
+    if ( rec_other > 0 ) return
+    select case ( ti )
+    case ( 0, 101, 102, 103, 104, 200, 300, 301, 302, 303, 304, 305 )
+    case default
+      rec_other = n
+      ti_other  = ti
+    end select
+
+  end subroutine Note_Code
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Code_Hint: for an error at record n, the record before it with a code outside the documented ones (Note_Code), or ''.
+  function Code_Hint ( n ) result(hint)
+    use IR_Precision, only: str
+    implicit none
+    integer, intent(in) :: n
+    character(len=:), allocatable :: hint
+
+    hint = ''
+    if ( rec_other > 0 .and. rec_other < n ) hint = '; record '//trim(str(.true.,rec_other))//' has code '// &
+      trim(str(.true.,ti_other))//', not one of 0, 101-104, 200, 300-305: FUSS reads it without a data line'
+
+  end function Code_Hint
 
 
   !─────────────────────────────────────────────────────────────────────────────
@@ -483,7 +524,7 @@ contains
     if ( v >= lo .and. v <= hi ) return
     call mpi_stop_all ( '[ERROR] '//trim(bc_name)//' line '//trim(str(.true.,nline))//' (record '//trim(str(.true.,n))// &
       ', type '//trim(str(.true.,btype))//'): '//what//' = '//trim(str(.true.,v))//' is outside the admissible range '// &
-      trim(str(.true.,lo))//' to '//trim(str(.true.,hi)) )
+      trim(str(.true.,lo))//' to '//trim(str(.true.,hi))//Code_Hint ( n ) )
 
   end subroutine Check_Range
 
