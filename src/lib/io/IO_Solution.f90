@@ -4,9 +4,10 @@ module FUSS_IO_Solution
 
   !> Names of the counters stored with every solution, next to its time and to CYCLE (the global iteration count): field
   !> data of the vtk files, data set auxiliary data of the Tecplot files (ASCII and .szplt); see restart_counters_t in
-  !> Config_Types_m. A restart that finds the four of them goes on as the uninterrupted run would.
-  character(len=21), parameter, public :: restart_counter_names(4) = [character(len=21) :: &
-    'FUSS_ITERATION', 'FUSS_OUTPUT_NUMBER', 'FUSS_GRID_LEVEL', 'FUSS_LAST_OUTPUT_TIME']
+  !> Config_Types_m. A restart that finds the first four goes on as the uninterrupted run would; the fifth, the residual
+  !> of the first iteration (the unit of res-threshold), is not in the solutions written before it was stored.
+  character(len=21), parameter, public :: restart_counter_names(5) = [character(len=21) :: &
+    'FUSS_ITERATION', 'FUSS_OUTPUT_NUMBER', 'FUSS_GRID_LEVEL', 'FUSS_LAST_OUTPUT_TIME', 'FUSS_RES_REFERENCE']
 
   !> Concrete procedure pointing to one of the subroutine realizations
   procedure(r_solution_if), pointer, public :: Read_IC
@@ -289,14 +290,17 @@ contains
           IOfield%solutiontime = abs(IOinit%solutiontime)
         endif
       endif
-      ! The counters of the solution, when it holds them all
-      obj_io%restart%found = all(found(1:nc))
+      ! The counters of the solution, when it holds the first four (the residual reference is not in the solutions
+      ! written before it was stored)
+      obj_io%restart%found = all(found(1:4))
       if ( obj_io%restart%found ) then
         obj_io%restart%cycle            = cycle
         obj_io%restart%iteration        = nint(counters(1))
         obj_io%restart%output_number    = nint(counters(2))
         obj_io%restart%grid_level       = nint(counters(3))
         obj_io%restart%last_output_time = counters(4)
+        obj_io%restart%res_found        = found(5)
+        obj_io%restart%res_reference    = counters(5)
       endif
     endif
     do b = 1, nblocks
@@ -481,7 +485,7 @@ contains
       ! The counters a restart needs to go on as the uninterrupted run, the same in every format (Read_vtk_tec reads
       ! them), next to CYCLE, the global iteration count
       counters = [real(domain%iter,R8P), real(obj_io%output_number,R8P), real(obj_multigrid%MG_level,R8P), &
-                  obj_sim_param%time_from_call]
+                  obj_sim_param%time_from_call, obj_sim_param%res_reference]
 
       ! Update IOfield variables with domain primitives and other variables
       do b = 1, size(IOfield%block)

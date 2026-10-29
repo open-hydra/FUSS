@@ -222,6 +222,20 @@ listed here: the pages of `docs/` describe them.
   every split is exact (`Restart`, `fas-inside`). The end by `res-threshold` or `time-threshold` stays immediate and the
   coarse-level budgets of the FMG descent count per iteration: a run that ends on its residual, every case of the test
   suite and of the battery, is unchanged to the last bit.
+- `res-threshold` is relative to the residual of the first iteration of the run (of each grid level), as in MOSE (3f3a4d9):
+  a run ends when its residual has fallen by that factor; the default 1e-10 is a fall of ten orders. The residual, the L2 norm
+  over the cells of the temperature change of one iteration, grows with the temperature level and with the square root of the
+  number of cells, so the absolute test ended the same problem at different depths (the first residuals of the battery's
+  decks range from 0.96 to 3573 K). The first residual is stored with every solution, in every format, as `FUSS_RES_REFERENCE`
+  (a sixth `DATASETAUXDATA` record of a Tecplot ASCII field): a restart ends where the run in one go ends; one from a solution
+  without it measures from its own first iteration, with a warning. An input written for the absolute test keeps its stop
+  with `res-threshold` divided by the residual of its first iteration. `res-threshold` is a test of steady runs, as in MOSE: a
+  time-accurate run without time tables ended on it too, it now goes on to `time-threshold` or `iter-threshold`.
+  At unchanged deck values: the 17 battery cases that end on `res-threshold` stop where their residual has fallen by it (1 to
+  43 % fewer iterations in 15, more in `radiative_Rod`, whose first residual is 0.96 K; final fields within 3.3e-3 K of
+  before), every `verify.py` passes, the FAS acceptance set ends 16 to 43 % earlier with no new fallback; the multigrid runs
+  measure from the first residual of level 1, after the prolongation, and end about two orders deeper than the single-grid
+  ones. The V&V pages give the new counts (residual convergence, FAS cycles, the steady cases).
 
 ### Removed
 

@@ -45,7 +45,7 @@ $$T(x) = \begin{cases} 1000 + 1818\,x & 0 \le x \le 0.5\ \text{m} \\ 2000 - 182\
 
 ## Cases and numerical setup
 
-All cases use RK3 time-marching in pseudo-time (time-accurate = false) with primitive integration variables on the same 100 × 10 cells-per-block mesh (2 000 cells total) and are run until the energy residual drops below res-threshold = 1 × 10⁻⁸. The cases differ in IRS activation, multigrid activation, and the level-2 iteration budget:
+All cases use RK3 time-marching in pseudo-time (time-accurate = false) with primitive integration variables on the same 100 × 10 cells-per-block mesh (2 000 cells total) and are run until the residual has fallen by res-threshold = 1 × 10⁻⁸ from its first value on the finest level (the test is relative since October 2026, see [Time Integration](../theory/time-integration.md)). The cases differ in IRS activation, multigrid activation, and the level-2 iteration budget:
 
 | Case | VNN | IRS | IRS β | Multigrid levels | level2-iter |
 |---|---|---|---|---|---|
@@ -56,7 +56,7 @@ All cases use RK3 time-marching in pseudo-time (time-accurate = false) with prim
 | mg3     | 0.25 | No  | —   | 2 |  75 000 |
 | mg_irs  | 1.0 | Yes | 0.5 | 2 | 100 000 |
 
-IRS (Implicit Residual Smoothing) smooths the residual before the update, which allows a larger VNN. Multigrid is grid sequencing: level 2 (50 × 5 cells per block) runs `level2-iter` iterations, or until the residual reaches `res-threshold`; its solution is prolongated once to level 1, which runs to `res-threshold` (`level1-iter = 1 000 000` is only a cap). The coarse level is not visited again.
+IRS (Implicit Residual Smoothing) smooths the residual before the update, which allows a larger VNN. Multigrid is grid sequencing: level 2 (50 × 5 cells per block) runs `level2-iter` iterations, or until its residual has fallen by `res-threshold` from its first value on level 2; its solution is prolongated once to level 1, which runs until its residual has fallen by `res-threshold` from the first level-1 residual (`level1-iter = 1 000 000` is only a cap). The coarse level is not visited again.
 
 ## Results
 
@@ -64,28 +64,28 @@ Residual convergence histories for all six cases are shown below.
 
 ![Residual history comparison](images/residual_convergence.svg)
 
-Summary of iterations required to reach res-threshold = 1 × 10⁻⁸:
+Summary of the runs. Each ends when its residual has fallen by 10⁻⁸ from the first residual of its finest level: for `nominal` and `irs` the residual of the start, for the multigrid runs the first residual of level 1 after the prolongation, which is already about 60 (`mg_irs`: 74) times smaller than the first one of level 2. The multigrid runs therefore end about two orders deeper, and the iterations of the stop compare different depths; the last column compares the strategies at the same depth, the first level-1 iteration whose residual is at most 3 × 10⁻⁵:
 
-| Case | Initial residual | Final residual | Iterations |
-|---|---|---|---|
-| nominal | 6.88 × 10² | ~1.0 × 10⁻⁸ | 369 498 |
-| irs     | 2.00 × 10³ | ~1.0 × 10⁻⁸ |  99 415 |
-| mg1     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 294 644 |
-| mg2     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 223 371 |
-| mg3     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 212 414 |
-| mg_irs  | 1.42 × 10³ | ~1.0 × 10⁻⁸ |  79 816 |
+| Case | Initial residual | First level-1 residual | Final residual | Iterations | Iterations to 3 × 10⁻⁵ |
+|---|---|---|---|---|---|
+| nominal | 6.88 × 10² | — | 6.88 × 10⁻⁶ | 236 927 | 207 060 |
+| irs     | 2.00 × 10³ | — | 2.00 × 10⁻⁵ |  60 855 |  58 802 |
+| mg1     | 4.87 × 10² | 8.20 | 8.20 × 10⁻⁸ | 251 958 | 132 206 |
+| mg2     | 4.87 × 10² | 8.23 | 8.23 × 10⁻⁸ | 180 608 |  61 094 |
+| mg3     | 4.87 × 10² | 8.23 | 8.23 × 10⁻⁸ | 163 642 |  67 584 |
+| mg_irs  | 1.42 × 10³ | 19.2 | 1.92 × 10⁻⁷ |  55 523 |  29 903 |
 
-**Key observations**
+**Key observations** (at the same depth, last column)
 
-- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 498 → 99 415), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
-- **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 644 to 212 414 (mg2: 223 371). Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 415): more than twice the iterations.
-- **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 79 816 iterations — about 20 % fewer iterations than IRS alone and 4.6× faster than the nominal baseline.
+- **IRS** alone reduces the iteration count by ≈ 3.5× relative to the nominal RK3 run (207 060 → 58 802), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
+- **Multigrid** alone gains 1.6× (mg1, 25 000 coarse iterations) to 3.4× (mg2, 50 000). Level 2 now stops on its own test as well: in mg3 after 64 579 of its 75 000 iterations, when its residual has fallen by 10⁻⁸, so mg3 hands over a coarse solution as converged as mg2's and needs a few more level-1 iterations (67 584 against 61 094). The best multigrid-only case is about as fast as IRS alone.
+- **Combining multigrid and IRS** (mg_irs, level 2 converged after 16 556 iterations) yields the best result of all configurations: 29 903 iterations, half those of IRS alone and 6.9× fewer than the nominal baseline.
 
-All six runs reach the same solution: the final fields differ from the piecewise-linear profile above by at most 6.4 × 10⁻⁶ K (1.6 × 10⁻⁶ K with IRS). The iteration counts, the initial residuals, the final fields and the figure (with its data in `SOLUTION/*.dat`) are those of one re-measurement of the six cases as shipped, none of them capped, with the final binary of the sync of October 2026 (`verify/sync-2026-10` a616ef8, `USE_IPO` on, ifx 2024.1, one thread); the counts are the same, to the digit, as those of the runs of the sync before the IPO switch (`chimera-mpi` af13cab). The histories in `SOLUTION/*.dat` are thinned to every 100th row (the first 100 rows, the 300 rows after each multigrid level change, the first and the last row are kept, so the last row of each file is the converged iteration of the table); the full history is reproduced by re-running the case.
+All six runs approach the same solution; how close depends on where each stops: the final fields differ from the piecewise-linear profile above by at most 4.4 × 10⁻³ K (`nominal`, the shallowest stop relative to the field), 3.2 × 10⁻³ K (`irs`), 5.3 × 10⁻⁵ K (mg1–mg3) and 3.1 × 10⁻⁵ K (`mg_irs`). The iteration counts, the residuals, the final fields and the figure (with its data in `SOLUTION/*.dat`) are those of one re-measurement of the six cases as shipped, none of them capped, with the relative `res-threshold` (branch `post-merge/sync-followups`, ifx 2024.1 with `USE_IPO` on, one thread, 2026-10-29). With the absolute test of the release before, the same decks ran 369 498 (nominal), 99 415 (irs), 294 644, 223 371, 212 414 (mg1–mg3) and 79 816 (mg_irs) iterations, to a residual of 10⁻⁸ in every case. The histories in `SOLUTION/*.dat` are thinned to every 100th row (the first 100 rows, the 300 rows after each multigrid level change, the first and the last row are kept, so the last row of each file is the converged iteration of the table); the full history is reproduced by re-running the case.
 
 ```bash
 cd test/numerics-features/residual_convergence/<case> && ./FUSS.sh solve   # one case
 cd test/numerics-features/residual_convergence && python3 plot.py         # the figure, from SOLUTION/
 # SOLUTION/<case>.dat: the OUTPUT/residual-history.dat of that case run to the threshold, thinned to every 100th row
 ```
-- All six cases reach the same residual threshold of 1 × 10⁻⁸, confirming that none of the acceleration strategies compromises the converged solution.
+- All six cases end on the same relative test, and none of the acceleration strategies changes the converged solution: the fields approach the exact profile as the residual falls.

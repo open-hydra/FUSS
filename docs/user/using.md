@@ -135,15 +135,15 @@ FUSS prints the loading checks, a summary of the set-up, and one line per iterat
 
 FUSS | Iter =        1 | Global iter =        1 | Energy  residual = 0.357298E+04
 ...
-FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-08
+FUSS | Iter =     3051 | Global iter =     3051 | Energy  residual = 0.356132E-04
 
  =========================================================================================
  FUSS timing
  =========================================================================================
-   Iterations                     4894
-   Solver                          3.15321E+01 s
-   Solver per iteration            6.44302E-03 s
-   Elapsed                         3.18628E+01 s
+   Iterations                     3051
+   Solver                          5.86503E+00 s
+   Solver per iteration            1.92233E-03 s
+   Elapsed                         5.91949E+00 s
  =========================================================================================
 ```
 
@@ -164,7 +164,7 @@ FUSS | Iter =     4894 | Global iter =     4894 | Energy  residual = 0.997409E-0
 | `field-level<n>.*`, `wall-level<n>.*` | Multigrid: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
 | `field-prolongated.*`, `wall-prolongated.*` | Multigrid: the coarse solution prolongated to the finest level, written with the coarse-level output (see `prolongated-diter`) |
 
-The final solution of a run is always written to `field.*`; the solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written before it, with its number and its wall and diagnostic files, so a run that ends on an output iteration leaves the same files as one that goes on. The field and wall files carry the solution time: the physical time of a time-accurate run, minus the global iteration count of a steady one (a negative `SOLUTIONTIME`, no `STRANDID`, in Tecplot; the `TIME` field data in vtk). Every field file also stores the counters a restart needs: `CYCLE` (the global iteration count) and `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`, as field data in the vtk block files, as `DATASETAUXDATA` records after the last zone of a Tecplot ASCII file (five lines) and as auxiliary data of a `.szplt`. A script that reads a `.tec` file must stop at the first line that is not a number. The `.vtm` lists its block files relative to its own folder (`vtk/fieldBlock1.vts`). The text formats (`tecplot ascii`, `vtk ascii`) write every real with 17 significant digits and `.szplt` stores 64-bit values, so a restart reproduces the field exactly in every format (see [Restart](initial-conditions.md#restart)).
+The final solution of a run is always written to `field.*`; the solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written before it, with its number and its wall and diagnostic files, so a run that ends on an output iteration leaves the same files as one that goes on. The field and wall files carry the solution time: the physical time of a time-accurate run, minus the global iteration count of a steady one (a negative `SOLUTIONTIME`, no `STRANDID`, in Tecplot; the `TIME` field data in vtk). Every field file also stores the counters a restart needs: `CYCLE` (the global iteration count) and `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`, `FUSS_RES_REFERENCE` (the residual of the first iteration, the unit of `res-threshold`), as field data in the vtk block files, as `DATASETAUXDATA` records after the last zone of a Tecplot ASCII file (six lines) and as auxiliary data of a `.szplt`. A script that reads a `.tec` file must stop at the first line that is not a number. The `.vtm` lists its block files relative to its own folder (`vtk/fieldBlock1.vts`). The text formats (`tecplot ascii`, `vtk ascii`) write every real with 17 significant digits and `.szplt` stores 64-bit values, so a restart reproduces the field exactly in every format (see [Restart](initial-conditions.md#restart)).
 
 ### Formats
 

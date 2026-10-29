@@ -145,7 +145,7 @@ For 301 and 303–305, $T_w$ is found by Newton iteration from $T_w = T_P$: one 
 
 **Stiffness.**  Since $T_w$ is solved at every evaluation, $\partial q_\text{in}/\partial T_P = -G\,\beta/(G + \beta)$ with $\beta = h_\text{conv} + 4\varepsilon\sigma T_w^3$, smaller in magnitude than the $-G$ of a prescribed temperature (302): convective and radiative walls do not make the boundary cell stiffer than a temperature wall.
 
-The linear patch test on a plate sheared by 45°, with walls 302, 303, 301 and 305 on its four sides, reproduces the exact field to $2\times10^{-11}$ K (see [Skewed Plate](../vv/2D-steady-state-skewed-plate.md)).
+The linear patch test on a plate sheared by 45°, with walls 302, 303, 301 and 305 on its four sides, reproduces the exact field to $5.6\times10^{-9}$ K, the error of the iteration at its threshold (see [Skewed Plate](../vv/2D-steady-state-skewed-plate.md)).
 
 ### Coupling with hydra (103, 104)
 

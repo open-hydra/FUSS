@@ -1,7 +1,7 @@
 #!/bin/bash
 # Restart: a run split in two (N iterations, then a restart that runs N more) writes the files of the run in one go (2N
 # iterations), byte for byte: the solution stores the counters that decide the next iteration (CYCLE and FUSS_ITERATION,
-# FUSS_OUTPUT_NUMBER, FUSS_GRID_LEVEL, FUSS_LAST_OUTPUT_TIME; vtk field data, Tecplot data set auxiliary data) and the
+# FUSS_OUTPUT_NUMBER, FUSS_GRID_LEVEL, FUSS_LAST_OUTPUT_TIME, FUSS_RES_REFERENCE; vtk field data, Tecplot data set auxiliary data) and the
 # restart reads them back. Also: the stops of a solution without a time or with a counter that is not finite, a solution
 # without counters (legacy path), the rows written after the solution, a time-accurate run started from a steady
 # solution, the source INPUT/st.* read with ic-format.
@@ -73,6 +73,23 @@ if [[ $GROUP == core || $GROUP == all ]]; then
   last=$(tail -1 "$WORK/legacy/OUTPUT/residual-history.dat" | awk '{print $1}')
   if [[ $(code "$WORK/legacy") == 0 && $last == 200 ]]; then case_result legacy-no-counters 0 "restart from 100, last iteration 200"
   else case_result legacy-no-counters 1 "exit $(code "$WORK/legacy"), last iteration $last"; fi
+
+  # res-threshold is relative to the residual of the first iteration, which the solution stores (FUSS_RES_REFERENCE): A ends on
+  # res-threshold 1e-3 in one go (about 700 iterations), B is cut at 300 and restarted with an ample budget: it ends at the
+  # iteration of A, with A's files. Without the stored reference the restart measures from its own first iteration (warning)
+  a="$WORK/conv-A"; b="$WORK/conv-B"; c="$WORK/conv-noref"
+  for d in "$a" "$b" "$c"; do prep steady-state/temperature_Plate "$d"; setkey "$d" res-threshold 1e-3; setkey "$d" iter-threshold 100000; done
+  run "$a"; setkey "$b" iter-threshold 300; run "$b"; setkey "$b" newrun false; setkey "$b" iter-threshold 100000; run "$b"
+  la=$(tail -1 "$a/OUTPUT/residual-history.dat" | awk '{print $1}')
+  nd=$(ndiff "$a" "$b")
+  if [[ $(code "$a") == 0 && $(code "$b") == 0 && $nd == 0 && $la -gt 300 && $la -lt 100000 ]]; then
+    case_result res-reference-split 0 "A ends on res-threshold at $la, B = 300 + restart: 0 differing files"
+  else case_result res-reference-split 1 "exit A $(code "$a") B $(code "$b"), A ends at $la, $nd differing files"; fi
+  setkey "$c" iter-threshold 300; run "$c"; sed -i '/FUSS_RES_REFERENCE/d' "$c/OUTPUT/field.tec"
+  setkey "$c" newrun false; setkey "$c" iter-threshold 100000; run "$c"
+  if [[ $(code "$c") == 0 ]] && grep -q 'holds no residual reference' "$c/run.log"; then
+    case_result res-reference-missing 0 "restart without FUSS_RES_REFERENCE: warning, measured from its own first iteration"
+  else case_result res-reference-missing 1 "exit $(code "$c"), warning not in $c/run.log"; fi
 
   # rows after the solution: the run went on past the solution the restart reads (field2 at iteration 20): its rows are dropped
   a="$WORK/rows-A"; b="$WORK/rows-B"

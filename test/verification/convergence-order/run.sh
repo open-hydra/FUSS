@@ -44,7 +44,9 @@ WORK="$(cd "$WORK" && pwd)"
 status=0
 fail() { echo "  FAIL: $*"; status=1; }
 
-# solve <dir> <make_case.py case options...>: write the deck, run the solver, require exit 0 and a residual at the threshold.
+# solve <dir> <make_case.py case options...>: write the deck, run the solver, require exit 0 and a residual at the threshold:
+# res-threshold 1e-10 is relative to the residual of the first iteration (of level 1), which field.tec stores as
+# FUSS_RES_REFERENCE (the history of a multigrid run starts on the coarsest level)
 # Prints nothing; on a failure writes the reason to <dir>/FAILED (read by the caller after `wait`).
 solve() {
   local d=$1; shift
@@ -52,11 +54,12 @@ solve() {
   $MC case "$d" "$@" > "$d/gen.log" 2>&1 || { echo "the deck was not written ($d/gen.log)" > "$d/FAILED"; return; }
   ( cd "$d" && "$BIN" > run.log 2>&1 ); local st=$?
   [[ $st -eq 0 ]] || { echo "the solver exited with $st ($d/run.log)" > "$d/FAILED"; return; }
-  local last it
+  local last it ref
   last=$(tail -n 1 "$d/OUTPUT/residual-history.dat" | awk '{print $3}')
   it=$(tail -n 1 "$d/OUTPUT/residual-history.dat" | awk '{print $1}')
-  awk -v r="$last" 'BEGIN { exit !(r + 0 <= 1.0000001e-10) }' \
-    || { echo "not converged: last residual $last after $it iterations ($d/run.log)" > "$d/FAILED"; return; }
+  ref=$(sed -n 's/^DATASETAUXDATA FUSS_RES_REFERENCE = "\(.*\)"/\1/p' "$d/OUTPUT/field.tec")
+  awk -v r="$last" -v f="${ref:-0}" 'BEGIN { exit !(f + 0 > 0 && r + 0 <= 1.0000001e-10 * f) }' \
+    || { echo "not converged: last residual $last (first ${ref:-?}) after $it iterations ($d/run.log)" > "$d/FAILED"; return; }
   echo "$it" > "$d/iterations"
   rm -rf "$d/INPUT" "$d/MESH"
 }

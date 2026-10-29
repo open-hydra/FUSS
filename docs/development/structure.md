@@ -166,7 +166,7 @@ The module name is `FUSS_` plus the file name, except in `config/`: `Registry.f9
 
 ## Solver pipeline
 
-`src/app/main.f90` creates a `FUSS_type` object and a `FUSS_simulation_type`, calls `setup`, then alternates `solve` (one iteration) and `postprocess` while `obj_sim_param%TODO` ≤ 2, and calls `postprocess` once more at the end. `TODO` is 1 for a plain iteration, 2 when output is due or a multigrid level ends, 3 when the run ends.
+`src/app/main.f90` creates a `FUSS_type` object and a `FUSS_simulation_type`, calls `setup`, then alternates `solve` (one iteration) and `postprocess` while `obj_sim_param%TODO` ≤ 2, and calls `postprocess` once more at the end. `TODO` is 1 for a plain iteration, 2 when output is due or a multigrid level ends, 3 when the run ends; inside a FAS cycle the end of the level-1 budget alone sets 4, which `FAS_Solve` turns into 3 at the end of the cycle (the run then always ends on a cycle boundary).
 
 ```mermaid
 sequenceDiagram
@@ -235,8 +235,8 @@ flowchart TB
 flowchart LR
     A["Stencil<br/>2 cells across the face<br/>+ 8 tangential neighbours"] --> D["Computational gradient<br/>normal: T₂ − T₁<br/>tangential: central differences"]
     A --> B["Face temperature<br/>½(T₁ + T₂)"]
-    B --> C["k = co_Kappa(matID, T)<br/>(material of cell 1)"]
-    D --> E["Face metric<br/>inverse of mean M⁻¹"]
+    B --> C["k_f: co_Kappa at ½(T₁ + T₂) (one material),<br/>the two half cells in series (two materials)"]
+    D --> E["Face metric: stencil (the same differences<br/>of the cell centres), or mean of the two cells"]
     E --> G["∇T = Σ_d ∂T/∂ξ_d ∇ξ_d"]
     C --> F["Flux = k A ∇T·n<br/>R₁ −= Flux, R₂ += Flux"]
     G --> F

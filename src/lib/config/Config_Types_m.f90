@@ -22,6 +22,8 @@ module FUSS_Config_Types_m
     integer         :: iter_from_call
     real(R8)        :: time_from_call
     real(R8), allocatable :: residuotot
+    real(R8)        :: res_reference = 0.d0    ! Residual of the first iteration of the run (grid level): the unit of res-threshold
+    logical         :: res_restored = .false.  ! res_reference read with the restart solution: its first iteration keeps it
     integer         :: nthreads         ! Number of threads for simulation
     integer         :: TODO             ! Decide solve and/or postprocess
     logical         :: HYDRA_time_accurate = .false.
@@ -40,13 +42,16 @@ module FUSS_Config_Types_m
   type :: restart_counters_t
     logical  :: time_found = .true.     ! the solution holds a time (vtk TIME, Tecplot SOLUTIONTIME)
     logical  :: steady     = .false.    ! the solution is that of a steady run (negative time, or Tecplot STRANDID = 0)
-    logical  :: found      = .false.    ! the solution holds all four counters below
+    logical  :: found      = .false.    ! the solution holds the first four counters below (the solutions written before the
+                                        ! residual reference was stored hold only those)
     logical  :: resumed    = .false.    ! the counters are applied (same kind of run): Wrap_Setup
     integer  :: cycle      = 0          ! global iteration count of the run that wrote it (CYCLE)
     integer  :: iteration  = 0          ! FUSS_ITERATION: iteration count of the written level (domain%iter)
     integer  :: output_number = 0       ! FUSS_OUTPUT_NUMBER: number of the last numbered output
     integer  :: grid_level = 1          ! FUSS_GRID_LEVEL: level being computed
     real(R8) :: last_output_time = 0.d0 ! FUSS_LAST_OUTPUT_TIME: time of the last time-based output
+    real(R8) :: res_reference = 0.d0    ! FUSS_RES_REFERENCE: residual of the first iteration of the grid level
+    logical  :: res_found = .false.     ! the solution holds it
   end type restart_counters_t
 
   type :: io_t

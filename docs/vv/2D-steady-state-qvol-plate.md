@@ -43,7 +43,7 @@ where $\dot{q} = 10^6$ W/m³ and $k = 52$ W/mK. The symmetry of the domain and b
 | Steady-state convergence | time-accurate = false |
 | Integration variables | conservative |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ |
+| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 4 110) |
 
 ## Grid structure
 
