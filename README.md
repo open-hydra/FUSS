@@ -71,7 +71,7 @@ ctest --test-dir build                                # all: verification cases,
 
 ## Dependencies
 
-FUSS is built on top of companion libraries, included as Git submodules:
+FUSS is built on top of companion libraries: FiNeR is a Git submodule, ORION a release (2.1 or a later 2.x) that the configuration checks out in `lib/ORION`:
 
 | Library | Role |
 |---|---|

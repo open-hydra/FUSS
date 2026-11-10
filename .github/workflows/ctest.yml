@@ -22,9 +22,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # FUSS: lib/ORION (ORION a978930), lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor}: seven submodules, none
-          # nested (the layout of the pins theme). CMake would try `git submodule update --init` itself when one is missing
-          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner.
+          # FUSS: lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor}: six submodules, none nested (the layout of the
+          # pins theme). CMake would try `git submodule update --init` itself when one is missing
+          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner. ORION is not a
+          # submodule: the configure checks out the newest release it accepts, over https (cmake/SemVerDeps.cmake).
           submodules: recursive
 
       - name: Install system dependencies

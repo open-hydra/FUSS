@@ -4,3 +4,7 @@ CMakePresets.json
 site
 
 OUTPUT
+
+# Release of ORION checked out by the configure (cmake/SemVerDeps.cmake), and the one selected
+deps.lock
+lib/ORION
