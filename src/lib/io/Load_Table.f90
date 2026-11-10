@@ -3,7 +3,7 @@ module FUSS_Load_Table
 
   implicit none
   private
-  public :: Load_Table
+  public :: Load_Table, Read_Points_Table
 
 contains
 
@@ -57,7 +57,7 @@ contains
       close(unitFile)
     endif
 
-    ios = tec_read_points_multivars(orion,4,trim(propertiesfile))
+    ios = Read_Points_Table(orion,4,trim(propertiesfile))
     if (ios/=0) then
       obj_table%error_message = '[ERROR] Properties file (properties.dat) not found'
     else
@@ -132,4 +132,45 @@ contains
 
   end subroutine Load_Table
   
+  ! A Tecplot table of points (a zone per material, a row per temperature) in the layout of ORION's former
+  ! tec_read_points_multivars: block b holds Ni = N rows, Nj = Nk = 1, mesh(1,1:N,1,1) (the first column) and
+  ! vars(1:nvars,1:N,1,1). Non-zero when ORION cannot read the file or a zone does not hold one coordinate and nvars
+  ! variables at its points; orion is then left as ORION's reader left it
+  function Read_Points_Table ( orion, nvars, filename ) result(ios)
+    use IR_Precision,   only: R8P
+    use Lib_Tecplot,    only: tec_read_structured_multiblock
+    use Lib_ORION_data, only: ORION_data
+    implicit none
+    type(ORION_data), intent(inout) :: orion
+    integer,          intent(in)    :: nvars
+    character(len=*), intent(in)    :: filename
+    integer                         :: ios
+    ! Local
+    real(R8P), allocatable :: mesh(:,:,:,:), vars(:,:,:,:)
+    integer                :: b, n
+
+    ! ORION's reader gives a line of N points as Ni = N-1, mesh(1:1,0:N-1,0:0,0:0), vars(1:nvar,0:N-1,0:0,0:0)
+    ios = tec_read_structured_multiblock(orion=orion, filename=filename)
+    if ( ios /= 0 ) return
+    ios = 1
+    do b = 1, size(orion%block)
+      if ( size(orion%block(b)%mesh,1) /= 1 .or. size(orion%block(b)%mesh) /= size(orion%block(b)%mesh,2) ) return
+      if ( .not. allocated(orion%block(b)%vars) ) return
+      if ( size(orion%block(b)%vars,1) /= nvars .or. size(orion%block(b)%vars) /= nvars*size(orion%block(b)%mesh) ) return
+    enddo
+    do b = 1, size(orion%block)
+      n = size(orion%block(b)%mesh)
+      allocate( mesh(1,n,1,1), vars(nvars,n,1,1) )
+      mesh = reshape( orion%block(b)%mesh, shape(mesh) )
+      vars = reshape( orion%block(b)%vars, shape(vars) )
+      call move_alloc( mesh, orion%block(b)%mesh )
+      call move_alloc( vars, orion%block(b)%vars )
+      orion%block(b)%Ni = n
+      orion%block(b)%Nj = 1
+      orion%block(b)%Nk = 1
+    enddo
+    ios = 0
+
+  end function Read_Points_Table
+
 end module FUSS_Load_Table
