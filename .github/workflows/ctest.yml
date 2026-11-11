@@ -78,7 +78,11 @@ jobs:
   test-mpi:
     # gfortran with the MPI library of Ubuntu (Open MPI): the build with USE_MPI=ON and the needs-mpi tier, which the job above
     # does not register.
-    runs-on: ubuntu-latest
+    # FUSS: ubuntu-24.04 (Open MPI 4.1.6) and not ubuntu-latest. On Ubuntu 26.04 (Open MPI 5.0.10, PRRTE 3.0.13), which the
+    # label ubuntu-latest moves to in November 2026, mpirun ends with a segmentation fault when it launches two programs in
+    # two folders (`mpirun -n 1 -wdir a FUSS : -n 1 -wdir b FUSS`, MPIExitCodes and MPIRuntimeInput): the launcher fails, not
+    # FUSS. The same command passes with Open MPI 5.0.10 and 5.0.11 of conda-forge.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
