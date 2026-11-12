@@ -21,7 +21,7 @@ The test cases in `test/` run FUSS on problems with analytical or benchmark solu
 | `numerics-features/skewed_3D` | Time step of 3-D rhombohedral cells (115°), two materials: the step of every cell against a replica of the formula and the skew factor | `verify.py` |
 | `mesh-checks` | Set-up checks (`run.sh`, `make_case.py` writes the decks): a block one cell thick in k next to a 3-D block (exact linear field), a wedge next to a plane block, a folded cell (2-D, 3-D), a turned ghost layer behind a chimera face and the same mesh with a wall | `run.sh`: exit status, messages, field |
 | `mesh-checks/thin-blocks.sh` | Blocks one cell across (`ThinBlocks`; `make_case.py` thin1, thin1s, thin1j, thin1ws, thin1jws, thin1w, thin1jw): the block across a connection has one cell, or a sheared block has one cell in a direction: set-up stops with exit code 1 and the block named; the orthogonal thin blocks run; with 2 ranks (`MPIExitCodes`) both stop | exit status, messages |
-| `unit/cell_volume_check`, `unit/volatile_order_check` | Cell volume against its exact value (rational arithmetic, `cell_volume_exact.py`); order of rounding of the node differences | unit programs |
+| `unit/cell_volume_check`, `unit/volatile_order_check`, `unit/table_reader_check` | Cell volume against its exact value (rational arithmetic, `cell_volume_exact.py`); order of rounding of the node differences; the reader of `properties.dat` against a list-directed read of a tracked table | unit programs |
 | `numerics-features/chimera` | Chimera (overset) interface | smoke run |
 | `numerics-features/chimera_mg` | Chimera donors on 3 multigrid levels, FAS cycle | smoke run |
 | `numerics-features/anisotropic_Plate` | Cells of aspect ratio 100, 3 levels, W + IRS | smoke run |
@@ -38,7 +38,7 @@ Each case directory holds `input.ini`, `MESH/mesh.tec`, `INPUT/` (`ic.tec`, `bc.
 `test/CMakeLists.txt` registers every case; `test/run_case.sh` runs one in a copy under the build tree (`build/test/runs/`), with one thread, so the source tree is never written.
 
 ```bash
-ctest --test-dir build -L fast                        # 23 tests (24 with TecIO), about a minute
+ctest --test-dir build -L fast                        # 24 tests (25 with TecIO), about a minute
 ctest --test-dir build -LE "needs-mpi|verification"   # what the pull-request check runs (.github/workflows/ctest.yml)
 ctest --test-dir build -L verification                # ConvergenceOrder and MultigridSolution, about a minute on 6 cores
 ctest --test-dir build -j 4                           # everything, a few minutes
@@ -49,7 +49,7 @@ The labels are those of MOSE (`fast`, `validation`, `verification`, `needs-mpi`)
 
 | Label | Tests | What passes |
 |---|---|---|
-| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, `ThinBlocks`, `PatchTest`, `ConnectionSplit`, `VnnStability`, the unit programs `CellVolume` and `VolatileOrder`, and the tests of `test/input-io/` that need no MPI (table below) | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
+| `fast` | the 9 verification cases under a minute, `ChimeraEdge`, `Skewed3D`, `MetricChecks`, `ThinBlocks`, `PatchTest`, `ConnectionSplit`, `VnnStability`, the unit programs `CellVolume`, `VolatileOrder` and `TableReader`, and the tests of `test/input-io/` that need no MPI (table below) | run ends with status 0, `verify.py` passes; `ChimeraEdge`: a linear field on a sheared chimera pair is preserved to 1e-9 K, also at the cells at the ends of the chimera faces; `verify.py` passes; the set-up checks stop where they must; the units pass; the two scripts below pass |
 | `validation` | the 10 verification cases (also `convective_Plate`, about two minutes), `ChimeraEdge`, `Skewed3D`, `MetricChecks` and `PatchTest` | same |
 | `verification` | the full forms of verification cases (families of grids, long runs): `ConvergenceOrder` (6 cores) and `MultigridSolution` | `ConvergenceOrder`: on the finest pair of grids (32 → 64) of each of its six cases $p(L_2) \ge 1.8$ and $p(L_\infty) \ge 1.6$; `MultigridSolution`: FAS W and W + IRS converge with no fallback and differ from the single-grid solution by at most $10^{-6}$ K; run on request, `ctest -L verification`; the pull-request check leaves the label out |
 | `smoke` | the cases without a verifier: chimera, chimera_mg, anisotropic_Plate, multimat_liner, residual convergence, time convergence, and the FAS-keys-inert check | 300 iterations (100 for the timing case) end with status 0 and a residual history |

@@ -236,6 +236,14 @@ listed here: the pages of `docs/` describe them.
   before), every `verify.py` passes, the FAS acceptance set ends 16 to 43 % earlier with no new fallback; the multigrid runs
   measure from the first residual of level 1, after the prolongation, and end about two orders deeper than the single-grid
   ones. The V&V pages give the new counts (residual convergence, FAS cycles, the steady cases).
+- `INPUT/properties.dat` is read with ORION's `tec_read_structured_multiblock`: ORION 2.0 removed
+  `tec_read_points_multivars`, which read it before. `Read_Points_Table` (public, module `FUSS_Load_Table`), with the
+  arguments of the removed function, gives the table the layout that function gave (the rows at the indices 1 to N), for
+  `Load_Table` and for any other reader of a table of points. Every table of the test suite is read to the same bits. The
+  numbers of a zone are now one stream whose columns are those of the `VARIABLES` line: a table whose `VARIABLES` line does
+  not name the temperature and the four properties stops at set-up, with the message of a missing file, and a row with a
+  number more than the line names shifts the rest of its zone (the removed reader dropped that number). The unit test
+  `TableReader` (`fast`) compares `Read_Points_Table` with a list-directed read of a tracked table of three materials.
 
 ### Removed
 

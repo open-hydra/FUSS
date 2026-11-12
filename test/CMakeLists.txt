@@ -144,6 +144,13 @@ add_fortran_executable(volatile_order_check unit/volatile_order_check.f90)
 add_test(NAME VolatileOrder COMMAND volatile_order_check 1 18014398509481984 3)
 set_tests_properties(VolatileOrder PROPERTIES LABELS "fast;numerics;unit" TIMEOUT 60)
 
+# Reader of the property tables (TableReader): Read_Points_Table gives every zone of a table of three materials the rows of
+# the file at the indices 1:N, bit for bit against a list-directed read, and refuses a call that asks for one column more
+add_fortran_executable(table_reader_check unit/table_reader_check.f90)
+add_test(NAME TableReader COMMAND table_reader_check
+         ${CMAKE_CURRENT_SOURCE_DIR}/steady-state/multilayer_Slab/INPUT/properties.dat 4)
+set_tests_properties(TableReader PROPERTIES LABELS "fast;implementation;unit" TIMEOUT 60)
+
 # ===========================================================================
 #  Smoke runs of the cases without a verifier
 # ===========================================================================
