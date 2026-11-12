@@ -244,6 +244,15 @@ listed here: the pages of `docs/` describe them.
   not name the temperature and the four properties stops at set-up, with the message of a missing file, and a row with a
   number more than the line names shifts the rest of its zone (the removed reader dropped that number). The unit test
   `TableReader` (`fast`) compares `Read_Points_Table` with a list-directed read of a tracked table of three materials.
+- ORION is required by a range of releases, 2.1 or a later 2.x, with `semver_dependency` of `cmake/SemVerDeps.cmake` (the
+  file of FLINT and ATLAS, 1.1.1), instead of the submodule `lib/ORION` at a978930. The first configuration of a standalone
+  build selects the newest release on GitHub (over https) and checks it out in `lib/ORION`; `deps.lock`, not tracked, keeps
+  it, so that the next configurations need no network. `-DSEMVER_UPDATE=ALL` (`install.sh build --update-deps`) selects the
+  newest release again; `-DFETCHCONTENT_SOURCE_DIR_ORION=<path>` (`install.sh build --include-orion=<path>`, which passed
+  `ORION_PATH` before) builds a local checkout. A `lib/ORION` left by the submodule is moved to the release when it is a
+  detached checkout without changes, otherwise the configuration stops and names it. ORION is built in `_deps/orion-build`
+  of the build folder (it was `lib/ORION`). A project that adds FUSS, as hydra does, chooses the release of its build tree:
+  this block runs only when FUSS is the top-level project.
 
 ### Removed
 
@@ -252,6 +261,8 @@ listed here: the pages of `docs/` describe them.
   were never touched, so resident memory does not fall: +116 B/cell in 2-D, +114 in 3-D for the boundary metrics per block
   face). The widths of the series conductivity and of the face time step are computed where they are needed (same bits).
 - `install.sh` no longer clones PENF, FACE, FLAP, BeFoR64 and StringiFor (they are submodules, see Changed).
+- The submodule `lib/ORION` and the CMake variable `ORION_PATH` (ORION is a release checked out by the configuration, see
+  Changed).
 
 ### Fixed
 

@@ -83,9 +83,6 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   set (CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
 
   # -------- Path fallbacks (standalone builds) --------
-  if (NOT DEFINED ORION_PATH)
-    set(ORION_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/ORION/")
-  endif()
   if (NOT DEFINED FINER_PATH)
     set(FINER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/third_party/FiNeR/")
   endif()
@@ -119,12 +116,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     endif()
   endmacro()
 
-  # ORION
-  if (NOT TARGET ORION)
-    ensure_submodule_initialized("${ORION_PATH}")
-    set(orionD "${ORION_PATH}" "${CMAKE_BINARY_DIR}/lib/ORION")
-    add_subdirectory(${orionD})
-  endif()
+  # ORION: the newest release that satisfies the requirement below, checked out in lib/ORION (cmake/SemVerDeps.cmake). The
+  # release stays that of the lock file deps.lock (not tracked), -DSEMVER_UPDATE=ALL selects the newest one again,
+  # -DFETCHCONTENT_SOURCE_DIR_ORION=<path> builds a local checkout instead. A project that adds FUSS (hydra) chooses the
+  # release of its build tree
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/SemVerDeps.cmake)
+  semver_dependency(ORION GIT_REPOSITORY https://github.com/MarcoGrossi92/ORION.git VERSION 2.1 SOURCE_DIR lib/ORION)
+  FetchContent_MakeAvailable(ORION)
 
   # Libraries of FiNeR: FiNeR 2.0.7 and later do not carry them as submodules (its CMake build expects them in its
   # src/third_party/, fetched with FoBiS) and add each one only when the target is not defined yet: FUSS provides
