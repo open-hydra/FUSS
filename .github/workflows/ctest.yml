@@ -4,10 +4,17 @@
 name: CTest
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+    # A pull request that changes only these files (the contributors list and its script, the changelog, the
+    # citation, the licence) does not build or run anything. One that also touches any other file runs as usual.
+    paths-ignore:
+      - CHANGELOG.md
+      - authors.md
+      - .mailmap
+      - CITATION.cff
+      - LICENSE
+      - scripts/**
   workflow_dispatch:
 
 env:
