@@ -121,16 +121,52 @@ Give each material its own blocks and join them with block connections (code 101
 
 ## Restart
 
-With `newrun = false` FUSS reads `OUTPUT/field.*` in `sol-format`, or, when it is missing, the last of `OUTPUT/field1.*`, `field2.*`, .... The final solution of a run is always written to `field.*`.
+With `newrun = false` FUSS reads `OUTPUT/field.*` in `sol-format`, or, when it is missing, the last
+of `OUTPUT/field1.*`, `field2.*`, .... A run split in two and restarted writes the files of the run
+in one go, byte for byte, in every format, with probes, time-based outputs, multigrid and FAS cycles.
 
-- The grid, `T` and `matID` come from that file; $\dot q_\text{vol}$ is read again from `INPUT/st.*`, so it can be changed between runs. `INPUT/st.*` is an input file: it has the extension of `ic-format` (`st.tec`, `st.szplt` or `st.vtm`), whatever `sol-format` is (it was read with `sol-format`, and a case with `st.tec` restarted in `vtk raw` ran with $\dot q_\text{vol} = 0$ in silence).
-- **Kind of run.** A solution is the one of a steady run when its time is negative (the writers stamp a steady solution with minus the global iteration count), or, in a Tecplot ASCII file written before, when its zones say `STRANDID = 0`; otherwise it is time-accurate. A solution without a time (vtk without `TIME`, Tecplot ASCII without `SOLUTIONTIME`) cannot tell where to go on: the run stops at set-up and says to use the file as `INPUT/ic.*` with `newrun = true`. So does a time or a counter that is not finite.
-- **Counters.** A solution of the same kind of run as the restart stores the counters of its run (see [Output](using.md#output)), and the restart restores them: the global iteration count, the iteration count of the finest level (the VNN ramp), the number of the last numbered output, the time of the last time-based output, the grid level and the residual of the first iteration, the unit of `res-threshold`. The run split in two then writes the files of the run in one go, byte for byte, in every format (`tecplot ascii`, `tecplot binary`, `vtk ascii`, `vtk binary`, `vtk raw`), with probes, time-based outputs, multigrid and FAS cycles (under cycles a run that reaches `level1-iter` inside a cycle ends at the end of that cycle, so a split is always on a cycle boundary).
-- Time-accurate runs continue from the solution time of the file. A time-accurate run restarted from a steady solution starts at $t = 0$ with new counters (its first row is that of the run started from the same field as `ic.*`); a steady run restarted from a time-accurate solution counts its iterations from the integer part of the time.
-- A solution without the counters (written by a version before them, or of the other kind of run) restores T, the time and, for a steady run, the iteration count: the counters start as in a new run, the multigrid starts from the coarsest level and the numbered outputs are numbered by scanning `OUTPUT/` (the legacy path below). Move the earlier snapshots away first if you do not want them kept.
-- `time-threshold` is the simulated time, while `iter-threshold` and `level<m>-iter` count the iterations of the restarted run only.
-- `residual-history.dat` and the probe files are appended to; the rows written after the solution read (a run that went on past a numbered solution) are dropped first, a row cut in the middle too, and the files end with a newline.
-- With `sol-overwrite = false` the numbering continues from `FUSS_OUTPUT_NUMBER` of the solution: the snapshots of the previous run are kept. For a solution without counters it continues after the last `field<n>.*` found in `OUTPUT/` (legacy path).
-- With multigrid (`levels > 1`) a solution with counters, written at level 1 (`field.*`, `field<n>.*`), goes on at level 1: the coarse levels are restricted from it and the run does not start again from the coarsest level. A solution without counters starts from the coarsest level, as before.
+**What is read.**
 
-**Limits.** A restart from a solution that holds no residual of the first iteration (written before October 2026, or by the other kind of run) measures `res-threshold` from its own first iteration, as a new run, and says so with a warning; to end it about where the uninterrupted run would, divide `res-threshold` by the ratio of the residual at the restart to the first one of the history. With `res-diter > 1` the first iteration of a restart computes a fresh residual where the uninterrupted run tests the one of its last multiple, so an end by `res-threshold` can come earlier within that window. With `vnn-rise-threshold > 0` and FAS cycles the counters of the coarse levels' ramp are not stored. A `.szplt` written before the signed time (ORION before a978930) reads as time-accurate at $t = |{\rm iteration}|$: a steady restart from it counts right, a time-accurate restart from it starts at that time.
+- The grid, `T` and `matID` come from the solution file.
+- $\dot q_\text{vol}$ is read again from `INPUT/st.*`, so it can be changed between runs. It is an
+  input file: its extension follows `ic-format`, whatever `sol-format` is.
+- The restart counters stored with the solution (see [Output](using.md#output)): the global and
+  fine-level iteration counts, the number of the last numbered output, the time of the last
+  time-based output, the grid level, and the first residual (the unit of `res-threshold`).
+
+**Kind of run.** A solution with a negative time comes from a steady run (the writers stamp it with
+minus the global iteration count); otherwise it is time-accurate.
+
+- A time-accurate run continues from the solution time.
+- A time-accurate run restarted from a steady solution starts at $t = 0$ with new counters.
+- A steady run restarted from a time-accurate solution counts its iterations from the integer part
+  of the time.
+- A solution without a time, or with a time or counter that is not finite, stops the run at set-up.
+  Use such a file as `INPUT/ic.*` with `newrun = true`.
+
+**Stops and outputs.**
+
+- `time-threshold` is the simulated time; `iter-threshold` and `level<m>-iter` count the iterations
+  of the restarted run only.
+- `residual-history.dat` and the probe files are appended to. Rows written after the solution read
+  are dropped first.
+- With `sol-overwrite = false` the numbering continues from the stored output number, and earlier
+  snapshots are kept.
+- With multigrid, a solution written at level 1 goes on at level 1: the coarse levels are restricted
+  from it.
+- Under FAS cycles a run that reaches `level1-iter` inside a cycle ends at the end of that cycle, so
+  a split always falls on a cycle boundary.
+
+**A solution without the counters** (written by the other kind of run) restores `T`, the time and,
+for a steady run, the iteration count. The counters then start as in a new run: multigrid starts
+from the coarsest level, numbered outputs continue after the last `field<n>.*` found in `OUTPUT/`,
+and `res-threshold` is measured from the first iteration of the restart, with a warning. To stop
+about where the uninterrupted run would, divide `res-threshold` by the ratio of the restart residual
+to the first one of the history.
+
+**Limits.**
+
+- With `res-diter > 1` the first iteration of a restart computes a fresh residual, so an end on
+  `res-threshold` can come up to `res-diter` iterations earlier than in the uninterrupted run.
+- With `vnn-rise-threshold > 0` and FAS cycles, the ramp counters of the coarse levels are not
+  stored.

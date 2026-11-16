@@ -1,46 +1,39 @@
-# 1-D Steady State – Multilayer Slab
+# 1-D Multilayer Slab
 
-Three material layers in series inside one block. With $k$ constant in each material the steady field is linear in each layer and carries the same heat flux through all of them; a face between two materials takes the series conductivity of its two half cells (see [Face Conductivity](../theory/numerics.md#face-conductivity)), so the finite-volume scheme reproduces that field exactly, whatever the cell widths on the two sides of an interface.
+The test checks the face between two materials inside a block, with different cell widths on the two sides.
+
+Setup and run: `test/steady-state/multilayer_Slab/README.md`.
 
 ---
 
-## Problem setup
+## Problem
 
-One block, 24 × 2 cells, through-thickness $x \in [0, 0.015]$ m:
+One block of 24 × 2 cells across a wall 15 mm thick:
 
-| Layer | Thickness (mm) | Cells | Cell width (mm) | $k$ (W/mK) | ρ (kg/m³) | c<sub>p</sub> (J/kgK) |
+| Layer | Thickness (mm) | Cells | Cell width (mm) | k (W/mK) | ρ (kg/m³) | c<sub>p</sub> (J/kgK) |
 |---|---|---|---|---|---|---|
 | coat | 2.5 | 8 | 0.3125 | 5 | 6000 | 500 |
 | liner | 7.5 | 6 | 1.25 | 300 | 8900 | 390 |
 | jacket | 5.0 | 10 | 0.5 | 15 | 7900 | 480 |
 
-Every interface joins two materials and two cell widths (ratios 4 and 2.5), in both orientations of the jump (5 → 300 and 300 → 15 along $x$). Walls 302 at $x = 0$ (1000 K) and $x = 0.015$ m (400 K); the $y$ and $z$ faces are adiabatic. The exact solution has the heat flux
+The walls are at 1000 K (x = 0) and 400 K (x = 15 mm). Each interface joins two materials and two
+cell widths (ratios 4 and 2.5), with the jump in both directions: 5 → 300 and 300 → 15.
+
+With k constant in each layer the field is linear in each layer and carries one heat flux:
 
 $$
 q = \frac{T_\text{left} - T_\text{right}}{\sum_i L_i / k_i} = 699\,029 \ \text{W/m}^2
 $$
 
-and is linear in each layer. `make_inputs.py` writes `MESH/mesh.tec` and `INPUT/`.
+A face between two materials takes the series conductivity of its two half cells
+([Face Conductivity](../theory/numerics.md#face-conductivity)). The scheme then reproduces this
+field exactly, whatever the cell widths.
 
-## Numerical setup
-
-| Parameter | Value |
-|---|---|
-| Time scheme | RK3, VNN 0.25, local time step |
-| Integration variables | cons |
-| Initial condition | 700 K |
-| Residual threshold | 1 × 10⁻¹² of the first residual (reached at iteration 64 200) |
-
-## Results
+## Result
 
 | Quantity | Error | Tolerance |
 |---|---|---|
 | Field, max \|T − T<sub>exact</sub>\| | 1.3 × 10⁻⁷ K | 10⁻⁶ K |
 | Faces 1, 2: max \|q<sub>w</sub> − q\| / \|q\| | ≤ 5.5 × 10⁻¹⁰ | 10⁻⁶ |
 
-Before October 2026 the face between two materials took the conductivity of the lower-index cell only. On this case the run then left the properties table at the first jacket cell ($i = 15$, $T = -128$ K) at VNN 0.25; with the face-conductivity time step it converged, but to a field 37.5 K off and a wall flux 11 % off.
-
-```bash
-cd test/steady-state/multilayer_Slab
-python3 make_inputs.py && ./FUSS.sh solve && python3 verify.py
-```
+The errors are those of the iteration at its stopping threshold.

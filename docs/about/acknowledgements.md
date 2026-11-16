@@ -39,7 +39,7 @@ TecIO ships with ORION and is built only with `--use-tecio`; FUSS then writes Te
 - **License:** MIT
 - **Contribution:** Documentation site generation, by the team of Material for MkDocs
 
-Zensical builds FUSS's documentation from the MkDocs configuration (`mkdocs.yml`), with which the documentation was first written.
+Zensical builds FUSS's documentation from `mkdocs.yml`.
 
 ## Institutional Support
 

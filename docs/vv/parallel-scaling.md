@@ -1,31 +1,25 @@
 # Parallel Scaling
 
-Wall-clock time of the same 1000-iteration run under eight parallel configurations: three with OpenMP threads only, five with MPI ranks × OpenMP threads. The case is `test/numerics-features/time_convergence/simdir`; its logs are kept in `SOLUTION/`.
+**At equal core count, MPI ranks with threads beat threads alone: at 40 cores, 4 ranks × 10 threads
+take 40 % less time than 40 threads.** This study times one 1000-iteration run in eight parallel
+layouts.
+
+Setup and run: `test/numerics-features/time_convergence/README.md`.
 
 ---
 
 ## Case
 
-A plate of 4.0 m × 0.2 m (0.01 m thick) split into four blocks of 1000 × 20 cells along x, 80 000 cells in total, joined by block connections (BC 101).
+A plate of 4.0 m × 0.2 m in four blocks of 1000 × 20 cells along x (80 000 cells), joined by block
+connections. Blocks 1–2 have k = 10 W/(m·K), blocks 3–4 k = 100 W/(m·K). The ends are held at
+1000 K and 2000 K. The run stops after 1000 iterations, long before steady state: only the time per
+iteration matters.
 
-| Blocks | x (m) | Material | k (W/mK) | ρ (kg/m³) | c<sub>p</sub> (J/kgK) |
-|---|---|---|---|---|---|
-| 1, 2 | 0 – 2 | mat1 | 10 | 8000 | 450 |
-| 3, 4 | 2 – 4 | mat2 | 100 | 8000 | 450 |
+## Result
 
-| Face | Condition |
-|---|---|
-| Block 1, face 1 (x = 0) | T = 1000 K (302) |
-| Block 4, face 2 (x = 4 m) | T = 2000 K (302) |
-| Faces 3–6 | `null` (adiabatic) |
+![Wall-clock time of the eight layouts](images/time_convergence.svg)
 
-Initial temperature 1500 K. Numerics: RK3, VNN 0.75, local time step, primitive variables, IRS with β = 0.5, `iter-threshold = 1000`. The run stops long before steady state (the residual drops from 3.9 × 10³ to 5.6): only the time per iteration matters here.
-
-## Configurations and results
-
-![Execution time](images/time_convergence.svg)
-
-| Case | MPI ranks × threads | Cores | Time (min) |
+| Case | Ranks × threads | Cores | Time (min) |
 |---|---|---|---|
 | openMP-10 | 1 × 10 | 10 | 0.302 |
 | MPI-2x5 | 2 × 5 | 10 | 0.221 |
@@ -36,19 +30,11 @@ Initial temperature 1500 K. Numerics: RK3, VNN 0.75, local time step, primitive 
 | MPI-2x20 | 2 × 20 | 40 | 0.097 |
 | MPI-4x10 | 4 × 10 | 40 | 0.090 |
 
-- At equal core count the MPI runs are faster: at 40 cores, MPI-4x10 takes 0.090 min against 0.150 min with 40 threads.
-- Threads alone scale by 2.0× from 10 to 40 cores (0.302 → 0.150 min); the 2-rank series by 2.3× (0.221 → 0.097 min).
-- With 4 blocks, 4 ranks hold one block each and 2 ranks two blocks each: both partitions are balanced. More ranks than blocks leave ranks idle (see [Parallel Execution](../user/parallel.md)).
+- **MPI wins at every core count.** At 40 cores, 4 × 10 takes 0.090 min against 0.150 min with 40
+  threads.
+- **Threads alone scale by 2.0× from 10 to 40 cores**; the 2-rank series by 2.3×.
+- **Both partitions are balanced**: 4 ranks hold one block each, 2 ranks two blocks each. With more
+  ranks than blocks some ranks idle (see [Parallel Execution](../user/parallel.md)).
 
-The logs come from the initial public release; the absolute times depend on the machine, which the logs do not record. They predate the changes of the MPI layer (FUNNELED threading, per-rank boundary records, residual summation order, the exchange tags) and of the face metric of the sync of October 2026, and have not been repeated since: *to be re-measured* on an idle node (the eight configurations of `numerics-features/time_convergence/simdir`). The re-measurements of the other V&V pages, at the end of the sync (`verify/sync-2026-10` a616ef8) and on 2026-10-29 with the post-merge branch (`post-merge/sync-followups` 0377da4, `res-threshold` relative to the first residual, which does not change this 1000-iteration run), did not include them: the node was busy both times (load of 57 to 270 on 192 cores), and these timings need 10 to 40 cores of an idle one. The timing and memory measurements at 1 to 2 million cells and the comparison of 1, 2, 4 and 8 ranks planned with them are deferred to a later pull request for the same reason.
-
-## Reproducing
-
-```bash
-cd test/numerics-features/time_convergence/simdir
-./FUSS.sh -p 10 solve > ../SOLUTION/openMP-10      # 1 x 10
-./FUSS.sh -m 2 -p 5 solve > ../SOLUTION/MPI-2x5     # 2 x 5
-cd .. && python3 plot.py                            # time_convergence.svg
-```
-
-`plot.py` reads the total time from each log in `SOLUTION/` (the `Time of operation` line of older logs, or `Elapsed` of the current timing summary) and draws the figure.
+The machine of these runs is not recorded: compare the layouts with each other, not the absolute
+times with another machine.

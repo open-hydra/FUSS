@@ -23,7 +23,7 @@ This page lists what the code already does for speed and the known costs that ha
 | The boundary fluxes of a rank run over its own records only, listed by block and face once at set-up (`local_bf_*`), not over the records of the whole mesh. | `Mod_BC_Fluxes`, `Mod_GhostExchange` (`build_local_bc_index`) |
 | After set-up each rank frees the large arrays of the blocks it does not own (keeping the chimera donors it needs). | `Mod_Allocate_Data` (`deallocate_remote_computation_data`) |
 | The IRS / no-IRS choice is made once per stage, outside the cell loops. | `Lib_Newstate` |
-| `co_T` finds the row of $T(h)$ by bisection when the material's Energy column does not decrease (checked at load), by a scan from $T_\text{min}$ otherwise: the same row, so the results are bit-identical. Serial solver time with `cons`, against the scan it replaced: ×3–4 at 1000–2000 K on a 1–3000 K table, ×2.0–2.2 under FAS cycles with IRS, ×1.24 at 300–373 K on a 1–1000 K table; `prim` unchanged (it calls `co_T` only in chimera ghosts and multigrid restriction). | `Lib_Solid`, `Load_Table` |
+| `co_T` finds the row of $T(h)$ by bisection when the material's Energy column does not decrease (checked at load), by a scan from $T_\text{min}$ otherwise. Both find the same row. Against the scan, bisection speeds up the serial solver with `cons` by ×3–4 at 1000–2000 K on a 1–3000 K table, ×2.0–2.2 under FAS cycles with IRS, and ×1.24 at 300–373 K on a 1–1000 K table. `prim` calls `co_T` only in chimera ghosts and multigrid restriction. | `Lib_Solid`, `Load_Table` |
 
 ---
 
