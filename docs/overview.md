@@ -107,7 +107,7 @@ One process and N ranks write identical files. See [Parallel Execution](user/par
 | Library | Role | Source |
 |---------|------|--------|
 | [ORION](https://github.com/MarcoGrossi92/ORION) | Tecplot and VTK reading/writing; bundles TecIO | A release from 2.1 on (below 3.0), checked out in `lib/ORION` by the configuration |
-| [FiNeR](https://github.com/szaghi/FiNeR) | `input.ini` parser | Submodule `lib/third_party/FiNeR`; its libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are submodules `lib/third_party/<name>` |
+| [FiNeR](https://github.com/szaghi/FiNeR) | `input.ini` parser | Submodule `lib/FiNeR` at v2.3.0; its libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration |
 | OpenMP | Threads | Optional, `--use-openmp` |
 | MPI | Distributed memory | Optional, `--use-mpi` |
 | TecIO | Tecplot binary (`.szplt`) | Optional, `--use-tecio`; built by ORION |

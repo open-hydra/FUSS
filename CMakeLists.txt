@@ -7,6 +7,28 @@ set(solver FUSS)
 
 project (${solver} LANGUAGES Fortran CXX C)
 
+# -------- Libraries and the releases FUSS is tested with (docs/development/versioning.md) --------
+# - ORION. Required by a range of releases with semver_dependency of cmake/SemVerDeps.cmake. Standalone, the release is
+# checked out in lib/ORION, out of the build folder, and kept in deps.lock (both git ignored); -DSEMVER_UPDATE=ALL
+# selects the newest one again.
+set(FUSS_ORION_VERSION 2.1)
+set(FUSS_ORION_URL https://github.com/MarcoGrossi92/ORION.git)
+# - FiNeR. Directly pinned at one release, the submodule lib/FiNeR (bump the gitlink and the tag together).
+set(FUSS_FINER_TAG v2.3.0)
+# FiNeR's own dependencies (cmake/FiNeRDependencies.cmake). FREE fetches them as FiNeR's author does
+# (`fobis fetch`: the default branch of each); BACKUP checks out the releases below, which FUSS builds and passes its
+# tests with. When an upstream change breaks FUSS, set BACKUP here and commit it, or configure one build with
+# -DFUSS_FINER_DEPS=BACKUP (kept in its cache until -UFUSS_FINER_DEPS).
+if (NOT DEFINED FUSS_FINER_DEPS)
+  set(FUSS_FINER_DEPS "FREE")
+endif()
+set(FUSS_FINER_BACKUP_PINS
+  "PENF=v2.0.1"
+  "StringiFor=v1.8.0"
+  "FACE=v1.1.17"
+  "FLAP=v2.5.3"
+  "BeFoR64=v1.2.4")
+
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
   set(CMAKE_VERBOSE_MAKEFILE FALSE)
@@ -82,83 +104,27 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(GNUInstallDirs)
   set (CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
 
-  # -------- Path fallbacks (standalone builds) --------
-  if (NOT DEFINED FINER_PATH)
-    set(FINER_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/third_party/FiNeR/")
-  endif()
-  if (NOT DEFINED FINER_DEPS_PATH)
-    set(FINER_DEPS_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lib/third_party/")
-  endif()
-
-  # -------- Helper: initialize a git submodule from the correct git root --------
-  macro(ensure_submodule_initialized SUBMOD_PATH)
-    if (NOT EXISTS "${SUBMOD_PATH}/CMakeLists.txt")
-      message(STATUS "Submodule at ${SUBMOD_PATH} not initialized. Attempting git submodule update --init...")
-      get_filename_component(_sm_parent "${SUBMOD_PATH}" DIRECTORY)
-      execute_process(
-        COMMAND git rev-parse --show-toplevel
-        WORKING_DIRECTORY "${_sm_parent}"
-        OUTPUT_VARIABLE _sm_git_root
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        RESULT_VARIABLE _sm_git_result)
-      if(_sm_git_result EQUAL 0)
-        file(RELATIVE_PATH _sm_rel "${_sm_git_root}" "${SUBMOD_PATH}")
-        execute_process(
-          COMMAND git submodule update --init "${_sm_rel}"
-          WORKING_DIRECTORY "${_sm_git_root}"
-          RESULT_VARIABLE _sm_init_result)
-        if(NOT _sm_init_result EQUAL 0)
-          message(FATAL_ERROR "Failed to initialize submodule: ${SUBMOD_PATH}")
-        endif()
-      else()
-        message(FATAL_ERROR "Could not find git root for submodule: ${SUBMOD_PATH}")
-      endif()
-    endif()
-  endmacro()
-
-  # ORION: the newest release that satisfies the requirement below, checked out in lib/ORION (cmake/SemVerDeps.cmake). The
-  # release stays that of the lock file deps.lock (not tracked), -DSEMVER_UPDATE=ALL selects the newest one again,
-  # -DFETCHCONTENT_SOURCE_DIR_ORION=<path> builds a local checkout instead. A project that adds FUSS (hydra) chooses the
-  # release of its build tree
-  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/SemVerDeps.cmake)
-  semver_dependency(ORION GIT_REPOSITORY https://github.com/MarcoGrossi92/ORION.git VERSION 2.1 SOURCE_DIR lib/ORION)
-  FetchContent_MakeAvailable(ORION)
-
-  # Libraries of FiNeR: FiNeR 2.0.7 and later do not carry them as submodules (its CMake build expects them in its
-  # src/third_party/, fetched with FoBiS) and add each one only when the target is not defined yet: FUSS provides
-  # them, in the order of their dependencies (FLAP needs PENF and FACE, StringiFor needs PENF and BeFoR64)
-  foreach (finer_dep PENF FACE FLAP BeFoR64 StringiFor)
-    if (NOT TARGET ${finer_dep})
-      ensure_submodule_initialized("${FINER_DEPS_PATH}/${finer_dep}")
-      add_subdirectory("${FINER_DEPS_PATH}/${finer_dep}" "${CMAKE_BINARY_DIR}/lib/third_party/${finer_dep}")
+  # Libraries building
+  # An external clone given by a relative path is taken from the source folder
+  foreach(_name ORION FINER)
+    if (FETCHCONTENT_SOURCE_DIR_${_name})
+      get_filename_component(FETCHCONTENT_SOURCE_DIR_${_name} "${FETCHCONTENT_SOURCE_DIR_${_name}}" ABSOLUTE
+                             BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
   endforeach()
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/SemVerDeps.cmake)
+  semver_dependency(ORION GIT_REPOSITORY ${FUSS_ORION_URL} VERSION ${FUSS_ORION_VERSION} SOURCE_DIR lib/ORION)
+  # ORION and FiNeR with its dependencies, the checks of both, and FetchContent_MakeAvailable
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/AddLibraries.cmake)
 
-  # FiNeR
-  if (NOT TARGET FiNeR)
-    ensure_submodule_initialized("${FINER_PATH}")
-    # FUSS needs FiNeR v2.1.0 or later: before it, a comment line that holds "=" or a bracket was taken for an option or
-    # a section header, and the reading of its section of input.ini ended there. A clone that pulls without
-    # "git submodule update" keeps the FiNeR it had checked out: ensure_submodule_initialized
-    # leaves it as it is, and it would build in silence. FiNeR names its version in a VERSION file ("vX.Y.Z") since
-    # v2.0.7; a FiNeR without it is older
-    set(finer_version "")
-    if (EXISTS "${FINER_PATH}/VERSION")
-      file(STRINGS "${FINER_PATH}/VERSION" finer_version LIMIT_COUNT 1)
-      string(REGEX REPLACE "^[ \t]*v?([0-9][0-9.]*).*$" "\\1" finer_version "${finer_version}")
-    endif()
-    if (NOT "${finer_version}" VERSION_GREATER_EQUAL "2.1.0")
-      if ("${finer_version}" STREQUAL "")
-        set(finer_found "a FiNeR without a VERSION file, older than v2.0.7")
-      else()
-        set(finer_found "FiNeR v${finer_version}")
-      endif()
-      message(FATAL_ERROR "FiNeR at ${FINER_PATH} is ${finer_found}: FUSS needs FiNeR v2.1.0 or later (it pins v2.3.0), "
-                          "as before v2.1.0 a comment line of input.ini that holds \"=\" ends the reading of its section. "
-                          "Run: git submodule update --init")
-    endif()
-    set(finerD "${FINER_PATH}" "${CMAKE_BINARY_DIR}/lib/third_party/FiNeR")
-    add_subdirectory(${finerD})
+else()
+
+  # Part of a larger project (hydra), which gives FUSS its libraries. When that project selected ORION with SemVerDeps,
+  # its release is checked against FUSS's requirement; nothing is added here.
+  get_property(_fuss_selected GLOBAL PROPERTY SEMVER_ORION_SOURCE SET)
+  if (_fuss_selected)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/SemVerDeps.cmake)
+    semver_dependency(ORION GIT_REPOSITORY ${FUSS_ORION_URL} VERSION ${FUSS_ORION_VERSION})
   endif()
 
 endif()

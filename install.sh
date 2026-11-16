@@ -24,7 +24,7 @@ Global Options:
 Commands:
   build                     Perform a full build
     --include-orion=<path>  Build a local ORION checkout instead of a release
-    --include-finer=<path>  Set external FiNeR path
+    --include-finer=<path>  Build an external FiNeR clone instead of the submodule lib/FiNeR
     --update-deps           Select again the newest release of ORION (deps.lock)
     --compilers=<name>      Set compilers (intel, gnu)
     --use-openmp            Use OpenMP
@@ -63,10 +63,13 @@ function write_presets() {
   CXX=$(grep '^CMAKE_CXX_COMPILER:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   AR=$(grep '^CMAKE_AR:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   RANLIB=$(grep '^CMAKE_RANLIB:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
-  # the local ORION checkout, when given
+  # the local ORION and FiNeR checkouts, when given
   local sources=""
   if [[ -n $ORION_PATH ]]; then
     sources+="        \"FETCHCONTENT_SOURCE_DIR_ORION\": \"${ORION_PATH}\","$'\n'
+  fi
+  if [[ -n $FINER_PATH ]]; then
+    sources+="        \"FETCHCONTENT_SOURCE_DIR_FINER\": \"${FINER_PATH}\","$'\n'
   fi
 
   cat <<EOF > CMakePresets.json
@@ -82,8 +85,7 @@ function write_presets() {
       "description": "Default preset",
       "binaryDir": "\${sourceDir}/build",
       "cacheVariables": {
-${sources}        "FINER_PATH": "${FINER_PATH}",
-        "CMAKE_BUILD_TYPE": "${BUILD_TYPE}",
+${sources}        "CMAKE_BUILD_TYPE": "${BUILD_TYPE}",
         "CMAKE_Fortran_COMPILER": "${FC}",
         "CMAKE_C_COMPILER": "${CC}",
         "CMAKE_CXX_COMPILER": "${CXX}",
@@ -104,10 +106,11 @@ EOF
 # Default global values
 COMMAND=""
 COMPILERS=""
-# ORION: the release of deps.lock, or the newest one that FUSS accepts (see CMakeLists.txt)
+# ORION: the release of deps.lock, or the newest one that FUSS accepts (see CMakeLists.txt);
+# FiNeR: the submodule lib/FiNeR, or an external clone
 ORION_PATH=""
 UPDATE_DEPS="false"
-FINER_PATH=$(pwd)'/lib/third_party/FiNeR/'
+FINER_PATH=""
 USE_OPENMP="false"
 USE_MPI="false"
 USE_TECIO="false"
@@ -161,7 +164,8 @@ while [[ $# -gt 0 ]]; do
             ;;
         --include-finer=*)
             [[ "$COMMAND" == "build" ]] || { error " --include-finer is only valid for 'build' command"; exit 1; }
-            FINER_PATH="${1#*=}"
+            # absolute: CMake takes the folder from the build directory
+            FINER_PATH=$(cd "${1#*=}" && pwd) || { error "No folder ${1#*=}"; exit 1; }
             ;;
         --update-deps)
             [[ "$COMMAND" == "build" ]] || { error " --update-deps is only valid for 'build' command"; exit 1; }
@@ -208,11 +212,10 @@ case "$COMMAND" in
         task "Building $project"
 
         task "Cloning submodules"
-        if [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]]; then
-          # FiNeR and its five libraries (PENF, FACE, FLAP, BeFoR64, StringiFor): CMake adds the libraries before FiNeR
-          git submodule update --init lib/third_party/FiNeR lib/third_party/PENF lib/third_party/FACE \
-                                      lib/third_party/FLAP lib/third_party/BeFoR64 lib/third_party/StringiFor
-        fi
+        # sync first: a clone made before FiNeR moved (lib/third_party/FiNeR to lib/FiNeR) lacks its new entry
+        git submodule sync --quiet
+        [[ -z $FINER_PATH ]] && git submodule update --init lib/FiNeR
+        # ORION (a release, in lib/) and FiNeR's own dependencies are cloned by CMake at configure time.
 
         task "Configuring and building $project"
         if [[ $COMPILERS == "intel" ]]; then
@@ -228,7 +231,7 @@ case "$COMMAND" in
         log "Build type: $BUILD_TYPE"
         log "ORION: ${ORION_PATH:-release}"
         log "Update ORION: $UPDATE_DEPS"
-        log "FINER path: $FINER_PATH"
+        log "FiNeR: ${FINER_PATH:-lib/FiNeR}"
         log "Use OpenMP: $USE_OPENMP"
         log "Use MPI: $USE_MPI"
         log "Use TecIO: $USE_TECIO"
@@ -238,9 +241,12 @@ case "$COMMAND" in
         else
           log "Compilers: FC=$FC, CXX=$CXX, CC=$CC"
         fi
-        CMAKE_ARGS=(-DFINER_PATH=$FINER_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DUSE_IPO=$USE_IPO -DCMAKE_BUILD_TYPE=$BUILD_TYPE)
+        CMAKE_ARGS=(-DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DUSE_IPO=$USE_IPO -DCMAKE_BUILD_TYPE=$BUILD_TYPE)
         if [[ -n $ORION_PATH ]]; then
           CMAKE_ARGS+=(-DFETCHCONTENT_SOURCE_DIR_ORION="$ORION_PATH")
+        fi
+        if [[ -n $FINER_PATH ]]; then
+          CMAKE_ARGS+=(-DFETCHCONTENT_SOURCE_DIR_FINER="$FINER_PATH")
         fi
         if [[ $UPDATE_DEPS == "true" ]]; then
           CMAKE_ARGS+=(-DSEMVER_UPDATE=ALL)

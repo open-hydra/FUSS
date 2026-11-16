@@ -4,6 +4,7 @@ CMakePresets.json
 site
 
 OUTPUT
+__pycache__/
 
 # Release of ORION checked out by the configure (cmake/SemVerDeps.cmake), and the one selected
 deps.lock

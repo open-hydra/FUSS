@@ -29,11 +29,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # FUSS: lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor}: six submodules, none nested (the layout of the
-          # pins theme). CMake would try `git submodule update --init` itself when one is missing
-          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner. ORION is not a
-          # submodule: the configure checks out the newest release it accepts, over https (cmake/SemVerDeps.cmake).
-          submodules: recursive
+          # FiNeR, the one submodule (its five libraries are cloned by the configure, cmake/FiNeRDependencies.cmake). ORION is
+          # not a submodule: the configure checks out the newest release it accepts, over https (cmake/SemVerDeps.cmake).
+          submodules: true
 
       - name: Install system dependencies
         # FUSS: gcc and g++ come with the image (project(FUSS LANGUAGES Fortran CXX C): ORION and FiNeR need the three
@@ -96,7 +94,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: true
 
       - name: Install system dependencies
         run: |

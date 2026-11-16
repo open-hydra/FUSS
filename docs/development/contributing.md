@@ -29,7 +29,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=DEBUG
 cmake --build build
 ```
 
-`./install.sh compile` reapplies the preset and so returns to `RELEASE`. `./install.sh update --remote` moves the submodules to the latest commits of their remotes, away from the commits recorded in FUSS. See [Installation](../getting-started/installation.md).
+`./install.sh compile` reapplies the preset and so returns to `RELEASE`. See [Installation](../getting-started/installation.md), and [Versioning](versioning.md) to move a library to another release.
 
 ---
 
