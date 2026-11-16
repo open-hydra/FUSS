@@ -34,9 +34,6 @@ Commands:
 
   compile                   Compile the program using the CMakePresets file
 
-  update                    Download git submodules
-    --remote                Use the latest remote commit
-
 EOF
     exit 1
 }
@@ -120,9 +117,8 @@ REMOTE="false"
 BUILD_TYPE="RELEASE"
 
 # Define allowed options for each command using regular arrays
-CMD=("build" "compile" "update")
+CMD=("build" "compile")
 CMD_OPTIONS_build=("--compilers --include-orion --include-finer --update-deps --use-openmp --use-mpi --use-tecio --no-ipo")
-CMD_OPTIONS_update=("--remote")
 
 # Parse global options
 while getopts "hv-:" opt; do
@@ -195,10 +191,6 @@ while [[ $# -gt 0 ]]; do
             [[ "$COMMAND" == "build" ]] || { error " --no-ipo is only valid for 'build' command"; exit 1; }
             USE_IPO="false"
             ;;
-        --remote)
-            [[ "$COMMAND" == "update" ]] || { error " --remote is only valid for 'update' command"; exit 1; }
-            REMOTE="true"
-            ;;
         *)
             eval "opts=(\"\${CMD_OPTIONS_${COMMAND}[@]}\")"
             error "Unknown option '$1' for command '$COMMAND'. Valid options: ${opts[@]}"
@@ -267,17 +259,6 @@ case "$COMMAND" in
         cmake --preset default || exit 1
         cmake --build $BUILD_DIR || exit 1
         log "[OK] Compilation successful"
-        ;;
-    update)
-        task "Updating git submodules"
-        if [[ "$REMOTE" == "true" ]]; then
-          log "Updating submodules to latest remote commit"
-          git submodule update --init --remote
-        else
-          log "Updating submodules to current commit"
-          git submodule update --init
-        fi
-        log "[OK] Submodules updated"
         ;;
     *)
         error "Unknown command '$COMMAND'"
