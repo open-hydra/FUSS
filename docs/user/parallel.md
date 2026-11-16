@@ -12,8 +12,6 @@ The cell loops of every block are shared among the threads. The number of thread
 
 `FUSS.sh` also sets `ulimit -s unlimited` and `KMP_STACKSIZE=100M`, which the Intel runtime needs for the per-thread temporaries.
 
-The metrics of the ghost cells of the symmetry faces (300) are filled one layer at a time, every face of a layer before the next: on a one-cell-thick direction the second layer of one face is a first-layer ghost cell of the opposite face, which another thread would otherwise be writing in the same loop. The set-up of the metrics is the same for any number of threads.
-
 ## MPI
 
 ```bash
@@ -27,14 +25,25 @@ The metrics of the ghost cells of the symmetry faces (300) are filled one layer 
   FUSS MPI partition: 3 blocks over 2 ranks, balance 100.0% of ideal
 ```
 
-**Decomposition map.** `decomposition-map = <file>` in `[FUSS-IO]` takes the rank of every block from a file of `INPUT/` (the name only, with the phase prefix of `bc.txt`; default `none`: the partition above). The file has the format of the map of the ATLAS mesh decomposer: lines starting with `#` are comments; then one line per block, blocks 1 to *n* in order, with 13 integers `new parent i0 i1 j0 j1 k0 k1 ni nj nk cells rank`, of which FUSS uses `new` (the block), `ni nj nk` and `cells` (checked against the mesh) and `rank` (from 0); the first `#` line after the block lines ends them. Rank 0 reads and checks the file and passes the result to the other ranks. A file that does not exist or is a directory, a line that is not 13 integers, blocks out of order or missing, sizes that differ from the mesh, a rank outside the run, or (with at least as many blocks as ranks) a highest rank below the last, which says the map is for another number of ranks, stops every rank with exit code 1. With fewer blocks than ranks the ranks without a block idle, with a warning. A map in `INPUT/` is read only when the key names it.
+**Decomposition map.** `decomposition-map = <file>` in `[FUSS-IO]` takes the rank of every block from a file in `INPUT/` (the name only, with the phase prefix of `bc.txt`). The default, `none`, is the partition above.
+
+- The format is that of the ATLAS mesh decomposer: `#` comment lines, then one line per block, blocks 1 to *n* in order, with 13 integers `new parent i0 i1 j0 j1 k0 k1 ni nj nk cells rank`.
+- FUSS uses `new` (the block), `ni nj nk` and `cells` (checked against the mesh) and `rank` (from 0). The first `#` line after the block lines ends them.
+- Rank 0 reads and checks the file. A missing file, a malformed line, blocks out of order or missing, sizes that differ from the mesh, a rank outside the run, or a map written for another number of ranks stops every rank with exit code 1.
+- With fewer blocks than ranks the ranks without a block idle, with a warning.
+- A map in `INPUT/` is read only when the key names it.
 
 A block is never split. With more ranks than blocks the extra ranks have no work, and the largest block caps the balance: to use more ranks, split the mesh into more blocks.
 
-**Communication.** At every stage each rank exchanges the ghost cells of the block connections (BC 101) that cross ranks and the chimera donor cells (BC 102) of its receivers. With multigrid the partition is made once, on the finest level, and every level has its own exchange schedule. Output goes through rank 0: it gathers the temperature, material and source fields and the wall values, and writes the files. MPI is initialised with `MPI_THREAD_FUNNELED`: every MPI call is made by the primary thread of each rank, the other threads of the rank work on the packing, the unpacking and the boundary conditions between the calls.
+**Communication.**
 
-**Stops.** An error found by rank 0 (the input file, the material tables, the boundary conditions) is passed to the other ranks, which stop with it; an error that every rank finds on the same data (a line of `bc.txt`, a time table, a probe, the FAS keys) stops every rank after a barrier and `MPI_FINALIZE`; an error that only some ranks can find (the initial condition each rank reads, a probe file) is reduced over the ranks first. Each rank writes `[RANK r] STOP: <message>`, the run ends with exit code 1, and the output of every rank is flushed before it ends. See [Running FUSS](using.md#exit-codes).
+- At every stage each rank exchanges the ghost cells of the block connections (101) that cross ranks and the chimera donors (102) of its receivers.
+- With multigrid the partition is made once, on the finest level; every level has its own exchange schedule.
+- Output goes through rank 0, which gathers the fields and the wall values and writes the files.
+- MPI runs in `MPI_THREAD_FUNNELED` mode: only the primary thread of a rank calls MPI. The other threads pack, unpack and apply boundary conditions between the calls.
 
-**Reproducibility.** The results do not depend on the number of OpenMP threads, of MPI ranks or on how the blocks are split over the ranks: the layouts tested (below) write identical files, bit for bit; the residual sum of `residual-history.dat` is taken in a fixed order (over the cells of each block, line by line, then over the blocks in turn), and that file prints the residual with eleven significant digits, so the test sees a difference of the sum only above that. The CTest label `needs-mpi` checks it on the chimera and multigrid cases with 2 ranks and, on a case with a box of four blocks and a chimera pair, on 1×1, 1×4, 2×1, 4×1 and 2×2 ranks × threads (see [Testing](../development/testing.md)).
+**Stops.** Every rank stops together, with `[RANK r] STOP: <message>` and exit code 1, after flushing its output (see [Running FUSS](using.md#exit-codes)).
+
+**Reproducibility.** **The results do not depend on the number of threads, of ranks, or on the split of the blocks over the ranks**: the layouts tested write identical files, bit for bit. The residual is summed in a fixed order. The CTest label `needs-mpi` checks this on the chimera and multigrid cases with 2 ranks, and on a box of four blocks with a chimera pair at 1×1, 1×4, 2×1, 4×1 and 2×2 ranks × threads (see [Testing](../development/testing.md)).
 
 **Limits.** BC 104 (coupling to the fluid solver across non-matching faces, in hydra) reads the partner cells in place: hydra stops when they sit on another rank, so in practice it runs on one rank.

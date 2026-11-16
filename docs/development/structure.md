@@ -26,7 +26,7 @@ FUSS/
 │   ├── steady-state/     # verification cases
 │   ├── transient/        # verification cases
 │   └── numerics-features/# chimera, residual convergence, parallel timing
-└── docs/                 # MkDocs sources
+└── docs/                 # documentation sources (Zensical, mkdocs.yml)
 ```
 
 `bin/`, `build/` and `CMakePresets.json` are created by the build and ignored by git.
