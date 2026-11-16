@@ -31,25 +31,15 @@ TecIO ships with ORION and is built only with `--use-tecio`; FUSS then writes Te
 
 ## Documentation Tools
 
-### MkDocs
+### Zensical
 
 **Static Site Generator**
 
-- **Website:** [mkdocs.org](https://www.mkdocs.org)
-- **License:** BSD-2-Clause
-- **Contribution:** Documentation site generation
-
-MkDocs transforms FUSS's documentation into a beautiful, searchable website.
-
-### Material for MkDocs
-
-**Modern Documentation Theme**
-
-- **Website:** [squidfunk.github.io/mkdocs-material](https://squidfunk.github.io/mkdocs-material/)
+- **Website:** [zensical.org](https://zensical.org)
 - **License:** MIT
-- **Contribution:** Professional documentation theme with advanced features
+- **Contribution:** Documentation site generation, by the team of Material for MkDocs
 
-Material for MkDocs provides the sleek, modern interface for FUSS's documentation.
+Zensical builds FUSS's documentation from `mkdocs.yml`.
 
 ## Institutional Support
 

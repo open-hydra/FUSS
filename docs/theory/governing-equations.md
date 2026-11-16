@@ -92,7 +92,7 @@ Each cell also carries a material index, read with $T$ from the initial-conditio
 | `cons` (default) | volumetric enthalpy $h_i = h(T_i)$ | $h_i$ by $\Delta t\,[\tfrac{1}{V_i}\sum_f (k_f\nabla T\cdot\hat{\mathbf n})_f A_f + \dot q_{\text{vol},i}]$, then $T_i$ by inverting the $h(T)$ table |
 | `prim` | temperature $T_i$ | the same increment divided by $\mathrm{d}h/\mathrm{d}T = \rho(T_i)\,c_p(T_i)$ |
 
-The two agree as long as the Energy column is the integral of $\rho\,c_p$, as ATLAS GPB writes it; FUSS checks the table when it loads it and warns when $\mathrm{d}h/\mathrm{d}T$ differs from $\rho\,c_p$ by more than 1 % (see [Material Properties](thermo.md#energy-column-and-the-enthalpy-inversion)).  Before 2026-10-09 the `prim` update divided by $\mathrm{d}(\rho\,c_p\,T)/\mathrm{d}T$, which added $T\,\mathrm{d}(\rho\,c_p)/\mathrm{d}T$ to the heat capacity of temperature-dependent materials (see the [variable-$c_p$ plate](../vv/2D-transient-variable-cp-plate.md)).
+The two agree as long as the Energy column is the integral of $\rho\,c_p$, as ATLAS GPB writes it; FUSS checks the table when it loads it and warns when $\mathrm{d}h/\mathrm{d}T$ differs from $\rho\,c_p$ by more than 1 % (see [Material Properties](thermo.md#energy-column-and-the-enthalpy-inversion)).  The [variable-$c_p$ plate](../vv/2D-transient-variable-cp-plate.md) checks both paths.
 
 ---
 
@@ -125,13 +125,13 @@ with $\sigma = 5.67\times10^{-8}$ W/(m²·K⁴).  Null and symmetry faces are ad
 
 **Time tables.**  For 301 and 302 the data line may hold a file name instead of a number.  The file has two columns, time and value; if its first line contains the word `periodic`, the table repeats with period $t_\text{last} - t_\text{first}$.  Values are interpolated linearly, held at the first value before the first time and at the last value after the last time.  The table is evaluated at every ghost-cell fill; in a time-accurate run stage $s$ of the Runge–Kutta scheme reads it at $t^n + c_s\,\Delta t$ (the stage time), which preserves the temporal order of the scheme.  A run with a time table does not stop on `res-threshold` while `time-accurate = true`: the table keeps forcing the solution, so only `time-threshold` or `iter-threshold` end it.
 
-**ATLAS keys.**  ATLAS writes `bc.txt` from the `type = wall` sections of `input.ini` (see [Boundary Conditions](../user/boundary-conditions.md)): `q` or `q-time-file` → 301, `T` or `T-time-file` → 302, `hconv` + `qrad` + `Tref` → 303 (pure convection needs `qrad = 0` written), `eps` + `Tref` → 304, `hconv` + `eps` + `Tref` → 305.  ATLAS 7d3c72d tests the 304 combination first, so a section with `hconv`, `eps` and `Tref` is written as 304 and `hconv` is dropped: code 305 has to be written into `bc.txt` by hand.  The face keywords `null` and `symmetry` give 0 and 300; `connection` and `chimera` give 101 or 102.
+**ATLAS keys.**  ATLAS writes `bc.txt` from the `type = wall` sections of `input.ini`; the keys and codes are listed in [Boundary Conditions](../user/boundary-conditions.md#atlas-input).
 
 ---
 
 ## Multi-Block Structure
 
-FUSS supports an arbitrary number of structured hexahedral blocks.  Each cell carries a material index, an initial temperature and $\dot q_\text{vol}$; each boundary cell face carries a boundary condition.  Blocks exchange heat through block connections (101) and chimera overlaps (102), and the solver treats the assembled multi-block domain as a single computational grid.  A material change must coincide with a block boundary (see [Spatial Discretisation](numerics.md#face-conductivity)).
+FUSS supports an arbitrary number of structured hexahedral blocks.  Each cell carries a material index, an initial temperature and $\dot q_\text{vol}$; each boundary cell face carries a boundary condition.  Blocks exchange heat through block connections (101) and chimera overlaps (102), and the solver treats the assembled multi-block domain as a single computational grid.  A material may change at a block boundary or inside a block (see [Face Conductivity](numerics.md#face-conductivity)).
 
 ---
 

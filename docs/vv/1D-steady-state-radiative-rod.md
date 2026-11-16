@@ -1,78 +1,34 @@
-# 1-D Steady State Thermal Analysis – Radiative Rod
+# 1-D Radiative Rod
 
-Steady-state heat conduction in a rectangular solid rod with a prescribed temperature at one end and a radiation boundary condition at the other. This configuration is a standard one-dimensional conduction–radiation problem whose solution requires solving a nonlinear algebraic equation for the free-end temperature. Verification is performed by comparison with the NAFEMS P16 benchmark reference value.
+A rod is held at 1000 K at one end and radiates to 300 K at the other. The test checks the radiation wall (BC 304).
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test 9 (iii), YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS P16, *Benchmark Tests for Thermal Analysis*, Test 9 (iii), 1986.
+Setup and run: `test/steady-state/radiative_Rod/README.md`.
 
 ---
 
-## Problem setup
+## Problem
 
-A rectangular plate (0.1 m × 0.01 m) is subject to a prescribed temperature of 1000 K at its left-hand face and radiation to an ambient temperature of 300 K at its right-hand face. The problem reduces to a one-dimensional steady-state balance between conduction along the rod and radiative heat loss at the free end.
+A rod of length L = 0.1 m, k = 55.563 W/(m·K).
 
-The governing equation for steady-state conduction with no internal heat generation is:
-
-$$\frac{d}{dx}\left(k\frac{dT}{dx}\right) = 0$$
-
-which yields a linear temperature profile along the rod. The radiation boundary condition at $x = L$ couples the conductive heat flux to the Stefan–Boltzmann radiative flux:
-
-$$-k\left.\frac{dT}{dx}\right|_{x=L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\right)$$
-
-This nonlinear equation for the unknown temperature $T_L$ at the radiating face must be solved iteratively. Substituting the linear profile $dT/dx = (T_L - T_1)/L$ gives:
-
-$$\frac{k\,(T_1 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\right)$$
-
-**Boundary conditions**
-
-| Face | Condition | Value |
-|---|---|---|
-| Face 1 (x = 0) | Prescribed temperature (302) | T = 1000 K |
-| Face 2 (x = L) | Radiation to ambient (304) | ε = 0.98, T_ref = 300 K |
-| Faces 3–6 | `null` (no flux) | — |
-
-**Material properties**
-
-| Property | Symbol | Value | Unit |
-|---|---|---|---|
-| Thermal conductivity | k | 55.563 | W/mK |
-| Density | ρ | 7850 | kg/m³ |
-| Specific heat | cp | 460 | J/kgK |
-| Stefan–Boltzmann constant | σ | 5.67 × 10⁻⁸ | W/m²K⁴ |
-| Emissivity | ε | 0.98 | — |
-
-## Numerical setup
-
-| Parameter | Value |
+| Face | Condition |
 |---|---|
-| Time scheme | RK3 |
-| VNN | 1.0 |
-| Steady-state convergence | time-accurate = false |
-| Integration variables | primitive |
-| Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 56 642) |
-| Initial condition | 1000 K |
+| x = 0 | T = 1000 K (302) |
+| x = L | radiation, ε = 0.98, T<sub>ref</sub> = 300 K (304) |
+| lateral | adiabatic |
 
-## Grid structure
+Without a source the steady profile is linear. The free-end temperature $T_L$ balances conduction
+and radiation:
 
-The mesh is a 2D structured grid (100 × 2 cells) spanning the physical domain (0.1 m × 0.01 m) with uniform spacing in both directions. The two-cell depth in the transverse direction makes the problem effectively one-dimensional, consistent with the NAFEMS test specification.
+$$\frac{k\,(T_0 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\right)$$
 
-Boundary conditions (FUSS block-face notation):
+Its root is 926.9707 K; NAFEMS rounds it to 927 K.
 
-- **Face 1** (x = 0): Prescribed wall temperature (`type = wall`, `T = 1000`)
-- **Face 2** (x = L): Radiation (`type = wall`, `eps = 0.98`, `Tref = 300`)
-- **Faces 3–4**: `null` (no flux); **faces 5–6**: `null` (2-D plane)
-
-## Results and verification
-
-The FUSS solution is compared against the NAFEMS benchmark target temperature at the radiation face (x = 0.1 m).
+## Result
 
 | Location | NAFEMS | FUSS | Error |
 |---|---|---|---|
-| x = 0.1 m (Face 2) | 927 K | 926.971 K | 0.0032 % |
+| x = 0.1 m | 927 K | 926.971 K | 0.0032 % |
 
-The wall temperature differs from the NAFEMS value by −0.029 K (0.0032 %; the acceptance criterion is 1 %). The exact root of the balance above is 926.9707 K: the difference is the rounding of the reference value.
-
-```bash
-cd test/steady-state/radiative_Rod
-./FUSS.sh solve && python3 verify.py
-```
+The tolerance is 1 %. The difference from NAFEMS is the rounding of the reference: FUSS agrees with
+the exact root to the last printed digit.

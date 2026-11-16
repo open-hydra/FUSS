@@ -7,7 +7,7 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 - **CMake** 3.23 or newer.
 - **Fortran compiler**: GNU (`gfortran`) or Intel oneAPI (`ifx`).
 - **C and C++ compilers**: the project enables C and C++ (ORION and TecIO).
-- **git**: FiNeR and its libraries are Git submodules (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of the pins); the configuration checks out a release of ORION (over https, the first time).
+- **git**: FiNeR is a Git submodule (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of its pin); the configuration clones FiNeR's own libraries and checks out a release of ORION (over https, the first time).
 - **OpenMP** and **MPI**: optional.
 
 ### Dependencies
@@ -15,12 +15,22 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 | Path | Repository | Purpose |
 |------|------------|---------|
 | `lib/ORION` | [MarcoGrossi92/ORION](https://github.com/MarcoGrossi92/ORION) (a release from 2.1 on, below 3.0, checked out by the configuration; not tracked) | Tecplot/VTK reading and writing; bundles TecIO |
-| `lib/third_party/FiNeR` | [szaghi/FiNeR](https://github.com/szaghi/FiNeR) (submodule) | `input.ini` parser |
-| `lib/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (submodules) | FiNeR's own libraries, added by CMake before FiNeR; pinned at the tags of MOSE (PENF v2.0.1, FACE v1.1.17, FLAP v2.5.3, BeFoR64 v1.2.4, StringiFor v1.8.0) |
+| `lib/FiNeR` | [szaghi/FiNeR](https://github.com/szaghi/FiNeR) (submodule, v2.3.0) | `input.ini` parser |
+| `lib/FiNeR/src/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (cloned by the configuration) | FiNeR's own libraries, at their default branches (`FUSS_FINER_DEPS=FREE`) or at fixed releases (`BACKUP`) |
 
-### ifx 2024.1 and IPO
+The configuration checks every library against the release FUSS requires: see [Versioning](../development/versioning.md).
 
-ifx 2024.1 (tested: 2024.1.0, build 20240308) compiles a loop of the ghost metrics of MOSE wrongly at `-O2` and `-O3` without interprocedural optimization: a minimal program in standard Fortran gives wrong values at `-O2` and `-O3`, also at the default level with no `-O` option, and the right ones at `-O0`, `-O1` and with `-ipo`. FUSS built without IPO (the RELEASE build of ifx up to 2026-10-28, whose `-ipo` was dropped silently; see the CHANGELOG) passes every case of the stress battery and of the patch tests, so no miscompiled loop is known in FUSS; CMake refuses that build all the same, as MOSE does, because the pattern is ordinary Fortran. The refused builds are the RELEASE build with `-DUSE_IPO=OFF` (`--no-ipo`) or whose toolchain cannot do IPO, and the TESTING build (`-O2`); the RELEASE build with IPO (the default) and the DEBUG build (`-O0`) are accepted. `-DFUSS_ALLOW_IFX_NOIPO=ON` turns the refusal into a warning. Other versions of ifx have not been tested.
+!!! warning "ifx 2024.1 needs IPO"
+    ifx 2024.1 miscompiles an ordinary Fortran loop pattern (found in MOSE) at `-O2` and `-O3`
+    without interprocedural optimization (IPO). No such loop is known in FUSS, but CMake refuses
+    the affected ifx 2024.1 builds, as MOSE does:
+
+    - refused: RELEASE with `--no-ipo` (`-DUSE_IPO=OFF`) or with a toolchain that cannot do IPO,
+      and TESTING (`-O2`);
+    - accepted: RELEASE with IPO (the default) and DEBUG (`-O0`).
+
+    `-DFUSS_ALLOW_IFX_NOIPO=ON` turns the refusal into a warning. Other ifx versions are not
+    tested.
 
 ## Build with `install.sh`
 
@@ -38,7 +48,7 @@ Global options: `-h`, `--help` (usage) and `-v`, `--verbose` (log the configurat
 
 ### `build`
 
-1. Initialises the submodules `lib/third_party/FiNeR` and FiNeR's five libraries under `lib/third_party/` (unless an external FiNeR path is given).
+1. Syncs the submodule URLs and initialises `lib/FiNeR` (unless an external FiNeR clone is given). The configuration clones FiNeR's five libraries.
 2. Sets the compilers, deletes `build/`, configures CMake in `build/` with `CMAKE_BUILD_TYPE=RELEASE` and builds.
 3. Writes `CMakePresets.json` with the configuration just used.
 
@@ -52,7 +62,7 @@ Global options: `-h`, `--help` (usage) and `-v`, `--verbose` (log the configurat
 | `--use-tecio` | TecIO, for Tecplot binary (`.szplt`) files |
 | `--no-ipo` | Without interprocedural (link-time) optimization in the RELEASE build (`-DUSE_IPO=OFF`) |
 | `--include-orion=PATH` | Build a local ORION checkout instead of a release (`-DFETCHCONTENT_SOURCE_DIR_ORION`) |
-| `--include-finer=PATH` | Use an external FiNeR tree instead of the submodule |
+| `--include-finer=PATH` | Build an external FiNeR clone instead of the submodule `lib/FiNeR` (`-DFETCHCONTENT_SOURCE_DIR_FINER`), checked against `FUSS_FINER_TAG` |
 | `--update-deps` | Select again the newest release of ORION (`-DSEMVER_UPDATE=ALL`; see below) |
 
 ```bash
@@ -65,15 +75,6 @@ Rebuilds without deleting `build/`, with the configuration stored in `CMakePrese
 
 ```bash
 ./install.sh compile        # cmake --preset default && cmake --build build
-```
-
-### `update`
-
-Runs `git submodule update --init` (with `--remote`: moves each submodule to the latest commit of its remote branch instead of the commit recorded in FUSS), FiNeR's libraries included.
-
-```bash
-./install.sh update
-./install.sh update --remote
 ```
 
 ### Build output
@@ -90,20 +91,22 @@ Runs `git submodule update --init` (with `--remote`: moves each submodule to the
 `install.sh build` runs the equivalent of:
 
 ```bash
-./install.sh update          # submodules (FiNeR and its five libraries)
+git submodule sync --quiet && git submodule update --init lib/FiNeR
 cmake -B build \
-      -DFINER_PATH=$PWD/lib/third_party/FiNeR/ \
       -DUSE_OPENMP=true -DUSE_MPI=false -DUSE_TECIO=false \
       -DCMAKE_BUILD_TYPE=RELEASE
 cmake --build build
 ```
 
-- ORION is required by a range of releases, 2.1 or a later 2.x (`cmake/SemVerDeps.cmake`): the first configuration selects the newest one on GitHub and checks it out in `lib/ORION`, and `deps.lock` (not tracked) keeps it, so that the next configurations need no network. `-DSEMVER_UPDATE=ALL` selects the newest release again (once); `-DFETCHCONTENT_SOURCE_DIR_ORION=PATH` builds a local checkout instead; `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any clone or fetch. A `lib/ORION` left by the former submodule is moved to the release when it has no changes; otherwise the configuration stops and names it.
-- `FINER_PATH` defaults to `lib/third_party/FiNeR/`; `FINER_DEPS_PATH` (default `lib/third_party/`) is where CMake finds PENF, FACE, FLAP, BeFoR64 and StringiFor, which it adds before FiNeR. A submodule that is not initialised is initialised by CMake (`git submodule update --init`); FiNeR older than v2.1.0 stops the configuration.
-- `USE_IPO` (default ON) adds the interprocedural optimization (`-ipo` with Intel; `-flto` with GNU) to the RELEASE flags (results of a RELEASE build with ifx change at round-off against builds before 2026-10-28, see the CHANGELOG); with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler (`-DIPO_AR`, `-DIPO_RANLIB` give them for another layout of the installation), and IPO is dropped with a warning when they are not found. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`.
-- `USE_TECIO` is an ORION option and defaults to ON there: pass `-DUSE_TECIO=false` to build without TecIO.
-- `CMAKE_BUILD_TYPE` is `RELEASE` (default), `DEBUG` (`-O0`, warnings, traceback, bounds checking) or `TESTING` (`-O2`); see `cmake/SetFortranFlags.cmake`.
-- Use the `build/` directory: FiNeR and its libraries are built in `lib/` of the build directory, ORION in `_deps/` (`-B` elsewhere leaves the source tree clean), and the executables always go to `bin/`.
+- **ORION** is required as a 2.x release from 2.1 on (`cmake/SemVerDeps.cmake`). The first configuration checks out the newest one in `lib/ORION`, and `deps.lock` (not tracked) records it, so later configurations need no network.
+    - `-DSEMVER_UPDATE=ALL` selects the newest release again (once).
+    - `-DFETCHCONTENT_SOURCE_DIR_ORION=PATH` builds a local checkout instead.
+    - `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` forbids any clone or fetch.
+- **FiNeR** is the submodule `lib/FiNeR` (initialised by CMake when it is not), or the clone of `-DFETCHCONTENT_SOURCE_DIR_FINER=PATH`. The configuration clones its five libraries into `lib/FiNeR/src/third_party/`. A FiNeR off the commit or the release FUSS pins stops the configuration ([Versioning](../development/versioning.md)).
+- **`USE_IPO`** (default ON) adds interprocedural optimization to the RELEASE flags (`-ipo` with Intel, `-flto` with GNU). The archiver must index the optimised objects: with ifx it is the compiler's `llvm-ar` and `llvm-ranlib` (`-DIPO_AR`, `-DIPO_RANLIB` for another installation layout), with gfortran `gcc-ar` and `gcc-ranlib`. Without them IPO is dropped with a warning. `install.sh` stores `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` in `CMakePresets.json`.
+- **`USE_TECIO`** is an ORION option and defaults to ON there: pass `-DUSE_TECIO=false` to build without TecIO.
+- **`CMAKE_BUILD_TYPE`** is `RELEASE` (default), `DEBUG` (`-O0`, warnings, traceback, bounds checking) or `TESTING` (`-O2`); see `cmake/SetFortranFlags.cmake`.
+- Use the `build/` directory: FiNeR and ORION are built in `_deps/` of the build directory (`-B` elsewhere leaves the source tree clean), and the executables always go to `bin/`.
 
 The configuration stored by `install.sh` can be reused with:
 
@@ -136,7 +139,7 @@ See [Testing](../development/testing.md) for the labels and the cases.
 
 ```cmake
 add_subdirectory(lib/ORION)
-add_subdirectory(lib/third_party/FiNeR)
+add_subdirectory(lib/FiNeR)
 add_subdirectory(FUSS)
 target_link_libraries(myapp PRIVATE FUSSL FiNeR::FiNeR)
 ```

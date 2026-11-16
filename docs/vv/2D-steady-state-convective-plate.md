@@ -1,77 +1,33 @@
-# 2-D Steady State Thermal Analysis – Convective Plate
+# 2-D Convective Plate
 
-Steady-state heat conduction in a rectangular solid plate with a prescribed temperature at one edge, convection to ambient at two edges, and an insulated edge. This is a two-dimensional conduction problem with mixed boundary conditions whose reference solution is provided by the NAFEMS P16 thermal benchmark suite. Verification is performed by comparison of the computed wall temperature at point A (x = 0.6 m, y = 0.2 m) against the NAFEMS reference value of 18.25 °C (point E of the benchmark).
+A plate is heated on one edge, cooled by convection on two, and insulated on the last. The test checks the convective wall (BC 303) and an
+adiabatic wall.
 
-**Reference**: NAFEMS Publication P16, "Benchmark Tests for Thermal Analysis", Test T4, YR3087, Vol. 2, 1986.
+**Reference**: NAFEMS P16, *Benchmark Tests for Thermal Analysis*, Test T4, 1986.
+Setup and run: `test/steady-state/convective_Plate/README.md`.
 
 ---
 
-## Problem setup
+## Problem
 
-A rectangular plate (0.6 m × 1.0 m) is subjected to a prescribed temperature of 100 °C (373.15 K) along its bottom edge. The right and top edges lose heat by convection to an ambient temperature of 0 °C (273.15 K) with a uniform heat transfer coefficient of 750 W/m²°C. The left edge is thermally insulated.
+A plate of 0.6 m × 1.0 m, k = 52 W/(m·K), no source.
 
-The governing equation for two-dimensional steady-state conduction with no internal heat generation is:
-
-$$\frac{\partial^2 T}{\partial x^2} + \frac{\partial^2 T}{\partial y^2} = 0$$
-
-The convection boundary condition applied at the right (x = L) and top (y = H) faces is:
-
-$$-k\,\frac{\partial T}{\partial n} = h\,(T - T_\infty)$$
-
-where $h = 750$ W/m²°C and $T_\infty = 0$ °C.
-
-**Boundary conditions**
-
-| Face | Location | Condition | Value |
-|---|---|---|---|
-| Face 1 | x = 0 (left) | Adiabatic (301) | q = 0 |
-| Face 2 | x = 0.6 m (right) | Convection (303) | h = 750 W/m²°C, T_ref = 0 °C |
-| Face 3 | y = 0 (bottom) | Prescribed temperature (302) | T = 100 °C (373.15 K) |
-| Face 4 | y = 1.0 m (top) | Convection (303) | h = 750 W/m²°C, T_ref = 0 °C |
-
-**Material properties**
-
-| Property | Symbol | Value | Unit |
-|---|---|---|---|
-| Thermal conductivity | k | 52.0 | W/mK |
-| Density | ρ | 7850 | kg/m³ |
-| Specific heat | cp | 460 | J/kgK |
-
-## Numerical setup
-
-| Parameter | Value |
+| Edge | Condition |
 |---|---|
-| Time scheme | RK3 |
-| VNN | 1.0 |
-| Steady-state convergence | time-accurate = false |
-| Integration variables | primitive |
-| Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 21 838) |
-| Initial condition | 373.15 K |
+| left (x = 0) | adiabatic |
+| right (x = 0.6 m) | convection, h = 750 W/(m²·K), T<sub>∞</sub> = 0 °C |
+| bottom (y = 0) | T = 100 °C |
+| top (y = 1.0 m) | convection, h = 750 W/(m²·K), T<sub>∞</sub> = 0 °C |
 
-## Grid structure
+On the convective edges $-k\,\partial T/\partial n = h\,(T - T_\infty)$. The reference is the wall
+temperature at point A (x = 0.6 m, y = 0.2 m), point E of the benchmark: 18.25 °C.
 
-The mesh is a 2D structured grid (60 × 100 cells) spanning the physical domain (0.6 m × 1.0 m) with uniform spacing in both directions (Δx = 0.01 m, Δy = 0.01 m).
+## Result
 
-Boundary conditions (FUSS block-face notation):
+Point A lies on the right wall, between two wall cells; the value is their mean.
 
-- **Face 1** (x = 0): Adiabatic (`type = wall`, `q = 0`)
-- **Face 2** (x = 0.6 m): Convection (`type = wall`, `hconv = 750`, `Tref = 273.15`, `qrad = 0`)
-- **Face 3** (y = 0): Prescribed wall temperature (`type = wall`, `T = 373.15`)
-- **Face 4** (y = 1.0 m): Convection (`type = wall`, `hconv = 750`, `Tref = 273.15`, `qrad = 0`)
-- **Faces 5–6**: `null` (degenerate 2-D z-direction)
-
-## Results and verification
-
-The target point A is located at (x = 0.6 m, y = 0.2 m) on the convective face (B1F2). Since the mesh stores temperature at cell centres, the value at y = 0.2 m is estimated as the arithmetic mean of the two flanking cells (centres at y = 0.195 m and y = 0.205 m).
-
-| Location | NAFEMS | FUSS (interpolated) | Error |
+| Location | NAFEMS | FUSS | Error |
 |---|---|---|---|
-| A (x = 0.6 m, y = 0.2 m) | 18.25 °C | 18.26 °C | 0.004 % |
+| A (0.6 m, 0.2 m) | 18.25 °C | 18.26 °C | 0.004 % |
 
-The interpolated wall temperature differs from the NAFEMS reference by 0.012 K (0.004 % of the reference in K; the acceptance criterion is 1 %). The case takes about two minutes and is in the CTest label `validation`, not `fast`.
-
-```bash
-cd test/steady-state/convective_Plate
-./FUSS.sh solve && python3 verify.py
-```
+The difference is 0.012 K, against a tolerance of 1 % (in kelvin).

@@ -11,7 +11,7 @@ FUSS/
 ├── CMakeLists.txt        # top-level build: ORION, FiNeR, src/lib, src/app, test
 ├── install.sh            # build / compile / update
 ├── mkdocs.yml            # documentation site
-├── cmake/                # compiler flags, OpenMP/MPI detection
+├── cmake/                # compiler flags, OpenMP/MPI detection, the libraries and their checks
 ├── src/
 │   ├── app/
 │   │   ├── main.f90      # solver executable (bin/FUSS)
@@ -19,16 +19,14 @@ FUSS/
 │   └── lib/              # FUSS library (FUSSL), see below
 ├── lib/
 │   ├── ORION/            # a release checked out by the configuration (not tracked): Tecplot/VTK I/O, bundles TecIO
-│   └── third_party/
-│       ├── FiNeR/        # submodule: INI parser
-│       └── PENF/ FACE/ FLAP/ BeFoR64/ StringiFor/   # submodules: FiNeR's libraries, added by CMake before FiNeR
+│   └── FiNeR/            # submodule at v2.3.0: INI parser; its libraries are cloned into src/third_party/
 ├── test/
 │   ├── CMakeLists.txt    # CTest definitions
 │   ├── run_case.sh       # runs one case for CTest
 │   ├── steady-state/     # verification cases
 │   ├── transient/        # verification cases
 │   └── numerics-features/# chimera, residual convergence, parallel timing
-└── docs/                 # MkDocs sources
+└── docs/                 # documentation sources (Zensical, mkdocs.yml)
 ```
 
 `bin/`, `build/` and `CMakePresets.json` are created by the build and ignored by git.
@@ -315,7 +313,9 @@ classDiagram
 | `USE_MPI` | `OFF` | MPI; defines the preprocessor symbol `USE_MPI` |
 | `USE_TECIO` | `ON` (ORION option) | TecIO; `install.sh` passes `false` unless `--use-tecio` |
 | `CMAKE_BUILD_TYPE` | `RELEASE` | `RELEASE`, `DEBUG` or `TESTING` (`cmake/SetFortranFlags.cmake`) |
-| `FINER_PATH`, `FINER_DEPS_PATH` | `lib/third_party/FiNeR/`, `lib/third_party/` | Dependency source trees |
 | `FETCHCONTENT_SOURCE_DIR_ORION`, `SEMVER_UPDATE` | (none), `OFF` | A local ORION checkout instead of the release; `ALL` selects the newest release of ORION again (`cmake/SemVerDeps.cmake`, `deps.lock`) |
+| `FETCHCONTENT_SOURCE_DIR_FINER` | (none) | An external FiNeR clone instead of the submodule `lib/FiNeR` |
+| `FUSS_FINER_DEPS` | `FREE` | FiNeR's libraries at their default branches (`FREE`) or at the releases of `FUSS_FINER_BACKUP_PINS` (`BACKUP`) |
+| `FUSS_PIN_CHECK` | `FATAL_ERROR` | `WARNING` builds a library off its pin on purpose ([Versioning](versioning.md)) |
 
-When FUSS is added to another CMake project (as in hydra) only `FUSSL` is built; the parent defines ORION and FiNeR. The executables and the tests are built only when FUSS is the top-level project. See [Installation](../getting-started/installation.md).
+When FUSS is added to another CMake project (as in hydra) only `FUSSL` is built; the parent defines ORION and FiNeR, and an ORION selected with SemVerDeps is checked against FUSS's requirement. The executables and the tests are built only when FUSS is the top-level project. See [Installation](../getting-started/installation.md).

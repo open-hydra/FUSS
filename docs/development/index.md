@@ -28,6 +28,14 @@ This section is for developers who change or extend FUSS: repository layout, mod
 
     [:octicons-arrow-right-24: Contributing](contributing.md)
 
+-   :material-tag-outline:{ .lg .middle } __Versioning__
+
+    ---
+
+    The releases of ORION and FiNeR that FUSS requires, and how the configuration checks them
+
+    [:octicons-arrow-right-24: Versioning](versioning.md)
+
 -   :material-speedometer:{ .lg .middle } __Performance Notes__
 
     ---
