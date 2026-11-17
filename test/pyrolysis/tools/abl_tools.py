@@ -125,7 +125,7 @@ def seb_closure(case, seb_tol=1.0e-8, prefix=""):
 
 def pato_rows(path):
     out = []
-    for line in open(path):
+    for line in open(path, encoding="utf-8"):   # PATO's mass header holds "kg/m\u00b2/s": not the locale's codec
         s = line.strip()
         if not s or s.startswith(("//", "#")) or s[0].isalpha():
             continue
