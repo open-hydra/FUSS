@@ -40,7 +40,7 @@ def read_zones(path):
             m = re.search(r"I=(\d+), J=(\d+), K=(\d+)", line)
             cur = {"dim": tuple(int(x) for x in m.groups()), "v": []}
             zones.append(cur)
-        elif cur is not None and line.strip():
+        elif cur is not None and line.strip() and not line.lstrip().startswith("DATASETAUXDATA"):
             cur["v"] += [float(x) for x in line.split()]
     out = []
     for z in zones:

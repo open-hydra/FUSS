@@ -66,7 +66,7 @@ def read_tec_zones(path):
             raise RuntimeError("could not parse the dimensions of zone %d of %s" % (z + 1, path))
         I, J, K = (int(x) for x in m.groups())
         last = starts[z + 1] if z + 1 < len(starts) else len(lines)
-        vals = [float(line) for line in lines[first + 1:last] if line.strip()]
+        vals = [float(line) for line in lines[first + 1:last] if line.strip() and not line.lstrip().startswith("DATASETAUXDATA")]
         n_nodal = I * J * K
         n_cell = (I - 1) * (J - 1) * max(K - 1, 1)
         data, off = {}, 0

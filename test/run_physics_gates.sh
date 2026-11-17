@@ -431,7 +431,7 @@ def zones(path):
         I, J, K = (int(x) for x in re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", head).groups())
         cc = re.search(r"\[(\d+)-(\d+)\]\s*=\s*CELLCENTERED", head)
         lo, hi = (int(x) for x in cc.groups()) if cc else (0, -1)
-        vals = [float(x) for x in body.split()]
+        vals = [float(x) for x in re.split(r"(?im)^\s*DATASETAUXDATA", body)[0].split()]
         nn, nc = I * J * K, max(I - 1, 1) * max(J - 1, 1) * max(K - 1, 1)
         off, z = 0, {}
         for v, nm in enumerate(names, 1):

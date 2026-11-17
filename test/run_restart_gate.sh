@@ -242,7 +242,7 @@ def read_tec(path):
         m = re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", lines[first])
         ni, nj, nk = (int(x) for x in m.groups())
         last = zones[z + 1] if z + 1 < len(zones) else len(lines)
-        vals = [float(line) for line in lines[first + 1:last] if line.strip()]
+        vals = [float(line) for line in lines[first + 1:last] if line.strip() and not line.lstrip().startswith("DATASETAUXDATA")]
         n_nodal = ni * nj * nk
         n_cell = (ni - 1) * (nj - 1) * max(nk - 1, 1)
         off = 0
@@ -448,7 +448,7 @@ import re, sys
 hist, field, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
 its = [int(l.split()[0]) for l in open(hist) if l.strip() and not l.lstrip().startswith("#")]
 st = [float(x) for x in re.findall(r"SOLUTIONTIME=([-+0-9.Ee]+)", open(field).read())]
-ok = its == list(range(1, n + 1)) and st and all(abs(t - n) < 0.5 for t in st)
+ok = its == list(range(1, n + 1)) and st and all(abs(abs(t) - n) < 0.5 for t in st)   # steady: -n from ORION a978930 on
 brk = next((k for k in range(1, len(its)) if its[k] != its[k - 1] + 1), None)
 print("%d iterations numbered %s .. %s%s; SOLUTIONTIME %s (expected 1 .. %d and %d)"
       % (len(its), its[0] if its else "-", its[-1] if its else "-",

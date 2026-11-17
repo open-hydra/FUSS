@@ -84,7 +84,7 @@ def parse_tec(filepath):
                 "K": int(re.search(r'(?i)\bK\s*=\s*(\d+)', s).group(1)),
             }
             continue
-        if header is not None and s:
+        if header is not None and s and not s.startswith("DATASETAUXDATA"):
             raw.extend(float(v) for v in s.split())
     if header is not None:
         zones[header["name"]] = {"header": header, "raw": raw}

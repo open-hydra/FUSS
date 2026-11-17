@@ -40,7 +40,7 @@ def zones(run):
     out = []
     for part in re.split(r"\n\s*ZONE", txt)[1:]:
         I, J, K = (int(v) for v in re.search(r"I=(\d+), J=(\d+), K=(\d+)", part.split("\n", 1)[0]).groups())
-        body = [float(v) for v in part.split("\n", 1)[1].split()]
+        body = [float(v) for v in re.split(r"(?im)^\s*DATASETAUXDATA", part.split("\n", 1)[1])[0].split()]
         nn, nc = I * J * K, (I - 1) * (J - 1) * (K - 1)
         it = names.index("T")
         out.append((I, J, body[nn:2 * nn], body[3 * nn + (it - 3) * nc:3 * nn + (it - 2) * nc]))

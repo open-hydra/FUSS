@@ -109,7 +109,7 @@ def read_field(path):
     for part in parts[1:]:
         head, body = part.split("\n", 1)
         I, J, K = (int(v) for v in re.search(r"I=(\d+), J=(\d+), K=(\d+)", head).groups())
-        vals = np.array(body.split(), float)
+        vals = np.array(re.split(r"(?im)^\s*DATASETAUXDATA", body)[0].split(), float)
         nn, nc = I * J * K, (I - 1) * (J - 1) * max(K - 1, 1)
         z, off = {"_dims": (I, J, K)}, 0
         for n, nm in enumerate(names):

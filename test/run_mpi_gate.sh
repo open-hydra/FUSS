@@ -153,7 +153,7 @@ for f in fa:
     if x == y:
         same += 1; continue
     if f.startswith('wall'):
-        nz = lambda s: s.replace(b'-0.000000000000000E+000', b' 0.000000000000000E+000')   # the sign's column
+        nz = lambda s: re.sub(rb'-(0\.0+E\+000)', rb' \1', s)   # the sign's column (15 digits, or 17 from ORION a978930 on)
         if nz(x) == nz(y):
             signed_zero += 1; continue
     bad.append(f)

@@ -52,7 +52,7 @@ def read_field(path):
     lines = open(path).read().split("\n")
     names = lines[0].split("=", 1)[1].split()
     I, J, K = (int(v) for v in re.search(r"I=(\d+), J=(\d+), K=(\d+)", lines[1]).groups())
-    vals = np.array(" ".join(lines[2:]).split(), float)
+    vals = np.array(" ".join(l for l in lines[2:] if not l.lstrip().startswith("DATASETAUXDATA")).split(), float)
     nn, nc = I * J * K, (I - 1) * (J - 1) * max(K - 1, 1)
     out, off = {}, 0
     for n, nm in enumerate(names):
