@@ -1,5 +1,7 @@
 import os
 import sys
+sys.stdout = open(sys.stdout.fileno(), "w", encoding="utf-8", closefd=False,
+                  buffering=1 if sys.stdout.line_buffering else -1)   # print UTF-8 whatever the locale (python 3.6)
 
 import matplotlib
 matplotlib.use("svg")           # non-interactive backend for SVG export

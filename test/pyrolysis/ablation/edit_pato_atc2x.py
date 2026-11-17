@@ -33,11 +33,11 @@ import sys
 
 
 def edit(path, fn):
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:   # PATO's BoundaryConditions holds "kg/m\u00b2/s"
         s = fh.read()
     t = fn(s)
     if t != s:
-        with open(path, "w") as fh:
+        with open(path, "w", encoding="utf-8") as fh:
             fh.write(t)
         return True
     return False
