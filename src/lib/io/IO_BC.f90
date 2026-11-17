@@ -356,7 +356,7 @@ contains
           endif
 
         case(102,104)
-          if (level == 1) nchimera = nchimera + 1
+          if (level == 1 .and. bc(i)%type == 102) nchimera = nchimera + 1
           read( unitfile,*,iostat=ios ) (bc(i)%ni(cc),cc=1,2)
           allocate(bc(i)%donorID(1:sum(bc(i)%ni),1:4))
           allocate(bc(i)%volume_fraction(1:sum(bc(i)%ni)))
@@ -367,7 +367,8 @@ contains
             read( unitfile,*,iostat=ios ) bc(i)%donorID(s,1:4), bc(i)%volume_fraction(s)
           enddo
           if (bc(i)%type == 104) then
-            ! 104: coupled wall as for 103 (coupling flux, wall output)
+            ! Coupled wall as 103 (coupling flux, wall output); the donors are cells of the other solver
+            if (level == 1) ncoupled = ncoupled + 1
             obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
             bc(i)%ext_flux = 0.0
           endif
@@ -396,8 +397,8 @@ contains
     if (nzero_chim > 0) then
       block
         character(len=256) :: msg
-        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera (102, 104) entries in the level-', level, &
-          ' BC file have donor volume fractions summing to ~0 (no donors found by the BC '// &
+        write(msg,'(I0,A,I0,A)') nzero_chim, ' chimera (102/104) entries in the level-', level, &
+          ' BC file have donor volume fractions summing below 0.5 (no donors found by the BC '// &
           'builder). Their ghost states would be garbage; fix the BC file before running.'
         call fuss_abort ( 1, trim(msg) )   ! every rank reads the whole file: all stop alike
       end block

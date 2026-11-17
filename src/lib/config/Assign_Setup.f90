@@ -28,6 +28,7 @@ contains
     end if
     ! obj_irs%enabled is promoted from irs-beta in FUSS_Wrap_Setup, BEFORE
     ! Check_Input, so the guards see it. Do not move it back here.
+    obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
 
     ! Mesh motion. Derived here rather than registered directly, so that the

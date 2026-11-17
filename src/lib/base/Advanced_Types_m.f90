@@ -54,6 +54,7 @@ module FUSS_Advanced_Types_m
   type, extends(block_type) :: FUSS_block_type
     real(R8), dimension(:,:,:), allocatable :: T, TO           ! Primitive variables at time n and n-1
     real(R8), dimension(:,:,:), allocatable :: R               ! Residuals
+    real(R8), dimension(:,:,:), allocatable :: RS0             ! IRS: the cell's own (unsmoothed) update
     real(R8), dimension(:,:,:), allocatable :: RS1, RS2        ! Implicit smoothing residuals (temporary storage)
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
@@ -84,11 +85,10 @@ module FUSS_Advanced_Types_m
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
-    ! Default-initialised: each wall BC type reads only its own
-    ! subset of these, and a dispatch that names the wrong one must read 0, not
-    ! whatever the heap held. -finit-derived does not reach allocatable arrays
-    ! of this type, so the init sweep cannot catch that class without this.
-    real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0  ! BC viscous wall specifications
+    ! Wall BC specifications. Each wall type reads only its own subset: the default 0 makes a
+    ! component a type does not set read as 0, not as whatever the allocation left there
+    ! (-finit-derived does not reach allocatable arrays of this type).
+    real(R8) :: qw = 0d0, Tw = 0d0, hconv = 0d0, qrad = 0d0, Tref = 0d0, eps = 0d0
     ! Darcy closure (plan 07 sections 3.1, 3.4): pw the Dirichlet gas pressure
     ! of an open face (the optional 4th real of a 303/305 line, else p-wall),
     ! mdot_pg / edot_pg the gas mass [kg/m2/s] and enthalpy [W/m2] fluxes

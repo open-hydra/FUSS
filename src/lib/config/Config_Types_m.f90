@@ -127,6 +127,7 @@ module FUSS_Config_Types_m
     real(R8)  :: beta
     ! Useful variables
     logical   :: enabled
+    logical   :: at_setup = .false.   ! IRS on at setup: only then are its arrays allocated
   end type irs_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -141,9 +142,11 @@ module FUSS_Config_Types_m
     ! USER-DEFINED INPUTS
     integer              :: MGL                ! Number of multigrid levels
     integer, allocatable :: iter_threshold(:)  ! Number of iterations for each level
+    integer              :: prolongated_diter = 0  ! Level iterations between two prolongated writes (0: with every field write)
     ! Useful variables
     integer, public :: MG_level    ! Current MG-level being solved
     logical, public :: change_MG   ! Logical variable to change MG-level
+    integer, public :: prolongated_last = 0  ! Level iteration of the last prolongated write on the current level
   end type multigrid_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -217,6 +220,7 @@ module FUSS_Config_Types_m
     ! ...
     ! Useful variables
     integer                               :: n
+    integer                               :: Tmin, Tmax   ! First and last temperature of the tables [K]
     character(len=clen), allocatable      :: name(:)
     real(R8), dimension(:,:), allocatable :: cp, rho, kappa, h
   end type table_t

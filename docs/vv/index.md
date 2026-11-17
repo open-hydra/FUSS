@@ -12,6 +12,7 @@ This section documents the Verification & Validation (V&V) test suite for FUSS. 
 | [Volumetric Heat Plate](2D-steady-state-qvol-plate.md) | 2D | Steady-state | Conduction with volumetric heat source | NAFEMS benchmark value | NAFEMS Thermal Test 9(I) – Study 2 |
 | [Convective Plate](2D-steady-state-convective-plate.md) | 2D | Steady-state | Mixed Dirichlet / convective BCs | NAFEMS benchmark value (T = 18.25 °C at A) | NAFEMS Thermal Test 9(I) |
 | [Multi-Material Plate](2D-transient-multimat-plate.md) | 2D | Transient | Three-material plate, 1-D reduction | Analytical Fourier series, 6 snapshots | LANL multi-material diffusion benchmark |
+| [Variable-c<sub>p</sub> Plate](2D-transient-variable-cp-plate.md) | 2D | Transient | Uniform heating, c<sub>p</sub>(T) linear, adiabatic walls: the heat capacity of the update | Closed-form solution | Internal |
 | [Residual Convergence](residual-convergence.md) | 2D | Steady-state | Acceleration strategy comparison (RK3, IRS, multigrid) | Residual history vs. iteration count | Internal study |
 | [Parallel Scaling](time-convergence.md) | 2D | Steady-state | OpenMP and MPI×OpenMP wall-clock scaling | Execution time vs. core count | Internal study |
 

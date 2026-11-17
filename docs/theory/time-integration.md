@@ -28,6 +28,8 @@ $$
 \right]
 $$
 
+This is the `prim` form.  With `integration-variables = cons` (the default) the stages advance the volumetric enthalpy $h_i$ with the bracket alone, and $T_i$ is recovered from the $h(T)$ table after each stage; since $\mathrm{d}h/\mathrm{d}T = \rho\,c_p$ the two forms integrate the same equation (see [Governing Equations](governing-equations.md#state-vector)).
+
 The scheme is:
 
 - **Third-order accurate** in time for smooth problems
@@ -38,25 +40,24 @@ The scheme is:
 
 ## Diffusive Stability Condition (VNN)
 
-Pure diffusion is governed by the **von Neumann number** (VNN) condition.  For cell $i$ in coordinate direction $d$, the stable time-step limit is
+The explicit update is stable while the diffusion number of every cell stays below the limit of the scheme. The time step of cell $i$ is
 
 $$
-\Delta t_{\text{VNN},i}^{(d)} =
-\text{VNN} \times \frac{\rho(T_i)\,c_p(T_i)\,(\Delta x_{i}^{(d)})^2}{k(T_i)}
-= \text{VNN} \times \frac{(\Delta x_{i}^{(d)})^2}{\alpha(T_i)}
+\Delta t_i = \frac{\text{VNN}}{2\,\alpha(T_i)\,\sum_{d}\lvert\nabla\xi_d\rvert_i^{2}},
+\qquad \alpha = \frac{k}{\rho\,c_p}
 $$
 
-where $\alpha(T_i) = k(T_i) / [\rho(T_i)\,c_p(T_i)]$ is the **local** thermal diffusivity evaluated at the current cell temperature, and $\Delta x_{i}^{(d)}$ is the cell width in direction $d$.  When material properties vary with temperature, each cell computes its own diffusivity from the property table at every time step, so the global limit tightens automatically in regions where $\alpha$ is large.
+where $\xi_d$ is the cell index along direction $d$ (the sum runs over the two or three directions of the mesh) and $\nabla\xi_d$ is row $d$ of the cell metric tensor $M$ (see [Grid Metrics](numerics.md#grid-metrics)). On an orthogonal cell $\lvert\nabla\xi_d\rvert = 1/\Delta x_d$ and the condition is the familiar $\alpha\,\Delta t \sum_d 1/\Delta x_d^2 \le \text{VNN}/2$; on a skewed cell $\lvert\nabla\xi_d\rvert$ is larger, $1/(\Delta x_d \sin\varphi)$ for a parallelogram whose edges meet at the angle $\varphi$. The diffusivity is taken at the current cell temperature, so with temperature-dependent properties the step follows the local $\alpha$.
 
-The global time step is the minimum over all cells and all three coordinate directions:
+On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete diffusion operator is $4\,\alpha \sum_d \lvert\nabla\xi_d\rvert^2$ (the mixed-derivative terms vanish in that mode). VNN is therefore the fraction of the stability limit of forward Euler and RK2, whose stability interval on the negative real axis is $[-2, 0]$: they are stable for $\text{VNN} \le 1$. RK3 reaches $-2.51$, i.e. $\text{VNN} \le 1.25$.
 
-$$
-\Delta t = \min_{i,\,d}\;\Delta t_{\text{VNN},i}^{(d)}
-$$
+Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.5$, and now above 1.
+
+With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ iterations $n$.
 
 !!! tip "Choosing VNN"
 
-    For the 3-stage SSP RK3 scheme the stability limit for the 1-D diffusion equation is $\text{VNN} \leq 1$.  In practice, values between 0.5 and 0.8 are used to maintain a safety margin on non-uniform grids.  For steady-state runs with IRS enabled, VNN can be raised to 2 or higher without loss of stability (the smoothing effectively extends the stable region).
+    The default is 0.3. Without IRS stay below the limit of the scheme (1 for euler and RK2, 1.25 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 2 with `irs-beta = 0.5` (3 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
 
 ---
 
@@ -101,6 +102,12 @@ with smoothing parameter $\varepsilon$ specified by `irs-beta` in the input file
 
 The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D, allowing VNN values of 2 or more to be used without instability.
 
+### Admissible updates
+
+The smoothed update of a cell mixes the updates of its neighbours. Above the explicit limit it can overshoot the temperatures imposed at the boundaries and leave the range of the properties table, where the property lookups would read past its ends. Each smoothed update is therefore checked: the new temperature must be finite and lie in $[T_\text{min}, T_\text{max})$, the first and last temperature of `properties.dat`. A cell that fails takes its own, unsmoothed update instead, halved until the new state is admissible (at most 10 times), and otherwise keeps no update in that stage: every stage is then a convex combination of admissible states. The number of such cells, summed over the MPI ranks, is printed every `shell-diter` iterations. An admissible smoothed update is applied unchanged.
+
+Without IRS nothing is replaced: a temperature outside the table, or NaN, stops the run with an error message naming the cell, and a non-zero exit status.
+
 ### Input settings
 
 ```ini
@@ -109,7 +116,17 @@ irs      = true
 irs-beta = 0.5
 ```
 
-Setting `irs = false` disables the smoothing entirely (default for transient runs).
+IRS is switched on at setup, by `irs = true` or by `irs-beta > 0`; only then are its arrays allocated. During the run `irs-beta` and `irs = false` take effect at the next re-read of `input.ini` (every `ini-diter` iterations), while `irs = true` added to a run started without IRS is ignored with a warning. The default is no smoothing.
+
+---
+
+## Multigrid (grid sequencing)
+
+With `levels = n` (n > 1) in `[FUSS-Multigrid]`, FUSS builds n grids, each coarser level merging 2 × 2 × 2 cells (2 × 2 in 2-D) of the finer one, so the cell counts of every block must be divisible by $2^{n-1}$. The run starts on the coarsest level, from the initial field restricted to it (volume average of $h$). Level $m$ runs `level<m>-iter` iterations, or until the residual reaches `res-threshold`; its solution is then prolongated (trilinear interpolation) to the next finer level, where the run continues. The finest level ends after `level1-iter` iterations or at `res-threshold` / `time-threshold`: with multigrid, `iter-threshold` is not used. A coarse level is not visited again (no multigrid cycles).
+
+`level<m>-iter`, and `iter-threshold` without multigrid, are re-read with `input.ini` every `ini-diter` iterations: lowering the value of the level being computed below the iterations already done ends that level at the next re-read.
+
+Every field write of a coarse level also prolongates its solution to the finest level and writes it (`field-prolongated`, `wall-prolongated`). On a large mesh that write can cost more than the coarse iterations between two writes: `prolongated-diter` (re-read at runtime) spaces it to at least that many iterations of the level. The end of a level always writes it, so the one written at the end of level 2 is the exact start of level 1.
 
 ---
 

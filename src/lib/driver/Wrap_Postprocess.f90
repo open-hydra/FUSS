@@ -6,6 +6,7 @@ module FUSS_Wrap_Postprocess
   public :: FUSS_postprocess
 
   integer, private :: id_stampa=0
+  logical, private :: irs_runtime_warned = .false.
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
   character(96), private :: RANS_shell_format_MG  = "('FUSS Grid Level', i2, ' | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
@@ -24,7 +25,8 @@ contains
     use FUSS_IO_Probes,      only: Write_Probes_Data
     use FUSS_Mod_Multigrid,  only: Prolongation
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
-    use FUSS_Mod_MPI,        only: mpi_is_root
+    use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
+    use FUSS_Lib_Newstate,   only: irs_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
     use IR_precision
     implicit none
@@ -32,27 +34,22 @@ contains
     ! Local
     character(len=llen) :: solfile, dgsfile, wallfile, mgsol, mgwall
     integer  :: m, level
+    real(R8) :: nfall
 
     level = obj_multigrid%MG_level
 
-    ! Update IOfield solutiontime.
-    !
-    ! Set it on EVERY multigrid level, not just level 1. Previously only
-    ! IOfield(1) was assigned, so a coarse-level write emitted whatever happened
-    ! to be in memory: field-level2.tec headers carried values like
-    ! SOLUTIONTIME=1.33e+180. Being uninitialised, it also changed whenever the
-    ! block type's memory layout changed, which makes byte-comparison
-    ! regressions on multigrid cases spuriously fail.
+    ! Solution time of the outputs: level 1 (its files and the prolongated ones) and the level
+    ! being computed, so that field-level<n> and wall-level<n> carry it too
     if ( obj_time_scheme%time_accurate ) then
-      do m = 1, obj_multigrid%MGL
-        simulation%IOfield(m)%solutiontime = simulation%domain(m)%time
-      enddo
-      IOwall%solutiontime = simulation%domain(1)%time
+      simulation%IOfield(1)%solutiontime = simulation%domain(1)%time
+      IOwall(1)%solutiontime = simulation%domain(1)%time
+      simulation%IOfield(level)%solutiontime = simulation%domain(level)%time
+      IOwall(level)%solutiontime = simulation%domain(level)%time
     else
-      do m = 1, obj_multigrid%MGL
-        simulation%IOfield(m)%solutiontime = -real(obj_sim_param%iter_general,8)
-      enddo
-      IOwall%solutiontime = -real(obj_sim_param%iter_general,8)
+      simulation%IOfield(1)%solutiontime = -real(obj_sim_param%iter_general,8)
+      IOwall(1)%solutiontime = -real(obj_sim_param%iter_general,8)
+      simulation%IOfield(level)%solutiontime = -real(obj_sim_param%iter_general,8)
+      IOwall(level)%solutiontime = -real(obj_sim_param%iter_general,8)
     endif
 
     if (level == 1) then
@@ -61,6 +58,8 @@ contains
       dgsfile  = '/'//trim(FUSS_phase_prefix)//'diagnostic'
     else
       solfile  = '/'//trim(FUSS_phase_prefix)//'field-level'//trim(str(.true.,level))
+      wallfile = '/'//trim(FUSS_phase_prefix)//'wall-level'//trim(str(.true.,level))
+      dgsfile  = '/'//trim(FUSS_phase_prefix)//'diagnostic-level'//trim(str(.true.,level))
       mgsol    = '/'//trim(FUSS_phase_prefix)//'field-prolongated'
       mgwall   = '/'//trim(FUSS_phase_prefix)//'wall-prolongated'
     endif
@@ -93,10 +92,12 @@ contains
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
 
-      ! Write output solution (collective — all ranks participate in gather)
-      call Write_Solution ( simulation%domain(1), simulation%IOfield(1), solfile )
-      if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(1), wallfile )
-      if (.not. obj_time_scheme%time_accurate) call Write_Diagnostic ( simulation%domain(1), simulation%IOfield(1), dgsfile )
+      ! Write output solution (collective — all ranks participate in gather). The level being
+      ! computed: a run that ends on a coarse level writes field-level<n> and wall-level<n>.
+      call Write_Solution ( simulation%domain(level), simulation%IOfield(level), solfile )
+      if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(level), wallfile )
+      if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
+        call Write_Diagnostic ( simulation%domain(1), simulation%IOfield(1), dgsfile )
     
 
     ! INTERMEDIATE SOLUTION EVALUATION
@@ -143,40 +144,41 @@ contains
       if ( mod(simulation%domain(level) % iter, obj_io%sol_diter) == 0d0 ) then
         if (mpi_is_root) write(*,*) ' ... writing iter-based solution'
         call Write_Solution (  simulation%domain(level), simulation%IOfield(level), solfile )
-        if (obj_multigrid%MGL > 1 .and. level > 1) then
+        if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
+        if (obj_multigrid%MGL > 1 .and. level > 1 .and. prolongated_due()) then
           if (mpi_is_root) write(*,*) ' ... writing prolongated solution to grid-level 1'
           do m = obj_multigrid%MG_level, 2, -1
             call Prolongation ( Fine=simulation%domain(m-1), Coarse=simulation%domain(m) )
           enddo
           call Write_Solution (  simulation%domain(1), simulation%IOfield(1), mgsol )
           if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(1), mgwall )
+          obj_multigrid%prolongated_last = simulation%domain(level) % iter
         endif
-        if (level == 1) then
-          if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
-          if (.not. obj_time_scheme%time_accurate) call Write_Diagnostic ( simulation%domain(level), simulation%IOfield(level), dgsfile )
-        endif
+        if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
+          call Write_Diagnostic ( simulation%domain(level), simulation%IOfield(level), dgsfile )
       ! Time-based solution
       elseif ( simulation%domain(level) % time >= obj_sim_param%time_from_call + obj_io%sol_dtime ) then
         obj_sim_param%time_from_call = simulation%domain(level) % time
         if (mpi_is_root) write(*,*) ' ... writing time-based solution'
         call Write_Solution (  simulation%domain(level), simulation%IOfield(level), solfile )
-        if (obj_multigrid%MGL > 1 .and. level > 1) then
+        if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
+        if (obj_multigrid%MGL > 1 .and. level > 1 .and. prolongated_due()) then
           if (mpi_is_root) write(*,*) ' ... writing prolongated solution to grid-level 1'
           do m = obj_multigrid%MG_level, 2, -1
             call Prolongation ( Fine=simulation%domain(m-1), Coarse=simulation%domain(m) )
           enddo
           call Write_Solution (  simulation%domain(1), simulation%IOfield(1), mgsol )
           if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(1), mgwall )
+          obj_multigrid%prolongated_last = simulation%domain(level) % iter
         endif
-        if (level == 1) then
-          if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
-          if (.not. obj_time_scheme%time_accurate) call Write_Diagnostic ( simulation%domain(level), simulation%IOfield(level), dgsfile )
-        endif
+        if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
+          call Write_Diagnostic ( simulation%domain(level), simulation%IOfield(level), dgsfile )
       endif
 
       if (obj_multigrid%change_MG) then
         if (mpi_is_root) write(*,*) ' ... writing solution of grid-level ', level
         call Write_Solution (  simulation%domain(level), simulation%IOfield(level), solfile )
+        if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
         if (obj_multigrid%MGL > 1 .and. level > 1) then
           if (mpi_is_root) write(*,*) ' ... writing prolongated solution to grid-level 1'
           do m = obj_multigrid%MG_level, 2, -1
@@ -189,6 +191,7 @@ contains
 
       if (obj_multigrid%change_MG) then
         obj_multigrid%MG_level = obj_multigrid%MG_level - 1
+        obj_multigrid%prolongated_last = 0
         obj_sim_param%iter_from_call = 0
         obj_sim_param%time_from_call = 0.0
       endif
@@ -227,9 +230,34 @@ contains
 
     endif
 
+    ! IRS fallbacks (Lib_Newstate) since the last report, summed over the ranks
+    if ( obj_irs%at_setup .and. mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
+      nfall = real(irs_fallbacks, R8)
+      call mpi_reduce_sum_r8( nfall )
+      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: fallback to the own update in ', &
+        nint(nfall), ' cell updates since the last report, level ', level
+      irs_fallbacks = 0
+    endif
+
     ! Update input data
     if ( mod (simulation%domain(level) % iter, obj_io%ini_diter) == 0d0 ) then
       call Read_Inifile_Runtime( simulation%domain(level) % iter )
+      ! Upstream f3401c5: level<n>-iter / iter-threshold re-derive itermax, and IRS cannot be switched on at
+      ! runtime. Under ours' runtime allow-list (Backend_INI RUNTIME_MUTABLE) none of these keys changes mid-run,
+      ! so both blocks are inert until plan 14 S6 (D8) settles the runtime policy.
+      if ( obj_multigrid%MGL > 1 ) then
+        do m = 1, obj_multigrid%MGL
+          simulation%domain(m)%itermax = obj_multigrid%iter_threshold(m)
+        enddo
+      else
+        simulation%domain(1)%itermax = obj_sim_param%iter_threshold
+      endif
+      if ( obj_irs%enabled .and. .not. obj_irs%at_setup ) then
+        if ( mpi_is_root .and. .not. irs_runtime_warned ) write(*,'(A)') &
+          ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
+        irs_runtime_warned = .true.
+        obj_irs%enabled = .false.
+      endif
     end if
     
     
@@ -237,6 +265,7 @@ contains
     if ( obj_sim_param%HYDRA_postprocess ) then
       if (mpi_is_root) write(*,*) ' ... writing HYDRA-coupling solution'
       call Write_Solution (  simulation%domain(level), simulation%IOfield(level), solfile )
+      if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(level), wallfile )
       if (obj_multigrid%MGL > 1 .and. level > 1) then
         if (mpi_is_root) write(*,*) ' ... writing prolongated solution to grid-level 1'
         do m = obj_multigrid%MG_level, 2, -1
@@ -245,8 +274,17 @@ contains
         call Write_Solution (  simulation%domain(1), simulation%IOfield(1), mgsol )
         if (obj_io % write_wall) call Write_Wall_Solution ( simulation%domain(1), mgwall )
       endif
-      if (obj_io % write_wall .and. level == 1) call Write_Wall_Solution ( simulation%domain(1), wallfile )
     endif
+
+  contains
+
+    ! A coarse level writes its prolongated solution (field-prolongated, wall-prolongated) with every field
+    ! write when prolongated-diter is 0, else only once prolongated-diter of its iterations have passed since
+    ! the last one. The end of a level (change_MG) always writes it.
+    logical function prolongated_due ()
+      prolongated_due = obj_multigrid%prolongated_diter == 0 .or. &
+        simulation%domain(level) % iter - obj_multigrid%prolongated_last >= obj_multigrid%prolongated_diter
+    end function prolongated_due
 
   end subroutine FUSS_postprocess
 

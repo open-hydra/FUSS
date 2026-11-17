@@ -75,9 +75,9 @@ contains
   !> its last balance (Tw_prev), the cell's own before any balance.
   subroutine Remap_State_ALE ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_mesh_motion
+    use FUSS_Config_Types_m, only: obj_mesh_motion, obj_table
     use FUSS_Lib_Solid,      only: co_H, co_T
-    use FUSS_Mod_MPI,        only: is_local_block
+    use FUSS_Mod_MPI,        only: is_local_block, fuss_abort_in_thread
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -155,6 +155,21 @@ contains
       do i = 1, domain%blk(b)%dim(1)
         call co_T( domain%blk(b)%matID(i,j,k), domain%blk(b)%TO(i,j,k), &
                    domain%blk(b)%T(i,j,k) )
+        ! co_T extrapolates an enthalpy outside the table (upstream f3401c5) and leaves the stop to
+        ! Check_And_Fix_State, which the stages reach only after reading co_Kappa(T): stop here, as
+        ! co_T did before (code 3; the master stops the run after the parallel region, and until
+        ! then T is the table's edge, so the lookups of the rest of the step stay inside it)
+        if ( isnan(domain%blk(b)%T(i,j,k)) .or. domain%blk(b)%T(i,j,k) <  real(obj_table%Tmin, R8) &
+                                           .or. domain%blk(b)%T(i,j,k) >= real(obj_table%Tmax, R8) ) then
+          write(*,'(A,4I6,ES24.15)') ' [ERROR] remapped enthalpy outside the properties table: b, i, j, k, h = ', &
+            b, i, j, k, domain%blk(b)%TO(i,j,k)
+          call fuss_abort_in_thread ( 3, can_continue = .true. )
+          if ( domain%blk(b)%T(i,j,k) >= real(obj_table%Tmax, R8) ) then
+            domain%blk(b)%T(i,j,k) = real(obj_table%Tmax - 1, R8)
+          else
+            domain%blk(b)%T(i,j,k) = real(obj_table%Tmin, R8)
+          endif
+        endif
       enddo; enddo; enddo
       !$omp end do
 

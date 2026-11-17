@@ -21,7 +21,7 @@ contains
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
     use FUSS_IO_Probes,            only: Setup_Probes
-    use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables
+    use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_
     use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
@@ -145,11 +145,15 @@ contains
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
 
-    ! Initialize Wall file: its variables on every rank (they size the wall values'
-    ! reduction), the file and its patch mesh on root
+    ! Initialize the wall files, one per multigrid level (wall, wall-level<n>): the variables on
+    ! every rank (they size the wall values' reduction, plan 11), the files and patch meshes on root
+    allocate ( IOwall(obj_multigrid%MGL) )
     if (obj_io % write_wall) call Set_Wall_Variables ()
-    if (mpi_is_root .and. obj_io % write_wall) &
-      call Initialize_Wall_File ( simulation%domain(1), simulation%IOfield(1)%tec%extension)
+    if (mpi_is_root .and. obj_io % write_wall) then
+      do m = 1, obj_multigrid%MGL
+        call Initialize_Wall_File ( simulation%domain(m), simulation%IOfield(1)%tec%extension)
+      enddo
+    endif
 
     ! Print simulation onto the logfile/shell.
     if (mpi_is_root) call Print_Shell_Info ()
@@ -187,9 +191,8 @@ contains
             endif
             obj_sim_param%iter_general = 0
           else
-            ! Every level restarts from the time (or iteration) of the restart file,
-            ! which only level 1 reads: IOfield(m > 1)%solutiontime is never assigned,
-            ! and a two-level restart used to number its iterations from 1 again.
+            ! The restart file is the finest level's (IOfield(1)): the coarse IOfield carry no time
+            ! (a two-level restart used to number its iterations from 1 again: plan 10 D15, upstream 9318577)
             if (obj_time_scheme%time_accurate) then
               simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
               obj_sim_param%iter_general = 0
@@ -888,6 +891,8 @@ contains
 
       ! IO warnings
       if (index(obj_io%warning_message,'WARNING')>0) write(*,'(A)') obj_io%warning_message
+      ! Material table warnings
+      if (index(obj_table%warning_message,'WARNING')>0) write(*,'(A)') trim(obj_table%warning_message)
       ! Numerical scheme warnings
       if (index(obj_time_scheme%warning_message,'WARNING')>0) write(*,'(A)') obj_time_scheme%warning_message
       if (index(obj_irs%warning_message,'WARNING')>0) write(*,'(A)') obj_irs%warning_message

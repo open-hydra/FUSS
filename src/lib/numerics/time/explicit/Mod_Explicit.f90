@@ -182,25 +182,13 @@ contains
       if (mpi_is_root) obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
     endif
     
-    ! Determine simulation control flags on root, then broadcast to all ranks
-    !
-    ! Both flags MUST be initialised: only one of them is assigned below, and
-    ! BOTH are read. On a single-grid run `endmg` was never assigned and was
-    ! then read in the `elseif` -- so whatever was on the stack decided whether
-    ! the step counted as an output step. That is not hypothetical: running the
-    ! same case twice with the same binary produced solution files numbered
-    ! 1..101 one time and 10..1010 the next, because id_stampa advances once per
-    ! TODO==2 event. The solution itself was bit-identical both times, which is
-    ! exactly what made it hard to see -- only the file NAMES moved, so it read
-    ! as a harness quirk rather than as uninitialised state.
-    !
-    ! The multigrid direction is worse and has no symptom at all: for level /= 1
-    ! it is `endsim` that goes unassigned, and a stray .true. there sets TODO=3
-    ! and ends the run early, reported as a normal completion.
-    endsim = .false.
-    endmg  = .false.
-
+    ! Determine simulation control flags on root, then broadcast to all ranks. Only one of endsim
+    ! (finest level) and endmg (coarse levels) is evaluated below; both are initialised at the top of
+    ! the root block (uninitialised, they renumbered the output files run to run and could end a
+    ! multigrid run early: plan 10, upstream 83562b5). Non-root ranks never read them.
     if (mpi_is_root) then
+      endsim = .false.
+      endmg  = .false.
       if (level == 1) then
         ! A receding surface (law = nodeshift, plan 08) is never steady: the
         ! residual measures the stage update only, not the remap, and a uniform
