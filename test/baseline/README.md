@@ -243,3 +243,21 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     the split cases of the 1-vs-N-ranks gate (`run_mpi_gate.sh`).
   - The mpi preset's binary at one rank (`-m 1 -k`) gives the same manifest. Record:
     `plan-bucket/records/2026-10-24-plan11-stage3/` (attribution, strict-build manifests) and `…-stage4/`.
+- **2026-11-17, plan 14 S1 (upstream `eed47c7`, the fixes of 2026-10-09, merged by `ce4eca9`): 954 rows moved, every
+  one attributed by a variant that returns it to bytes; 31 added. 1991 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `7d240453`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `bc7b5b4`, compared by value (plan 14's `moved.py`) with the S0 record (`471c397`, 1960 rows,
+    unchanged through `63c6491`). The gate battery's `-k` run (binary `a5775496`), the mpi preset's binary at one rank
+    (`-m 1 -k`, `e15e8842`) and a `-k` run on a snapshot of this commit's tree (`46addca1`) give the same manifest.
+    Physics gates 34/34.
+  - **Attribution:**
+
+    | class (moved.py, S0 → S1) | rows | cases | cause | evidence |
+    |---|---|---|---|---|
+    | bytes | 1006 | — | — | — |
+    | time 15, max<=1e-12 254, max<=1e-6 9, max>1e-6 54 | 332 | 49 | `a4b8227`, the diffusion time step from the cell metric (`sum_d \|grad xi_d\|^2`; ours' pyrolysis `compute_cache` takes it too). Last bits on orthogonal meshes. The four prescribed-motion decks move by more: `conservation` field h/T 3.7e-4, `residual-history.dat` time column 1.4e-3, wall Tw 1.3e-4; `conservation_4blk` 5.7e-4 / 2.1e-3 / 2.0e-4; `freestream` and `freestream_4blk` wall x/y 1.9e-3 relative (1.9e-6 / 1.5e-6 m), field x/y 3.8e-6 / 7.6e-6, time column 6.3e-4, T and h 3.5e-15. Step 1's dt is unchanged (the mesh starts undeformed); every later dt shrinks as the motion skews the cells; the end time after 300 steps moves by -0.17 % (240.658 → 240.240), -0.27 % (237.464 → 236.831) and -0.077 % (247.854 → 247.664, both freestream decks), and every output samples the prescribed motion and the conduction transient at that time | V-dt (`Mod_dt.f90` of `471c397`): all 332 bytes |
+    | time 2, max<=1e-12 221, max<=1e-6 193, max>1e-6 206 | 622 | 15 | `f3401c5`, codegen: the `Admissible_T` predicate in `Check_And_Fix_State` never fires; V-chk restores 1960/1960 bytes; S0 vs V-dt with `-ffp-contract=off` 704/704 bytes on the 15 cases (the type-2 decks with decomposition: `conjugate_receding_t2`, `coupled307/{run306,run307,run307_4blk}`, `receding_front/t2`, `remap_uniform`, `seb_closure`, `zero_blowing`, `darcy/{adiabatic0d,heated0d}_type2`, `exact/{sharp_front/N050,transpiration/N020}`, `baum_atreya2007/{full_N100,full_N100_20blk,qs_N100}`). Largest physical move (numdiff's per-zone measure): `conjugate_receding_t2` wall qw 9.4e-7 relative from the codegen alone (V-dt vs S0), 1.2e-6 in this manifest with `a4b8227`'s dt on top (\|d\| 2.2e-8 W/m2, max \|qw\| 1.1e4 W/m2); against each file's maximum the largest is T of `adiabatic0d_type2`, 2.4e-10 (2.3e-7 K). The `max>1e-6` rows are fields zero or ~0 in exact arithmetic: the u_pg_2 floor 1.5e-12 abs, u_pg_1/mdot_pg of `qs_N100` (\|d\| 4e-17 at max 8e-18), chi of `receding_front/t2` (\|d\| 8e-16 at max 1e-15), and the round-off columns of `qs_N100/darcy.txt` | V-dt leaves them, V-chk restores them; strict pair |
+    | only in B (added) | 31 | 6 | `wall-level2.tec` of `residual_convergence/{mg1,mg2,mg3,mg_irs}` (`9318577`, 4), `steady-state/convective_qrad_Rod` (`0ea7ac6`, 4), `transient/variable_cp_Plate` (`238f0ad`, 23) | — |
+    | only in A (removed) | 0 | — | — | — |
+
+  - Record: `plan-bucket/records/2026-11-17-plan14-S1/` (variant and strict-build manifests, edit scripts).
