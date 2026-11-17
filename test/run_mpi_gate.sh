@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_mpi_gate.sh
-#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-c CASE:NRANKS[:verify]]...
+#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]...
 #  DESCRIPTION: A case run on N MPI ranks must give the outputs of the same case
 #               run on one rank (plan 11 section 2.5). Both runs use the mpi
 #               preset's bin/FUSS-mpi at OMP_NUM_THREADS=1, the N-rank one through
@@ -13,8 +13,12 @@
 #                   are summed over the ranks, each entry from the rank that owns
 #                   it, and a -0.0 of the owner becomes +0.0 once another rank's
 #                   zero is added (the decision of 2026-10-06 keeps the sum);
-#                 - residual-history.dat, not compared: the residual is an MPI sum
-#                   whose rounding depends on the rank count.
+#                 - residual-history.dat, not compared unless -r: the residual is an
+#                   MPI sum whose rounding depends on the rank count. -r compares it
+#                   byte for byte too and names the first differing iteration, the
+#                   largest relative difference and the row counts (plan 14 S0; S5
+#                   makes it the default once upstream's fixed-order sum, e4b5cf1, and
+#                   ours' pyrolysis/Darcy terms on it are in).
 #               So a case must stop on a fixed iteration count or time, never on
 #               res-threshold (conjugate_two_layer_fixed exists for that).
 #
@@ -37,7 +41,8 @@ while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -c | --case) CASES+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-c CASE:NRANKS[:verify]]..."; exit 1 ;;
+    -r | --residual) export FUSS_MPIGATE_RESIDUAL=1; shift ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -157,8 +162,24 @@ for f in fa:
         if nz(x) == nz(y):
             signed_zero += 1; continue
     bad.append(f)
-print('%d files: %d byte-identical, %d wall files equal up to the sign of zero%s%s'
-      % (len(fa), same, signed_zero, '; wall patches on the mesh' if moving else '',
+resid = ''
+if os.environ.get('FUSS_MPIGATE_RESIDUAL') == '1':
+    ha, hb = (open(os.path.join(d, 'residual-history.dat'), 'rb').read() for d in (a, b))
+    if ha == hb:
+        resid = '; residual-history.dat byte-identical'
+    else:
+        ra = [l.split() for l in ha.decode().split('\n') if l.strip() and not l.lstrip().startswith('#')]
+        rb = [l.split() for l in hb.decode().split('\n') if l.strip() and not l.lstrip().startswith('#')]
+        first = next((x[0] for x, y in zip(ra, rb) if x != y), None)
+        rel = 0.0
+        for x, y in zip(ra, rb):
+            for p, q in zip(x[1:], y[1:]):
+                p, q = float(p), float(q)
+                if p != q: rel = max(rel, abs(p - q) / max(abs(p), abs(q)))
+        bad.append('residual-history.dat (first difference at iteration %s, max rel %.1e, %d vs %d rows)'
+                   % (first, rel, len(ra), len(rb)))
+print('%d files: %d byte-identical, %d wall files equal up to the sign of zero%s%s%s'
+      % (len(fa), same, signed_zero, '; wall patches on the mesh' if moving else '', resid,
          '' if not bad else '; DIFFERENT: ' + ', '.join(bad[:6])))
 sys.exit(1 if bad else 0)
 PY
