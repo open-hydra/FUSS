@@ -822,6 +822,28 @@ L[k + 1] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
 demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_range 1 \
     "a 101 line is \"bs is js ks fs d11 d12 d21 d22\" with a block and face of this mesh" "PY:$BC_CONN9"
 
+# f3401c5 (plan 14 S1): a temperature past the end of properties.dat stops the run (code 3 until
+# plan 14 S6) instead of reading past the table. The table is cut 2 K above the initial field's
+# maximum and the hot wall raised to 1900 K, so the first stage leaves the table next to that wall.
+# Before S1 this cons base already stopped (code 3) in co_T's range guard, with "enthalpy outside table range":
+# the demo checks the new message, so the S0 binary FAILs it on the text.
+T_CUT='import re
+tmax = 0.0
+for z in re.split(r"\n\s*ZONE", open("INPUT/ic.tec").read())[1:]:
+    h, body = z.split("\n", 1)
+    I, J, K = (int(x) for x in re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", h).groups())
+    nn, nc = I * J * K, max(I - 1, 1) * max(J - 1, 1) * max(K - 1, 1)
+    v = body.split()
+    tmax = max(tmax, max(float(x) for x in v[3 * nn:3 * nn + nc]))
+cut = int(tmax) + 2
+p = open("INPUT/properties.dat").read().split("\n")
+assert p[3].startswith("I=")
+open("INPUT/properties.dat", "w").write("\n".join(p[:3] + ["I=%d, F=POINT" % cut] + p[4:4 + cut]) + "\n")
+bc = open("INPUT/bc.txt").read()
+assert "1.273150E+03" in bc
+open("INPUT/bc.txt", "w").write(bc.replace("1.273150E+03", "1.900000E+03"))'
+[ "$NMPI" -gt 0 ] || demo_on "$BASE" t_outside_table 3 "outside the properties table" "PY:$T_CUT"
+
 echo
 [ "$NMPI" -gt 1 ] && echo "$nmpi_ref demo(s) refused as a whole by an MPI guard, code 1"
 if [ "$fail" -eq 0 ]; then
