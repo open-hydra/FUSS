@@ -763,20 +763,20 @@ demo_abl_restart abl_restart_no_row   "no row for the 306 face of bc.txt record"
 BASE_RAD="$ROOT/test/steady-state/radiative_Rod"
 BASE_PROBE="$ROOT/test/transient/oscillating_Rod"
 
-# D12: a wall radiating far above Tref (Tref = 1 K) behind a weak solid link
-# (k = 0.005: G = 2k/dx = 10 W/m2/K). The wall-temperature fixed point has slope
-# -1.39 at the first call, the iterates oscillate with growing amplitude and the
-# cap of 100 is reached. Until 2026-10-15 both loops (304, 305) warned and the run
-# continued on the unconverged flux, exit 0.
-RAD_K='p = "INPUT/properties.dat"; L = open(p).read().split("\n")
-for n, l in enumerate(L):
-    f = l.split()
-    if len(f) == 5 and f[0][0].isdigit(): f[3] = "0.005"; L[n] = " ".join(f)
-open(p, "w").write("\n".join(L))'
-demo_on "$BASE_RAD" radiation_noconv     3 "BC_Wall_Radiation: no convergence in 100 iterations" \
-    "BCFACE:2:304:   0.980000E+00,    0.100000E+01," "PY:$RAD_K" "SEC:FUSS-Parameters:iter-threshold=3"
-demo_on "$BASE_RAD" radiation_noconv_305 3 "BC_Wall_RadiationConvection: no convergence in 100 iterations" \
-    "BCFACE:2:305:   0.000000E+00,    0.980000E+00,    0.100000E+01," "PY:$RAD_K" "SEC:FUSS-Parameters:iter-threshold=3"
+# D12, since plan 14 D17 (user 2026-11-11) no stop: upstream's last iterate, one warning line per rank and
+# a count at the end of the run. A radiating wall whose Newton cannot reach |dT| <= 1e-12 Tw in 50 steps:
+# Tref = 1e6 K, from Tw = max(T, 1) the first step overshoots to ~5e11 K (f/f' with f ~ eps sigma Tref^4)
+# and each later step shrinks Tw by about 3/4 (quartic); uncapped, the loop would stop at step 52
+# (plan-bucket/14-stages/S2-scripts/d17_newton_demo.py: capped for every cell temperature in [1, 3000] K).
+# The run goes on with the last iterate (~1e6 K, ~1.1e11 W/m2 into the solid); vnn = 1e-12 keeps each
+# stage's change of the cell below 1e-6 K, so the run stays inside the table and exits 0. Asserted: the
+# warning (first printed in the set-up ghost fill, Ghost_Wall), the end-of-run count, exit 0.
+demo_on "$BASE_RAD" radiation_noconv       0 "[WARNING] wall BC 304: the wall temperature did not converge in 50 Newton steps" \
+    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
+demo_on "$BASE_RAD" radiation_noconv_305   0 "[WARNING] wall BC 305: the wall temperature did not converge in 50 Newton steps" \
+    "BCFACE:2:305:   0.000000E+00,    0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
+demo_on "$BASE_RAD" radiation_noconv_count 0 "wall-temperature solves reached the 50-step Newton cap in this run" \
+    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
 
 # D13 follow-up: an explicit irs = false beside irs-beta > 0 (the base says irs = false).
 demo irs_contradiction 1 "irs = false contradicts irs-beta > 0" "SEC:FUSS-Numerics:irs-beta=0.5"
@@ -806,10 +806,13 @@ else
   bad "probe_name_16: OUTPUT/abcdefghijklmnop.txt missing or not 10 columns ($(ls "$WORK/probe_name_16/OUTPUT" | tr '\n' ' '))"
 fi
 
-# D19's sibling: a 301/302 time file in a steady run, whose time stays -1 (before the
-# file's first row: the series returned an undefined value there). Refused unless a
-# clock runs (FUSS or hydra time-accurate).
-demo_on "$BASE_PROBE" tfile_steady 1 "needs a time-accurate run" "time-accurate=false"
+# D19's sibling: a 301/302 time file in a steady run (time-accurate = false), whose time stays -1.
+# Refused until plan 14 D16; since then (user 2026-11-11) the run goes on with upstream's rule (9054521:
+# each table read at -1 for the whole run, its first value; this deck's table is periodic, so its value
+# at -1 within the period, row t = 78 s: 1843.566 K, not row 1's 2000 K) and set-up warns once.
+# Asserted: the warning and exit 0 (the value itself is in OUTPUT/wall.tec, not in run.log).
+demo_on "$BASE_PROBE" tfile_steady 0 "[WARNING] steady run: every 301/302 time table is held at its value at time -1" \
+    "time-accurate=false" "SEC:FUSS-Parameters:iter-threshold=3"
 
 # D23: a bc.txt record that names a face or block that does not exist indexed n_bf and
 # the blocks out of bounds; an unreadable record printed a line and went on.
