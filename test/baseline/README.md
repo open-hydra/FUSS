@@ -287,3 +287,31 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     306/307 decks (V-G is byte-identical to this manifest); the LTO link's own parallelism.
   - Record: `plan-bucket/records/2026-11-18-plan14-S2/` (README §5-§6: floor pairs, variants, red controls, pure-494
     reference).
+- **2026-11-18, plan 14 S3 (upstream `237c9c2`: FAS V/W cycles, `2f714fb` the face-conductivity step, `9901941` series
+  conductivity at a material jump inside a block, `3447dd9` IRS on by `irs-beta` alone, `47ca2da` `co_T` bisection;
+  merged by `7b57c40`, decks stripped of `irs` by `dc6d54c`): 1995 rows of S2 compared, 28 added. 2023 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `9c29e295`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `d03b417`, compared by value (plan 14's `moved.py`) with the S2 record (`cdaf972`, 1995 rows). The
+    gate battery's `-k` run (binary `a2ee9091`) and the mpi preset's binary at one rank (`-m 1 -k`, `db31a9ee`) give the
+    same manifest. Physics gates 34/34; upstream's CTest 25/25 serial and 5/5 `needs-mpi`; the uninitialised-read sweep
+    (`run_init_sweep.sh -p 1`) PASS on 2023 artefacts.
+  - **Attribution:**
+
+    | class (S2 → S3) | rows | measured (moved.py) | cause | evidence |
+    |---|---|---|---|---|
+    | bytes | 1935 | bytes | — | — |
+    | FACE-K | 57, 11 cases: `numerics-features/{chimera, chimera_fixed, conjugate_two_layer, conjugate_two_layer_fixed}`, `residual_convergence/{nominal, irs, mg1, mg2, mg3, mg_irs}`, `time_convergence/simdir` | 2 max<=1e-12, 9 max<=1e-6, 44 max>1e-6, 2 shape (the residual history of `chimera` and `conjugate_two_layer`, which stop on `res-threshold`: the stop iteration moved) | `2f714fb`: at a 101/102 face between two materials the low-k cell's step follows the face conductivity (k 50/5, 10/100: `k_d/k` = 1.818, step x 0.55); every non-pyrolysis run, skipped under pyrolysis (plan 14 D12) | variant V-facek (the `Face_k_dt` call removed): all 57 rows bytes |
+    | CODEGEN | 3: `moving-mesh/conservation` field and wall, `conservation_4blk` field | max<=1e-12 (h 7.05e-15, T 2.6e-15, Tw 3.35e-15) | code generation (FMA contraction / LTO inlining), arithmetic unchanged | `-ffp-contract=off` builds of `cdaf972`, `d03b417` and V-facek (`a746aab1`, `b1f5c94d`, `4d812d12`): the moved rows bytes in both comparisons (6/6) |
+    | only in B (added) | 28 | — | `residual_convergence/{fas_v, fas_w, fas_w_irs}` (8 rows each, `50bdb4b`) and `steady-state/multilayer_Slab` (4, `9901941`), run through ours' `FUSS.sh` (`8471306`) | — |
+    | only in A (removed) | 0 | — | — | — |
+
+    Pyrolysis rows: none moved. Every IRS deck row: bytes (no `IRS:` halving report in any log). `conjugate_receding`
+    (two materials at 101 faces, time accurate): bytes, its 200 steps identical (the face step does not set the global
+    step there). Physics numbers that moved, both back to S2's value under V-facek: `conjugate_two_layer` interface
+    error -4.4581e-9 -> -4.4693e-9 K (tolerance 1e-6 K); `residual_convergence` nominal 1.813495e-1 -> 1.814029e-1, irs
+    8.720668e-3 -> 8.769381e-3, mg1 1.124025e-1 -> 1.125332e-1, mg2 6.886514e-2 -> 6.902539e-2, mg3 4.207740e-2 ->
+    4.222537e-2, mg_irs 1.898435e-6 -> 2.192369e-6 (the gate's orderings hold).
+  - **Not measured:** physics gates under V-facek other than the two that moved; F4 (the remap check through
+    `Admissible_T`, skipped); upstream's three CTest-only cases (`chimera_mg`, `multimat_liner`, `anisotropic_Plate`) stay
+    outside this manifest (plan 14 D-S3-1).
+  - Record: `plan-bucket/records/2026-11-18-plan14-S3/` (variants, strict manifests, red controls RC-1..RC-4).
