@@ -446,15 +446,20 @@ contains
   end subroutine mpi_allgather_block_segments
 
 
-  !> MPI_ALLREDUCE with MPI_MAX for an array of real(R8), in place (plan 11: the Darcy
-  !> sweep control, one decision on every rank).
+  !> MPI_ALLREDUCE with MPI_MAX for an array of real(R8) (plan 11: the Darcy sweep control,
+  !> one decision on every rank): arr is overwritten with the result. The send buffer is a
+  !> copy of arr, not MPI_IN_PLACE (plan 14 D22, as mpi_allreduce_sum_r8_array): with
+  !> gfortran the MPI sentinels in COMMON blocks are not recognised while -fno-underscoring
+  !> is set (cmake/SetFortranFlags.cmake).
   subroutine mpi_allreduce_max_r8_array(arr, n)
     integer, intent(in)     :: n
     real(R8), intent(inout) :: arr(n)
 #ifdef USE_MPI
     integer :: ierr
+    real(R8), allocatable :: send(:)
     if (mpi_size_ <= 1) return
-    call MPI_ALLREDUCE(MPI_IN_PLACE, arr, n, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+    send = arr
+    call MPI_ALLREDUCE(send, arr, n, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
     call check_mpi_error(ierr)
 #endif
   end subroutine mpi_allreduce_max_r8_array
