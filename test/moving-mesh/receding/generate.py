@@ -209,7 +209,6 @@ time-scheme = RK3
 vnn = {vnn}
 time-accurate = true
 integration-variables = cons
-irs = false
 
 [FUSS-MeshMotion]
 law = translation

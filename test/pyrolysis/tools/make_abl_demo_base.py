@@ -180,7 +180,7 @@ def main():
             "; " + "=" * 77]
     body = head + ["", "[FUSS-Parameters]", "newrun = true", "res-threshold = 1e-30", "time-threshold = 1.0e6",
                    "iter-threshold = 5", "", "[FUSS-Numerics]", "time-scheme = RK3", "vnn = 0.3", "time-accurate = true",
-                   "integration-variables = cons", "irs = false", ""]
+                   "integration-variables = cons", ""]
     if args.pyro:
         body += ["[FUSS-Pyrolysis]", "gas-closure = type2", "", "[FUSS-Darcy]", "solver = tridiag",
                  "p-init = 101325.0", "p-wall = 101325.0", ""]

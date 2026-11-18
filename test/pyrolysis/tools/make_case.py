@@ -556,7 +556,6 @@ def write_ini(path, head_key, cfg, vnn, probes, subst, type2=False, open_codes=N
         "vnn = %s" % repr(vnn),
         "time-accurate = true",
         "integration-variables = cons",
-        "irs = false",
         "",
     ] + pyro + (extra or []) + [
         "",

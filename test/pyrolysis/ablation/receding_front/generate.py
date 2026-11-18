@@ -69,7 +69,6 @@ time-scheme = RK3
 vnn = 0.5
 time-accurate = true
 integration-variables = cons
-irs = false
 %(pyro)s
 [FUSS-MeshMotion]
 law = nodeshift

@@ -167,7 +167,7 @@ PY
 # ---------------------------------------------------------------------------
 # Input-validation guards (fire before the first step).
 # ---------------------------------------------------------------------------
-demo irs        1 "not compatible with implicit residual smoothing" "irs=true"
+demo irs_key_unknown 1 "unknown option in input.ini" "SEC:FUSS-Numerics:irs=true"
 demo multigrid  1 "not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
@@ -390,14 +390,11 @@ PYINI
 # `irs-beta > 0` alone also enables IRS (Assign_Setup promotes
 # it), but that promotion used to run AFTER Check_Input, so this exact input
 # passed the `irs` guard (demo irs, above) and smoothed the ALE-remapped residual anyway.
-# The base says `irs = false`, which beside irs-beta > 0 is refused as a contradiction
-# (irs_contradiction below), so this demo deletes it: what it tests is the promotion.
 demo_on "$BASE" irs_beta 1 "not compatible with implicit residual smoothing" \
-    "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
+    "SEC:FUSS-Numerics:irs-beta=0.5"
 # (Until 2026-10-16 this call stood above demo_on's definition: bash ran nothing, exit 127, and
 # no FAIL was counted.)
-demo_pyro pyro_irs          1 "pyrolysis is not compatible with implicit residual smoothing" "irs=true"
-demo_pyro pyro_irs_beta     1 "pyrolysis is not compatible with implicit residual smoothing" "DELKEY:irs" "SEC:FUSS-Numerics:irs-beta=0.5"
+demo_pyro pyro_irs_beta     1 "pyrolysis is not compatible with implicit residual smoothing" "SEC:FUSS-Numerics:irs-beta=0.5"
 demo_pyro pyro_multigrid    1 "pyrolysis is not compatible with multigrid" \
     "RAW:[FUSS-Multigrid]
 levels = 2
@@ -778,8 +775,6 @@ demo_on "$BASE_RAD" radiation_noconv_305   0 "[WARNING] wall BC 305: the wall te
 demo_on "$BASE_RAD" radiation_noconv_count 0 "wall-temperature solves reached the 50-step Newton cap in this run" \
     "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
 
-# D13 follow-up: an explicit irs = false beside irs-beta > 0 (the base says irs = false).
-demo irs_contradiction 1 "irs = false contradicts irs-beta > 0" "SEC:FUSS-Numerics:irs-beta=0.5"
 
 # D5: without TecIO (USE_TECIO = false, this build) ORION stops at the first binary
 # Tecplot write or read with a bare stop, exit 0, after the setup.

@@ -116,7 +116,7 @@ def ini_common(title_lines, tend, vnn, sol_dt, pyro_lines, darcy_lines=None, gen
     out += ["", "[FUSS-Parameters]", "newrun = true", "res-threshold = 1e-30", "time-threshold = %.15g" % tend,
             "iter-threshold = 1000000000"]
     out += ["", "[FUSS-Numerics]", "time-scheme = RK3", "vnn = %g" % vnn, "time-accurate = true",
-            "integration-variables = cons", "irs = false", ""] + pyro_lines
+            "integration-variables = cons", ""] + pyro_lines
     if darcy_lines:
         out += [""] + darcy_lines
     out += ["", "[FUSS-IO]", "sol-dtime     = %.15g" % sol_dt, "sol-overwrite = false", "sol-format    = tecplot ascii",

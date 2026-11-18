@@ -247,7 +247,6 @@ def write_ini(path, kind, cfg, subst, probes_T=True):
         "vnn = 0.5",
         "time-accurate = true",
         "integration-variables = cons",
-        "irs = false",
         "",
         "[FUSS-Pyrolysis]",
         "gas-closure = type2",

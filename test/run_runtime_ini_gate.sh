@@ -145,11 +145,11 @@ fi
 # ---------------------------------------------------------------------------
 # The one that matters most: this combination is REFUSED at startup, so
 # reaching it mid-run was a way around the guard entirely.
-d=$(start_case guard_bypass 's/^irs = .*/irs = true/')
-if [ -f "$d/$REPORT" ] && grep -q "irs" "$d/$REPORT"; then
+d=$(start_case guard_bypass 's/^integration-variables = cons$/integration-variables = cons\nirs-beta = 0.5/')
+if [ -f "$d/$REPORT" ] && grep -q "\[FUSS-Numerics\] irs-beta  ignored" "$d/$REPORT"; then
   pass "enabling IRS mid-run on a moving mesh is ignored (the setup guard cannot be bypassed)"
 else
-  bad "guard_bypass: irs change was not reported"
+  bad "guard_bypass: irs-beta change was not reported"
 fi
 
 # ---------------------------------------------------------------------------
