@@ -32,12 +32,10 @@ contains
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
     use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
-    use FUSS_Input_Registry,       only: Registry_Is_Set
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
     integer :: m, ios
-    logical :: irs_off_explicit     ! input.ini says irs = false (read before the promotion below)
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -60,15 +58,14 @@ contains
     ! Assign_Setup, which runs after Check_Input, so `irs-beta = 0.5` with no
     ! `irs` key passed the mesh-motion IRS guard and smoothed the remapped
     ! residual anyway. Guard demo: run_guard_demos.sh irs_beta.
-    ! An explicit `irs = false` beside `irs-beta > 0` is overridden by it: remember
-    ! what the file said, so Check_Input can refuse the contradiction.
-    irs_off_explicit = Registry_Is_Set( trim(codename)//'-Numerics', 'irs' ) .and. .not. obj_irs%enabled
-    if (obj_irs%beta > 0d0) obj_irs%enabled = .true.
+    ! irs-beta alone switches IRS (upstream 3447dd9: the `irs` key is gone)
+    obj_irs%enabled = ( obj_irs%beta > 0d0 )
     ! Same reason, plan 07: the Darcy closure is selected by a [FUSS-Pyrolysis]
     ! key; every guard, the table checks and Assign_Setup read this flag.
     obj_darcy%enabled = obj_pyrolysis%enabled .and. ( trim(obj_pyrolysis%gas_closure) == 'type2' )
     if (mpi_is_root) call Check_Input ()
     call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    call Check_FAS ()
 
     ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank
     ! once the input is validated, value-checked and reported on root.
@@ -337,9 +334,10 @@ contains
 
     subroutine Check_Input()
       use FUSS_Input_Registry
-      use FUSS_Read_Ini, only: unknown_options_message, long_values_message
+      use FUSS_Read_Ini, only: unknown_options_message, long_values_message, input_warnings
       implicit none
       character(len=hlen) :: out
+      integer :: r
 
       ! An option in a FUSS-owned section that nothing registered is not being
       ! applied, whatever the user believed. Reported BEFORE the registry
@@ -369,6 +367,11 @@ contains
       else
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
+      if (allocated(input_warnings)) then
+        do r = 1, size(input_warnings)
+          write(*,'(4X,A)') 'WARNING: '//trim(input_warnings(r))
+        enddo
+      endif
 
       call Check_Input_Consistency()
       call Check_Mesh_Motion_Compatibility()
@@ -383,14 +386,6 @@ contains
       logical :: bad
 
       bad = .false.
-
-      ! irs-beta > 0 turns IRS on (the promotion in FUSS_setup), so an explicit
-      ! irs = false beside it was silently overridden.
-      if ( irs_off_explicit .and. obj_irs%beta > 0d0 ) then
-        write(*,'(A)') ' [ERROR] irs = false contradicts irs-beta > 0, which turns implicit residual smoothing on.'
-        write(*,'(A)') '         Set irs-beta = 0 to run without smoothing, or remove irs = false.'
-        bad = .true.
-      endif
 
 #ifdef FUSS_NO_TECIO
       ! Without TecIO, ORION cannot write or read a binary Tecplot file and ends the
@@ -906,6 +901,24 @@ contains
     end subroutine Check_Ablation_BC_Topology
 
 
+    subroutine Check_FAS()
+      implicit none
+
+      if (trim(obj_multigrid%cycle) == 'none') return
+      if (obj_multigrid%MGL < 2) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle needs levels >= 2')
+      if (obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
+      if (obj_sim_param%HYDRA_MG) &
+        call mpi_abort_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
+      if (trim(obj_time_scheme%integration_variables) == 'prim') &
+        call mpi_abort_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
+      if (obj_multigrid%pre_iter + obj_multigrid%post_iter < 1) &
+        call mpi_abort_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
+
+    end subroutine Check_FAS
+
+
     subroutine Check_BC()
       implicit none
 
@@ -1018,7 +1031,7 @@ contains
       write(*,'(A)') ' Numerical scheme'
       write(*,'(A)') ' ========================================================================================='
       write(*,'(A,T35,A)') ' Space'
-      write(*,'(A,T35,A)') '   Diffusive face metric', trim(obj_space_scheme%diffusive_metric)
+      write(*,'(A,T35,A)') '   Diffusive face metric', 'inverse-mean'
       write(*,*)
       write(*,'(A,T35,A)') ' Time'
       write(*,'(A,T35,A)') '   Scheme', trim(obj_time_scheme%description)

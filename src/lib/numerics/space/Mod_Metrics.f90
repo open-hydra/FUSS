@@ -25,7 +25,6 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics, only: delthe
     use FUSS_Adapter_Morph, only: Adapter_Mesh_Type, Adapter_Block_Metrics
-    use FUSS_Config_Types_m, only: obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -51,7 +50,7 @@ contains
         call fuss_abort ( 2 )
       endif
 
-      if ( obj_space_scheme % inverse_metric ) call Fill_Inverse_Metric ( domain % blk(b) )
+      call Fill_Inverse_Metric ( domain % blk(b) )
     enddo
 
     call Setup_BC_Metrics ( domain )
@@ -59,10 +58,10 @@ contains
   end subroutine Setup_Metrics
 
 
-  !> Inverse metric of the interior cells, for the diffusive face metric (diffusive-metric =
-  !> inverse-mean): the face then needs one 3x3 inversion instead of three. Same bounds as M,
-  !> because Fluxes_blk takes either array through the same explicit-shape argument; the
-  !> ghost entries are zeroed, as M's are (Mod_Allocate_Data), and never read.
+  !> Inverse metric of the interior cells, for the diffusive face metric (the mean of the two
+  !> cells' inverse metrics, inverted): the face then needs one 3x3 inversion instead of three.
+  !> Same bounds as M (Fluxes_blk declares it with the ghost layers); the ghost entries are
+  !> zeroed, as M's are (Mod_Allocate_Data), and never read.
   !>
   !> Called by Setup_Metrics and, on a moving mesh, by Update_Mesh after each step's new
   !> metric: computed once, it would keep the t = 0 geometry in every interior face flux.
@@ -216,7 +215,7 @@ contains
   !> dt estimate costs accuracy, never conservation.
   subroutine Update_Mesh ( domain, t, dt )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_mesh_motion, obj_space_scheme
+    use FUSS_Config_Types_m, only: obj_mesh_motion
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
     use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
     use FUSS_Mod_GhostExchange, only: exchange_node_planes
@@ -277,7 +276,7 @@ contains
       endif
 
       ! The interior face metric follows the moved cells (see Fill_Inverse_Metric)
-      if ( obj_space_scheme % inverse_metric ) call Fill_Inverse_Metric ( domain%blk(b) )
+      call Fill_Inverse_Metric ( domain%blk(b) )
     enddo
 
     ! A block connection between two ranks builds its ghost metric from the

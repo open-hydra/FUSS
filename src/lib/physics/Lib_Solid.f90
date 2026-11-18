@@ -82,17 +82,33 @@ contains
     real(R8), intent(in)  :: h, matID
     real(R8), intent(out) :: T
     ! Local
-    integer   :: Tm, Tp, i
+    integer   :: Tm, Tp, i, lo, hi
     real(R8)  :: hm, hp
 
-    ! First entry above h; none: last interval; h below the table: first interval
-    Tp = obj_table%Tmax
-    do i = obj_table%Tmin, obj_table%Tmax
-      if (obj_table%h(matID,i) > h) then
-        Tp = i
-        exit
-      endif
-    enddo
+    ! First entry above h; none: last interval; h below the table: first interval.
+    ! On a non-decreasing column the entries above h are a tail [Tp, Tmax], so bisecting [lo, hi)
+    ! finds the entry of the scan (hi = Tmax+1: none above h, also for a NaN h).
+    if ( obj_table%h_monotone(matID) ) then
+      lo = obj_table%Tmin
+      hi = obj_table%Tmax + 1
+      do while ( lo < hi )
+        i = lo + (hi - lo) / 2
+        if (obj_table%h(matID,i) > h) then
+          hi = i
+        else
+          lo = i + 1
+        endif
+      enddo
+      Tp = min ( lo, obj_table%Tmax )
+    else
+      Tp = obj_table%Tmax
+      do i = obj_table%Tmin, obj_table%Tmax
+        if (obj_table%h(matID,i) > h) then
+          Tp = i
+          exit
+        endif
+      enddo
+    endif
     Tp = max ( Tp, obj_table%Tmin + 1 )
     Tm = Tp - 1
     hm = obj_table%h(matID, Tm)

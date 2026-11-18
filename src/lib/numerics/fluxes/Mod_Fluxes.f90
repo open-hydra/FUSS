@@ -9,8 +9,8 @@ contains
 
   subroutine Fluxes ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_space_scheme
     use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Config_Types_m, only: obj_pyrolysis
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
@@ -18,51 +18,31 @@ contains
 
     do b = 1, domain % nb ! Loop over blocks
       if (.not. is_local_block(b)) cycle
-      ! Cell metrics for the diffusive face metric: inverse metrics (inverse-mean) or
-      ! metrics (mean). With pyrolysis, the face conductivity from the per-cell caches
-      ! (plan 06 section 3.2), passed only inside those branches, never as an
-      ! unallocated actual.
-      if ( obj_space_scheme % inverse_metric .and. obj_pyrolysis%enabled ) then
+      ! The inverse metrics of the cells build the diffusive face metric
+      ! With pyrolysis, the face conductivity from the per-cell caches (plan 06 section 3.2),
+      ! passed only in this branch, never as an unallocated actual
+      if ( obj_pyrolysis%enabled ) then
         call Fluxes_blk ( domain % blk(b) % T,   &
                           domain % blk(b) % matID, &
                           domain % blk(b) % r,   &
                           domain % blk(b) % dir, &
                           domain % blk(b) % Minv, &
                           domain % blk(b) % dim, &
-                          .true.,                &
-                          domain % blk(b) % k_s  )
-      else if ( obj_space_scheme % inverse_metric ) then
-        call Fluxes_blk ( domain % blk(b) % T,   &
-                          domain % blk(b) % matID, &
-                          domain % blk(b) % r,   &
-                          domain % blk(b) % dir, &
-                          domain % blk(b) % Minv, &
-                          domain % blk(b) % dim, &
-                          .true. )
-      else if ( obj_pyrolysis%enabled ) then
-        call Fluxes_blk ( domain % blk(b) % T,   &
-                          domain % blk(b) % matID, &
-                          domain % blk(b) % r,   &
-                          domain % blk(b) % dir, &
-                          domain % blk(b) % m,   &
-                          domain % blk(b) % dim, &
-                          .false.,               &
-                          domain % blk(b) % k_s  )
+                          domain % blk(b) % k_s )
       else
         call Fluxes_blk ( domain % blk(b) % T,   &
                           domain % blk(b) % matID, &
                           domain % blk(b) % r,   &
                           domain % blk(b) % dir, &
-                          domain % blk(b) % m,   &
-                          domain % blk(b) % dim, &
-                          .false. )
+                          domain % blk(b) % Minv, &
+                          domain % blk(b) % dim )
       endif
     enddo
 
   end subroutine Fluxes
 
 
-  subroutine Fluxes_blk ( T, matID, Res, Dir, M, n, inverse_metric, k_s )
+  subroutine Fluxes_blk ( T, matID, Res, Dir, Minv, n, k_s )
     use FUSS_Base_Types_m
     use FUSS_Global_m, only: gc
     use FUSS_Lib_Diffusive
@@ -72,8 +52,7 @@ contains
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in)  :: T
     real(R8), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(out) :: Res
     type(FUSS_d_metrics_type), dimension(3), intent(in) :: Dir
-    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: M   ! cell metrics, or their inverses
-    logical, intent(in) :: inverse_metric   ! M holds the inverse metrics (diffusive-metric = inverse-mean)
+    type(FUSS_tensor_3D_type), dimension(1-gc:n(1)+gc, 1-gc:n(2)+gc, 1-gc:n(3)+gc), intent(in) :: Minv   ! inverse cell metrics
     real(R8), dimension(1:n(1), 1:n(2), 1:n(3)), intent(in), optional :: k_s   ! per-cell conductivity cache (pyrolysis)
     ! Local
     integer :: i, j, k
@@ -93,7 +72,7 @@ contains
     do k = 1, n(3)
     do j = 1, n(2)
     do i = 1, n(1) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i+1,j,k), &
                             Dir(1) % f(i,j,k) % n,  &
                             Dir(1) % f(i,j,k) % A,  &
                             T(i  ,j,k),        &
@@ -106,18 +85,18 @@ contains
                             T(i  ,j,k+1),      &
                             T(i+1,j,k-1),      &
                             T(i+1,j,k+1),      &
-                            M(i  ,j,k) % c,    &
-                            M(i+1,j,k) % c,    &
+                            Minv(i  ,j,k) % c,    &
+                            Minv(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
-                            1, 2, 3, inverse_metric )                       
+                            1, 2, 3 )
     enddo; enddo; enddo
 
     !$omp do collapse (2)
     do k = 1, n(3)
     do i = 1, n(1)
     do j = 1, n(2) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i,j+1,k), &
                             Dir(2) % f(i,j,k) % n,  &
                             Dir(2) % f(i,j,k) % A,  &
                             T(i,j  ,k),        &
@@ -130,18 +109,18 @@ contains
                             T(i,j  ,k+1),      &
                             T(i,j+1,k-1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j  ,k) % c,    &
-                            M(i,j+1,k) % c,    &
+                            Minv(i,j  ,k) % c,    &
+                            Minv(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
-                            2, 1, 3, inverse_metric )
+                            2, 1, 3 )
     enddo; enddo; enddo
 
     !$omp do collapse (2)
     do j = 1, n(2)
     do i = 1, n(1)
     do k = 1, n(3) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i,j,k+1), &
                             Dir(3) % f(i,j,k) % n,  &
                             Dir(3) % f(i,j,k) % A,  &
                             T(i,j,k  ),        &
@@ -154,11 +133,11 @@ contains
                             T(i,j+1,k  ),      &
                             T(i,j-1,k+1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j,k  ) % c,    &
-                            M(i,j,k+1) % c,    &
+                            Minv(i,j,k  ) % c,    &
+                            Minv(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
-                            3, 1, 2, inverse_metric )
+                            3, 1, 2 )
     enddo; enddo; enddo
 
     else
@@ -169,7 +148,7 @@ contains
     do k = 1, n(3)
     do j = 1, n(2)
     do i = 1, n(1) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i+1,j,k), &
                             Dir(1) % f(i,j,k) % n,  &
                             Dir(1) % f(i,j,k) % A,  &
                             T(i  ,j,k),        &
@@ -182,11 +161,11 @@ contains
                             T(i  ,j,k+1),      &
                             T(i+1,j,k-1),      &
                             T(i+1,j,k+1),      &
-                            M(i  ,j,k) % c,    &
-                            M(i+1,j,k) % c,    &
+                            Minv(i  ,j,k) % c,    &
+                            Minv(i+1,j,k) % c,    &
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
-                            1, 2, 3, inverse_metric, &
+                            1, 2, 3, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i+1,j,k) ) )
     enddo; enddo; enddo
 
@@ -194,7 +173,7 @@ contains
     do k = 1, n(3)
     do i = 1, n(1)
     do j = 1, n(2) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i,j+1,k), &
                             Dir(2) % f(i,j,k) % n,  &
                             Dir(2) % f(i,j,k) % A,  &
                             T(i,j  ,k),        &
@@ -207,11 +186,11 @@ contains
                             T(i,j  ,k+1),      &
                             T(i,j+1,k-1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j  ,k) % c,    &
-                            M(i,j+1,k) % c,    &
+                            Minv(i,j  ,k) % c,    &
+                            Minv(i,j+1,k) % c,    &
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
-                            2, 1, 3, inverse_metric, &
+                            2, 1, 3, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j+1,k) ) )
     enddo; enddo; enddo
 
@@ -219,7 +198,7 @@ contains
     do j = 1, n(2)
     do i = 1, n(1)
     do k = 1, n(3) - 1
-      call Diffusive_Flux ( matID(i,j,k), &
+      call Diffusive_Flux ( matID(i,j,k), matID(i,j,k+1), &
                             Dir(3) % f(i,j,k) % n,  &
                             Dir(3) % f(i,j,k) % A,  &
                             T(i,j,k  ),        &
@@ -232,11 +211,11 @@ contains
                             T(i,j+1,k  ),      &
                             T(i,j-1,k+1),      &
                             T(i,j+1,k+1),      &
-                            M(i,j,k  ) % c,    &
-                            M(i,j,k+1) % c,    &
+                            Minv(i,j,k  ) % c,    &
+                            Minv(i,j,k+1) % c,    &
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
-                            3, 1, 2, inverse_metric, &
+                            3, 1, 2, &
                             kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j,k+1) ) )
     enddo; enddo; enddo
 

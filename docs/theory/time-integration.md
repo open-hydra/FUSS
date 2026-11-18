@@ -1,6 +1,6 @@
 # Time Integration
 
-FUSS advances the semi-discrete heat equation with an explicit time scheme.  This page describes the schemes, the diffusive stability condition that limits the time step, the two operating modes (steady-state and time-accurate), the optional implicit residual smoothing, and grid sequencing.
+FUSS advances the semi-discrete heat equation with an explicit time scheme.  This page describes the schemes, the diffusive stability condition that limits the time step, the two operating modes (steady-state and time-accurate), the optional implicit residual smoothing, and multigrid: grid sequencing and FAS cycles.
 
 ---
 
@@ -51,6 +51,19 @@ where $\xi_d$ is the cell index along direction $d$ (the sum runs over the two o
 On a uniform mesh, orthogonal or skewed, the largest eigenvalue of the discrete diffusion operator is $4\,\alpha \sum_d \lvert\nabla\xi_d\rvert^2$ (the mixed-derivative terms vanish in that mode). VNN is therefore the fraction of the stability limit of forward Euler and RK2, whose stability interval on the negative real axis is $[-2, 0]$: they are stable for $\text{VNN} \le 1$. RK3 reaches $-2.51$, i.e. $\text{VNN} \le 1.25$.
 
 Until October 2026 the sum used the mean cell edge lengths, $\sum_d 1/\Delta l_d^2$, which on a skewed cell overstates the stable step by $1/\sin^2\varphi$: on a mesh sheared by 45° the explicit runs diverged above $\text{VNN} = 0.5$, and now above 1.
+
+**Face conductivities.** The formula above takes the conductivity of the cell, but the flux of each face carries the conductivity of that face (see [Face Conductivity](numerics.md#face-conductivity)). The step therefore takes, in each direction $d$, the larger of the conductivities of the cell's two faces in that direction, each evaluated as its flux evaluates it:
+
+$$
+\Delta t_i = \frac{\text{VNN}\,\rho c_p}{2\sum_{d} k_d\,\lvert\nabla\xi_d\rvert_i^{2}},
+\qquad k_d = \max\bigl(k_{d-1/2},\,k_{d+1/2}\bigr).
+$$
+
+An interior face takes $k$ at the mean temperature of its two cells, or between two materials the series conductivity of its two half cells, which can reach twice the conductivity of the less conductive cell; a block-connection or chimera face takes the harmonic mean $2k_Pk_N/(k_P+k_N)$ of the two sides (the neighbour's from the first ghost cell); walls, symmetry and coupling faces take the cell's own $k$, as the wall fluxes do. Where every face carries the cell's own $k$ the formula is the cell formula above, and the cell keeps that step to the last bit; a block of one material with a constant $k$ column, connected only to that material, is not even visited, so such meshes cost nothing more. Elsewhere the second pass costs up to nine property lookups per cell and iteration (seven in 2-D).
+
+Taking the larger of the two face conductivities is conservative: the row sum of the explicit operator (Gershgorin's bound, which the cell formula meets with equality on a uniform mesh) needs only their mean.
+
+Until October 2026 the step used the cell conductivity everywhere, and the face of a material jump inside a block took the conductivity of the lower-index cell: at a 300 → 15 W/(m K) jump the first cell of the low-conductivity material exchanged heat through 20 times its own $k$, and the four-layer liner of the FAS stress campaign left the properties table at VNN = 0.5 within 5 iterations.
 
 With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ iterations $n$.
 
@@ -103,7 +116,7 @@ The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon
 
 ### Admissible updates
 
-The smoothed update of a cell mixes the updates of its neighbours. Above the explicit limit it can overshoot the temperatures imposed at the boundaries and leave the range of the properties table, where the property lookups would read past its ends. Each smoothed update is therefore checked: the new temperature must be finite and lie in $[T_\text{min}, T_\text{max})$, the first and last temperature of `properties.dat`. A cell that fails takes its own, unsmoothed update instead, halved until the new state is admissible (at most 10 times), and otherwise keeps no update in that stage: every stage is then a convex combination of admissible states. The number of such cells, summed over the MPI ranks, is printed every `shell-diter` iterations. An admissible smoothed update is applied unchanged.
+The smoothed update of a cell mixes the updates of its neighbours. Above the explicit limit it can overshoot the temperatures imposed at the boundaries and leave the range of the properties table, where the property lookups would read past its ends. Each smoothed update is therefore checked: the new temperature must be finite and lie in $[T_\text{min}, T_\text{max})$, the first and last temperature of `properties.dat`. A cell that fails halves its smoothed update until the new state is admissible (at most 10 times), and otherwise keeps no update in that stage. The halved update keeps the implicit damping: the earlier fallback to the cell's own *unsmoothed* update reintroduced exactly the explicit update IRS exists to stabilise, and on a stiff multimaterial mesh (large conductivity jumps, squeezed cells) enough cells fell back at once to lock the run into a bounded residual orbit. The number of halved or dropped cells, summed over the MPI ranks, is printed every `shell-diter` iterations. An admissible smoothed update is applied unchanged.
 
 Without IRS nothing is replaced: a temperature outside the table, or NaN, stops the run with an error message naming the cell, and a non-zero exit status.
 
@@ -111,19 +124,43 @@ Without IRS nothing is replaced: a temperature outside the table, or NaN, stops 
 
 ```ini
 [FUSS-Numerics]
-irs      = true
 irs-beta = 0.5
 ```
 
-IRS is switched on at setup, by `irs = true` or by `irs-beta > 0`; only then are its arrays allocated. During the run `irs-beta` and `irs = false` take effect at the next re-read of `input.ini` (every `ini-diter` iterations), while `irs = true` added to a run started without IRS is ignored with a warning. The default is no smoothing.
+`irs-beta > 0` switches IRS on at setup; only then are its arrays allocated. During the run a new `irs-beta` takes effect at the next re-read of `input.ini` (every `ini-diter` iterations), and `irs-beta = 0` switches the smoothing off; a positive value in a run started without IRS is ignored with a warning. The default, 0, is no smoothing. Until October 2026 a separate key `irs = true` switched IRS on as well, with `irs-beta = 0` a smoothing that changed nothing; it was removed.
 
 ---
 
 ## Multigrid (grid sequencing)
 
-With `levels = n` (n > 1) in `[FUSS-Multigrid]`, FUSS builds n grids, each coarser level merging 2 × 2 × 2 cells (2 × 2 in 2-D) of the finer one, so the cell counts of every block must be divisible by $2^{n-1}$. The run starts on the coarsest level, from the initial field restricted to it (volume average of $h$). Level $m$ runs `level<m>-iter` iterations, or until the residual reaches `res-threshold`; its solution is then prolongated (trilinear interpolation) to the next finer level, where the run continues. The finest level ends after `level1-iter` iterations or at `res-threshold` / `time-threshold`: with multigrid, `iter-threshold` is not used. A coarse level is not visited again (no multigrid cycles).
+With `levels = n` (n > 1) in `[FUSS-Multigrid]`, FUSS builds n grids, each coarser level merging 2 × 2 × 2 cells (2 × 2 in 2-D) of the finer one, so the cell counts of every block must be divisible by $2^{n-1}$, and the coarsest level must keep at least 2 cells per direction (a 1-cell-wide coarse block has degenerate ghost metrics). The run starts on the coarsest level, from the initial field restricted to it (volume average of $h$). Level $m$ runs `level<m>-iter` iterations, or until the residual reaches `res-threshold`; its solution is then prolongated (trilinear interpolation) to the next finer level, where the run continues. The finest level ends after `level1-iter` iterations or at `res-threshold` / `time-threshold`: with multigrid, `iter-threshold` is not used. With `cycle = none` (the default) a coarse level is not visited again: the descent is plain grid sequencing.
 
 `level<m>-iter`, and `iter-threshold` without multigrid, are re-read with `input.ini` every `ini-diter` iterations: lowering the value of the level being computed below the iterations already done ends that level at the next re-read.
+
+A restart (`newrun = false`) reads only the finest-level field and **redoes the descent**: the sequencing prolongation then overwrites the restart field on the finest level (exactly at interior cells, with one-sided-stencil errors in the boundary cell ring), and the finest level re-converges from there. Restarting is therefore safe but not free; a converged field is not preserved through a restart with `levels > 1`.
+
+### FAS cycles
+
+`cycle = v | w` (default `none`, which is bit-identical to the pre-FAS behaviour) turns the levels below the running one into a FAS multigrid (Full Approximation Scheme), for steady runs with `integration-variables = cons`: each solver step becomes one cycle rooted at the running level, so the grid-sequencing descent above acts as the FMG shell. A cycle smooths `pre-iter` iterations (default 2), restricts the state (volume average of $h$) and the volume-integrated steady residuals $N = -R + \dot q V$ (conservative sum of the 2 × 2 (× 2) children), builds the coarse forcing $F = \sum N_\text{fine} - N_\text{coarse}(w_0)$ and adds it to every Runge–Kutta stage, recurses, prolongates the correction in $h$ with the trilinear weights, and smooths `post-iter` iterations (default 1). The coarsest level of a cycle runs `coarse-iter` iterations (default 10); when the *root* of the descent is itself the coarsest level, that stint smooths max(`pre-iter` + `post-iter`, 1) iterations per step instead.
+
+**W convention.** `cycle = w` applies the recursion count γ = 2 at *every* level below the running one, including at the root: with $L$ levels the coarsest is visited $2^{L-1}$ times per cycle, each intermediate visit re-restricting from its (already corrected) finer level. The textbook W applies γ only below the root, so this convention runs twice its coarse sub-tree. Measured consequences: on 2 levels it is *bit-identical* to a V-cycle with a doubled coarsest budget (the convention only relabels the work: W with `coarse-iter` c reproduces V with 2c to the byte), and on deep hierarchies the doubled sub-tree is what buys the measured robustness — stable at any depth without IRS and insensitive to `coarse-iter`, where V is not — at a per-cycle cost that stays small because each coarser level carries 4–8× fewer cells.
+
+**Stability.** `w` converges with textbook, grid-independent rates on every verified isotropic hierarchy and is insensitive to `coarse-iter` there (on a 2-level hierarchy the coarse solve is the knob). `v` *without IRS* is reliable up to 3 levels; on 4 or more it can lock into a bounded limit cycle (the residual oscillates at a large value and the log fills with `FAS: ... updates halved` reports) whatever `coarse-iter` and even from a converged FMG descent — the explicit pre/post smoothing is too weak for the accumulated coarse corrections. Use `w`, or enable IRS, which stabilises `v` at any depth.
+
+**Chimera.** Cycles work unrestricted across chimera (102) boundaries. The FAS transfers never
+read a receiver cell: restriction, forcing and correction sums cover interior cells only, the
+receivers are ghost cells refreshed by each level's own chimera fill (so the coarse donors come
+from the restricted donor field, which the forcing absorbs like any other coarse-operator
+inconsistency), and with IRS the residual ghost at a 102 face is zero-gradient, the same policy
+IRS applies to every non-connection ghost. Both `v` and `w` are verified on overlapping blocks
+([chimera numbers](../vv/fas-cycles.md#chimera-overset-blocks)): convergence to the `none` field,
+1-vs-2-rank bit-identity with donors crossing ranks on every level, no admissibility fallbacks.
+
+**Guards.** Setup aborts a cycle request with `levels = 1`, `time-accurate = true`, `integration-variables = prim` or `pre-iter + post-iter = 0`. At runtime (`ini-diter` re-reads) switching cycles on from `none` is ignored with a warning (the coarse-level arrays are allocated at setup only), and an edit that breaks the setup guards restores the setup values; `v` ↔ `w` and valid `pre/post/coarse-iter` edits take effect. Two admissibility guards protect the properties table and report at the `shell-diter` cadence: a prolongated correction that leaves the table is halved up to 10 times, else dropped (`FAS: n prolongated corrections halved or dropped`), and a coarse smoothing update pushed outside the table by the forcing is halved the same way instead of stopping the run (`FAS: n coarse smoothing updates halved`). Occasional reports during a transient are harmless; a steady stream of them means the cycle is not converging (see Stability above).
+
+Under cycles the root-level iteration counter advances by `pre-iter` + `post-iter` per solver step, and the `res-diter` / `shell-diter` / `sol-diter` conditions are only tested at the end of each cycle: an interval that is not a multiple of the per-cycle count is effectively stretched (up to that factor). With the defaults (`res-diter = shell-diter = 1`) the residual history and the shell get one entry per cycle, carrying the residual of the cycle's last fine iteration.
+
+The cycles converge to the fine discrete solution: the forcing absorbs any inconsistency of the coarse operators and boundary values, so the converged field (and, on an exactly representable solution, the bit-exact fixed point) is the same with and without cycles. Measured on the verification cases ([V&V](../vv/fas-cycles.md)): with the default `coarse-iter`, 2-level cycles on the `residual_convergence` plate need 14× (`v`) to 103× (`w` + IRS) fewer fine-grid iterations than the single-grid run and 7.5–24× less wall time (the mesh caps the hierarchy at 2 levels); with full hierarchies (3–5 levels) `w` + IRS converges in a roughly $N$-independent number of cycles — up to three orders of magnitude fewer iterations than single-grid at $128^2$ — and nonlinear $k(T)$, $c_p(T)$ or layered-material cases gain ~200× in iterations. Strongly anisotropic cells (AR ≫ 1) remain the known weak spot of full coarsening with a pointwise smoother: at aspect ratio 100 the cycles are no faster than IRS alone, until a line-implicit smoother is available.
 
 Every field write of a coarse level also prolongates its solution to the finest level and writes it (`field-prolongated`, `wall-prolongated`). On a large mesh that write can cost more than the coarse iterations between two writes: `prolongated-diter` (re-read at runtime) spaces it to at least that many iterations of the level. The end of a level always writes it, so the one written at the end of level 2 is the exact start of level 1.
 

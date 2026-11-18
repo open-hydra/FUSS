@@ -8,7 +8,7 @@
 | newrun | true | true , false |  no | Start a new simulation (false = restart) |
 | res-threshold | 1e-10 | > 0 |  no | Residual convergence threshold (not used under law = nodeshift: a receding surface is never steady, the run ends on its time or iteration limit) |
 | time-threshold | 1e30 | > 0 |  no | Maximum simulation time |
-| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations (re-read at runtime) |
+| iter-threshold | 1000000000 | > 0 |  no | Maximum number of iterations (re-read at runtime); with more than one multigrid level each level stops at its level<m>-iter instead |
 
 ## FUSS-IO
 
@@ -49,9 +49,7 @@
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
-| irs | .false. | logical |  no | Implicit Residual Smoothing (switched on only at setup) |
-| irs-beta | 0.0 | >= 0 |  no | IRS beta parameter |
-| diffusive-metric | inverse-mean | inverse-mean, mean |  no | Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r |
+| irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; the value is re-read at runtime) |
 
 ## FUSS-Multigrid
 
@@ -60,6 +58,10 @@
 | level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
 | level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |
 | prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime) |
+| cycle | none | none, v, w |  no | FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). w is the robust choice: v without IRS can limit-cycle on 4 or more levels |
+| pre-iter | 2 | >= 0 |  no | FAS: smoothing iterations on a level before its coarse-grid visit |
+| post-iter | 1 | >= 0 |  no | FAS: smoothing iterations on a level after the coarse-grid correction |
+| coarse-iter | 10 | > 0 |  no | FAS: smoothing iterations on the coarsest level of a cycle |
 
 ## FUSS-MeshMotion
 

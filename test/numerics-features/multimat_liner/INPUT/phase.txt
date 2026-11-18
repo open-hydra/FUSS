@@ -1,0 +1,5 @@
+solid-bulk
+coat 1
+liner 1
+jacket 1
+shell 1

@@ -74,6 +74,12 @@ contains
         obj_table%h(i,Ti1:Ti2)     = orion%block(i)%vars(4,:,1,1)
       enddo
 
+      ! co_T bisects a non-decreasing Energy column (a NaN entry makes it a scan, as any other column)
+      allocate(obj_table%h_monotone(1:obj_table%n))
+      do i = 1, obj_table%n
+        obj_table%h_monotone(i) = all( obj_table%h(i,Ti1+1:Ti2) >= obj_table%h(i,Ti1:Ti2-1) )
+      enddo
+
       ! The Energy column must be h = int rho cp dT (cons advances h, prim divides by rho cp): warn if not
       do i = 1, obj_table%n
         devmax = 0d0; Tdev = Ti1

@@ -44,22 +44,13 @@ contains
     obj_irs%description     = 'none'
     obj_irs%warning_message = 'none'
     obj_irs%error_message   = 'none'
-    call reg%add( trim(section), 'irs', obj_irs%enabled, '.false.', 'Implicit Residual Smoothing (switched on only at setup)', 'logical', .false. )
-    call reg%add( trim(section), 'irs-beta', obj_irs%beta, '0.0', 'IRS beta parameter', '>= 0', .false. )
+    call reg%add( trim(section), 'irs-beta', obj_irs%beta, '0.0', &
+                  'Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; '// &
+                  'the value is re-read at runtime)', '>= 0', .false. )
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
 
-
-    !! ------------------------------------------------------
-    !! Space Scheme ------------------------------------------
-    !! ------------------------------------------------------
-
-    ! Face metric of the diffusive fluxes ------------------
-    call reg%add( trim(section), 'diffusive-metric', obj_space_scheme%diffusive_metric, 'inverse-mean', &
-                  'Face metric of the interior diffusive fluxes: inverse-mean is exact on stretched meshes, '// &
-                  'mean is faster but overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r', &
-                  'inverse-mean, mean', .false. )
 
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)
@@ -153,6 +144,15 @@ contains
       enddo
       call reg%add( trim(codename)//'-Multigrid', 'prolongated-diter', obj_multigrid%prolongated_diter, '0', &
         'Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime)', '>= 0', .false. )
+      call reg%add( trim(codename)//'-Multigrid', 'cycle', obj_multigrid%cycle, 'none', &
+        'FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). '// &
+        'w is the robust choice: v without IRS can limit-cycle on 4 or more levels', 'none, v, w', .false. )
+      call reg%add( trim(codename)//'-Multigrid', 'pre-iter', obj_multigrid%pre_iter, '2', &
+        'FAS: smoothing iterations on a level before its coarse-grid visit', '>= 0', .false. )
+      call reg%add( trim(codename)//'-Multigrid', 'post-iter', obj_multigrid%post_iter, '1', &
+        'FAS: smoothing iterations on a level after the coarse-grid correction', '>= 0', .false. )
+      call reg%add( trim(codename)//'-Multigrid', 'coarse-iter', obj_multigrid%coarse_iter, '10', &
+        'FAS: smoothing iterations on the coarsest level of a cycle', '> 0', .false. )
     else
       do m = 1, obj_multigrid%MGL
         write(option,'(A5,I0,A5)') 'level', m, '-iter'

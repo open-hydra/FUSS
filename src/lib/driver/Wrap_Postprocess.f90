@@ -8,6 +8,12 @@ module FUSS_Wrap_Postprocess
   integer, private :: id_stampa=0
   logical, private :: id_stampa_set = .false.   ! counter resumed from OUTPUT/ on a restart
   logical, private :: irs_runtime_warned = .false.
+  ! FAS setup state: the runtime re-read may not switch cycles on (coarse-level arrays are
+  ! allocated at setup only) nor leave a cycling root with no smoothing iterations
+  logical, private :: fas_setup_saved = .false.
+  logical, private :: fas_cycle_warned = .false., fas_iters_warned = .false.
+  character(len=8), private :: fas_cycle_setup = 'none'
+  integer, private :: fas_pre_setup = 2, fas_post_setup = 1, fas_coarse_setup = 10
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
   character(96), private :: RANS_shell_format_MG  = "('FUSS Grid Level', i2, ' | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
@@ -27,7 +33,8 @@ contains
     use FUSS_Mod_Multigrid,  only: Prolongation
     use FUSS_Read_Ini,       only: Read_Inifile_Runtime
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
-    use FUSS_Lib_Newstate,   only: irs_fallbacks
+    use FUSS_Lib_Newstate,   only: irs_fallbacks, fas_update_fallbacks
+    use FUSS_Lib_Multigrid,  only: fas_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
     use FUSS_Lib_BC_Fluxes_Wall, only: wall_newton_capped
     use IR_precision
@@ -37,6 +44,15 @@ contains
     character(len=llen) :: solfile, dgsfile, wallfile, mgsol, mgwall
     integer  :: m, level
     real(R8) :: nfall
+
+    ! FAS keys as validated at setup, before the first runtime re-read can change them
+    if (.not. fas_setup_saved) then
+      fas_setup_saved  = .true.
+      fas_cycle_setup  = obj_multigrid%cycle
+      fas_pre_setup    = obj_multigrid%pre_iter
+      fas_post_setup   = obj_multigrid%post_iter
+      fas_coarse_setup = obj_multigrid%coarse_iter
+    endif
 
     level = obj_multigrid%MG_level
 
@@ -251,17 +267,35 @@ contains
     if ( obj_irs%at_setup .and. mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
       nfall = real(irs_fallbacks, R8)
       call mpi_reduce_sum_r8( nfall )
-      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: fallback to the own update in ', &
-        nint(nfall), ' cell updates since the last report, level ', level
+      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A,I0)') ' IRS: ', &
+        nint(nfall), ' smoothed updates halved or dropped since the last report, level ', level
       irs_fallbacks = 0
+    endif
+
+    ! FAS corrections cut by the admissibility guard (Lib_Multigrid), same cadence
+    if ( trim(obj_multigrid%cycle) /= 'none' ) then
+      if ( mod(simulation%domain(level) % iter, obj_io%shell_diter) == 0d0 ) then
+        nfall = real(fas_fallbacks, R8)
+        call mpi_reduce_sum_r8( nfall )
+        if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' FAS: ', nint(nfall), &
+          ' prolongated corrections halved or dropped since the last report'
+        fas_fallbacks = 0
+        ! Coarse-level updates halved because the forcing left the table (Lib_Newstate)
+        nfall = real(fas_update_fallbacks, R8)
+        call mpi_reduce_sum_r8( nfall )
+        if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' FAS: ', nint(nfall), &
+          ' coarse smoothing updates halved since the last report'
+        fas_update_fallbacks = 0
+      endif
     endif
 
     ! Update input data
     if ( mod (simulation%domain(level) % iter, obj_io%ini_diter) == 0d0 ) then
       call Read_Inifile_Runtime( simulation%domain(level) % iter )
-      ! Upstream f3401c5: level<n>-iter / iter-threshold re-derive itermax, and IRS cannot be switched on at
-      ! runtime. Under ours' runtime allow-list (Backend_INI RUNTIME_MUTABLE) none of these keys changes mid-run,
-      ! so both blocks are inert until plan 14 S6 (D8) settles the runtime policy.
+      ! Upstream's runtime re-derivations (f3401c5, 3447dd9, 2535168). Under ours' allow-list (Backend_INI
+      ! RUNTIME_MUTABLE) none of the keys they read changes mid-run, so they keep the setup values until
+      ! plan 14 S6 (D8) settles the runtime policy.
+      ! level<n>-iter / iter-threshold take effect at runtime
       if ( obj_multigrid%MGL > 1 ) then
         do m = 1, obj_multigrid%MGL
           simulation%domain(m)%itermax = obj_multigrid%iter_threshold(m)
@@ -269,12 +303,35 @@ contains
       else
         simulation%domain(1)%itermax = obj_sim_param%iter_threshold
       endif
-      ! IRS arrays exist only if IRS was on at setup
+      ! IRS follows irs-beta, but its arrays exist only if IRS was on at setup
+      obj_irs%enabled = ( obj_irs%beta > 0d0 )
       if ( obj_irs%enabled .and. .not. obj_irs%at_setup ) then
         if ( mpi_is_root .and. .not. irs_runtime_warned ) write(*,'(A)') &
-          ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
+          ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs-beta ignored'
         irs_runtime_warned = .true.
         obj_irs%enabled = .false.
+      endif
+      ! FAS coarse-level arrays exist only if a cycle was on at setup (same pattern as IRS)
+      if ( trim(fas_cycle_setup) == 'none' .and. trim(obj_multigrid%cycle) /= 'none' ) then
+        if ( mpi_is_root .and. .not. fas_cycle_warned ) write(*,'(A)') &
+          ' WARNING: [FUSS-Multigrid] cycle cannot be switched on at runtime (start with cycle = v or w): kept none'
+        fas_cycle_warned = .true.
+        obj_multigrid%cycle = fas_cycle_setup
+      endif
+      ! A cycling run keeps the setup guards: steady, cons, and a root that iterates
+      if ( trim(obj_multigrid%cycle) /= 'none' ) then
+        if ( obj_multigrid%pre_iter + obj_multigrid%post_iter < 1 .or. obj_multigrid%coarse_iter < 1 .or. &
+             obj_time_scheme%time_accurate .or. trim(obj_time_scheme%integration_variables) == 'prim' ) then
+          if ( mpi_is_root .and. .not. fas_iters_warned ) write(*,'(A)') &
+            ' WARNING: runtime edit breaks the FAS guards (pre-iter + post-iter >= 1, coarse-iter >= 1,'// &
+            ' steady, cons): setup values kept'
+          fas_iters_warned = .true.
+          obj_multigrid%pre_iter    = fas_pre_setup
+          obj_multigrid%post_iter   = fas_post_setup
+          obj_multigrid%coarse_iter = fas_coarse_setup
+          obj_time_scheme%time_accurate = .false.
+          obj_time_scheme%integration_variables = 'cons'
+        endif
       endif
     end if
     

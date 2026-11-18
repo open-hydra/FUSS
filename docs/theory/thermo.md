@@ -91,7 +91,7 @@ k(T) = k(\lfloor T \rfloor)
          \bigl[k(\lfloor T \rfloor + 1) - k(\lfloor T \rfloor)\bigr]
 $$
 
-and analogously for $\rho$, $c_p$ and $h$.  The rows are addressed directly by the integer part of $T$, so a lookup costs $O(1)$.  The inverse, $T(h)$ in `co_T`, scans the Energy column from $T_\text{min}$ for the first row above $h$ and interpolates linearly in that interval; below the first row or above the last it extrapolates the end interval.
+and analogously for $\rho$, $c_p$ and $h$.  The rows are addressed directly by the integer part of $T$, so a lookup costs $O(1)$.  The inverse, $T(h)$ in `co_T`, finds the first row above $h$ and interpolates linearly in that interval; below the first row or above the last it extrapolates the end interval.  The row is found by bisection, $O(\log n)$ in the number of rows, when the material's Energy column does not decrease anywhere (always, for a physical table), and by a scan from $T_\text{min}$ otherwise; on a non-decreasing column the two find the same row.
 
 Where the properties are evaluated:
 
@@ -105,7 +105,7 @@ Where the properties are evaluated:
 
 !!! warning "Temperature range"
 
-    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked: without IRS a temperature outside this range, or NaN, stops the run with an error naming the cell; with IRS the cell falls back to its own update (see [Admissible updates](time-integration.md#admissible-updates)).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
+    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked: without IRS a temperature outside this range, or NaN, stops the run with an error naming the cell; with IRS the cell's smoothed update is halved until admissible (see [Admissible updates](time-integration.md#admissible-updates)).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
 
 ---
 

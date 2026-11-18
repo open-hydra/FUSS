@@ -32,6 +32,12 @@ contains
         simulation%domain(m) % Blk(b) % Dim = simulation%domain(m-1) % Blk(b) % Dim / rap
         simulation%domain(m) % Blk(b) % Dim(3) = Max ( 1, simulation%domain(m) % Blk(b) % Dim(3) ) ! 2D case
         call Allocate_Block ( simulation%domain(m) % Blk(b), simulation%domain(m) % Blk(b) % Dim )
+        if (trim(obj_multigrid%cycle) /= 'none') then
+          associate ( d => simulation%domain(m) % Blk(b) % Dim )
+            allocate ( simulation%domain(m) % Blk(b) % fas_f  (d(1), d(2), d(3)), source=0d0 )
+            allocate ( simulation%domain(m) % Blk(b) % fas_h0 (d(1), d(2), d(3)), source=0d0 )
+          end associate
+        endif
       enddo
 
       call Coarse_Grid ( simulation%domain(m-1), simulation%domain(m) )

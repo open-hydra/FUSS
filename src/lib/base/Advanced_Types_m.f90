@@ -23,7 +23,7 @@ module FUSS_Advanced_Types_m
     type(FUSS_vector_3D_type), allocatable :: node_disp(:,:,:) ! law = nodeshift: this step's displacement of the receding
                                                                ! face's nodes (Compute_Node_Recession; zero elsewhere)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
-    type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric; diffusive-metric = inverse-mean only
+    type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
   end type block_type
@@ -54,7 +54,6 @@ module FUSS_Advanced_Types_m
   type, extends(block_type) :: FUSS_block_type
     real(R8), dimension(:,:,:), allocatable :: T, TO           ! Primitive variables at time n and n-1
     real(R8), dimension(:,:,:), allocatable :: R               ! Residuals
-    real(R8), dimension(:,:,:), allocatable :: RS0             ! IRS: the cell's own (unsmoothed) update
     real(R8), dimension(:,:,:), allocatable :: RS1, RS2        ! Implicit smoothing residuals (temporary storage)
     real(R8), dimension(:,:,:), allocatable :: dtlocal         ! Local time step
     real(R8), dimension(:,:,:), allocatable :: qvol            ! Volumetric source term
@@ -82,6 +81,9 @@ module FUSS_Advanced_Types_m
     ! T_prev are restarted.
     real(R8), dimension(:,:,:),   allocatable :: p_pg, p_pgO, p_new, eta_pg, eta_prev, eta_st, eta_stO, pi_pg, T_prev
     real(R8), dimension(:,:,:,:), allocatable :: u_pg, gam_pg
+    ! FAS multigrid (coarse levels, cycle /= none): forcing and the restricted state in h
+    real(R8), dimension(:,:,:), allocatable :: fas_f           ! Volume-integrated forcing P_k
+    real(R8), dimension(:,:,:), allocatable :: fas_h0          ! h of the restricted state w0
   end type FUSS_block_type
 
   type, extends(bc_type) :: FUSS_bc_type
@@ -140,6 +142,7 @@ module FUSS_Advanced_Types_m
     integer                                          :: iter, itermax    ! Iteration number
     integer                                          :: mg_level = 1     ! Multigrid level of this domain (selects exchange schedules)
     integer                                          :: nb, nbound       ! Number of blocks, number of boundary faces
+    logical                                          :: fas_forcing = .false.   ! Add fas_f to the residual (FAS coarse-level visit)
     integer, dimension(:,:), allocatable             :: n_bf             ! Number of bc elements per faces per block
     type(FUSS_block_type), dimension(:), allocatable :: blk              ! Allocatable block type
     type(FUSS_bc_type),    dimension(:), allocatable :: bc               ! Allocatable bc object

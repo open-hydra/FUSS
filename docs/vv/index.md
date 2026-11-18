@@ -8,6 +8,7 @@ The test cases compare FUSS with analytical solutions and benchmark values, and 
 |---|---|---|---|---|---|
 | [Radiative Rod](1D-steady-state-radiative-rod.md) | 1D | Steady | Conduction + radiation (BC 304) | Free-end temperature, 927 K | NAFEMS T9 (iii) |
 | [Convective Rod with Imposed Flux](1D-steady-state-convective-qrad-rod.md) | 1D | Steady | Convection + prescribed flux (BC 303) | Closed-form linear solution | Internal |
+| [Multilayer Slab](1D-steady-state-multilayer-slab.md) | 1D | Steady | Three materials in series inside one block, unequal cells | Piecewise-linear exact solution, to round-off | Internal |
 | [Oscillating Rod](1D-transient-oscillating-rod.md) | 1D | Transient | Oscillating wall temperature | Peak temperature rise at x = 0.09 m, 94.69 K | NAFEMS T5 |
 | [Skewed Plate](2D-steady-state-skewed-plate.md) | 2D | Steady | Walls 301, 302, 303, 305 on a 45° sheared mesh | Linear patch test, exact to round-off | Internal |
 | [Temperature Plate](2D-steady-state-temperature-plate.md) | 2D | Steady | Prescribed temperatures | Temperature at one point, 260.5 °C | NAFEMS T9 (i) |
@@ -16,6 +17,7 @@ The test cases compare FUSS with analytical solutions and benchmark values, and 
 | [Multi-Material Plate](2D-transient-multimat-plate.md) | 2D | Transient | Three material layers (two materials) | Fourier-series solution, 6 snapshots | LANL multi-material diffusion |
 | [Variable-c<sub>p</sub> Plate](2D-transient-variable-cp-plate.md) | 2D | Transient | Uniform heating, c<sub>p</sub>(T) linear | Closed-form solution | Internal |
 | [Residual Convergence](residual-convergence.md) | 2D | Steady | IRS and multigrid against plain time stepping | Iterations to convergence | Internal study |
+| [Multigrid Cycles (FAS)](fas-cycles.md) | 2D, 3D | Steady | FAS V / W cycles and IRS on a two-material plate, a four-layer liner, overlapping chimera blocks and anisotropic cells | Iterations and wall time to convergence, field equal to the single-grid one | Internal study |
 | [Parallel Scaling](parallel-scaling.md) | 2D | Steady | OpenMP and MPI × OpenMP | Wall-clock time vs. cores | Internal study |
 
 ## Running the tests
@@ -35,9 +37,16 @@ cd test/numerics-features/residual_convergence && python3 plot.py   # residual_c
 cd test/numerics-features/time_convergence && python3 plot.py       # time_convergence.svg
 ```
 
+The two figures of [Multigrid Cycles (FAS)](fas-cycles.md) come from `test/numerics-features/convergence_figure/` (24 runs, about an hour two at a time):
+
+```bash
+cd test/numerics-features/convergence_figure
+./run_configs.sh /path/to/runs -j 2 && python3 plot_convergence.py /path/to/runs
+```
+
 CTest runs every case in a copy under the build tree (see [Testing](../development/testing.md)):
 
 ```bash
-ctest --test-dir build -L fast    # the 8 short verification cases
+ctest --test-dir build -L fast    # the 9 short verification cases
 ctest --test-dir build            # all, with the smoke runs and the MPI checks
 ```

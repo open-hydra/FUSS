@@ -10,6 +10,8 @@ module FUSS_Read_Ini
   !> Set by Read_Inifile when a string value is longer than its variable (it would be
   !> cut without a message). Reported by Check_Input.
   character(len=1024), public :: long_values_message = ''
+  ! Warnings on keys that are set but have no effect, printed by Check_Input
+  character(len=256), allocatable :: input_warnings(:)
 
 contains
 
@@ -53,8 +55,32 @@ contains
     ! by Check_Input.
     call Check_Unknown_Options(fini, unknown_options_message)
     call Check_Value_Lengths(fini, long_values_message)
+    ! Keys set to no effect
+    call Find_Input_Warnings(fini, nmgl)
 
   end subroutine Read_Inifile
+
+
+  !> Keys of input.ini that are set but have no effect: iter-threshold when the run has more than
+  !> one multigrid level (each level stops at its own level<m>-iter)
+  subroutine Find_Input_Warnings(fini, nmgl)
+    use Finer, only: file_ini
+    implicit none
+    type(file_ini), intent(in) :: fini
+    integer, intent(in) :: nmgl
+    ! Local
+    character(len=256) :: sec, line
+
+    if (allocated(input_warnings)) deallocate(input_warnings)
+    allocate(input_warnings(0))
+    sec = ''
+    if (nmgl > 1 .and. fini%has_option(option_name='iter-threshold', section_name=sec)) then
+      write(line,'(A,I0,A)') '['//trim(sec)//'] iter-threshold is ignored with ', nmgl, &
+        ' multigrid levels: each level stops at its level<m>-iter'
+      input_warnings = [ input_warnings, line ]
+    endif
+
+  end subroutine Find_Input_Warnings
 
 
   !> Re-read input.ini while the run is in progress.

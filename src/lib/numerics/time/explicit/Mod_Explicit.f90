@@ -4,11 +4,11 @@ module FUSS_Mod_Explicit
 
   implicit none
   private
-  public :: Explicit_Step
+  public :: Explicit_Step, Evaluate_Residual
 
 contains
 
-  subroutine Explicit_Step ( domain, External_Function )
+  subroutine Explicit_Step ( domain, External_Function, inner )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m
     use FUSS_Global_m
@@ -33,21 +33,27 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     procedure(external_function_if) :: External_Function
+    logical, intent(in), optional :: inner
     ! Local
-    logical  :: endsim, iosim, endmg
+    logical  :: endsim, iosim, endmg, inner_
     integer  :: i_rk, b, level
     real(R8) :: average, t_n, t_np1
     logical  :: advance, converged
     ! Stage times t_n + c dt of euler, RK2 (Heun) and SSP RK3
     real(R8), parameter :: c_stage(3,3) = reshape([0d0, 0d0, 0d0, 0d0, 1d0, 0d0, 0d0, 1d0, 0.5d0], [3,3], order=[2,1])
 
+    inner_ = .false.
+    if (present(inner)) inner_ = inner
+
     call timer_iter_begin()
 
     level = obj_multigrid%MG_level
-    obj_multigrid%change_MG = .false.
+    if (.not. inner_) obj_multigrid%change_MG = .false.
     domain(level) % iter = domain(level) % iter + 1
-    obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
-    obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
+    if (.not. inner_) then
+      obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
+      obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
+    endif
 
     ! --- Time step, on the geometry this step starts from. The clock: domain%time runs at the
     ! stage's time inside the RK loop (the 301/302 time tables, Ghost_Wall) and is t^(n+1) after it;
@@ -155,6 +161,8 @@ contains
 
       call External_Function ( domain(level) )             ! External function (e.g. source terms)
 
+      if (domain(level) % fas_forcing) call Add_FAS_Forcing ( domain(level) )   ! FAS coarse level
+
       call RK_Newstate ( domain(level), i_rk )             ! State update
 
     enddo rk
@@ -166,6 +174,11 @@ contains
     ! a fatal error that a worker thread recorded in the region (plan 11)
     call fuss_abort_check ()
     if (advance) domain(level) % time = t_n + domain(level) % dtglobal
+
+    if (inner_) then
+      call timer_iter_end()
+      return
+    endif
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then
@@ -244,6 +257,50 @@ contains
     endif
 
   end subroutine Explicit_Step
+
+
+  !> Residual of the current state of one level, with no update: ghost fill, interior and boundary
+  !> fluxes (and the FAS forcing when the level carries one). Used by the FAS transfers.
+  subroutine Evaluate_Residual ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_Ghost,     only: Fill_Ghost_Cell
+    use FUSS_Mod_Fluxes,    only: Fluxes
+    use FUSS_Mod_BC_Fluxes, only: BC_Fluxes
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+
+    !$omp parallel
+    call Fill_Ghost_Cell ( domain )
+    call Fluxes ( domain )
+    call BC_Fluxes ( domain )
+    !$omp end parallel
+    if (domain % fas_forcing) call Add_FAS_Forcing ( domain )
+
+  end subroutine Evaluate_Residual
+
+
+  !> R <- R - fas_f: the volume-integrated FAS forcing enters the update as +fas_f/V
+  !> (Scale_Residual_Cons applies -R/V + qvol), identically for cons and prim.
+  subroutine Add_FAS_Forcing ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: i, j, k, b
+
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3)
+      do k = 1, domain % blk(b) % dim(3)
+      do j = 1, domain % blk(b) % dim(2)
+      do i = 1, domain % blk(b) % dim(1)
+        domain % blk(b) % R (i,j,k) = domain % blk(b) % R (i,j,k) - domain % blk(b) % fas_f (i,j,k)
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Add_FAS_Forcing
 
 
   subroutine Copy_State ( domain )

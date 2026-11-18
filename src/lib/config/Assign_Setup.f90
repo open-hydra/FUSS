@@ -26,8 +26,8 @@ contains
     else
       obj_time_scheme%n_rk = 1
     end if
-    ! obj_irs%enabled is promoted from irs-beta in FUSS_Wrap_Setup, BEFORE
-    ! Check_Input, so the guards see it. Do not move it back here.
+    ! obj_irs%enabled = ( irs-beta > 0 ) is set in FUSS_Wrap_Setup, BEFORE
+    ! Check_Input, so the guards see it (upstream 3447dd9 sets it here). Do not move it back here.
     obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
 
@@ -47,9 +47,6 @@ contains
     call Field_List_Init( obj_pyrolysis%nsub, obj_pyrolysis%enabled, obj_darcy%enabled )
     if ( obj_pyrolysis%enabled ) call Pyrolysis_Assign_Setup()
     if ( obj_darcy%enabled )     call Darcy_Assign_Setup()
-
-    ! Space: face metric of the interior diffusive fluxes
-    obj_space_scheme%inverse_metric = ( trim(obj_space_scheme%diffusive_metric) /= 'mean' )
 
     !! Descriptions, warnings and errors
 

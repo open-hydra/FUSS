@@ -105,18 +105,6 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
 
   !! ------------------------------------------------------
-  !! Space scheme -----------------------------------------
-  !! ------------------------------------------------------
-  type :: space_scheme_t
-    ! USER-DEFINED INPUTS
-    character(len=llen) :: diffusive_metric     ! Face metric of the interior diffusive fluxes (inverse-mean/mean)
-    ! Useful variables
-    logical             :: inverse_metric = .true. ! diffusive_metric == inverse-mean
-  end type space_scheme_t
-  !! ------------------------------------------------------
-  !! ------------------------------------------------------
-
-  !! ------------------------------------------------------
   !! Implicit residual smoothing --------------------------
   !! ------------------------------------------------------
   type irs_t
@@ -143,6 +131,10 @@ module FUSS_Config_Types_m
     integer              :: MGL                ! Number of multigrid levels
     integer, allocatable :: iter_threshold(:)  ! Number of iterations for each level
     integer              :: prolongated_diter = 0  ! Level iterations between two prolongated writes (0: with every field write)
+    character(len=llen)  :: cycle = 'none'     ! FAS cycle: none (grid sequencing), v, w
+    integer              :: pre_iter  = 2      ! Smoothing iterations before the coarse-grid visit
+    integer              :: post_iter = 1      ! Smoothing iterations after the correction
+    integer              :: coarse_iter = 10   ! Iterations on the coarsest level of a cycle
     ! Useful variables
     integer, public :: MG_level    ! Current MG-level being solved
     logical, public :: change_MG   ! Logical variable to change MG-level
@@ -223,6 +215,7 @@ module FUSS_Config_Types_m
     integer                               :: Tmin, Tmax   ! First and last temperature of the tables [K]
     character(len=clen), allocatable      :: name(:)
     real(R8), dimension(:,:), allocatable :: cp, rho, kappa, h
+    logical, dimension(:), allocatable    :: h_monotone   ! Energy column non-decreasing in T (co_T bisects it)
   end type table_t
   !! ------------------------------------------------------
   !! ------------------------------------------------------
@@ -366,7 +359,6 @@ module FUSS_Config_Types_m
   type(io_probes_t), allocatable, public:: obj_io_probes(:)
   type(io_bc_t), public                 :: obj_io_bc
   type(time_scheme_t), public           :: obj_time_scheme
-  type(space_scheme_t), public          :: obj_space_scheme
   type(irs_t), public                   :: obj_irs
   type(multigrid_t), public             :: obj_multigrid
   type(mesh_motion_t), public           :: obj_mesh_motion
