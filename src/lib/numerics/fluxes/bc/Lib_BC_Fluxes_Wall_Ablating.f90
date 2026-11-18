@@ -7,7 +7,7 @@
 !>          - alpha_s q_rad - eps_s sigma T_inf^4 + eps_s sigma T_w^4
 !>          = 0
 !>
-!> G = 2 kappa M(Dir,:).n is the half-cell conductance BC 303 uses. h_w and
+!> G (Tw - Tc) + C is the conduction of upstream's wall kernel (Wall_Conduction). h_w and
 !> B'_c come from the B' table at (p_w, B'_pg, T_w) (FUSS_Lib_Bprime, PATO's
 !> interpolation); beta = ln(1 + 2 lambda B')/(2 lambda B'), B' = B'_pg + B'_ch,
 !> with PATO's exceptions (beta = 1 when lambda = 0, B' = 0, mdot_pg <= 1e-6 or
@@ -25,15 +25,16 @@
 !> returned. The cap seb-max-iter (on either loop) is an error stop 3 (an
 !> unconverged T_w would feed the recession).
 !>
-!> Chemistry off with a zero emissivity: the routine hands the face to the BC
-!> 303 kernel with (hconv, T_edge, alpha_s q_rad), the same closed form, so a
+!> Chemistry off with a zero emissivity: the routine solves BC 303's balance
+!> (Wall_Newton with q = 0, hconv_env, T_edge), the same arithmetic, so a
 !> 306 face with such an env table reproduces a 303 face bit for bit.
 !>
 !> On a static mesh the char is not consumed (PATO zeroes B'_c and mdot_c when
 !> the mesh does not move): mdot_ch = B'_ch = sdot = 0, the pyrolysis-gas
 !> blowing and h_w from the table stay.
 !>
-!> The flux into the residual is BC 302's at the converged T_w. The face keeps
+!> The flux into the residual is q_in = G (T_w - T_c) + C at the converged T_w,
+!> the flux into the solid (also qw_last, the wall output). The face keeps
 !> its last converged state in bc (seb.txt, the wall output, the restart file).
 module FUSS_Lib_BC_Fluxes_Wall_Ablating
   use FUSS_Mod_MPI, only: fuss_abort_in_thread
@@ -41,7 +42,7 @@ module FUSS_Lib_BC_Fluxes_Wall_Ablating
   use FUSS_Advanced_Types_m
   use FUSS_Global_m
   use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy, obj_ablation, obj_mesh_motion
-  use FUSS_Lib_BC_Fluxes,  only: Face_Index, Compute_Modfm
+  use FUSS_Lib_BC_Fluxes,  only: Face_Index
 
   implicit none
   private
@@ -57,11 +58,9 @@ module FUSS_Lib_BC_Fluxes_Wall_Ablating
 contains
 
   subroutine BC_Wall_Ablating ( Im, Jm, Km, Fm, Blk, bc, Ovar, count_clamps )
-    use FUSS_Lib_Solid,      only: co_Kappa
     use FUSS_Lib_Pyrolysis,  only: Surface_Optics, Char_Enthalpy, Gas_State
     use FUSS_Lib_Bprime,     only: Bprime_Lookup
-    use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer, only: BC_Wall_HeatTransfer
-    use FUSS_Lib_BC_Fluxes_Wall_Temperature,  only: BC_Wall_Temperature
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Conduction, Wall_Newton
     implicit none
     integer,               intent(in)    :: Im, Jm, Km, Fm
     type(FUSS_block_type), intent(inout) :: Blk
@@ -69,26 +68,19 @@ contains
     real(R8), dimension(2), intent(out)  :: Ovar
     logical,               intent(in)    :: count_clamps
     ! Local
-    integer  :: modfm, modfm1, modfm2, modfm3, Dir, Fi, Fj, Fk, mat, it, ib, nmax
-    real(R8) :: Normal(3), Mmet(3,3), Tc, kappa, G, rhoe, beta, beta_new, mdot_pg, p_gas
+    integer  :: Dir, Fi, Fj, Fk, mat, it, ib, nmax
+    real(R8) :: Tc, G, C, q_in, rhoe, beta, beta_new, mdot_pg, p_gas
     real(R8) :: Tw, lo, hi, F0, Fp, Fm_, dFdT, Tnew, tol, terms(8), dbeta, Bpg, Bch, hw, mdot_ch, tq(8), Bq(4)
     logical  :: on, frac, pyro, consume, converged, cl(4), clamped(4), clq(4)
 
-    call Compute_Modfm ( Fm, modfm, modfm1, modfm2, modfm3 )
     call Face_Index ( Fm, Dir, Im, Jm, Km, Fi, Fj, Fk )
-    Normal = Blk%dir(Dir)%f(Fi,Fj,Fk)%n
-    Mmet   = Blk%M(Im,Jm,Km)%c
 
+    ! The conduction of the face, from the ghost cells of this stage: q_in = G (T_w - T_c) + C
+    ! (upstream's wall kernel; kappa = k_s(T, chi) under pyrolysis, co_Kappa(T) otherwise)
     pyro = obj_pyrolysis%enabled
-    Tc   = Blk%T(Im,Jm,Km)
-    if ( pyro ) then
-      kappa = Blk%k_s(Im,Jm,Km)
-      mat   = nint( Blk%matID(Im,Jm,Km) )
-    else
-      call co_Kappa( Blk%matID(Im,Jm,Km), Tc, kappa )
-      mat = 0
-    endif
-    G = 2.0d0 * kappa * dot_product( Mmet(Dir,:), Normal )
+    call Wall_Conduction ( Im, Jm, Km, Fm, Blk, .true., Tc, G, C )
+    mat = 0
+    if ( pyro ) mat = nint( Blk%matID(Im,Jm,Km) )
 
     on   = ( bc%chem >= CHEM_ON )
     frac = ( .not. on ) .and. ( bc%chem > 0.0d0 )
@@ -110,15 +102,17 @@ contains
     p_gas = bc%pw
     if ( pyro .and. .not. obj_darcy%enabled ) p_gas = obj_pyrolysis%p_gas
 
-    ! ---- chemistry off with a zero emissivity: the BC 303 closed form
+    ! ---- chemistry off with a zero emissivity: BC 303's balance (Wall_Temperature's case 303 with
+    !      qrad = 0, hconv = hconv_env, Tref = T_edge), the same arithmetic as a 303 face
     if ( bc%chem == 0.0d0 .and. Optics_Zero( mat, bc%qrad_env ) ) then
-      call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, Blk, bc%hconv_env, bc%Tedge, 0.0d0, Ovar )
-      Tw = Ovar(1)
-      bc%Tw_prev = Tw ; bc%qw_last = Ovar(2)
+      call Wall_Newton ( Tc, G, C, 0.0d0, bc%hconv_env, 0.0d0, bc%Tedge, Tw, q_in, converged )
+      Blk%r(Im,Jm,Km) = Blk%r(Im,Jm,Km) - Blk%dir(Dir)%f(Fi,Fj,Fk)%a * q_in
+      Ovar = [ Tw, q_in ]
+      bc%Tw_prev = Tw ; bc%qw_last = q_in
       bc%mdot_ch = 0.0d0 ; bc%sdot = 0.0d0 ; bc%Bprime = 0.0d0 ; bc%Bpg = 0.0d0 ; bc%Bch = 0.0d0 ; bc%hw = 0.0d0
       if ( obj_ablation%sdot_override >= 0.0d0 ) bc%sdot = obj_ablation%sdot_override
       bc%seb = 0.0d0
-      bc%seb(1) = G * ( Tw - Tc )
+      bc%seb(1) = G * ( Tw - Tc ) + C
       bc%seb(2) = bc%hconv_env * ( bc%Tedge - Tw )
       bc%seb(8) = bc%seb(1) - bc%seb(2)
       bc%seb_iter = 0
@@ -217,12 +211,15 @@ contains
       where ( clamped ) bc%nclamp = bc%nclamp + 1
     endif
 
-    ! Residual flux and wall output: BC 302's kernel at the converged T_w
-    call BC_Wall_Temperature ( Im, Jm, Km, Fm, Blk, Tw, Ovar )
+    ! Residual flux and wall output at the converged T_w, upstream's 302 form: q_in = G (T_w - T_c) + C,
+    ! the flux into the solid on every face (as the 301-305 wall output, 0f3a19f)
+    q_in = G * ( Tw - Tc ) + C
+    Blk%r(Im,Jm,Km) = Blk%r(Im,Jm,Km) - Blk%dir(Dir)%f(Fi,Fj,Fk)%a * q_in
+    Ovar = [ Tw, q_in ]
 
     ! State of the converged balance
     bc%Tw_prev  = Tw
-    bc%qw_last  = Ovar(2)
+    bc%qw_last  = q_in
     bc%seb      = terms
     bc%seb(8)   = F0
     bc%seb_iter = it
@@ -254,7 +251,7 @@ contains
       if ( pyro ) call Surface_Optics ( mat, Tw_, Blk%chi(:,Im,Jm,Km), eps_s, alpha_s )
       t = 0.0d0
       Bpg_ = 0.0d0 ; Bch_ = 0.0d0 ; hw_ = 0.0d0 ; mdc_ = 0.0d0
-      t(1) = G * ( Tw_ - Tc )
+      t(1) = G * ( Tw_ - Tc ) + C
       if ( on ) then
         Bpg_ = mdot_pg / ( rhoe * beta_ )
         Bg_look = max( Bpg_, 0.0d0 )

@@ -6,6 +6,7 @@ module FUSS_Wrap_Postprocess
   public :: FUSS_postprocess
 
   integer, private :: id_stampa=0
+  logical, private :: id_stampa_set = .false.   ! counter resumed from OUTPUT/ on a restart
   logical, private :: irs_runtime_warned = .false.
   character(81), private :: RANS_shell_format  =    "('FUSS | Iter =', i9, ' | Global iter =', i9, ' | Energy  residual =', E13.6)"
   character(69), private :: URANS_shell_format =    "('FUSS | Iter =', i9, ' | Time =', E13.6,  ' | Delta t =', E13.6)"
@@ -28,6 +29,7 @@ contains
     use FUSS_Mod_MPI,        only: mpi_is_root, mpi_reduce_sum_r8
     use FUSS_Lib_Newstate,   only: irs_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
+    use FUSS_Lib_BC_Fluxes_Wall, only: wall_newton_capped
     use IR_precision
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -38,8 +40,7 @@ contains
 
     level = obj_multigrid%MG_level
 
-    ! Solution time of the outputs: level 1 (its files and the prolongated ones) and the level
-    ! being computed, so that field-level<n> and wall-level<n> carry it too
+    ! Solution time of level 1 (also the prolongated files) and of the level being computed
     if ( obj_time_scheme%time_accurate ) then
       simulation%IOfield(1)%solutiontime = simulation%domain(1)%time
       IOwall(1)%solutiontime = simulation%domain(1)%time
@@ -89,11 +90,21 @@ contains
         endif
       end if
 
+      ! Last probe sample (collective: the owner rank writes)
+      if (level == 1) call Write_Probes_Data( obj_sim_param%iter_general, simulation%domain(1)%time )
+
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
 
-      ! Write output solution (collective — all ranks participate in gather). The level being
-      ! computed: a run that ends on a coarse level writes field-level<n> and wall-level<n>.
+      ! 304/305 wall-temperature solves that reached the 50-step Newton cap (Lib_BC_Fluxes_Wall, plan 14 D17),
+      ! summed over the ranks (collective, as the timing summary); one line, only if there was any
+      nfall = wall_newton_capped
+      call mpi_reduce_sum_r8( nfall )
+      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' [WARNING] wall BC 304/305: ', &
+        int(nfall, selected_int_kind(18)), ' wall-temperature solves reached the 50-step Newton cap in this run'// &
+        ' (the last iterate was used each time)'
+
+      ! Write the level being computed (collective)
       call Write_Solution ( simulation%domain(level), simulation%IOfield(level), solfile )
       if (obj_io % write_wall) call Write_Wall_Solution( simulation%domain(level), wallfile )
       if (level == 1 .and. .not. obj_time_scheme%time_accurate) &
@@ -104,6 +115,12 @@ contains
     elseif ( obj_sim_param%TODO == 2 ) then
 
       if (level == 1) then
+        ! Restart with numbered snapshots: continue after the last field<n> in OUTPUT/
+        if (.not. id_stampa_set) then
+          id_stampa_set = .true.
+          if (.not. obj_sim_param%newrun .and. .not. obj_io%sol_overwrite) &
+            call Resume_File_Counter ( trim(simulation%IOfield(1)%tec%extension) )
+        endif
         id_stampa = id_stampa + 1
         if (.not.obj_io%sol_overwrite) solfile  = trim(solfile)//trim(str(.true.,id_stampa))
         if (.not.obj_io%sol_overwrite) wallfile = trim(wallfile)//trim(str(.true.,id_stampa))
@@ -252,6 +269,7 @@ contains
       else
         simulation%domain(1)%itermax = obj_sim_param%iter_threshold
       endif
+      ! IRS arrays exist only if IRS was on at setup
       if ( obj_irs%enabled .and. .not. obj_irs%at_setup ) then
         if ( mpi_is_root .and. .not. irs_runtime_warned ) write(*,'(A)') &
           ' WARNING: IRS cannot be switched on at runtime (start with irs-beta > 0): irs ignored'
@@ -278,14 +296,31 @@ contains
 
   contains
 
-    ! A coarse level writes its prolongated solution (field-prolongated, wall-prolongated) with every field
-    ! write when prolongated-diter is 0, else only once prolongated-diter of its iterations have passed since
-    ! the last one. The end of a level (change_MG) always writes it.
+    ! Periodic prolongated writes: every field write, or prolongated-diter level iterations apart
     logical function prolongated_due ()
       prolongated_due = obj_multigrid%prolongated_diter == 0 .or. &
         simulation%domain(level) % iter - obj_multigrid%prolongated_last >= obj_multigrid%prolongated_diter
     end function prolongated_due
 
   end subroutine FUSS_postprocess
+
+  !> Highest n with OUTPUT/field<n><ext> present, so a restart appends instead of overwriting
+  subroutine Resume_File_Counter ( ext )
+    use FUSS_Global_m, only: FUSS_phase_prefix
+    use ir_precision, only: str
+    implicit none
+    character(len=*), intent(in) :: ext
+    ! Local
+    logical :: present
+
+    do
+      inquire ( file='OUTPUT/'//trim(FUSS_phase_prefix)//'field'//trim(str(.true.,id_stampa+1))//trim(ext), &
+                exist=present )
+      if (.not. present) exit
+      id_stampa = id_stampa + 1
+    enddo
+    if (id_stampa > 0) write(*,'(A)') ' Numbered output continues from '//trim(str(.true.,id_stampa+1))
+
+  end subroutine Resume_File_Counter
 
 end module FUSS_Wrap_Postprocess

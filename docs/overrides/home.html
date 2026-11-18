@@ -16,15 +16,15 @@
 
       <span class="fuss-badge">
         <span class="fuss-badge__dot"></span>
-        Hydra CFD Suite
+        Hydra multi-physics framework
       </span>
 
       <h1 class="fuss-hero__h1">FUSS</h1>
       <p class="fuss-hero__sub">Fourier Un-Steady Solver</p>
       <p class="fuss-hero__body">
-        Open-source solver for steady-state and time-accurate heat conduction in solid bodies
-        on multi-block structured grids — from one-dimensional conduction benchmarks to
-        multi-material 2-D and 3-D problems with mixed boundary conditions.
+        Open-source finite-volume solver for steady and time-accurate heat conduction in solids
+        on multi-block structured grids, with temperature-dependent tabulated properties,
+        several materials and per-face boundary conditions.
       </p>
 
       <div class="fuss-hero__btns">
@@ -37,10 +37,10 @@
       </div>
 
       <div class="fuss-hero__pills">
-        <div class="fuss-pill"><strong>6+</strong>&nbsp;Boundary Condition Types</div>
-        <div class="fuss-pill"><strong>Multi-material</strong>&nbsp;Domains</div>
+        <div class="fuss-pill"><strong>Multi-block</strong>&nbsp;+ chimera grids</div>
+        <div class="fuss-pill"><strong>Multi-material</strong>&nbsp;domains</div>
         <div class="fuss-pill"><strong>OpenMP</strong>&nbsp;+ MPI</div>
-        <div class="fuss-pill"><strong>Modern</strong>&nbsp;Fortran</div>
+        <div class="fuss-pill"><strong>Fortran</strong>&nbsp;library + executable</div>
       </div>
 
     </div>
@@ -50,8 +50,8 @@
   <section class="fuss-features">
     <div class="fuss-container">
       <div class="fuss-section-hd">
-        <h2>Everything you need for solid heat transfer</h2>
-        <p>A complete, validated thermal solver written in modern Fortran</p>
+        <h2>Features</h2>
+        <p>What the solver does; the Theoretical Guide gives the details</p>
       </div>
       <div class="fuss-grid">
 
@@ -63,7 +63,7 @@
             </svg>
           </div>
           <h3>Solid Heat Conduction</h3>
-          <p>Transient and steady-state Fourier heat equation on multi-block structured grids with temperature-dependent material properties.</p>
+          <p>Fourier heat equation, steady or time-accurate, with an optional volumetric source. Conductivity, density and heat capacity are tabulated against temperature for each material.</p>
         </article>
 
         <article class="fuss-card fuss-card--violet">
@@ -75,7 +75,7 @@
             </svg>
           </div>
           <h3>Cell-Centred Finite Volume</h3>
-          <p>Second-order central differences for the diffusive flux. Arithmetic-mean conductivity within materials; harmonic-mean across interfaces.</p>
+          <p>Cell-centred finite volumes with two ghost layers per block. Face gradient from the difference across the face plus tangential central differences; face conductivity at the mean of the two cell temperatures. At block connections the interface temperature follows from heat-flux continuity.</p>
         </article>
 
         <article class="fuss-card fuss-card--orange">
@@ -85,7 +85,7 @@
             </svg>
           </div>
           <h3>Mixed Boundary Conditions</h3>
-          <p>Fixed temperature (constant or time-varying), prescribed flux, convection, radiation, symmetry, and block-to-block connections — applicable face-by-face.</p>
+          <p>Prescribed heat flux or temperature (constant or from a time table), convection with an imposed flux, radiation, convection plus radiation, adiabatic/symmetry faces, block connections, chimera (overset) blocks, and coupling to the hydra fluid solver.</p>
         </article>
 
         <article class="fuss-card fuss-card--teal">
@@ -95,7 +95,7 @@
             </svg>
           </div>
           <h3>Accelerated Time Marching</h3>
-          <p>3-stage SSP Runge–Kutta with implicit residual smoothing and geometric multigrid. Local time stepping for fast steady-state convergence.</p>
+          <p>Explicit Euler, RK2 (Heun) and SSP RK3. Steady runs use a local time step, implicit residual smoothing and grid sequencing on coarser levels; time-accurate runs use the global minimum step.</p>
         </article>
 
         <article class="fuss-card fuss-card--green">
@@ -106,7 +106,7 @@
             </svg>
           </div>
           <h3>Parallel Execution</h3>
-          <p>Shared-memory parallelism via OpenMP and distributed-memory MPI with ghost-cell exchange across block boundaries on HPC clusters.</p>
+          <p>OpenMP threads inside the blocks; MPI over whole blocks (largest block first to the least-loaded rank) with ghost and chimera-donor exchange. One process and N ranks write identical files.</p>
         </article>
 
         <article class="fuss-card fuss-card--pink">
@@ -118,7 +118,7 @@
             </svg>
           </div>
           <h3>Flexible I/O</h3>
-          <p>Tecplot (ASCII &amp; binary) and VTK output. Point probes for time histories and full restart capability.</p>
+          <p>Tecplot ASCII, Tecplot binary (with TecIO) and VTK output through ORION; wall temperature and heat flux files; point probes; restart from the last solution file.</p>
         </article>
 
       </div>
@@ -130,8 +130,8 @@
     <div class="fuss-container fuss-qs__inner">
 
       <div class="fuss-qs__text">
-        <h2>Up and running in minutes</h2>
-        <p>FUSS ships with a single install script that handles all dependencies, compiles the Fortran core, and puts the binary on your PATH.</p>
+        <h2>Build and run</h2>
+        <p><code>install.sh build</code> fetches the ORION and FiNeR submodules (and FiNeR's own dependencies), configures CMake and builds <code>bin/FUSS</code>. Each bundled test case carries a <code>FUSS.sh</code> run script.</p>
         <div class="fuss-qs__links">
           <a href="{{ 'getting-started/installation/' | url }}" class="fuss-btn fuss-btn--primary">
             Installation guide &rarr;
@@ -152,11 +152,12 @@
           </div>
           <pre class="fuss-term__body"><code><span class="tc"># Clone and build</span>
 <span class="tp">$</span> git clone https://github.com/open-hydra/FUSS.git
-<span class="tp">$</span> cd FUSS &amp;&amp; ./install.sh build --compilers=gnu
+<span class="tp">$</span> cd FUSS &amp;&amp; ./install.sh build --compilers=gnu --use-openmp
 
 <span class="tc"># Run a simulation</span>
 <span class="tp">$</span> cd test/steady-state/temperature_Plate
-<span class="tp">$</span> ./FUSS.sh solve</code></pre>
+<span class="tp">$</span> ./FUSS.sh solve
+<span class="tp">$</span> python3 verify.py</code></pre>
         </div>
       </div>
 
@@ -167,14 +168,14 @@
   <section class="fuss-eco">
     <div class="fuss-container">
       <div class="fuss-section-hd">
-        <h2>The Hydra CFD Suite</h2>
-        <p>FUSS is the solid heat-conduction solver in an integrated multi-physics simulation suite</p>
+        <h2>Hydra</h2>
+        <p>FUSS is the solid heat-conduction solver of the hydra multi-physics framework</p>
       </div>
       <div class="fuss-eco__flow">
         <a href="https://github.com/open-hydra/ATLAS" target="_blank" rel="noopener" class="fuss-eco__node">
           <span class="fuss-eco__node-name">ATLAS</span>
           <span class="fuss-eco__node-role">Pre-processor</span>
-          <span class="fuss-eco__node-desc">Initial &amp; boundary conditions, material property tables</span>
+          <span class="fuss-eco__node-desc">Writes the INPUT/ files: property tables, initial conditions, boundary conditions, sources</span>
         </a>
         <div class="fuss-eco__arrow">&#8594;</div>
         <div class="fuss-eco__node fuss-eco__node--active">
@@ -187,7 +188,7 @@
         <a href="https://github.com/open-hydra/MOSE" target="_blank" rel="noopener" class="fuss-eco__node">
           <span class="fuss-eco__node-name">MOSE</span>
           <span class="fuss-eco__node-role">Sister solver</span>
-          <span class="fuss-eco__node-desc">Compressible Euler &amp; Navier-Stokes with finite-rate chemistry</span>
+          <span class="fuss-eco__node-desc">Compressible Euler &amp; Navier-Stokes; coupled to FUSS inside hydra (BC 103/104)</span>
         </a>
       </div>
     </div>

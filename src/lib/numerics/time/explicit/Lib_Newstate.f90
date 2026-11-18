@@ -112,13 +112,8 @@ contains
         residual = ( - residual/volume + qvol) * dt
       end subroutine Scale_Residual_Cons
 
-      ! Apply RK stage + cons2prim after IRS smoothing.
-      ! The smoothed update of a cell mixes its neighbours' updates: above the explicit limit it can
-      ! overshoot, beyond the temperatures of the boundaries and out of the properties table. If the
-      ! new state is not admissible (Admissible_T), the cell takes its own update (residual_own, the
-      ! scaled residual before smoothing), halved until it is; with no update at all the stage is a
-      ! convex combination of admissible states, which is admissible. An admissible smoothed update
-      ! is used as before.
+      ! RK stage after IRS smoothing. A smoothed update that leaves the properties table is replaced
+      ! by the cell's own update (residual_own), halved until admissible, else by none.
       subroutine Update_State_Cons_IRS( T, TO, matID, residual, residual_own, irk, n_rk, b, i, j, k )
         implicit none
         real(R8), intent(inout) :: T, residual
@@ -412,9 +407,7 @@ contains
         call co_Rho(matID, T, rho)
         call co_Cp(matID, T, cp)
 
-        ! dT = dh / (dh/dT), with h(T) = int rho cp dT the volumetric enthalpy of the conservative path
-        ! (the Energy column of properties.dat): dh/dT = rho cp, also with temperature-dependent properties.
-        ! Dividing by d(rho cp T)/dT instead, as before 2026-10-09, added T d(rho cp)/dT to the heat capacity.
+        ! dT = dh / (dh/dT), h = int rho cp dT (the Energy column): dh/dT = rho cp
         residual = ( - residual/volume + qvol) * dt / ( rho * cp )
 
       end subroutine Compute_Prim_Residual
@@ -468,8 +461,7 @@ contains
   ! ===========================================================================
   !  STATE SANITY CHECK
   ! ===========================================================================
-  ! A temperature the properties tables can evaluate: co_Kappa, co_Rho, co_Cp and co_H interpolate
-  ! between the entries at int(T) and int(T)+1, so T must lie in [Tmin, Tmax) of the tables.
+  ! T the property lookups can evaluate (they read the entries int(T) and int(T)+1): Tmin <= T < Tmax
   logical function Admissible_T ( T )
     use FUSS_Config_Types_m, only: obj_table
     implicit none

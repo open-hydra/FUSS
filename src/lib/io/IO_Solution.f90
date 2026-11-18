@@ -117,6 +117,8 @@ contains
     integer          :: error_init, error_source, error_dim, b, nblocks, nchi, nv, r, ndar
     character(clen)  :: format(2)
     character(len=32) :: expected
+    character(len=len(obj_io%nameinit)) :: vtkdir
+    logical          :: file_found
 
     error_init   = 0
     error_source = 0
@@ -141,8 +143,24 @@ contains
       IOfield%vtk%format  = trim(format(2))
       IOinit%vtk%format   = trim(format(2))
       IOsource%vtk%format = trim(format(2))
-      error_init   = vtk_read_structured_multiblock(orion=IOinit,  vtmpath=obj_io%nameinit(1:len(trim(obj_io%nameinit))-4),vtspath='INPUT/vtk/field',time=obj_io%IOtime)
-      error_source = vtk_read_structured_multiblock(orion=IOsource,vtmpath=obj_io%namesource(1:len(trim(obj_io%namesource))-4),vtspath='INPUT/vtk/field',time=obj_io%IOtime)
+      ! The .vts names inside the .vtm are relative to its vtk/ subfolder; ORION's reader
+      ! prepends vtspath and crashes on a missing file, so the existence is checked here
+      inquire(file=trim(obj_io%nameinit), exist=file_found)
+      if (file_found) then
+        vtkdir = obj_io%nameinit(1:index(obj_io%nameinit,'/',back=.true.))//'vtk/'
+        error_init = vtk_read_structured_multiblock(orion=IOinit, &
+                     vtmpath=obj_io%nameinit(1:len(trim(obj_io%nameinit))-4),vtspath=trim(vtkdir),time=obj_io%IOtime)
+      else
+        error_init = 1
+      endif
+      inquire(file=trim(obj_io%namesource), exist=file_found)
+      if (file_found) then
+        vtkdir = obj_io%namesource(1:index(obj_io%namesource,'/',back=.true.))//'vtk/'
+        error_source = vtk_read_structured_multiblock(orion=IOsource, &
+                       vtmpath=obj_io%namesource(1:len(trim(obj_io%namesource))-4),vtspath=trim(vtkdir))
+      else
+        error_source = 1
+      endif
     end select
 
     if (error_init/=0) then
@@ -177,7 +195,9 @@ contains
       return
     endif
 
-    ! Fill IOfield
+    ! Fill IOfield. The vtk reader returns the time as an argument (IOtime), the tecplot
+    ! reader inside IOinit: carry the vtk one over so a restart continues from it
+    if (trim(format(1)) == 'vtk') IOinit%solutiontime = obj_io%IOtime
     IOfield%solutiontime = IOinit%solutiontime
     do b = 1, nblocks
       IOfield%block(b)%Ni = IOinit%block(b)%Ni
@@ -339,6 +359,7 @@ contains
         IOfield(m)%tec%extension = '.szplt'
         IOfield(m)%tec%format = 'binary'
         IOfield(m)%vtk%format = 'binary'
+        if (index(obj_io%sol_format,'raw')>0) IOfield(m)%vtk%format = 'raw'
       endif
     end do
 
@@ -396,6 +417,7 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
+    character(len=llen) :: vtknames
     integer             :: E_IO, b, i, j, k, m, fl, c, col
     real(8)             :: kappa, rho, cp, h
     real(8)             :: rho_s, cp_s, k_s, tau, eps_pg, W, h_pg, mu, G
@@ -542,8 +564,9 @@ contains
       if (index(obj_io%sol_format,'vtk')>0) then
         localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
+        vtknames = unquoted(obj_io%Ovarnames)
         E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(file), &
-                                                             vtmpath=trim(path)//trim(file),varnames=obj_io%Ovarnames,time=domain%time)
+                                                             vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
       else
         E_IO = tec_write_structured_multiblock(orion=IOfield,varnames=obj_io%Ovarnames,filename=trim(path)//trim(file)//trim(IOfield%tec%extension))
       end if

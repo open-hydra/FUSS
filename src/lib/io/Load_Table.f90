@@ -74,10 +74,7 @@ contains
         obj_table%h(i,Ti1:Ti2)     = orion%block(i)%vars(4,:,1,1)
       enddo
 
-      ! The Energy column is the volumetric enthalpy h(T) = int rho cp dT: integration-variables = cons advances
-      ! it and prim divides by its derivative rho cp, so the two integrate the same equation only if the column
-      ! is that integral (ATLAS GPB writes it so). A table with, e.g., rho*cp*T and temperature-dependent
-      ! properties is reported: its heat capacity on the cons path would be d(rho cp T)/dT, not rho cp.
+      ! The Energy column must be h = int rho cp dT (cons advances h, prim divides by rho cp): warn if not
       do i = 1, obj_table%n
         devmax = 0d0; Tdev = Ti1
         do Tn = Ti1, Ti2 - 1

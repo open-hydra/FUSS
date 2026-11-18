@@ -91,7 +91,7 @@ module FUSS_Mod_Recession
 
 contains
 
-  !> Env values of every 306 and 307 face at domain%time (serial; outside the
+  !> Env values of every 306 and 307 face at time t (serial; outside the
   !> parallel region). A 307 face takes its exchange values env_now (from the
   !> coupled-env-file table when that TEST ONLY key is set): hydra writes them
   !> before every step, not before FUSS's setup, so at setup (setup = .true.)
@@ -101,7 +101,7 @@ contains
   !> only (plan 11 stage 4): hydra writes a 307 face's env_now on the rank of
   !> its block, no other rank reads a face's wall values, and root's outputs
   !> gather them (Gather_Face_Outputs).
-  subroutine Ablation_Update_Env ( domain, setup )
+  subroutine Ablation_Update_Env ( domain, t, setup )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_ablation
 #ifdef USE_MPI
@@ -109,6 +109,8 @@ contains
 #endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    real(R8), intent(in) :: t   ! t^(n+1) in a step (Mod_Explicit), the start time at setup; NOT domain%time,
+                                ! which runs at the stage times inside a time-accurate step
     logical, intent(in), optional :: setup
     ! Local
     integer  :: i
@@ -124,7 +126,7 @@ contains
 #endif
       select case ( domain%bc(i)%type )
         case (306)
-          v = domain%bc(i)%env%eval( domain%time )
+          v = domain%bc(i)%env%eval( t )
           domain%bc(i)%pw        = v(1)
           domain%bc(i)%rhoeUeCH0 = v(2)
           domain%bc(i)%hr        = v(3)
@@ -139,10 +141,10 @@ contains
           ! of the face's block only
           if ( mpi_size_ == 1 .or. is_local_block( domain%bc(i)%b ) ) then
 #endif
-          if ( coupled_env%nrow > 0 ) domain%bc(i)%env_now = coupled_env%eval( domain%time )
+          if ( coupled_env%nrow > 0 ) domain%bc(i)%env_now = coupled_env%eval( t )
           if ( allocated(env_face) ) then
-            domain%bc(i)%env_now = env_face(i)%eval( domain%time )
-            early = env_face(i)%var(1,1) == 0.0d0 .and. domain%time < env_face(i)%time(2)
+            domain%bc(i)%env_now = env_face(i)%eval( t )
+            early = env_face(i)%var(1,1) == 0.0d0 .and. t < env_face(i)%time(2)
           endif
 #ifdef USE_MPI
           endif
@@ -152,7 +154,7 @@ contains
             write(*,'(A,I0,A)') ' [ERROR] coupled ablating wall (307), bc.txt record ', i, &
               ': no exchange values (p_w = 0) at this step.'
             if ( early ) then
-              write(*,'(A,ES24.16,A,ES24.16,A)') '         t = ', domain%time, &
+              write(*,'(A,ES24.16,A,ES24.16,A)') '         t = ', t, &
                 ' s precedes the first exchange row of the face''s coupled-env-file block (t = ', env_face(i)%time(2), ' s).'
             else
               write(*,'(A)') '         hydra writes them before every FUSS step; a standalone run needs '// &

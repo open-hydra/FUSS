@@ -32,8 +32,7 @@ contains
 
     select case (obj_time_scheme%integration_variables)
     case ('prim')
-      RK_Newstate => Newstate_Primitive 
-      obj_time_scheme%integration_variables = 'Primitive'
+      RK_Newstate => Newstate_Primitive
     case ('cons')
       ! With pyrolysis the conserved variable is the stored energy E(T, chi)
       ! and the reaction state advances with it (plan 06 section 3.4); the
@@ -43,7 +42,6 @@ contains
       else
         RK_Newstate => Newstate_Conservative
       endif
-      obj_time_scheme%integration_variables = 'Conservative'
     end select
 
   end subroutine Assign_Integration_Variables

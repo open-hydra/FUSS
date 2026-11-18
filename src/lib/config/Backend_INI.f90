@@ -453,12 +453,20 @@ contains
     ! section nothing would apply.
     obj_darcy%section_present = fini%has_section( section_name=trim(codename)//'-Darcy' )
 
-    ! Count the probes
+    ! Count the probes: probe1, probe2, ... with no gaps
     nprobes = 0
     do 
       call fini%get(section_name=trim(codename)//'-Probes', option_name='probe'//trim(str(.true.,nprobes+1)), val=wholestring, error=error)
       if (error/=0) exit
       nprobes = nprobes+1
+    enddo
+    do i = nprobes+2, nprobes+100
+      call fini%get(section_name=trim(codename)//'-Probes', option_name='probe'//trim(str(.true.,i)), val=wholestring, error=error)
+      if (error == 0) then
+        write(*,'(A)') ' [ERROR] probe'//trim(str(.true.,i))//' found but probe'//trim(str(.true.,nprobes+1))// &
+                       ' is missing: the probes must be numbered without gaps'
+        error stop 'probe numbering gap'
+      endif
     enddo
 
     allocate(probes_name(nprobes))

@@ -23,7 +23,7 @@ contains
     use FUSS_IO_Probes,            only: Setup_Probes
     use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_, mpi_abort_all
     use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
     use FUSS_Mod_Pyrolysis,        only: Write_Energy_Budget
     use FUSS_Mod_Darcy,            only: Darcy_Setup_Blocks, Fill_Ghost_p, Darcy_Update_Velocity, Darcy_Print_Setup, &
@@ -91,6 +91,7 @@ contains
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
+    call Check_State ( simulation%domain(1) )
 
     ! With multigrid, allocate Grid and IOfield 2,...,MGL
     if ( obj_multigrid%MGL > 1 ) then
@@ -134,13 +135,15 @@ contains
       call Setup_Metrics ( simulation%domain(m) )
     end do
     
+    ! Setup probes location, output files, and variables to be printed (before the
+    ! nodes of remote blocks are freed: placing a probe searches every block)
+    call Setup_Probes ( simulation%domain(1), obj_sim_param%newrun )
+
     ! Free heavy arrays on non-local blocks to save memory
     do m = 1, obj_multigrid%MGL
       call deallocate_remote_computation_data(simulation%domain(m))
     end do
 
-    ! Setup probes location, output files, and variables to be printed.
-    call Setup_Probes ( simulation%domain(1), obj_sim_param%newrun )
  
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
@@ -207,7 +210,7 @@ contains
         call Fill_Ghost_Cell ( simulation%domain(1) )
         ! Ablating walls (plan 08): the env values at the start time, so the
         ! first step and a restart see the table's p_w
-        call Ablation_Update_Env ( simulation%domain(1), setup = .true. )
+        call Ablation_Update_Env ( simulation%domain(1), simulation%domain(1)%time, setup = .true. )
         ! Gas-pressure ghosts and the t = 0 cell velocity (plan 07): serial
         ! here, inside the parallel region of every later step.
         if (obj_darcy%enabled) then
@@ -298,6 +301,38 @@ contains
       endif
 
     end subroutine Check_IC
+
+
+    !> The initial field must be admissible: every matID a table index, every T inside the table
+    subroutine Check_State ( domain )
+      use FUSS_Advanced_Types_m
+      use FUSS_Config_Types_m, only: obj_table
+      use ir_precision, only: str
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      ! Local
+      integer :: b, i, j, k, m
+      real(R8) :: T
+
+      do b = 1, domain%nb
+        do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+          m = nint ( domain%blk(b)%matID(i,j,k) )
+          if (m < 1 .or. m > obj_table%n) then
+            if (mpi_is_root) write(*,'(A,4I6,A)') ' [ERROR] initial condition: matID '//trim(str(.true.,m))// &
+              ' at b, i, j, k:', b, i, j, k, ' is not a material of properties.dat (1..'//trim(str(.true.,obj_table%n))//')'
+            call mpi_abort_all('initial condition outside the properties table')
+          endif
+          T = domain%blk(b)%T(i,j,k)
+          if (.not. (T >= obj_table%Tmin .and. T < real(obj_table%Tmax,R8))) then
+            if (mpi_is_root) write(*,'(A,4I6,A,ES12.4,A)') ' [ERROR] initial condition at b, i, j, k:', b, i, j, k, &
+              '  T =', T, ' K, outside the properties table ['//trim(str(.true.,obj_table%Tmin))//', '// &
+              trim(str(.true.,obj_table%Tmax))//') K'
+            call mpi_abort_all('initial condition outside the properties table')
+          endif
+        enddo; enddo; enddo
+      enddo
+
+    end subroutine Check_State
 
 
     subroutine Check_Input()
@@ -987,7 +1022,12 @@ contains
       write(*,*)
       write(*,'(A,T35,A)') ' Time'
       write(*,'(A,T35,A)') '   Scheme', trim(obj_time_scheme%description)
-      write(*,'(A,T35,A)') '   Integration variables', trim(obj_time_scheme%integration_variables)
+      select case (obj_time_scheme%integration_variables)
+        case ('prim')
+          write(*,'(A,T35,A)') '   Integration variables', 'Primitive'
+        case default
+          write(*,'(A,T35,A)') '   Integration variables', 'Conservative'
+      end select
       if (len_trim(obj_irs%description)>0) &
         write(*,'(A,T35,A)') '   Implicit residual smoothing', trim(obj_irs%description)
       write(*,'(A)') ' ========================================================================================='

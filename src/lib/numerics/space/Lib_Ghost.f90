@@ -78,8 +78,8 @@ contains
           call Ghost_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                   Is, Js, Ks, Fs, domain % blk(Bs), &
                                   domain % bc(i) % Tg, domain % bc(i) % matIDg )
-        case(300)
-          call Ghost_Symmetry ( Im, Jm, Km, Fm, domain % blk(Bm) )
+        case(301:307)   ! 306, 307: the T_w of the last converged surface balance (Wall_Temperature)
+          call Ghost_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), domain % time )
         case(102)
           ! Chimera: processed after the donor-cell MPI exchange completes (below)
           continue
@@ -128,13 +128,8 @@ contains
       call Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg )
     enddo
 
-    ! Compute Tg(3:6) for type-1 connections where source block is local.
-    ! The four tangential neighbours of a source cell on the edge of its face are
-    ! ghost cells of Bs, filled by the BC of the adjacent face: from another rank
-    ! (T unpack) or by a chimera BC (fill above). The loop follows both, so it
-    ! reads them at the current stage; before the unpack it read them one stage
-    ! old with MPI only, before the chimera fill one stage old in any run (on an
-    ! orthogonal mesh BC_Connection multiplies them by zero metric terms).
+    ! Tg(3:6) of connections whose source block is local. On a face edge they are ghost
+    ! cells of Bs, set by the MPI unpack or the chimera fill: so this loop comes after both.
     ! (Read one stage old, a deforming 2x2 split on 4 ranks moved by 1.5e-5 K against 1 rank: plan 11, 114f520.)
     !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do ii = 1, domain % n_local_bs
@@ -323,32 +318,80 @@ contains
     integer, intent(in) :: Im, Jm, Km, Fm
     type(FUSS_block_type), intent(inout) :: blk
     ! Local
-    integer :: g
+    integer :: g, gi
 
+    ! The mirrored source stays inside the block (gi clamped): on a 1-cell-wide block the
+    ! second layer would otherwise read the opposite face's ghost, written concurrently
     do g = 1, gc
       select case (Fm)
         case(1)
-            blk % T(Im-g,Jm,Km) = blk % T (Im+g-1,Jm,Km)
-            blk % matID(Im-g,Jm,Km) = blk % matID (Im+g-1,Jm,Km)
+            gi = min ( Im+g-1, blk % dim(1) )
+            blk % T(Im-g,Jm,Km) = blk % T (gi,Jm,Km)
+            blk % matID(Im-g,Jm,Km) = blk % matID (gi,Jm,Km)
         case(2)
-            blk % T(Im+g,Jm,Km) = blk % T (Im-g+1,Jm,Km)
-            blk % matID(Im+g,Jm,Km) = blk % matID (Im-g+1,Jm,Km)
+            gi = max ( Im-g+1, 1 )
+            blk % T(Im+g,Jm,Km) = blk % T (gi,Jm,Km)
+            blk % matID(Im+g,Jm,Km) = blk % matID (gi,Jm,Km)
         case(3)
-            blk % T(Im,Jm-g,Km) = blk % T (Im,Jm+g-1,Km)
-            blk % matID(Im,Jm-g,Km) = blk % matID (Im,Jm+g-1,Km)
+            gi = min ( Jm+g-1, blk % dim(2) )
+            blk % T(Im,Jm-g,Km) = blk % T (Im,gi,Km)
+            blk % matID(Im,Jm-g,Km) = blk % matID (Im,gi,Km)
         case(4)
-            blk % T(Im,Jm+g,Km) = blk % T (Im,Jm-g+1,Km)
-            blk % matID(Im,Jm+g,Km) = blk % matID (Im,Jm-g+1,Km)
+            gi = max ( Jm-g+1, 1 )
+            blk % T(Im,Jm+g,Km) = blk % T (Im,gi,Km)
+            blk % matID(Im,Jm+g,Km) = blk % matID (Im,gi,Km)
         case(5)
-            blk % T(Im,Jm,Km-g) = blk % T (Im,Jm,Km+g-1)
-            blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,Km+g-1)
+            gi = min ( Km+g-1, blk % dim(3) )
+            blk % T(Im,Jm,Km-g) = blk % T (Im,Jm,gi)
+            blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,gi)
         case(6)
-            blk % T(Im,Jm,Km+g) = blk % T (Im,Jm,Km-g+1)
-            blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,Km-g+1)
+            gi = max ( Km-g+1, 1 )
+            blk % T(Im,Jm,Km+g) = blk % T (Im,Jm,gi)
+            blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,gi)
       end select
     enddo
 
   end subroutine Ghost_Symmetry
+
+
+  !> Wall ghosts: the cells mirrored through the wall temperature, 2 Tw - T, exact for a linear field.
+  !> Time tables of 301/302 are evaluated here, before the fluxes of the stage.
+  subroutine Ghost_Wall ( Im, Jm, Km, Fm, blk, bc, time )
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
+    implicit none
+    integer, intent(in) :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(inout) :: blk
+    type(FUSS_bc_type), intent(inout) :: bc
+    real(R8), intent(in) :: time
+    ! Local
+    integer :: g
+    real(R8) :: Tw, q_in
+
+    if (bc % BCtime % exists) then
+      if (bc % type == 301) bc % qw = bc % BCtime % update(time)
+      if (bc % type == 302) bc % Tw = bc % BCtime % update(time)
+    endif
+    call Wall_Temperature ( Im, Jm, Km, Fm, blk, bc, .false., Tw, q_in )
+
+    call Ghost_Symmetry ( Im, Jm, Km, Fm, blk )
+    do g = 1, gc
+      select case (Fm)
+        case(1)
+          blk % T(Im-g,Jm,Km) = 2d0*Tw - blk % T(Im-g,Jm,Km)
+        case(2)
+          blk % T(Im+g,Jm,Km) = 2d0*Tw - blk % T(Im+g,Jm,Km)
+        case(3)
+          blk % T(Im,Jm-g,Km) = 2d0*Tw - blk % T(Im,Jm-g,Km)
+        case(4)
+          blk % T(Im,Jm+g,Km) = 2d0*Tw - blk % T(Im,Jm+g,Km)
+        case(5)
+          blk % T(Im,Jm,Km-g) = 2d0*Tw - blk % T(Im,Jm,Km-g)
+        case(6)
+          blk % T(Im,Jm,Km+g) = 2d0*Tw - blk % T(Im,Jm,Km+g)
+      end select
+    enddo
+
+  end subroutine Ghost_Wall
 
 
   subroutine Ghost_Chimera ( nb, Blk, bc )
@@ -375,8 +418,7 @@ contains
     Jg2 = Jm - guide(Fm,2)*2
     Kg2 = Km - guide(Fm,3)*2
           
-    ! RIEMPIMPENTO GHOST CON VARIABILI CONSERVATE
-    ! First row of ghost cell coordinates
+    ! Ghost T from the volume-weighted enthalpy of the donors. First ghost row:
     consg = 0.d0
     do c = 1, bc % ni(1)
       Bs = bc % donorID(c,1)
@@ -385,7 +427,7 @@ contains
       Ks = bc % donorID(c,4)
       call co_H ( blk(Bs) % matID (Is,Js,Ks), blk(Bs) % T (Is,Js,Ks), consi )
       consg = consg + consi * bc % volume_fraction(c)
-      blk(Bm) % matID (Ig,Jg,Kg) = blk(Bs) % matID (Is,Js,Ks)  ! WARNING: non possono essere connessi contemporaneamente due blocchi di materiali diversi!
+      blk(Bm) % matID (Ig,Jg,Kg) = blk(Bs) % matID (Is,Js,Ks)  ! the donors of a ghost must share one material
     enddo
     call co_T ( blk(Bm) % matID (Ig,Jg,Kg), consg, blk(Bm) % T (Ig,Jg,Kg) )
     bc % Tg (1) = blk(Bm) % T (Ig,Jg,Kg)
@@ -407,53 +449,6 @@ contains
           
   end subroutine Ghost_Chimera
 
-
-  subroutine Ghost_Extrapolate ( Im, Jm, Km, Fm, blk )
-    implicit none
-    integer, intent(in) :: Im, Jm, Km, Fm
-    type(FUSS_block_type), intent(inout) :: blk
-    ! Local
-    integer :: g
-
-    ! Extrapolation with 2nd order accuracy. Theory: suppose we have a stencil x1,x2,x3,x4 with x4 unknown.
-    ! Taylor 2nd order: x4 = x3 + f1(x3) + 1/2 f2(x3) with f1 and f2 1st and 2nd derivative. Approximate 
-    ! f1(x3) = (x4 - x2)/2 central and f2(x3) = x3 - 2x2 + x1 left sided => x4 = 3*x3 - 3*x2 + x1
-    do g = 1, gc
-      select case (Fm)
-        case(1)
-          blk % T(Im-g,Jm,Km) = 3d0 * blk % T (Im-g+1,Jm,Km) - &
-                                3d0 * blk % T (Im-g+2,Jm,Km) + &
-                                      blk % T (Im-g+3,Jm,Km)
-          blk % matID(Im-g,Jm,Km) = blk % matID (Im,Jm,Km)
-        case(2)
-          blk % T(Im+g,Jm,Km) = 3d0 * blk % T (Im+g-1,Jm,Km) - &
-                                3d0 * blk % T (Im+g-2,Jm,Km) + &
-                                      blk % T (Im+g-3,Jm,Km)
-          blk % matID(Im+g,Jm,Km) = blk % matID (Im,Jm,Km)
-        case(3)
-          blk % T(Im,Jm-g,Km) = 3d0 * blk % T (Im,Jm-g+1,Km) - &
-                                3d0 * blk % T (Im,Jm-g+2,Km) + &
-                                      blk % T (Im,Jm-g+3,Km)
-          blk % matID(Im,Jm-g,Km) = blk % matID (Im,Jm,Km)
-        case(4)
-          blk % T(Im,Jm+g,Km) = 3d0 * blk % T (Im,Jm+g-1,Km) - &
-                                3d0 * blk % T (Im,Jm+g-2,Km) + &
-                                      blk % T (Im,Jm+g-3,Km)
-          blk % matID(Im,Jm+g,Km) = blk % matID (Im,Jm,Km)
-        case(5)
-          blk % T(Im,Jm,Km-g) = 3d0 * blk % T (Im,Jm,Km-g+1) - &
-                                3d0 * blk % T (Im,Jm,Km-g+2) + &
-                                      blk % T (Im,Jm,Km-g+3)
-          blk % matID(Im,Jm,Km-g) = blk % matID (Im,Jm,Km)
-        case(6)
-          blk % T(Im,Jm,Km+g) = 3d0 * blk % T (Im,Jm,Km+g-1) - &
-                                3d0 * blk % T (Im,Jm,Km+g-2) + &
-                                      blk % T (Im,Jm,Km+g-3)
-          blk % matID(Im,Jm,Km+g) = blk % matID (Im,Jm,Km)
-      end select
-    enddo
-      
-  end subroutine Ghost_Extrapolate
 
 
   subroutine Fill_BC_Ghost_Connection ( Is, Js, Ks, Fs, d11s, d12s, d21s, d22s, blks, Tg )

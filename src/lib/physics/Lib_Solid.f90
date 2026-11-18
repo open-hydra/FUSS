@@ -76,9 +76,7 @@ contains
   end subroutine co_H
 
 
-  !> T(h), interpolated in the Energy column. Outside the table the end interval is extrapolated, so
-  !> the T returned is outside [Tmin, Tmax) as well and the update rejects it (Lib_Newstate): the
-  !> other lookups read the entries at int(T) and int(T)+1.
+  !> T(h) from the Energy column; outside the table the end interval is extrapolated (then rejected)
   subroutine co_T( matID, h, T )
     implicit none
     real(R8), intent(in)  :: h, matID
@@ -87,7 +85,7 @@ contains
     integer   :: Tm, Tp, i
     real(R8)  :: hm, hp
 
-    ! First entry above h (h grows with T); none: the last interval, h below the table: the first
+    ! First entry above h; none: last interval; h below the table: first interval
     Tp = obj_table%Tmax
     do i = obj_table%Tmin, obj_table%Tmax
       if (obj_table%h(matID,i) > h) then

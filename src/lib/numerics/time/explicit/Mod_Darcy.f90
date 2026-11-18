@@ -716,7 +716,7 @@ contains
   !> p^(n+1) from the lagged coefficients of the start-of-step state (TO,
   !> chiO, p_pgO), then the derived fields: ghosts, cell velocity, open-face
   !> mass fluxes, eta^(n-1) <- eta^n for the next step.
-  subroutine Solve_Pressure ( domain )
+  subroutine Solve_Pressure ( domain, t_end )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy, obj_pyrolysis, obj_io, obj_sim_param, obj_ablation
     use FUSS_Global_m,       only: FUSS_phase_prefix
@@ -727,6 +727,7 @@ contains
 #endif
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
+    real(R8), intent(in) :: t_end   ! t^(n+1), the time of the darcy.txt rows (domain%time runs at the stage times)
     ! Local
     integer  :: b, i, j, k, m, r, u, ios, bw, iw, jw, kw
     real(R8) :: eta, Gam(3,3), eps, rho_g, h, pi, dt, kap, rel, rw, Tstar, cq
@@ -904,9 +905,9 @@ contains
         ! every block (with more than one rank resb holds the other ranks' blocks too)
         do b = 1, domain%nb
           if ( rref_max > 0.0d0 ) then
-            write(u,'(I8,ES24.16,I6,I10,2ES16.8)') domain%iter, domain%time, b, nsweep, resb(b) / rref_max, dp_max
+            write(u,'(I8,ES24.16,I6,I10,2ES16.8)') domain%iter, t_end, b, nsweep, resb(b) / rref_max, dp_max
           else
-            write(u,'(I8,ES24.16,I6,I10,2ES16.8)') domain%iter, domain%time, b, nsweep, resb(b), dp_max
+            write(u,'(I8,ES24.16,I6,I10,2ES16.8)') domain%iter, t_end, b, nsweep, resb(b), dp_max
           endif
         enddo
         close(u)

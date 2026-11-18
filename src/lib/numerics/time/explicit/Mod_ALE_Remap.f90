@@ -77,6 +77,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_mesh_motion, obj_table
     use FUSS_Lib_Solid,      only: co_H, co_T
+    use FUSS_Lib_Ghost,      only: Ghost_Symmetry
     use FUSS_Mod_MPI,        only: is_local_block, fuss_abort_in_thread
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -89,6 +90,19 @@ contains
     !$omp single
     call Map306_Setup ( domain )
     !$omp end single
+
+    ! The inflow state at a wall face (301-307) is the adjacent cell's, the mirror ghost (plan 14
+    ! D-S2-4): Fill_Ghost_Cell leaves 2 Tw - T there since 0f3a19f, a convention of the diffusion
+    ! stencil that co_H would read unchecked. The stages' Fill_Ghost_Cell rewrites these ghosts
+    ! before anything else reads them.
+    !$omp do schedule(static) private(ib)
+    do ib = 1, domain%nbound
+      if ( domain%bc(ib)%type < 301 .or. domain%bc(ib)%type > 307 ) cycle
+      if ( .not. is_local_block( domain%bc(ib)%b ) ) cycle
+      call Ghost_Symmetry ( domain%bc(ib)%i, domain%bc(ib)%j, domain%bc(ib)%k, domain%bc(ib)%f, &
+                            domain%blk( domain%bc(ib)%b ) )
+    enddo
+    !$omp end do
 
     do b = 1, domain%nb
       if (.not. is_local_block(b)) cycle

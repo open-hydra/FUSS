@@ -164,6 +164,7 @@ contains
     ! Local
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
+    character(len=llen) :: vtknames
     integer             :: E_IO, lv
     character(len=clen) :: format(2)
 
@@ -192,8 +193,9 @@ contains
         IOwall(lv)%vtk%format = trim(format(2))
         localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
+        vtknames = unquoted(obj_io%Owallnames)
         E_IO = vtk_write_structured_multiblock(orion=IOwall(lv),vtspath=trim(localpath_vtk)//trim(file), &
-                                                             vtmpath=trim(path)//trim(file),varnames=obj_io%Owallnames,time=domain%time)
+                                                             vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
       case('tecplot')
         IOwall(lv)%tec%format = trim(format(2))
         E_IO = tec_write_structured_multiblock(orion=IOwall(lv),varnames=obj_io%Owallnames,filename=trim(path)//trim(file)//trim(IOwall(lv)%tec%extension))
@@ -212,17 +214,12 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: mpi_is_root, is_local_block, mpi_reduce_sum_r8_array
-    use FUSS_Lib_BC_Fluxes_Wall_Heat
-    use FUSS_Lib_BC_Fluxes_Wall_Temperature
-    use FUSS_Lib_BC_Fluxes_Wall_HeatTransfer
-    use FUSS_Lib_BC_Fluxes_Wall_Radiation
-    use FUSS_Lib_BC_Fluxes_Wall_RadiationConvection
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     real(R8), dimension(2) :: Ovar
     real(R8), dimension(7) :: Ow
-    real(R8) :: BCval                 ! a 301/302 value at the output time
     integer :: f, lower, upper, i, b, bb, Bm, Im, Jm, Km, Fm, Is, Js, Ks
     integer :: n_wall_total, wall_i, nv, lv
     real(R8), allocatable :: wall_buf(:)
@@ -259,35 +256,18 @@ contains
           Km = domain % bc(i) % k
           Fm = domain % bc(i) % f
           Ovar = 0d0
-          select case ( domain % bc(i) % type )
-
-            ! A time-file BC is reported at the output time: the stages leave the
-            ! value of the last stage's time (t^n + dt/2 under RK3) in bc%qw / bc%Tw.
-            case (301) ! wall: prescribed heat flux
-              BCval = domain % bc(i) % qw
-              if ( domain % bc(i) % BCtime % exists ) BCval = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Heat ( Im, Jm, Km, Fm, domain % blk(Bm), BCval, Ovar )
-
-            case (302) ! wall: prescribed temperature
-              BCval = domain % bc(i) % Tw
-              if ( domain % bc(i) % BCtime % exists ) BCval = domain % bc(i) % BCtime % update(domain % time)
-              call BC_Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), BCval, Ovar )
-
-            case (303) ! wall: prescribed hconv, Tref, qrad
-              call BC_Wall_HeatTransfer ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % hconv, domain % bc(i) % Tref, domain % bc(i) % qrad, Ovar )
-
-            case (304) ! wall: prescribed epsilon, Tref
-              call BC_Wall_Radiation ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                       domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
-              
-            case (305) ! wall: prescribed hconv, epsilon, Tref
-              call BC_Wall_RadiationConvection ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                                 domain % bc(i) % hconv, domain % bc(i) % eps, domain % bc(i) % Tref, Ovar )
-
-          end select
           Ow = 0d0
-          Ow(1:2) = Ovar
+          if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) then
+            ! Time tables at the output time (the ghost fill leaves the last stage time)
+            if (domain % bc(i) % BCtime % exists) then
+              if (domain % bc(i) % type == 301) domain % bc(i) % qw = domain % bc(i) % BCtime % update(domain % time)
+              if (domain % bc(i) % type == 302) domain % bc(i) % Tw = domain % bc(i) % BCtime % update(domain % time)
+            endif
+            ! ghosts=.false.: interior values only, current at any point of the step (the ghosts
+            ! hold the last stage); one-sided tangential differences at the face edges
+            call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .false., Ovar(1), Ovar(2) )
+            Ow(1:2) = Ovar
+          endif
           ! 306, 307: the stored state of the last converged balance -- re-
           ! running the routine here would repeat the Newton solve and move it
           if ( domain % bc(i) % type == 306 .or. domain % bc(i) % type == 307 ) &

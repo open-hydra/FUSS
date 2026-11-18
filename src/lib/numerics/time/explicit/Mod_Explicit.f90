@@ -23,8 +23,8 @@ contains
     use FUSS_Mod_Fluxes,     only: Fluxes
     use FUSS_Mod_BC_Fluxes,  only: BC_Fluxes
     use FUSS_Mod_Newstate,   only: RK_Newstate
-    use FUSS_Lib_RK,         only: RK_stage_time
     use FUSS_Mod_Diagnostic, only: Compute_Residual
+    use FUSS_IO_BC,          only: has_tdep_bc
     use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
@@ -34,10 +34,12 @@ contains
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     procedure(external_function_if) :: External_Function
     ! Local
-    logical  :: endsim, iosim, endmg, advance_time
+    logical  :: endsim, iosim, endmg
     integer  :: i_rk, b, level
-    real(R8) :: average
-    real(R8) :: t_start   ! time at the start of the step (the stage times of the time-file BCs)
+    real(R8) :: average, t_n, t_np1
+    logical  :: advance, converged
+    ! Stage times t_n + c dt of euler, RK2 (Heun) and SSP RK3
+    real(R8), parameter :: c_stage(3,3) = reshape([0d0, 0d0, 0d0, 0d0, 1d0, 0d0, 0d0, 1d0, 0.5d0], [3,3], order=[2,1])
 
     call timer_iter_begin()
 
@@ -47,21 +49,22 @@ contains
     obj_sim_param%iter_from_call = obj_sim_param%iter_from_call + 1
     obj_sim_param%iter_general   = obj_sim_param%iter_general + 1
 
-    ! --- Time step, on the geometry this step starts from.
-    advance_time = .false.
+    ! --- Time step, on the geometry this step starts from. The clock: domain%time runs at the
+    ! stage's time inside the RK loop (the 301/302 time tables, Ghost_Wall) and is t^(n+1) after it;
+    ! the step's own readers below (mesh motion, env tables, the Darcy log) take t_n / t_np1 explicitly.
+    t_n = domain(level) % time
+    advance = obj_sim_param%HYDRA_time_accurate .or. obj_time_scheme%time_accurate
     if (obj_sim_param%HYDRA_time_accurate) then
       call Set_Global_dt ( domain(level) )
-      advance_time = .true.
     else
       domain(level) % dtglobal = 1d5
       call Compute_dt ( domain(level), obj_time_scheme%vnn, obj_time_scheme%rampa_vnn_iter )  ! Compute local and minimum time step
-      if ( obj_time_scheme%time_accurate ) then
-        call Set_Global_dt ( domain(level) )  ! Time-accurate: apply global minimum time step
-        advance_time = .true.
-      endif
+      if ( obj_time_scheme%time_accurate ) call Set_Global_dt ( domain(level) )  ! Time-accurate: global minimum time step
     endif
+    t_np1 = t_n
+    if ( advance ) t_np1 = t_n + domain(level) % dtglobal
 
-    ! --- Move the mesh over this step, then advance the clock.
+    ! --- Move the mesh over this step.
     !
     ! This must come AFTER dt is known: the motion law is evaluated at t+dt, and
     ! on the very first step dtglobal is not yet set to anything meaningful.
@@ -74,16 +77,11 @@ contains
     ! positions, not from dt, so the discrete GCL holds regardless.
     !
     ! Outside the OpenMP region below -- the geometry kernels open their own.
-    call Update_Mesh ( domain(level), domain(level)%time, domain(level)%dtglobal )
-
-    t_start = domain(level) % time
-    if ( advance_time ) then
-      domain(level) % time = domain(level) % time + domain(level) % dtglobal
-    endif
+    call Update_Mesh ( domain(level), t_n, domain(level)%dtglobal )
 
     ! Ablating walls (plan 08): the env values at t^(n+1), before the type-2
     ! pressure solve reads the faces' p_w. Serial, outside the parallel region.
-    call Ablation_Update_Env ( domain(level) )
+    call Ablation_Update_Env ( domain(level), t_np1 )
 
     !$omp parallel
 
@@ -95,7 +93,8 @@ contains
 
     ! Conservative remap onto the moved mesh -- ONCE per step, before the RK
     ! stages. Ghost temperatures must be current for the upwind lookup at block
-    ! interfaces, hence the fill. Both are no-ops when the mesh is static.
+    ! interfaces, hence the fill (at t_n: the clock has not moved yet). Both are
+    ! no-ops when the mesh is static.
     if ( obj_mesh_motion%enabled ) then
       if ( obj_pyrolysis%enabled ) then
         ! the pyrolysis state (plan 08 section 2.9; law = nodeshift): energy,
@@ -116,15 +115,20 @@ contains
     ! twice: its mid-step extrapolations (production rate, storage
     ! coefficient) have no history on the first pass; the second pass takes
     ! it from the first pass's end state. The stage loop below is plan 06's,
-    ! untouched; the first pass repeats it here.
+    ! untouched; the first pass repeats it here, clock included.
     if ( obj_darcy%enabled ) then
       if ( Darcy_First_Step_Pending() ) then
-        call Solve_Pressure ( domain(level) )
+        call Solve_Pressure ( domain(level), t_np1 )
         do i_rk = 1, obj_time_scheme%n_RK
+          if (advance) then
+            !$omp single
+            domain(level) % time = t_n + c_stage(obj_time_scheme%n_RK, i_rk) * domain(level) % dtglobal   ! BC time tables
+            !$omp end single
+          endif
           call Fill_Ghost_Cell ( domain(level) )
           call Fill_Ghost_chi ( domain(level) )
           call Fluxes ( domain(level) )
-          call BC_Fluxes ( domain(level), Stage_Time(i_rk) )
+          call BC_Fluxes ( domain(level) )
           call Pyrolysis_Stage ( domain(level), i_rk )
           call External_Function ( domain(level) )
           call RK_Newstate ( domain(level), i_rk )
@@ -133,15 +137,20 @@ contains
         call Darcy_Restore_State ( domain(level) )
         call Pyrolysis_Budget_Rewind ()
       endif
-      call Solve_Pressure ( domain(level) )
+      call Solve_Pressure ( domain(level), t_np1 )
     endif
 
     rk: do i_rk = 1, obj_time_scheme%n_RK
-        
-      call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells
+
+      if (advance) then
+        !$omp single
+        domain(level) % time = t_n + c_stage(obj_time_scheme%n_RK, i_rk) * domain(level) % dtglobal   ! BC time tables
+        !$omp end single
+      endif
+      call Fill_Ghost_Cell ( domain(level) )               ! Fill ghost cells (301/302 time tables at the stage's time)
       if ( obj_pyrolysis%enabled ) call Fill_Ghost_chi ( domain(level) )   ! mirror chi at wall faces (plan 06 section 3.1)
       call Fluxes ( domain(level) )                        ! Diffusive fluxes 
-      call BC_Fluxes ( domain(level), Stage_Time(i_rk) )   ! Boundary fluxes (time files at the stage's time)
+      call BC_Fluxes ( domain(level) )                     ! Boundary fluxes
       if ( obj_pyrolysis%enabled ) call Pyrolysis_Stage ( domain(level), i_rk )   ! kinetics, gas outflow, advection flux, budget
 
       call External_Function ( domain(level) )             ! External function (e.g. source terms)
@@ -156,6 +165,7 @@ contains
     !$omp end parallel
     ! a fatal error that a worker thread recorded in the region (plan 11)
     call fuss_abort_check ()
+    if (advance) domain(level) % time = t_n + domain(level) % dtglobal
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then
@@ -189,17 +199,19 @@ contains
     if (mpi_is_root) then
       endsim = .false.
       endmg  = .false.
+      ! With time tables a time-accurate run goes on to time-threshold even when T stops changing.
+      ! A receding surface (law = nodeshift, plan 08) is never steady: the residual measures the
+      ! stage update only, not the remap, and a uniform flux-free state has none -- such a run
+      ! ends on time or iterations.
+      converged = ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) .and. .not. (advance .and. has_tdep_bc) &
+                  .and. trim(obj_mesh_motion%law) /= 'nodeshift'
       if (level == 1) then
-        ! A receding surface (law = nodeshift, plan 08) is never steady: the
-        ! residual measures the stage update only, not the remap, and a uniform
-        ! flux-free state has none -- such a run ends on time or iterations.
         endsim = ( obj_sim_param%iter_from_call >= domain(1) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold .and. &
-                   trim(obj_mesh_motion%law) /= 'nodeshift' ) &
+            .or. converged &
             .or. ( domain(1) % time >= obj_sim_param%time_threshold )
       else
         endmg = ( obj_sim_param%iter_from_call >= domain(level) % itermax ) &
-            .or. ( obj_sim_param%residuotot <= obj_sim_param%res_threshold ) &
+            .or. converged &
             .or. ( domain(level) % time >= obj_sim_param%time_threshold )
       endif
 
@@ -230,19 +242,6 @@ contains
       if ( mod (domain(level) % iter, obj_io%timer_diter) == 0 ) &
         call timer_report ( level, domain(level) % iter )
     endif
-
-  contains
-
-    !> The time a stage's boundary values belong to. In a time-accurate step the clock
-    !> is already at t^(n+1) when the stages run, and every stage used to read the
-    !> 301/302 time files there: a first-order treatment of the boundary data, whatever
-    !> the order of the scheme. Now stage k reads them at t^n + c_k dt, the time of the
-    !> state it evaluates (Lib_RK). A run that does not advance the clock keeps its time.
-    real(R8) function Stage_Time ( irk ) result ( t )
-      integer, intent(in) :: irk
-      t = domain(level) % time
-      if ( advance_time ) t = t_start + RK_stage_time(irk, obj_time_scheme%n_RK) * domain(level) % dtglobal
-    end function Stage_Time
 
   end subroutine Explicit_Step
 

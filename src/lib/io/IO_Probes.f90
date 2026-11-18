@@ -22,7 +22,7 @@ module FUSS_IO_Probes
     type(real_ptr), allocatable      :: variables(:)
     real(R8), pointer                :: P
     real(R8)                         :: dtime
-    integer                          :: ntime
+    real(R8)                         :: tnext = -huge(1d0)   ! next time-based output
     integer                          :: diter
     integer                          :: unit
   contains
@@ -76,17 +76,13 @@ contains
       ! Frequency
       probe(i)%dtime = obj_io_probes(i)%dtime
       probe(i)%diter = obj_io_probes(i)%diter
-      ! Output counter for the time-based trigger in Write_Probes_Data.
-      ! Without this the component is undefined: dtime*ntime evaluates to
-      ! garbage, the "time >= dtime*ntime" test never fires and the probe file
-      ! is written empty (observed on test/transient/oscillating_Rod).
-      probe(i)%ntime = 0
 
       ! Location
       probe(i)%location%c = obj_io_probes(i)%loc
       probe(i)%ilocation  = obj_io_probes(i)%iloc
 
       if (sum(obj_io_probes(i)%iloc)==0) call probe(i)%Place(domain)
+      call Check_Location(probe(i), domain)
 
       ! Only the rank owning this probe's block sets up pointers and opens the file
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
@@ -132,26 +128,53 @@ contains
   end function Count_Tokens
 
 
+  !> The cell whose centre is nearest to the probe location (needs the nodes of every block)
   subroutine Place (self, domain)
     implicit none
     class(obj_probe)                   :: self
     type(FUSS_domain_type), intent(in) :: domain
     ! Local
     integer :: i, j, k, b
-    real(8) :: d0, d
+    real(8) :: d0, d, c(3)
 
     d0 = huge(1d0)
     do b = 1, domain%nb
-      do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
-        d = norm2(self%location%c-domain%blk(b)%node(i,j,k)%c)
+      associate ( nd => domain%blk(b)%node )
+      do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+        c = 0.125d0 * ( nd(i-1,j-1,k-1)%c + nd(i,j-1,k-1)%c + nd(i-1,j,k-1)%c + nd(i,j,k-1)%c &
+                      + nd(i-1,j-1,k  )%c + nd(i,j-1,k  )%c + nd(i-1,j,k  )%c + nd(i,j,k  )%c )
+        d = norm2(self%location%c - c)
         if (d<d0) then
           d0 = d
           self%ilocation = [b , i, j, k]
         endif
       enddo; enddo; enddo
+      end associate
     enddo
 
   end subroutine Place
+
+
+  !> index-position must name an existing cell
+  subroutine Check_Location(probe, domain)
+    use FUSS_Mod_MPI, only: mpi_abort_all
+    use IR_precision, only: str
+    implicit none
+    type(obj_probe), intent(in)        :: probe
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: b, d
+
+    b = probe%ilocation(1)
+    if (b < 1 .or. b > domain%nb) &
+      call mpi_abort_all('probe block '//trim(str(.true.,b))//' does not exist')
+    do d = 1, 3
+      if (probe%ilocation(1+d) < 1 .or. probe%ilocation(1+d) > domain%blk(b)%dim(d)) &
+        call mpi_abort_all('probe index-position '//trim(str(.true.,probe%ilocation(1+d)))// &
+                           ' outside block '//trim(str(.true.,b)))
+    enddo
+
+  end subroutine Check_Location
 
 
   subroutine Assign_Variables(probe, domain)
@@ -201,14 +224,13 @@ contains
 
     do i = 1, nprobes
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
+      if (probe(i)%tnext < -0.5d0*huge(1d0)) &   ! first call (also after a restart): next grid point of dtime
+        probe(i)%tnext = ( aint(time/probe(i)%dtime) + 1d0 ) * probe(i)%dtime
       if (mod(iter,probe(i)%diter)==0) then
         write(probe(i)%unit,*) iter, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
-      elseif (time >= probe(i)%dtime*probe(i)%ntime) then
+      elseif (time >= probe(i)%tnext) then
         write(probe(i)%unit,*) time, (probe(i)%variables(v)%p,v=1,probe(i)%nvar)
-        ! Advance to the next output slot. The max() makes this self-correcting
-        ! on restart, where ntime starts at 0 but time does not -- otherwise the
-        ! counter would have to catch up one call at a time, duplicating rows.
-        probe(i)%ntime = max( probe(i)%ntime + 1, int(time/probe(i)%dtime) + 1 )
+        probe(i)%tnext = max(probe(i)%tnext, aint(time/probe(i)%dtime)*probe(i)%dtime) + probe(i)%dtime
       endif
     enddo
 

@@ -9,7 +9,7 @@ module FUSS_IO_BC
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
   integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating, ncoupled_abl
-  logical :: has_tdep_bc
+  logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
 
 contains
 
@@ -100,7 +100,7 @@ contains
       return
     endif
 
-    ! Cheak BC file consistency
+    ! Check BC file consistency
     ios = 0; n_proof = -1
     do while (ios==0)
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
@@ -142,9 +142,10 @@ contains
     ! Local
     integer :: cc, i, s, nzero_chim, ntok
     integer :: unitfile, ios, cios
-    character(len=32) :: BCfile
+    character(len=256) :: BCfile
     character(len=256) :: rec, bfile, efile
     character(len=1024) :: line306
+    integer :: lc
 
     cios = 0
 
@@ -218,25 +219,33 @@ contains
         case(301)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          read(unitfile,'(A)',iostat=ios) BCfile
+          BCfile = adjustl(BCfile)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%qw
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
-            call Refuse_Steady_Time_File ( i, BCfile )
           endif
         
         case(302)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
-          read(unitfile,*,iostat=ios) BCfile
+          read(unitfile,'(A)',iostat=ios) BCfile
+          BCfile = adjustl(BCfile)
+          lc = len_trim(BCfile)
+          if (lc > 0) then
+            if (BCfile(lc:lc) == ',') BCfile(lc:lc) = ' '   ! the data lines end with a comma
+          endif
           ! Time-varying properties: if the read string is not convertible to a real, the BC is time-dependent
           read(BCfile,*,iostat=cios) bc(i)%Tw
           if (cios/=0) then
-            call bc(i)%BCtime%initialize(file=BCfile,bar=.true.)
+            call bc(i)%BCtime%initialize(file=BCfile)
             has_tdep_bc = .true.
-            call Refuse_Steady_Time_File ( i, BCfile )
           endif
 
         case(303)
@@ -407,23 +416,8 @@ contains
   end subroutine Read_BCfile
 
 
-  !> A 301/302 time file is read at the run's time; a steady solve has none (its time
-  !> stays -1, before every file's first row). Refused unless FUSS or hydra advances
-  !> a clock.
-  subroutine Refuse_Steady_Time_File ( i, file )
-    use FUSS_Config_Types_m, only: obj_time_scheme, obj_sim_param
-    implicit none
-    integer, intent(in) :: i
-    character(len=*), intent(in) :: file
-    if ( obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate ) return
-    write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the time file "'//trim(file)//'" needs a time-accurate run'
-    write(*,'(A)')      '         (time-accurate = false: a steady solve has no time to read it at).'
-    call fuss_abort ( 1 )
-  end subroutine Refuse_Steady_Time_File
-
-
   subroutine Print_BC_Summary ()
-    use FUSS_Config_Types_m, only: obj_ablation
+    use FUSS_Config_Types_m, only: obj_ablation, obj_time_scheme, obj_sim_param
     use FUSS_Lib_Bprime,     only: Bprime_Count, Bprime_Describe
     implicit none
     integer :: it
@@ -443,6 +437,11 @@ contains
       enddo
     endif
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
+    ! A steady run stays at time -1 (Wrap_Setup): each 301/302 time table gives one value for the whole run,
+    ! its first (a periodic table: its value at -1 within the period; Series_Data_m). Plan 14 D16, user 2026-11-11
+    if ( has_tdep_bc .and. .not. ( obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate ) ) &
+      write(*,'(A)') ' [WARNING] steady run: every 301/302 time table is held at its value at time -1 for the whole run'// &
+                     ' (its first value; a periodic table: its value at -1 within the period)'
 
   end subroutine Print_BC_Summary
 
