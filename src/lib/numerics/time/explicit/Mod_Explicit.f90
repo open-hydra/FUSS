@@ -25,7 +25,7 @@ contains
     use FUSS_Mod_Newstate,   only: RK_Newstate
     use FUSS_Mod_Diagnostic, only: Compute_Residual
     use FUSS_IO_BC,          only: has_tdep_bc
-    use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8, &
+    use FUSS_Mod_MPI, only: is_local_block, mpi_reduce_sum_r8_array, &
                            mpi_is_root, mpi_bcast_logical, mpi_bcast_integer
     use FUSS_Mod_Timers, only: timer_iter_begin, timer_iter_end, timer_report, &
                                timer_sync_begin, timer_sync_end
@@ -38,6 +38,7 @@ contains
     logical  :: endsim, iosim, endmg, inner_
     integer  :: i_rk, b, level
     real(R8) :: average, t_n, t_np1
+    real(R8), allocatable :: res_block(:)   ! residual sum over the cells of each block
     logical  :: advance, converged
     ! Stage times t_n + c dt of euler, RK2 (Heun) and SSP RK3
     real(R8), parameter :: c_stage(3,3) = reshape([0d0, 0d0, 0d0, 0d0, 1d0, 0d0, 0d0, 1d0, 0.5d0], [3,3], order=[2,1])
@@ -182,7 +183,12 @@ contains
 
     ! Save residuals
     if ( (obj_sim_param%iter_from_call == 1) .or. (mod (domain(level) % iter, obj_io%res_diter) == 0) ) then
+      ! Sums in a fixed order, the same for any number of threads and ranks: over the cells of each block
+      ! (Compute_Residual), then over the blocks in turn on the root; each entry of res_block comes from the one rank
+      ! that holds the block, so its sum over the ranks is exact
       obj_sim_param%residuotot = 0.d0
+      allocate ( res_block(domain(level)%nb) )
+      res_block = 0.d0
       do b = 1, domain(level) % nb
         if (.not. is_local_block(b)) cycle
         call Compute_Residual ( new=domain(level)%blk(b)%T, &
@@ -190,7 +196,7 @@ contains
                                 dt=domain(level)%blk(b)%dtlocal, &
                                 n=domain(level)%blk(b)%dim, &
                                 average=average, &
-                                total=obj_sim_param%residuotot )
+                                total=res_block(b) )
       enddo
       ! With pyrolysis the reaction state is part of the residual (plan 06):
       ! a constant temperature with reactions still advancing is not converged.
@@ -200,9 +206,15 @@ contains
       ! gates 4.2/4.3) is not converged either.
       if ( obj_darcy%enabled ) call Darcy_Residual ( domain(level), obj_sim_param%residuotot )
       call timer_sync_begin()
-      call mpi_reduce_sum_r8(obj_sim_param%residuotot)
+      call mpi_reduce_sum_r8_array(res_block, domain(level)%nb)
       call timer_sync_end()
-      if (mpi_is_root) obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
+      if (mpi_is_root) then
+        do b = 1, domain(level) % nb
+          obj_sim_param%residuotot = obj_sim_param%residuotot + res_block(b)
+        enddo
+        obj_sim_param%residuotot = sqrt ( obj_sim_param%residuotot ) ! L2 norm time derivative
+      endif
+      deallocate ( res_block )
     endif
     
     ! Determine simulation control flags on root, then broadcast to all ranks. Only one of endsim

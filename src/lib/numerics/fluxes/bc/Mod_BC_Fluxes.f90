@@ -18,32 +18,35 @@ contains
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer  :: f, lower, upper, i, b
+    integer  :: f, lower, upper, i, ii, b
     integer  :: Bm, Im, Jm, Km, Fm
     real(R8) :: Ovar(2)    ! wall temperature and flux of an ablating face
     logical  :: count_clamps
     
-    ! BC fluxes are computed in order of block and face type. A wall BC
-    ! (301-307) also leaves its wall temperature in bc%Tw_face, which the
+    ! BC fluxes are computed block by block and, within a block, face by face, over the
+    ! records of the blocks this rank owns only (lists built once by build_local_bc_index):
+    ! no rank scans the records of the whole domain. The records of one face of one block
+    ! write distinct target cells, so one worksharing loop over them is race-free; its
+    ! implicit barrier keeps the face contributions of a corner cell summed in the order 1..6.
+    ! A wall BC (301-307) also leaves its wall temperature in bc%Tw_face, which the
     ! type-2 gas-enthalpy flux of an open face reads later in the same stage.
     ! The 301/302 time tables are read in the ghost fill (Ghost_Wall), at the
     ! clock Mod_Explicit sets to the stage's time.
-    upper = 0
     ! The ablating wall counts its B' table clamps only once per stage: not in
     ! the first pass of a new type-2 run's first step, which is discarded.
     count_clamps = .true.
     if ( obj_darcy%enabled ) count_clamps = .not. Darcy_First_Step_Pending()
-
     blocks: do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle blocks
       faces: do f = 1, 6
 
-        lower = upper + 1                   ! Update lower bound
-        upper = upper + domain % n_bf(b,f)  ! Upper bound: add number of cells on face f of block b
-        
-        !$omp do schedule ( dynamic ) private(i, Bm, Im, Jm, Km, Fm, Ovar)
-        do i = lower, upper
+        lower = domain % local_bf_first(b,f)
+        upper = lower + domain % local_bf_count(b,f) - 1
+
+        !$omp do schedule ( dynamic ) private(ii, i, Bm, Im, Jm, Km, Fm, Ovar)
+        do ii = lower, upper
+          i  = domain % local_bf_idx(ii)
           Bm = domain % bc(i) % b
-          if (.not. is_local_block(Bm)) cycle
           Im = domain % bc(i) % i 
           Jm = domain % bc(i) % j 
           Km = domain % bc(i) % k 

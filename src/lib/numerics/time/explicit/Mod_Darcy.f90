@@ -88,8 +88,6 @@ module FUSS_Mod_Darcy
   ! values. Group g's corrections at gdoff(g) + 1..gnpos(g), ndl in all.
   integer,  allocatable, save :: gpart(:), gconn(:), gdoff(:)
   integer,  save :: glen = 0, ndl = 0
-  ! tags of the entry-value exchanges (exchange_entry_values: + the sender's rank)
-  integer, parameter :: GAM_TAG = 310000, G_TAG = 320000
 
 contains
 
@@ -657,7 +655,7 @@ contains
   subroutine Exchange_Gam_Halo ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Mod_GhostExchange, only: entry_send_count, entry_recv_count, entry_send_cell, entry_recv_cell, &
-                                      exchange_entry_values
+                                      exchange_entry_values, TAG_DARCY_GAM
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     integer :: e, b, i, j, k, ii, ns, nr
@@ -670,7 +668,7 @@ contains
       call entry_send_cell( e, b, i, j, k )
       sb(:,e) = domain%blk(b)%gam_pg(:,i,j,k)
     enddo
-    call exchange_entry_values( 9, sb, rb, GAM_TAG )
+    call exchange_entry_values( 9, sb, rb, TAG_DARCY_GAM )
     do e = 1, nr
       call entry_recv_cell( e, b, i, j, k, ii )
       domain%blk(b)%gam_pg(:,i,j,k) = rb(:,e)
@@ -686,7 +684,7 @@ contains
   subroutine Exchange_G_Halo ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Mod_GhostExchange, only: entry_send_count, entry_recv_count, entry_send_cell, entry_recv_cell, &
-                                      exchange_entry_values
+                                      exchange_entry_values, TAG_DARCY_G
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     integer :: e, b, i, j, k, ii, ns, nr
@@ -699,7 +697,7 @@ contains
       call entry_send_cell( e, b, i, j, k )
       sb(:,e) = wk(b)%g(:,i,j,k)
     enddo
-    call exchange_entry_values( 9, sb, rb, G_TAG )
+    call exchange_entry_values( 9, sb, rb, TAG_DARCY_G )
     do e = 1, nr
       call entry_recv_cell( e, b, i, j, k, ii )
       wk(b)%g(:,i,j,k) = rb(:,e)

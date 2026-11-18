@@ -25,37 +25,48 @@ contains
     ! Local
     integer :: ii, i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
     integer :: fg
+    logical :: mpi_on
 
+    ! On a single rank the exchange has nothing to do, and running it anyway
+    ! costs a chain of empty master blocks, each one followed by a barrier.  The
+    ! test is uniform over the team, so the worksharing constructs and barriers
+    ! it guards are still encountered by every thread.
+    mpi_on = mpi_size_ > 1
 
-    ! MPI: post persistent receives, pack buffer in parallel, then post sends.
-    ! Chimera donor cells travel in their own non-blocking exchange, started
-    ! here so it overlaps with the local BC processing below. The MPI calls run
-    ! on the master thread only (MPI_THREAD_FUNNELED); the barrier publishes the
-    ! level's schedule, whose loop bounds every thread reads below.
-    !$omp master
-    call set_active_mg_level(domain%mg_level)
-    call exchange_ghost_T_post_recv(domain)
-    call exchange_ghost_chimera_post_recv(domain)
-    !$omp end master
-    !$omp barrier
+    if (mpi_on) then
+      ! MPI: post persistent receives, pack buffer in parallel, then post sends.
+      ! Chimera donor cells travel in their own non-blocking exchange, started
+      ! here so it overlaps with the local BC processing below.
+      ! MPI is initialised with MPI_THREAD_FUNNELED: every MPI call is made by
+      ! the primary thread, in a master construct (named masked since OpenMP
+      ! 5.1; master is kept because older compilers lack masked), followed by
+      ! an explicit barrier wherever the other threads need its result. A
+      ! single construct would let any thread make the call, which FUNNELED
+      ! forbids.
+      !$omp master
+      call set_active_mg_level(domain%mg_level)
+      call exchange_ghost_T_post_recv(domain)
+      call exchange_ghost_chimera_post_recv(domain)
+      !$omp end master
+      !$omp barrier
 
-    ! Pack send buffers in parallel: T over face groups, chimera over donor cells
-    !$omp do schedule(static) private(fg)
-    do fg = 1, ghost_sched%n_send_faces
-      call exchange_ghost_T_pack(domain, fg, fg)
-    end do
-    !$omp end do nowait
-    !$omp do schedule(static) private(ii)
-    do ii = 1, ghost_sched%n_chim_send
-      call exchange_ghost_chimera_pack(domain, ii, ii)
-    end do
+      ! Pack send buffers in parallel: T over face groups, chimera over donor cells
+      !$omp do schedule(static) private(fg)
+      do fg = 1, ghost_sched%n_send_faces
+        call exchange_ghost_T_pack(domain, fg, fg)
+      end do
+      !$omp end do nowait
+      !$omp do schedule(static) private(ii)
+      do ii = 1, ghost_sched%n_chim_send
+        call exchange_ghost_chimera_pack(domain, ii, ii)
+      end do
 
-    ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do).
-    ! No barrier after: the local work below touches neither buffers nor requests.
-    !$omp master
-    call exchange_ghost_T_post_send(domain)
-    call exchange_ghost_chimera_post_send(domain)
-    !$omp end master
+      ! Post sends (must wait for all packing to complete — implicit barrier from !$omp do)
+      !$omp master
+      call exchange_ghost_T_post_send(domain)
+      call exchange_ghost_chimera_post_send(domain)
+      !$omp end master
+    end if
 
     ! Process LOCAL BC entries while MPI communication is in flight
     ! Uses pre-filtered local_bc_idx to avoid scanning all nbound entries
@@ -91,20 +102,22 @@ contains
     ! MPI: wait for T receives to complete; wait for chimera donor cells and
     ! unpack them into the kept-alive T arrays of remote donor blocks. What is
     ! timed here is the communication the local BC work did not hide, plus the
-    ! wait on slower neighbours. The barrier: the loops below read what arrived.
-    !$omp master
-    call timer_comm_begin()
-    call exchange_ghost_T_wait_unpack(domain)
-    call exchange_ghost_chimera_wait_recv(domain)
-    call timer_comm_end()
-    !$omp end master
-    !$omp barrier
+    ! wait on slower neighbours.
+    if (mpi_on) then
+      !$omp master
+      call timer_comm_begin()
+      call exchange_ghost_T_wait_unpack(domain)
+      call exchange_ghost_chimera_wait_recv(domain)
+      call timer_comm_end()
+      !$omp end master
+      !$omp barrier
 
-    ! Chimera donor cells are distinct, so the unpack has no write conflicts
-    !$omp do schedule(static) private(ii)
-    do ii = 1, ghost_sched%n_chim_recv
-      call exchange_ghost_chimera_unpack(domain, ii, ii)
-    end do
+      ! Chimera donor cells are distinct, so the unpack has no write conflicts
+      !$omp do schedule(static) private(ii)
+      do ii = 1, ghost_sched%n_chim_recv
+        call exchange_ghost_chimera_unpack(domain, ii, ii)
+      end do
+    end if
 
     ! Chimera ghost fill: all donor data (local and remote) is now current
     !$omp do schedule (dynamic) private(ii, i)
@@ -115,7 +128,11 @@ contains
     enddo
 
     ! Chimera Tg(3:6): reads the ghost row written just above, so it must stay
-    ! a separate loop (implicit barrier in between)
+    ! a separate loop (implicit barrier in between). Each entry writes its own Tg
+    ! only: beyond the edges of a block face the ghost row is extrapolated into Tg,
+    ! not written in the block (Fill_BC_Ghost_Chimera), so the entries of two chimera
+    ! faces of a block that meet at an edge write no common location, and one loop
+    ! over all the entries has no data race
     !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
     do ii = 1, domain % n_local_bc
       i = domain % local_bc_idx(ii)
@@ -129,7 +146,11 @@ contains
     enddo
 
     ! Tg(3:6) of connections whose source block is local. On a face edge they are ghost
-    ! cells of Bs, set by the MPI unpack or the chimera fill: so this loop comes after both.
+    ! cells of Bs, set by the MPI unpack or by Ghost_Chimera (the ghost cells of a chimera
+    ! face of Bs; Fill_BC_Ghost_Chimera writes nothing in the block): so this loop comes
+    ! after both, and needs no other chimera step. (MOSE fills its connection Pg(:,3:6)
+    ! before Ghost_Chimera: a connection face that ends on a chimera face reads that ghost
+    ! one stage old there.)
     ! (Read one stage old, a deforming 2x2 split on 4 ranks moved by 1.5e-5 K against 1 rank: plan 11, 114f520.)
     !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do ii = 1, domain % n_local_bs
@@ -148,28 +169,29 @@ contains
     enddo
 
     ! Process INTER-RANK type-1 entries (Bm local, Bs remote)
-    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, Bs)
-    do ii = 1, domain % n_local_bc
-      i  = domain % local_bc_idx(ii)
-      if (domain%bc(i)%type /= 101) cycle
-      Bs = domain % bc(i) % bs
-      if (is_local_block(Bs)) cycle  ! already processed above
-      Bm = domain % bc(i) % b
-      Im = domain % bc(i) % i
-      Jm = domain % bc(i) % j
-      Km = domain % bc(i) % k
-      Fm = domain % bc(i) % f
-      call Ghost_Interrank(Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg)
-    enddo
+    if (mpi_on) then
+      !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, Bs)
+      do ii = 1, domain % n_local_bc
+        i  = domain % local_bc_idx(ii)
+        if (domain%bc(i)%type /= 101) cycle
+        Bs = domain % bc(i) % bs
+        if (is_local_block(Bs)) cycle  ! already processed above
+        Bm = domain % bc(i) % b
+        Im = domain % bc(i) % i
+        Jm = domain % bc(i) % j
+        Km = domain % bc(i) % k
+        Fm = domain % bc(i) % f
+        call Ghost_Interrank(Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Tg)
+      enddo
 
-    ! Wait for P sends to complete before reusing buffers. The barrier: the
-    ! callers read the Tg(3:6) that exchange_ghost_Tg brings.
-    !$omp master
-    call exchange_ghost_T_wait_send(domain)
-    call exchange_ghost_chimera_wait_send(domain)
-    call exchange_ghost_Tg(domain)
-    !$omp end master
-    !$omp barrier
+      ! Wait for T sends to complete before reusing buffers
+      !$omp master
+      call exchange_ghost_T_wait_send(domain)
+      call exchange_ghost_chimera_wait_send(domain)
+      call exchange_ghost_Tg(domain)
+      !$omp end master
+      !$omp barrier
+    end if
 
   end subroutine Fill_Ghost_Cell
 
@@ -509,84 +531,54 @@ contains
   end subroutine Fill_BC_Ghost_Connection
 
 
+  !> Tg(3:6) of a chimera face: the tangential neighbours of its ghost cell, for the tangential differences of the face flux
+  !> (BC_Connection), which takes on the side of the ghost cells the central differences along the face of the row of the
+  !> ghost cells, as on the side of the cell those of the row of the cell. Tg(3:4) are the lower and the upper neighbour in
+  !> the first tangential direction of the face, Tg(5:6) in the second (j and k for faces 1-2, i and k for 3-4, i and j for
+  !> 5-6). Within the block face a neighbour is the ghost cell of the row, filled from the donors (Ghost_Chimera). Beyond an
+  !> edge of the block face the row has no ghost cell: the neighbour is extrapolated linearly along the row, 2 a - b from
+  !> the ghost cell a and the next one b, so that the central difference there is the one-sided one, exact for a linear
+  !> field as that of the row of the cell is (the ghost cell copied there halves it, and the face takes 3/4 of the
+  !> derivative of a linear field along that direction). A block one cell wide in a direction has no row to extrapolate
+  !> along (the k direction of the 2-D meshes): the neighbour is the ghost cell itself. T is a scalar: no rotation on the
+  !> axisymmetric wedge, no property lookup, so the extrapolated value needs no admissibility check. Nothing is written in
+  !> the block: two chimera faces that meet at an edge share no written location.
   subroutine Fill_BC_Ghost_Chimera ( Im, Jm, Km, Fm, blk, Tg )
     implicit none
-    integer, intent(in) :: Im, Jm, Km, Fm
-    type(FUSS_block_type), intent(inout) :: blk
-    real(R8), intent(inout)              :: Tg(6)
+    integer, intent(in)               :: Im, Jm, Km, Fm
+    type(FUSS_block_type), intent(in) :: blk
+    real(R8), intent(inout)           :: Tg(6)
     ! Local
-    integer :: i1, j1, k1, i2, j2, k2, i3, j3, k3, i4, j4, k4
-    integer :: dim(3), Ig, Jg, Kg
+    integer :: c(3), g(3), e(3), t(2), n, s, m
 
-    dim = blk % dim
-    Ig = Im - guide(Fm,1)
-    Jg = Jm - guide(Fm,2)
-    Kg = Km - guide(Fm,3)
-
+    c = [ Im, Jm, Km ]
+    g = c - guide(Fm,:)
     select case (Fm)
-      case(1:2)
-        if ( Jm == 1 )      blk % T (Ig, Jm-1, Km) = blk % T (Ig, Jm, Km)
-        if ( Jm == dim(2) ) blk % T (Ig, Jm+1, Km) = blk % T (Ig, Jm, Km)
-        if ( Km == 1 )      blk % T (Ig, Jm, Km-1) = blk % T (Ig, Jm, Km)
-        if ( Km == dim(3) ) blk % T (Ig, Jm, Km+1) = blk % T (Ig, Jm, Km)
-      case(3:4)
-        if ( Im == 1 )      blk % T (Im-1, Jg, Km) = blk % T (Im, Jg, Km)
-        if ( Im == dim(1) ) blk % T (Im+1, Jg, Km) = blk % T (Im, Jg, Km)
-        if ( Km == 1 )      blk % T (Im, Jg, Km-1) = blk % T (Im, Jg, Km)
-        if ( Km == dim(3) ) blk % T (Im, Jg, Km+1) = blk % T (Im, Jg, Km)
-      case(5:6)
-        if ( Im == 1 )      blk % T (Im-1, Jm, Kg) = blk % T (Im, Jm, Kg)
-        if ( Im == dim(1) ) blk % T (Im+1, Jm, Kg) = blk % T (Im, Jm, Kg)
-        if ( Jm == 1 )      blk % T (Im, Jm-1, Kg) = blk % T (Im, Jm, Kg)
-        if ( Jm == dim(2) ) blk % T (Im, Jm+1, Kg) = blk % T (Im, Jm, Kg)
+      case (1:2)
+        t = [ 2, 3 ]
+      case (3:4)
+        t = [ 1, 3 ]
+      case default
+        t = [ 1, 2 ]
     end select
 
-    select case(Fm)
-      case(1:2)
-        i1 = Ig
-        j1 = Jm - 1
-        k1 = Km
-        i2 = Ig
-        j2 = Jm + 1
-        k2 = Km
-        i3 = Ig
-        j3 = Jm
-        k3 = Km - 1
-        i4 = Ig
-        j4 = Jm
-        k4 = Km + 1
-      case(3:4)
-        i1 = Im - 1
-        j1 = Jg
-        k1 = Km
-        i2 = Im + 1
-        j2 = Jg 
-        k2 = Km
-        i3 = Im
-        j3 = Jg
-        k3 = Km - 1
-        i4 = Im
-        j4 = Jg 
-        k4 = Km + 1
-      case(5:6)
-        i1 = Im - 1
-        j1 = Jm
-        k1 = Kg
-        i2 = Im + 1
-        j2 = Jm
-        k2 = Kg
-        i3 = Im
-        j3 = Jm - 1
-        k3 = Kg
-        i4 = Im
-        j4 = Jm + 1
-        k4 = Kg
-    end select
-
-    Tg (3) = Blk % T (i1,j1,k1)
-    Tg (4) = Blk % T (i2,j2,k2)
-    Tg (5) = Blk % T (i3,j3,k3)
-    Tg (6) = Blk % T (i4,j4,k4)
+    do n = 1, 2
+      e = 0
+      e(t(n)) = 1
+      do s = -1, 1, 2
+        m = 2*n + 1 + (s+1)/2   ! Tg(3) and Tg(4) for n = 1, Tg(5) and Tg(6) for n = 2
+        if ( c(t(n)) + s >= 1 .and. c(t(n)) + s <= blk % dim(t(n)) ) then
+          ! Within the block face: the ghost cell of the row
+          Tg(m) = blk % T (g(1)+s*e(1),g(2)+s*e(2),g(3)+s*e(3))
+        elseif ( blk % dim(t(n)) > 1 ) then
+          ! Beyond an edge of the block face: extrapolated along the row
+          Tg(m) = 2d0 * blk % T (g(1),g(2),g(3)) - blk % T (g(1)-s*e(1),g(2)-s*e(2),g(3)-s*e(3))
+        else
+          ! One cell in this direction: the ghost cell
+          Tg(m) = blk % T (g(1),g(2),g(3))
+        end if
+      enddo
+    enddo
 
   end subroutine Fill_BC_Ghost_Chimera
 

@@ -137,7 +137,7 @@ contains
   subroutine Ghost_Residual_Extrapolation ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Parameters_m, only: guide
-    use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Mod_MPI, only: is_local_block, mpi_size_
     use FUSS_Mod_GhostExchange, only: exchange_ghost_R
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -145,14 +145,15 @@ contains
     integer :: ii, i, ig, jg, kg
     integer :: bm, im, jm, km, fm, bs, is, js, ks
 
-    ! MPI: exchange residual data for inter-rank type-1 connections, on the master
-    ! thread only (MPI_THREAD_FUNNELED). No barrier after it: the loop below neither
-    ! reads nor writes what the exchange writes (the ghost cells of the inter-rank
-    ! entries; the loop reads interior cells), and the loop's own closing barrier
-    ! completes the exchange before the smoothing reads those ghost cells.
-    !$omp master
-    call exchange_ghost_R(domain)
-    !$omp end master
+    ! MPI: exchange residual data for inter-rank type-1 connections. MPI is made
+    ! from the primary thread only (MPI_THREAD_FUNNELED); the barrier hands the
+    ! result to the team. On a single rank there is nothing to exchange.
+    if (mpi_size_ > 1) then
+      !$omp master
+      call exchange_ghost_R(domain)
+      !$omp end master
+      !$omp barrier
+    end if
 
     ! BC array processing — iterate only over local BC entries
     !$omp do private ( ii, i, bm, im, jm, km, fm, bs, is, js, ks, ig, jg, kg )

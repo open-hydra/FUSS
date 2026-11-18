@@ -10,6 +10,8 @@ module FUSS_Mod_Diagnostic
 contains
 
 
+  !> The sum over the cells of the block is taken in a fixed order, the same for any number of threads: each thread sums
+  !> whole i lines, and the sums of the lines are added in turn.
   subroutine Compute_Residual ( new, old, dt, n, average, total )
     use FUSS_Global_m
     implicit none
@@ -21,30 +23,35 @@ contains
     real(R8), intent(inout) :: total
     ! Local
     integer :: i, j, k
-    real(R8) :: resn, residuo, reslocal ( n(1), n(2), n(3) )
-    
-    residuo = 0d0
-    
-    !$omp parallel
-    !$omp do private ( resn ) reduction ( + : residuo ) collapse (3)
+    real(R8) :: resn, residuo
+    real(R8), allocatable :: line(:,:)   ! sum over each i line
+
+    allocate ( line(n(2), n(3)) )
+
+    !$omp parallel do private ( i, resn ) collapse (2)
     do k = 1, n(3)
     do j = 1, n(2)
-    do i = 1, n(1)
-      
-      resn = abs ( new(i,j,k) - old(i,j,k) ) ! delta(T)
-      reslocal(i,j,k) = resn
-      residuo = residuo + resn*resn  ! sum ( r(i)**2 )
+      line(j,k) = 0d0
+      do i = 1, n(1)
 
-    enddo; enddo; enddo
-    !$omp end parallel
+        resn = abs ( new(i,j,k) - old(i,j,k) ) ! delta(T)
+        line(j,k) = line(j,k) + resn*resn  ! sum ( r(i)**2 )
 
-    ! Local max residual (UNUSED)
-    ! resmax_ = maxval ( reslocal(:,:,:) )
+      enddo
+    enddo; enddo
+    !$omp end parallel do
+
+    residuo = 0d0
+    do k = 1, n(3)
+    do j = 1, n(2)
+      residuo = residuo + line(j,k)
+    enddo; enddo
 
     ! Average residual of this block
     average = sqrt ( residuo / float ( n(1)*n(2)*n(3) ) )
     ! Overall residual
     total = total + residuo
+    deallocate ( line )
 
   end subroutine Compute_Residual
 
