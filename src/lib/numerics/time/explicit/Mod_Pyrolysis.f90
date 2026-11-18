@@ -531,25 +531,28 @@ contains
   end subroutine Pyrolysis_Budget_Rewind
 
 
-  !> Convergence-residual contribution of the reaction state: the sum over
-  !> cells and reactions of (chi - chiO)^2, added to the solver's total
-  !> (Compute_Residual's sum of (T - TO)^2). Without it a run whose
-  !> temperature is exactly constant -- the isothermal gate -- reports a zero
-  !> residual at the first step and stops as converged while the reactions
-  !> still advance. Called outside the parallel region, like Compute_Residual.
-  subroutine Pyrolysis_Residual ( domain, total )
+  !> Convergence-residual contribution of the reaction state: per block, the sum over
+  !> cells and reactions of (chi - chiO)^2, added to that block's entry of res_block,
+  !> which already holds Compute_Residual's sum of (T - TO)^2 over the block. Without
+  !> it a run whose temperature is exactly constant -- the isothermal gate -- reports
+  !> a zero residual at the first step and stops as converged while the reactions
+  !> still advance. Per block (plan 14 S5): an entry of res_block comes from the one
+  !> rank that holds the block, so Explicit_Step's reduce of res_block stays exact and
+  !> the residual is the same at any rank count. Called outside the parallel region,
+  !> like Compute_Residual.
+  subroutine Pyrolysis_Residual ( domain, res_block )
     use FUSS_Advanced_Types_m
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
-    real(R8), intent(inout) :: total
+    real(R8), intent(inout) :: res_block(:)   ! (domain%nb)
     ! Local
     integer  :: b, i, j, k, r
     real(R8) :: res
 
-    res = 0.0d0
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
+      res = 0.0d0
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
@@ -557,8 +560,8 @@ contains
           res = res + ( domain%blk(b)%chi(r,i,j,k) - domain%blk(b)%chiO(r,i,j,k) )**2
         enddo
       enddo ; enddo ; enddo
+      res_block(b) = res_block(b) + res
     enddo
-    total = total + res
 
   end subroutine Pyrolysis_Residual
 

@@ -2129,32 +2129,34 @@ contains
   end subroutine Darcy_Energy_Flux
 
 
-  !> Convergence-residual contribution of the pressure: sum over cells of
-  !> ((p - p^n)/p-ref)^2, so that a run whose temperature is stationary while
-  !> p still moves (the quasi-steady Picard iterations of gates 4.2/4.3, a
-  !> solid with cp -> infinity) does not stop as converged. Outside the
-  !> parallel region, like Compute_Residual.
-  subroutine Darcy_Residual ( domain, total )
+  !> Convergence-residual contribution of the pressure: per block, the sum over
+  !> cells of ((p - p^n)/p-ref)^2, added to that block's entry of res_block, so
+  !> that a run whose temperature is stationary while p still moves (the
+  !> quasi-steady Picard iterations of gates 4.2/4.3, a solid with cp -> infinity)
+  !> does not stop as converged. Per block, like Pyrolysis_Residual (plan 14 S5:
+  !> the same residual at any rank count). Outside the parallel region, like
+  !> Compute_Residual.
+  subroutine Darcy_Residual ( domain, res_block )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_darcy
     use FUSS_Mod_MPI,        only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
-    real(R8), intent(inout) :: total
+    real(R8), intent(inout) :: res_block(:)   ! (domain%nb)
     ! Local
     integer  :: b, i, j, k
     real(R8) :: res
 
-    res = 0.0d0
     do b = 1, domain%nb
       if ( .not. is_local_block(b) ) cycle
+      res = 0.0d0
       do k = 1, domain%blk(b)%dim(3)
       do j = 1, domain%blk(b)%dim(2)
       do i = 1, domain%blk(b)%dim(1)
         res = res + ( ( domain%blk(b)%p_pg(i,j,k) - domain%blk(b)%p_pgO(i,j,k) ) / obj_darcy%p_ref )**2
       enddo ; enddo ; enddo
+      res_block(b) = res_block(b) + res
     enddo
-    total = total + res
 
   end subroutine Darcy_Residual
 

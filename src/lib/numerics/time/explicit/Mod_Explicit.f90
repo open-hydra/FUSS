@@ -200,11 +200,13 @@ contains
       enddo
       ! With pyrolysis the reaction state is part of the residual (plan 06):
       ! a constant temperature with reactions still advancing is not converged.
-      if ( obj_pyrolysis%enabled ) call Pyrolysis_Residual ( domain(level), obj_sim_param%residuotot )
+      ! Added per block into res_block (plan 14 S5), before the reduce: each entry
+      ! still comes from the one rank that holds the block.
+      if ( obj_pyrolysis%enabled ) call Pyrolysis_Residual ( domain(level), res_block )
       ! ... and so is the gas pressure under type 2 (plan 07): a stationary
       ! temperature with p still relaxing (the quasi-steady Picard steps of
       ! gates 4.2/4.3) is not converged either.
-      if ( obj_darcy%enabled ) call Darcy_Residual ( domain(level), obj_sim_param%residuotot )
+      if ( obj_darcy%enabled ) call Darcy_Residual ( domain(level), res_block )
       call timer_sync_begin()
       call mpi_reduce_sum_r8_array(res_block, domain(level)%nb)
       call timer_sync_end()
