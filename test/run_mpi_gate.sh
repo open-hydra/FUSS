@@ -13,12 +13,13 @@
 #                   are summed over the ranks, each entry from the rank that owns
 #                   it, and a -0.0 of the owner becomes +0.0 once another rank's
 #                   zero is added (the decision of 2026-10-06 keeps the sum);
-#                 - residual-history.dat, not compared unless -r: the residual is an
-#                   MPI sum whose rounding depends on the rank count. -r compares it
-#                   byte for byte too and names the first differing iteration, the
-#                   largest relative difference and the row counts (plan 14 S0; S5
-#                   makes it the default once upstream's fixed-order sum, e4b5cf1, and
-#                   ours' pyrolysis/Darcy terms on it are in).
+#                 - residual-history.dat is compared byte for byte too (plan 14 S5: the
+#                   residual is summed per block, ours' pyrolysis/Darcy terms included,
+#                   and over the blocks in block order, e4b5cf1); a difference names the
+#                   first differing iteration, the largest relative difference and the
+#                   row counts. -r is the default; FUSS_MPIGATE_RESIDUAL=0 skips it.
+#               Before the cases: test/check_mpi_tags.py (every point-to-point tag a
+#               named constant, distinct, 0..7000; plan 14 D4).
 #               So a case must stop on a fixed iteration count or time, never on
 #               res-threshold (conjugate_two_layer_fixed exists for that).
 #
@@ -72,6 +73,7 @@ done
   "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2"
   "test/pyrolysis/ablation/coupled307/run307_4blk:4")
 
+export FUSS_MPIGATE_RESIDUAL=${FUSS_MPIGATE_RESIDUAL:-1}   # residual-history.dat compared by default (plan 14 S5)
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
 export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
 "$ROOT/test/check_build_config.sh" --preset mpi || { echo "refusing to grade a build that does not match the preset"; exit 1; }
@@ -85,6 +87,11 @@ echo "FUSS MPI gate: N ranks against one"
 echo "  binary   : $ROOT/bin/FUSS-mpi ($(md5sum "$ROOT/bin/FUSS-mpi" | cut -c1-8))"
 echo "  work dir : $WORK"
 echo
+if python3 -I "$ROOT/test/check_mpi_tags.py" --dir "$ROOT/src" > "$WORK/mpi-tags.log" 2>&1; then
+  pass "MPI tags: $(tail -1 "$WORK/mpi-tags.log")"
+else
+  bad "MPI tags: a point-to-point tag is not a distinct named constant (see $WORK/mpi-tags.log)"
+fi
 
 for spec in "${CASES[@]}"; do
   IFS=: read -r case_rel n check <<< "$spec"
