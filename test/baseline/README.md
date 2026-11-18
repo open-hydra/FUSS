@@ -261,3 +261,29 @@ capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects
     | only in A (removed) | 0 | — | — | — |
 
   - Record: `plan-bucket/records/2026-11-17-plan14-S1/` (variant and strict-build manifests, edit scripts).
+- **2026-11-18, plan 14 S2 (upstream `494ebb1`: `0f3a19f` wall kernel and ghosts, the stage clock, `293c87e`/`9054521`
+  probes, `10e580d` decks, ORION `5a1234c`; merged by `a6b7a12`): 1991 rows of S1 compared, 4 added. 1995 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `238894c0`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `9b35f70`, compared by value (plan 14's `moved.py`) with the S1 record (`0031835`, 1991 rows). The
+    gate battery's `-k` run (binary `014f3a42`) and the mpi preset's binary at one rank (`-m 1 -k`, `1ab823eb`) give the
+    same manifest. Physics gates 34/34. Classes: `movers_s2.py` at `0031835`, the floor pairs and variants of the record.
+  - **Attribution:**
+
+    | class (S1 → S2) | rows | measured (moved.py) | cause | evidence |
+    |---|---|---|---|---|
+    | SAME | 402 | bytes | — | — |
+    | ROUND | 387 | 249 bytes, 138 max<=1e-12 | `0f3a19f`: 302/303/306/307 residual through `G (Tw - T) + C` and the Newton; the `2 Tw - T` wall ghosts read at round-off on axis-aligned decks | V-GW (ghosts off) restores 18 of them to bytes |
+    | DIAG-E | 17 | `diagnostic.tec` E rel 1.00 (wall-adjacent cells; `temperature_Plate` 236 → 1.47e-3) | S1's `Write_Wall_Solution` ran the BASE `BC_Wall_*` kernels on `Blk%r` before `Write_Diagnostic` wrote `E = Blk%r`; `0f3a19f`'s wall output calls `Wall_Temperature` (`Blk` intent(in)). The 471c397 baseline carried the same polluted E | pure `494ebb1` on 11 of the decks: max\|E\| equal to 4 digits; S1 with the wall output off: interior E identical, wall cells to 1.87e-6 (the field's round-off seen through E) |
+    | ROUND-AMPLIFIED | 208 (181 ROUND + 27 W-ROUND), 12 type-2 decks | 37 max<=1e-6, 171 max>1e-6, in variables derived from near-cancelling differences (`u_pg_*`, `mdot_pg`, residual histories); primary variables <= 5.5e-12; step and sweep counts identical | round-off of the merge, amplified | floor pair (default vs `-ffp-contract=off`): 1875 of 1877 (row, variable) pairs within 10x the floor; the two exceptions (`receding_front/t2` wall mdot_pg: T = S1-strict to 4.1e-15; `qs_N100` field11 u_pg_2: 5e-19 m/s, passes under the S1 floor) accepted on evidence |
+    | W-ROUND | 57 | 52 bytes, 5 max<=1e-12 | `0f3a19f`/`b33713f` wall output formula | — |
+    | BEYOND | 235 | 18 bytes, 8 max<=1e-12, 207 max<=1e-6, 2 max>1e-6 | `0f3a19f`: wall ghosts on 2-D moving decks (`conservation{,_4blk}`, 4 rows); 304/305 Newton (`zhang2010/N050` 202, `radiative_Rod` 3); `conjugate_receding{,_t2}` (8): not the ghosts, round-off of the merge | V-GW: the 4 to bytes; V-GW and V-G leave `conjugate_receding{,_t2}` byte-identical, floor pair 28/28 |
+    | W-BEYOND | 206 | 4 bytes, 200 max<=1e-6, 2 max>1e-6 | `0f3a19f`: 304/305 Newton, 2-D moving decks | — |
+    | W-SIGN | 365 | 86 bytes, 1 max<=1e-12, 278 max>1e-6 (102 = `multimat_Plate`, whose S1 wall files held NaN Tw) | `0f3a19f` wall convention (`qw` into the solid), D18 (`conjugate_receding_t2`) | `qw_sign_check.py`: 4 of 34 faces fail on S1, 0 on S2 |
+    | PROBE | 111 | max>1e-6 | `293c87e`/`9054521` (first-step row, `tnext`, last-step sample) | V-PRB: all 111 fall to their deck's field class |
+    | DECK | 3 | 2 max>1e-6, 1 shape | `10e580d` (`simdir`) | — |
+    | only in B (added) | 4 | — | `steady-state/skewed_Plate` (`0f3a19f`) | — |
+
+  - **Not measured:** the pure `494ebb1` mpi preset (does not configure here); D-S2-1 (306/307 ghosts) on the slow 2-D
+    306/307 decks (V-G is byte-identical to this manifest); the LTO link's own parallelism.
+  - Record: `plan-bucket/records/2026-11-18-plan14-S2/` (README §5-§6: floor pairs, variants, red controls, pure-494
+    reference).
