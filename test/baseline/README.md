@@ -30,9 +30,10 @@ next change could be judged inert. A baseline that is not in the repository is n
 ## What "identical" means here
 
 `SOLUTIONTIME` in the `.tec` headers is deliberately **not** stripped: for a steady run it carries
-the converged iteration count, so a change in it is a real result change. Restart fidelity is
-capped by the 16-digit ASCII solution format (~3e-15 relative), but that affects only
-`run_restart_gate.sh`, not this manifest — every case here starts from its initial condition.
+the converged iteration count (written `-N` since ORION `a978930`, plan 14 S4), so a change in it is a real result
+change. Since S4 every value is written with 17 significant digits (`E25.17E3`), which give back the double that was
+written, so an ASCII restart starts from the state written; that concerns `run_restart_gate.sh`, not this manifest —
+every case here starts from its initial condition.
 
 ## Re-recordings (what moved, and why)
 
