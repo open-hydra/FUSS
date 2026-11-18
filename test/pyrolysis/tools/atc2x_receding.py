@@ -75,6 +75,8 @@ def read_field(path):
     K = int(re.search(r"\bK=(\d+)", zone).group(1))
     t = float(re.search(r"SOLUTIONTIME=([-+0-9.eEdD]+)", zone).group(1).replace("D", "E"))
     s += 1
+    while toks[s].startswith("STRANDID"):   # ", STRANDID=<b>" of a time-accurate zone (ORION ee21aa3, a978930)
+        s += 1
     nn = I * J * K
     nc = (I - 1) * max(J - 1, 1) * max(K - 1, 1)
     x = [float(v) for v in toks[s:s + I]]
