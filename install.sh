@@ -128,36 +128,6 @@ EOF
 }
 
 
-# FiNeR (v2.2.0+) no longer tracks its five dependencies as submodules, yet its CMakeLists.txt still
-# add_subdirectory's them from src/third_party/. Put each one there at a pinned commit (the same five
-# commits hydra, IGLOO, ICE and ATLAS pin: hydra/scripts/utils/finer_deps.sh). FiNeR's own
-# src/third_party/.gitignore ignores the clones, so the submodule stays clean.
-FINER_DEPS=(
-    "PENF       34e10af852f81822bac0df7c5f73936e0655f54f"
-    "StringiFor 77b75b1d7f7012d2984135b231008f751ab32dda"
-    "FACE       95226cd6135b9daeb8ff2c748d2065deee230358"
-    "FLAP       7f5ec8e1f26be5e2a263fdd2118501b340c0d461"
-    "BeFoR64    40d19c5f6127088126606b90448e99e02d8b641c"
-)
-function fill_finer_deps() {
-  local finer="${1%/}" entry dep sha dir url
-  [[ -f "$finer/CMakeLists.txt" ]] || { error "FiNeR not found at $finer"; return 1; }
-  for entry in "${FINER_DEPS[@]}"; do
-    read -r dep sha <<< "$entry"
-    dir="$finer/src/third_party/$dep"; url="https://github.com/szaghi/$dep"
-    if [[ ! -e "$dir" ]] || [[ -d "$dir" && -z "$(ls -A "$dir")" ]]; then
-      git clone -q "$url" "$dir" || return 1
-    elif ! git -C "$dir" rev-parse --git-dir > /dev/null 2>&1; then
-      error "finer_deps: $dir exists but is not a git checkout; remove it and rerun"; return 1
-    fi
-    if [[ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" != "$sha" ]]; then
-      git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$dir" fetch -q "$url" "$sha" || return 1
-      git -C "$dir" checkout -q "$sha" || return 1
-    fi
-  done
-  log "[OK] FiNeR dependencies at their pinned commits"
-}
-
 # Default global values
 COMMAND=""
 COMPILERS=""
@@ -268,9 +238,12 @@ case "$COMMAND" in
 
         task "Cloning submodules"
         [[ $ORION_PATH == $(pwd)'/lib/ORION/' ]] && git submodule update --init lib/ORION
-        [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]] && git submodule update --init --recursive lib/third_party/FiNeR
+        if [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]]; then
+          # FiNeR and its five libraries (PENF, FACE, FLAP, BeFoR64, StringiFor): CMake adds the libraries before FiNeR
+          git submodule update --init lib/third_party/FiNeR lib/third_party/PENF lib/third_party/FACE \
+                                      lib/third_party/FLAP lib/third_party/BeFoR64 lib/third_party/StringiFor
+        fi
         [[ $MORPH_PATH == $(pwd)'/lib/MORPH/' ]] && git submodule update --init lib/MORPH
-        fill_finer_deps "$FINER_PATH" || exit 1
 
         task "Configuring and building $project"
         if [[ $COMPILERS == "intel" ]]; then
@@ -296,7 +269,14 @@ case "$COMMAND" in
           log "Compilers: FC=$FC, CXX=$CXX, CC=$CC"
         fi
         rm -rf $BUILD_DIR
-        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
+        # FiNeR's five libraries: the FUSS submodules lib/third_party/<dep> (plan 14 D5), unless --include-finer names
+        # another FiNeR whose src/third_party/ holds all five (hydra's figaro build FUSS): then those (plan 14 D-S4-1)
+        FINER_DEPS_ARG=""
+        if [[ $FINER_PATH != $(pwd)'/lib/third_party/FiNeR/' ]]; then
+          ok=1; for dep in PENF FACE FLAP BeFoR64 StringiFor; do [[ -f ${FINER_PATH%/}/src/third_party/$dep/CMakeLists.txt ]] || ok=0; done
+          if [[ $ok == 1 ]]; then FINER_DEPS_ARG="-DFINER_DEPS_PATH=${FINER_PATH%/}/src/third_party/"; log "FiNeR libraries: ${FINER_PATH%/}/src/third_party/"; fi
+        fi
+        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH $FINER_DEPS_ARG -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
         cmake --build $BUILD_DIR || exit 1
         log "[OK] Compilation successful"
 
@@ -317,13 +297,11 @@ case "$COMMAND" in
         task "Updating git submodules"
         if [[ "$REMOTE" == "true" ]]; then
           log "Updating submodules to latest remote commit"
-          log "NOTE: FiNeR's five dependencies stay at the commits pinned in this script (FINER_DEPS); re-pin them when FiNeR moves"
           git submodule update --init --remote
         else
           log "Updating submodules to current commit"
           git submodule update --init
         fi
-        fill_finer_deps "$FINER_PATH" || exit 1
         log "[OK] Submodules updated"
         ;;
     *)

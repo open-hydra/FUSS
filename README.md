@@ -77,7 +77,7 @@ FUSS is built on top of companion libraries, included as Git submodules:
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
 | [MORPH](https://github.com/open-hydra/MORPH) | Mesh motion: motion laws, cell geometry, swept volumes |
 
-FiNeR's own dependencies (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by `install.sh build` and `install.sh update`. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are Git submodules under `lib/third_party/`, added by CMake before FiNeR (run `git submodule update --init` after pulling a change of the pins). Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 

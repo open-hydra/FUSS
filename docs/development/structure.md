@@ -21,7 +21,8 @@ FUSS/
 │   ├── MORPH/            # submodule: mesh motion (FUSS links its library MORPHL)
 │   ├── ORION/            # submodule: Tecplot/VTK I/O, bundles TecIO
 │   └── third_party/
-│       └── FiNeR/        # submodule: INI parser (its dependencies are cloned by install.sh)
+│       ├── FiNeR/        # submodule: INI parser
+│       └── PENF/ FACE/ FLAP/ BeFoR64/ StringiFor/   # submodules: FiNeR's libraries, added by CMake before FiNeR
 ├── test/
 │   ├── CMakeLists.txt    # CTest definitions
 │   ├── run_case.sh       # runs one case for CTest
@@ -315,7 +316,7 @@ classDiagram
 | `USE_MPI` | `OFF` | MPI; defines the preprocessor symbol `USE_MPI` |
 | `USE_TECIO` | `ON` (ORION option) | TecIO; `install.sh` passes `false` unless `--use-tecio` |
 | `CMAKE_BUILD_TYPE` | `RELEASE` | `RELEASE`, `DEBUG` or `TESTING` (`cmake/SetFortranFlags.cmake`) |
-| `ORION_PATH`, `FINER_PATH` | none (`install.sh`: `lib/ORION/`, `lib/third_party/FiNeR/`) | Dependency source trees |
+| `ORION_PATH`, `FINER_PATH`, `FINER_DEPS_PATH` | `lib/ORION/`, `lib/third_party/FiNeR/`, `lib/third_party/` | Dependency source trees |
 | `MORPH_PATH` | `lib/MORPH/` | MORPH source tree; only its library `MORPHL` is built |
 | `FUSS_EXE_SUFFIX` | empty (`mpi` preset: `-mpi`) | Suffix of the executables of a build tree |
 
