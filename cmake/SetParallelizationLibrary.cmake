@@ -14,12 +14,6 @@ IF (USE_MPI)
         FIND_PACKAGE (MPI REQUIRED COMPONENTS Fortran)
         message(STATUS "MPI enabled, using compilers: ${MPI_Fortran_COMPILER}")
     ENDIF (NOT MPI_Fortran_FOUND)
-    # The MPI modules give the choice-buffer routines (MPI_REDUCE, MPI_BCAST, ...) no explicit
-    # interface, so gfortran >= 10 rejects one routine called with a scalar and with an array
-    # in the same file. Intel's own mpif90 adds this flag for gfortran; the macro adds it only
-    # where the compiler knows it (plan 11, 2026-10-16)
-    SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"
-                     Fortran "-fallow-argument-mismatch")
 ENDIF()
 
 IF (NOT USE_OPENMP AND NOT USE_MPI)
