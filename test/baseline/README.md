@@ -316,3 +316,26 @@ every case here starts from its initial condition.
     `Admissible_T`, skipped); upstream's three CTest-only cases (`chimera_mg`, `multimat_liner`, `anisotropic_Plate`) stay
     outside this manifest (plan 14 D-S3-1).
   - Record: `plan-bucket/records/2026-11-18-plan14-S3/` (variants, strict manifests, red controls RC-1..RC-4).
+- **2026-11-18, plan 14 S4 (upstream `1970d39`: FiNeR's five libraries as FUSS submodules `lib/third_party/<dep>`, ORION
+  `a978930` with `6698316` 17 significant digits and `ee21aa3` the signed SOLUTIONTIME and strands, `8caf319` the steady
+  restart reads `-N`; merged by `5627503`): 2023 rows of S3 compared, none added. 2023 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `126c10ed`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `8e8e873` (`01d06dc` adds only two test tools of the ATC2x physics gates, which no `FUSS.sh` or
+    `run_regression.sh` path reads), compared with the S3 record (`79ac378`, 2023 rows) by plan 14's `moved.py` and
+    `predict15.py`. The gate battery's `-k` run (`bfd1b9d4`) and the mpi preset's binary at one rank (`-m 1 -k`,
+    `36b60700`) give the same manifest. Physics gates 34/34 (ATC21-23 on `01d06dc`); CTest 25/25 serial, 5/5 `needs-mpi`.
+  - **Attribution:**
+
+    | class (S3 → S4) | rows | measured | cause | evidence |
+    |---|---|---|---|---|
+    | format-identical | 1744 (every `.tec` row) | 17-digit values round to S3's 15-digit values; signed time; `STRANDID` per `ee21aa3` | ORION `a978930` (`6698316`, `ee21aa3`) | gate A0: S3's tree with the old writer patched to 17 digits predicts S3's 2023 md5s (`predict15.py`, 0 misses); gate A: ORION `a978930` alone on S3's tree gives the same doubles (1744 identical-values + 279 bytes); gate B: this run = that variant byte for byte (2023 rows); gate C: this run predicts S3's 2023 md5s |
+    | bytes | 279 (every other row) | — | — | — |
+
+    No double moved: A + B are exact 17-vs-17 comparisons (a one-ulp move in a 17-digit file is seen: RED-2; one ulp
+    in a deck input moves its rows: RED-1). The dependency swap (StringiFor v1.3.1 → v1.8.0 and the other four) is
+    inert for FUSS (gate B).
+  - **Physics numbers that moved (all PASS):** 11 round-off-size metrics of verify scripts that now read 17 digits
+    (freestream, conservation, bc303_qrad, conjugate_two_layer, pyrolysis chi err, darcy mass_balance_1d, tensor_linear_2d,
+    remap_uniform, smoothing, receding_front): the S3 code with only the writer patched to 17 digits prints all 34 gate
+    lines exactly as S4 does, so the digits read, not the solver, move them.
+  - Record: `plan-bucket/records/2026-11-18-plan14-S4/` (gates A0, A, B, C, RED-1, RED-2, D-S4-1, fresh clone, census, F2).
