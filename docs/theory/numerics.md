@@ -65,6 +65,8 @@ $\hat{\mathbf n}_f$ points from $L$ to $R$: $Q_f A_f$ enters $L$ and leaves $R$.
 
     The cell metrics $M$ and the face metrics are stored per cell and per face (the inverse cell metric is no longer stored): a 2-D block holds 18 values per cell for $M_f$ with `stencil`, a 3-D block 27.
 
+    The Darcy pressure flux of the type-2 gas closure keeps $M_f = \tfrac12(M_L+M_R)$ (`Lib_Diffusive_Tensor`) at interior faces and, at a block connection, each side's own face (one flux per face is not applied to it, plan 14 D23).
+
 ---
 
 ## Face Conductivity
