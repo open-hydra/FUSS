@@ -29,7 +29,7 @@ $$T_L = \frac{k\,T_0/L + h\,T_\text{ref} + q_\text{rad}}{k/L + h}, \qquad T(x) =
 | Parameter | Value |
 |---|---|
 | Mesh | 100 × 2 cells, uniform |
-| Time scheme | RK3, VNN 2.0, steady (local time step) |
+| Time scheme | RK3, VNN 1.0, steady (local time step) |
 | Integration variables | prim |
 | Implicit residual smoothing | β = 0.5 |
 | Initial condition | 300 K |

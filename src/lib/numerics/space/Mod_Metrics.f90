@@ -1,57 +1,101 @@
 module FUSS_Mod_Metrics
-  use FUSS_Mod_MPI, only: fuss_abort, fuss_abort_check, is_local_block
+  use FUSS_Mod_MPI, only: fuss_abort, is_local_block
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
 
 contains
 
-  !> Build the geometry for every block and every ghost-cell interface.
+  !> Geometry of every block and every ghost-cell interface, on every multigrid level (plan 14 D9).
   !>
-  !> The cell-level geometry (volume, metric tensor, cell lengths, face normals
-  !> and areas) is computed by the MORPH component through Adapter_Morph. The
-  !> arithmetic is unchanged from the routines that used to live in
-  !> Lib_Metrics.f90, so results are bit-identical; see plan 09 for why the
-  !> geometry was split out.
-  !>
-  !> The BC ghost-cell metrics below still use Lib_Metrics because they need the
-  !> block-connectivity topology. Plan 09 section 7 recommends moving them into
-  !> MORPH too, passing connectivity as plain integer descriptors; that is a
-  !> separate step and is deliberately not done here, so that this change can be
-  !> verified as inert on its own.
+  !> The interior cells (volume, metric tensor, cell lengths, face normals and areas) come from MORPH through Adapter_Morph
+  !> (plan 09): a moving mesh refreshes them, vol_old and the swept volumes from the same kernel every step (Update_Mesh),
+  !> so the discrete GCL holds by construction. Lib_Metrics gives the mesh type, the ghost-cell metrics and the set-up
+  !> checks of the cells; Fill_Inverse_Metric the inverse metric of the interior face metric, refreshed by Update_Mesh too.
   subroutine Setup_Metrics ( domain )
     use FUSS_Base_Types_m
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
-    use FUSS_Lib_Metrics, only: delthe
-    use FUSS_Adapter_Morph, only: Adapter_Mesh_Type, Adapter_Block_Metrics
-    use FUSS_Mod_MPI, only: is_local_block
+    use FUSS_Lib_Metrics, only: Check_Mesh_Type, Compute_Metric_Tensor, Stop_On_Bad_Metric, bad_metric, skew_factor_max
+    use FUSS_Adapter_Morph, only: Adapter_Block_Metrics
+    use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
+    use FUSS_Mod_dt, only: Skew_Factor
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
-    integer :: b
-    integer :: ci, cj, ck
-    logical :: ok
+    logical  :: bad, ok
+    integer  :: b, i, j, k, ci, cj, ck
+    real(R8) :: fmax, volx
     character(len=256) :: message
+    type(FUSS_vector_3D_type) :: N1, N2, N3, N4, N5, N6, N7, N8, dlx
+    type(FUSS_tensor_3D_type) :: Mx
 
-    ! Mesh classification. These were globals written directly by
-    ! Check_Mesh_Type; MORPH returns them instead of reaching into solver state.
-    call Adapter_Mesh_Type ( domain%blk(1), ndir, delthe )
+    ! Mesh type (ndir, delthe) from the nodes of every block (upstream a207291; plan 14 D-S7-2)
+    call Check_Mesh_Type ( domain )
 
+    ! A cell folded at one of its corners, or turned against its block, stops the run here
+    call Check_Folded_Cells ( domain, bad )
+    call mpi_stop_if_any ( bad, 'degenerate or folded cell in the mesh (see above)', '' )
+
+    ! Interior cells: MORPH (plan 09). A block it rejects stops every rank together (plan 14 D22)
+    bad = .false.
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
-
       call Adapter_Block_Metrics ( domain%blk(b), domain%nb, b, ok, message, ci, cj, ck )
-
       if ( .not. ok ) then
         write(*,'(A)')            ' [ERROR] mesh geometry is invalid'
         write(*,'(A,A)')          '         ', trim(message)
         write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
-        call fuss_abort ( 1 )
+        bad = .true.
+        exit
       endif
+    enddo
+    call mpi_stop_if_any ( bad, 'mesh geometry is invalid (see above)', '' )
 
+    ! Inverse metric of the interior cells, for the interior face metric (Fill_Inverse_Metric)
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
       call Fill_Inverse_Metric ( domain % blk(b) )
     enddo
+
+    ! The size, sign and volume checks of Compute_Metric_Tensor on the interior cells, into scratch: MORPH's values stay
+    do b = 1, domain % nb
+      if (.not. is_local_block(b)) cycle
+      !$omp parallel do collapse(3) private(i, j, k, N1, N2, N3, N4, N5, N6, N7, N8, Mx, dlx, volx)
+      do k = 1, domain % blk(b) % dim(3)
+      do j = 1, domain % blk(b) % dim(2)
+      do i = 1, domain % blk(b) % dim(1)
+        N1 % c = domain % blk(b) % node(i-1,j-1,k-1) % c
+        N2 % c = domain % blk(b) % node(i-1,j-1,k  ) % c
+        N3 % c = domain % blk(b) % node(i-1,j  ,k-1) % c
+        N4 % c = domain % blk(b) % node(i-1,j  ,k  ) % c
+        N5 % c = domain % blk(b) % node(i  ,j-1,k-1) % c
+        N6 % c = domain % blk(b) % node(i  ,j-1,k  ) % c
+        N7 % c = domain % blk(b) % node(i  ,j  ,k-1) % c
+        N8 % c = domain % blk(b) % node(i  ,j  ,k  ) % c
+        call Compute_Metric_Tensor ( N1, N2, N3, N4, N5, N6, N7, N8, Mx, dlx, volx, loc = [b, i, j, k, 0] )
+      enddo; enddo; enddo
+      !$omp end parallel do
+      if ( bad_metric ) exit
+    enddo
+    call Stop_On_Bad_Metric ( )
+
+    ! Largest time-step skew factor of the cells of the finest level (1 unless 3-D cells are skewed in all pairs of
+    ! directions), for the set-up summary and for the tests: the factor is 1 on every cell of a 2-D mesh
+    if ( domain % mg_level == 1 ) then
+      fmax = 1d0
+      if ( ndir == 3 ) then
+        do b = 1, domain % nb
+          if (.not. is_local_block(b)) cycle
+          do k = 1, domain % blk(b) % dim(3)
+          do j = 1, domain % blk(b) % dim(2)
+          do i = 1, domain % blk(b) % dim(1)
+            fmax = max ( fmax, Skew_Factor ( domain % blk(b) % M(i,j,k) % c ) )
+          enddo; enddo; enddo
+        enddo
+      end if
+      call mpi_allreduce_max_r8 ( fmax, skew_factor_max )
+    end if
 
     call Setup_BC_Metrics ( domain )
 
@@ -92,79 +136,48 @@ contains
   end subroutine Fill_Inverse_Metric
 
 
-  !> Build the ghost-cell metrics for every boundary entry.
+  !> Ghost-cell metrics of every boundary record of the blocks of this rank, at set-up and on the per-step refresh of a
+  !> moving mesh (Update_Mesh): they are functions of the block geometry, and on a moving mesh left at their t = 0 values
+  !> the geometry the solver describes at the boundary is not the one it solves on.
   !>
-  !> Split out of Setup_Metrics so that Update_Mesh can redo it every step: these
-  !> are functions of the block geometry, and on a moving mesh leaving them at
-  !> their t = 0 values means the geometry the solver describes at the boundary
-  !> is not the geometry it is solving on.
+  !> bc%Mg IS LOAD-BEARING. At a block connection (101) it is the neighbour's cell metric (at a chimera face, 102, the
+  !> extrapolated ghost cell's), which BC_Connection reads in the two-sided interface temperature: the flux-continuity
+  !> temperature between the cell centres at dx1/2 and dx2/2. Measured on
+  !> test/numerics-features/conjugate_two_layer (dx2/dx1 = 4, exact solution piecewise linear) before plan 14: correct
+  !> max |T - T_exact| = 4.5e-09 K, every bc%Mg halved 2.9e+01 K; on multimat_Plate (equal spacing at every interface)
+  !> the same sabotage changes nothing. The Darcy flux of type 2 reads it per side (Mod_Darcy, Connection_Terms).
+  !> bc%dlg and bc%volg are written here and read nowhere; they stay as intent(out) dummies so that nothing is left
+  !> undefined.
   !>
-  !> bc%Mg IS LOAD-BEARING. It is read in exactly one place, BC_Connection (bc
-  !> types 101/102), where it supplies the NEIGHBOUR's metric in the
-  !> conductivity-and-metric weighted interface temperature
-  !>
-  !>     T_int = (k1 T1 D1 + k2 T2 D2) / (k1 D1 + k2 D2)
-  !>
-  !> which is exactly the flux-continuity interface temperature between two cell
-  !> centres at dx1/2 and dx2/2. Get D2 wrong and the interface temperature is
-  !> wrong.
-  !>
-  !> Measured, on test/numerics-features/conjugate_two_layer -- two materials,
-  !> dx2/dx1 = 4, exact solution piecewise linear:
-  !>
-  !>     correct                 max |T - T_exact| = 4.5e-09 K
-  !>     every bc%Mg halved      max |T - T_exact| = 2.9e+01 K
-  !>
-  !> Be careful how you test this. The same sabotage on multimat_Plate changes
-  !> NOTHING, over 214 steps, bit for bit -- because every interface there has
-  !> the same cell spacing on both sides, and with D1 = D2 the weights reduce to
-  !> the conductivity ratio and the neighbour's metric drops out. That is the one
-  !> configuration in which this field looks dead, and until 2026-09-10 it was
-  !> the only multi-block configuration the suite contained.
-  !>
-  !> Hence the per-step refresh: as soon as mesh motion changes the spacing near
-  !> a block interface, a stale bc%Mg is a wrong interface temperature. Plan 08's
-  !> receding surface compresses exactly those cells.
-  !>
-  !> bc%dlg and bc%volg are a different matter -- they are written here and read
-  !> NOWHERE in the solver. They are left in place deliberately rather than
-  !> commented out: they are `intent(out)` dummies of BC_Connect_Metrics and
-  !> friends, so suppressing the assignments would leave them undefined, which is
-  !> the same uninitialised-read defect class already fixed three times in this
-  !> codebase. If they are ever removed, remove the arguments too.
-  !>
-  !> This does not affect a static mesh: Update_Mesh returns before calling it
-  !> when motion is disabled.
+  !> Every record of a block of another rank is skipped, at set-up and on the refresh alike: the ghost metrics of a block
+  !> are read only by its rank, and the sign check of Compute_Metric_Tensor reads the metric of the first cell, which only
+  !> that rank computed (MORPH's loop in Setup_Metrics skips the other blocks).
   subroutine Setup_BC_Metrics ( domain, refresh )
     use FUSS_Advanced_Types_m
-    use FUSS_Lib_Metrics, only: BC_Connect_Metrics, BC_Symmetry_Metrics, &
-                                BC_Extrapolate_Metrics
+    use FUSS_Global_m, only: gc
+    use FUSS_Lib_Metrics, only: BC_Connect_Metrics, BC_Symmetry_Metrics, BC_Extrapolate_Metrics, Stop_On_Bad_Metric
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     !> .true. on the per-step refresh of a moving mesh (Update_Mesh)
     logical, intent(in), optional :: refresh
     ! Local
     logical :: is_refresh
-    integer :: i
+    integer :: i, g
     integer :: Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
 
     is_refresh = .false.
     if ( present(refresh) ) is_refresh = refresh
 
-    !$omp parallel
-    ! Create the nodes for gc layers of ghost cell
+    !$omp parallel private(g)
+    ! The first ghost layer of every record (of the symmetry faces the first layer only: below)
     !$omp do schedule (dynamic) private(i, Bm, Im, Jm, Km, Fm, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do i = 1, domain % nbound
       Bm = domain % bc(i) % b
+      if (.not. is_local_block(Bm)) cycle
       Im = domain % bc(i) % i
       Jm = domain % bc(i) % j
       Km = domain % bc(i) % k
       Fm = domain % bc(i) % f
-      ! the refresh of a moving mesh: each rank rebuilds the ghost metrics of its own
-      ! blocks only, with the neighbour planes exchange_node_planes brought (plan 11)
-      if ( is_refresh ) then
-        if ( .not. is_local_block(Bm) ) cycle
-      endif
       select case ( domain % bc(i) % type )
         case(101) ! block connection
           Bs = domain % bc(i) % bs
@@ -181,22 +194,41 @@ contains
                                     domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg)
         case(300) ! symmetry
           call BC_Symmetry_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                     domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
+                                     domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, 1 )
         case(103, 307) ! coupled faces (plan 08 decision 3): hydra overwrites
           ! this metric once, after FUSS's setup, with the MOSE neighbour's, and
           ! its interface temperature reads it; a refresh must keep hydra's (no
           ! receding block owns a coupled face, guard abl_receding_coupled)
           if ( .not. is_refresh ) &
             call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                          domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
+                                          domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, Bm, &
+                                          chimera = .false. )
         case default  ! chimera included
           call BC_Extrapolate_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                        domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg )
+                                        domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, Bm, &
+                                        chimera = ( domain % bc(i) % type == 102 ) )
       end select
     enddo
+    !$omp end do
+    ! The further layers of the symmetry faces copy the cells g - 1 behind the face, which in a direction with fewer
+    ! cells than g are ghost cells of the opposite face: one layer at a time, after every face has written the previous
+    ! one (the barrier at the end of each loop), so that no face reads a ghost cell that another one is writing
+    do g = 2, gc
+      !$omp do schedule (dynamic) private(i, Bm)
+      do i = 1, domain % nbound
+        if ( domain % bc(i) % type /= 300 ) cycle
+        Bm = domain % bc(i) % b
+        if (.not. is_local_block(Bm)) cycle
+        call BC_Symmetry_Metrics ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, &
+                                   domain % bc(i) % f, domain % blk(Bm), &
+                                   domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, g )
+      enddo
+      !$omp end do
+    enddo
     !$omp end parallel
-    ! a fatal error that a worker thread recorded in the region (plan 11)
-    call fuss_abort_check ()
+    ! A degenerate or inverted ghost cell (Compute_Metric_Tensor wrote the first one): every rank stops together, on the
+    ! refresh too (one reduction of a flag per step)
+    call Stop_On_Bad_Metric ( )
 
   end subroutine Setup_BC_Metrics
 
@@ -295,5 +327,88 @@ contains
     if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) call Setup_BC_Metrics ( domain, refresh = .true. )
 
   end subroutine Update_Mesh
+
+  !> A cell is the image of the unit cube by the trilinear map of its eight nodes, and a finite volume needs that map
+  !> one-to-one: its Jacobian keeps the sign of the block in the whole cell. At a corner the Jacobian is
+  !> J = e_i . (e_j x e_k), with e_i, e_j and e_k the three edges from that corner along i, j and k. The run stops at
+  !> setup when, at a corner of a cell of a local block, s J <= 1e-12 |e_i| |e_j| |e_k| (Hadamard's bound, the measure of
+  !> the determinant check of Compute_Metric_Tensor), with s the sign of the determinant of the mean edges of the first
+  !> cell of the block, the cell from which Compute_Norm_Area takes the orientation of the normals; a degenerate first
+  !> cell, which gives the block no orientation, stops the run there, as that determinant check would. A corner with an
+  !> edge of zero length (nodes that coincide on an axis) is not checked. On a 2-D mesh, plane or a wedge whose nodes are
+  !> off the axis, the corners decide for the whole cell; in 3-D they are a necessary condition (docs/theory/numerics.md,
+  !> Grid Metrics).
+  !> The volume of a cell, the integral of that Jacobian, has the sign of the block when the cell is not turned over, and
+  !> Compute_Metric_Tensor stops a cell whose volume has not the sign of the determinant at its centre. Setup_Metrics calls
+  !> this on every multigrid level, whose nodes are every other node of the level above: a stop there names the level.
+  subroutine Check_Folded_Cells ( domain, bad )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    logical, intent(out) :: bad   !< A degenerate or folded cell was found on this rank (its message is written)
+    ! Local
+    integer  :: b, i, j, k, ca, cb, cc, n(3)
+    real(R8) :: s, det, hm, ei(3), ej(3), ek(3), h, Jv, Am(3,3)
+    character(len=32) :: lev
+
+    bad = .false.
+    lev = ':'
+    if ( domain % mg_level > 1 ) write(lev,'(A,I0,A)') ' of multigrid level ', domain % mg_level, ':'
+
+    do b = 1, domain % nb
+      if ( .not. is_local_block(b) ) cycle
+      n = domain % blk(b) % dim
+      associate ( node => domain % blk(b) % node )
+        ! Orientation of the block: the determinant of the mean edges of its first cell, as Compute_Metric_Tensor; a
+        ! degenerate first cell gives none, and stops the run here as it would there
+        Am(1,:) = node(1,0,0)%c - node(0,0,0)%c + node(1,0,1)%c - node(0,0,1)%c &
+                + node(1,1,0)%c - node(0,1,0)%c + node(1,1,1)%c - node(0,1,1)%c
+        Am(2,:) = node(0,1,0)%c - node(0,0,0)%c + node(0,1,1)%c - node(0,0,1)%c &
+                + node(1,1,0)%c - node(1,0,0)%c + node(1,1,1)%c - node(1,0,1)%c
+        Am(3,:) = node(0,0,1)%c - node(0,0,0)%c + node(0,1,1)%c - node(0,1,0)%c &
+                + node(1,0,1)%c - node(1,0,0)%c + node(1,1,1)%c - node(1,1,0)%c
+        Am  = 0.25d0 * Am
+        det = Triple ( Am(1,:), Am(2,:), Am(3,:) )
+        hm  = norm2 ( Am(1,:) ) * norm2 ( Am(2,:) ) * norm2 ( Am(3,:) )
+        if ( .not. ( abs(det) > 1d-12 * hm ) ) then
+          write(*,'(A,I0,A,ES12.4,A,ES12.4)') ' [ERROR] Mesh'//trim(lev)//' block ', b, &
+            ', cell 1 1 1: degenerate, so the block has no orientation; det = ', det, ', |A1| |A2| |A3| = ', hm
+          bad = .true.
+          return
+        end if
+        s = sign ( 1d0, det )
+        do k = 1, n(3); do j = 1, n(2); do i = 1, n(1)
+          do cc = 0, 1; do cb = 0, 1; do ca = 0, 1
+            ei = node(i,      j-1+cb, k-1+cc)%c - node(i-1,    j-1+cb, k-1+cc)%c
+            ej = node(i-1+ca, j,      k-1+cc)%c - node(i-1+ca, j-1,    k-1+cc)%c
+            ek = node(i-1+ca, j-1+cb, k     )%c - node(i-1+ca, j-1+cb, k-1   )%c
+            h = norm2 ( ei ) * norm2 ( ej ) * norm2 ( ek )
+            if ( h == 0d0 ) cycle          ! an edge of zero length: nodes that coincide on an axis
+            Jv = Triple ( ei, ej, ek )
+            if ( s * Jv > 1d-12 * h ) cycle
+            write(*,'(A,I0,A,3(1X,I0),A,3(1X,I0),A)') ' [ERROR] Mesh'//trim(lev)//' block ', b, ', cell', i, j, k, &
+                                                     ', corner node', i-1+ca, j-1+cb, k-1+cc, &
+                                                     ': the cell is folded or turned against its block'
+            write(*,'(A,ES12.4,A,ES12.4,A,I0)') ' [ERROR]   e_i . (e_j x e_k) = ', Jv, ', |e_i| |e_j| |e_k| = ', h, &
+                                               ', sign of the block (from its first cell): ', nint(s)
+            write(*,'(A)') ' [ERROR]   At every corner of a cell the edges along i, j and k must keep the orientation of the block.'
+            write(*,'(A,3(1X,ES14.6))') ' [ERROR]   corner node:', node(i-1+ca, j-1+cb, k-1+cc)%c
+            bad = .true.
+            return
+          enddo; enddo; enddo
+        enddo; enddo; enddo
+      end associate
+    enddo
+
+  contains
+
+    pure function Triple ( u, v, w ) result ( t )
+      real(R8), intent(in) :: u(3), v(3), w(3)
+      real(R8)             :: t
+      t = u(1) * ( v(2)*w(3) - v(3)*w(2) ) + u(2) * ( v(3)*w(1) - v(1)*w(3) ) + u(3) * ( v(1)*w(2) - v(2)*w(1) )
+    end function Triple
+
+  end subroutine Check_Folded_Cells
 
 end module FUSS_Mod_Metrics

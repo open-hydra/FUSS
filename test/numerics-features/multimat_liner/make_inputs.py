@@ -12,9 +12,9 @@ grid lines of every level. The shipped input.ini runs one level; the FAS figure 
 (convergence_figure/) runs the case on 4.
 
 The interior faces between two materials carry the series conductivity of their half cells and
-the time step takes the face conductivities: the run goes at vnn 1.0. Before October 2026 the face
+the time step takes the face conductivities: the run goes at vnn 0.5. Before October 2026 the face
 took the k of the lower cell (300 at the liner -> jacket jump, cells i = 32 | 33, 20 times the
-jacket's own) and with the cell-k time step the run died within a few iterations at vnn 0.5.
+jacket's own) and with the cell-k time step the run died within a few iterations at vnn 0.25.
 Derived from the FAS stress-campaign liner (fuss-deps/vfy/liner_case.py), single block there.
 """
 import os
@@ -39,7 +39,7 @@ iter-threshold = 1500000
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 1.0
+vnn = 0.5
 time-accurate = false
 integration-variables = cons
 

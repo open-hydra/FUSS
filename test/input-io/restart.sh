@@ -82,7 +82,7 @@ if [[ $GROUP == core || $GROUP == all ]]; then
   # field as the initial condition
   prep steady-state/temperature_Plate "$WORK/tfs-B"; setkey "$WORK/tfs-B" iter-threshold 50; run "$WORK/tfs-B"
   prep steady-state/temperature_Plate "$WORK/tfs-C"; cp "$WORK/tfs-B/OUTPUT/field.tec" "$WORK/tfs-C/INPUT/ic.tec"
-  for d in "$WORK/tfs-B" "$WORK/tfs-C"; do setkey "$d" time-accurate true FUSS-Numerics; setkey "$d" vnn 0.5 FUSS-Numerics; setkey "$d" iter-threshold 5; done
+  for d in "$WORK/tfs-B" "$WORK/tfs-C"; do setkey "$d" time-accurate true FUSS-Numerics; setkey "$d" vnn 0.25 FUSS-Numerics; setkey "$d" iter-threshold 5; done
   setkey "$WORK/tfs-B" newrun false; run "$WORK/tfs-B"; run "$WORK/tfs-C"
   first=$(awk '$1==1' "$WORK/tfs-B/OUTPUT/residual-history.dat" | tail -1 | awk '{print $2}')
   cmp -s "$WORK/tfs-B/OUTPUT/field.tec" "$WORK/tfs-C/OUTPUT/field.tec" && same=1 || same=0

@@ -26,7 +26,7 @@ and is linear in each layer. `make_inputs.py` writes `MESH/mesh.tec` and `INPUT/
 
 | Parameter | Value |
 |---|---|
-| Time scheme | RK3, VNN 0.5, local time step |
+| Time scheme | RK3, VNN 0.25, local time step |
 | Integration variables | cons |
 | Initial condition | 700 K |
 | Residual threshold | 1 × 10⁻¹² (reached at iteration 79 600) |
@@ -38,7 +38,7 @@ and is linear in each layer. `make_inputs.py` writes `MESH/mesh.tec` and `INPUT/
 | Field, max \|T − T<sub>exact</sub>\| | 5.2 × 10⁻¹⁰ K | 10⁻⁶ K |
 | Faces 1, 2: max \|q<sub>w</sub> − q\| / \|q\| | ≤ 2.3 × 10⁻¹² | 10⁻⁶ |
 
-Before October 2026 the face between two materials took the conductivity of the lower-index cell only. On this case the run then left the properties table at the first jacket cell ($i = 15$, $T = -128$ K) at VNN 0.5; with the face-conductivity time step it converged, but to a field 37.5 K off and a wall flux 11 % off.
+Before October 2026 the face between two materials took the conductivity of the lower-index cell only. On this case the run then left the properties table at the first jacket cell ($i = 15$, $T = -128$ K) at VNN 0.25; with the face-conductivity time step it converged, but to a field 37.5 K off and a wall flux 11 % off.
 
 ```bash
 cd test/steady-state/multilayer_Slab

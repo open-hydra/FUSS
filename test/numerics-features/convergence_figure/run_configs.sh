@@ -8,7 +8,7 @@
 #   chimera_mg   chimera_mg                   two overlapping blocks (102), 3 levels
 #   anisotropic  anisotropic_Plate            cells of aspect ratio 100, 3 levels
 # Every run: RK3, cons, res-threshold 1e-10, residual every iteration, one thread. Without IRS
-# vnn 1.0; with IRS vnn 2.0 and irs-beta 0.5. none and IRS run on one grid (iter-threshold
+# vnn 0.5; with IRS vnn 1.0 and irs-beta 0.5. none and IRS run on one grid (iter-threshold
 # 600000); the cycles on the case's levels with a 1-iteration descent on each coarse level
 # (level1-iter 100000). The keys are written into the copy with set_keys.py.
 # Each run lands in <runs dir>/<case>_<config> with run.log, run.err and run.time
@@ -40,8 +40,8 @@ ulimit -s unlimited 2>/dev/null
 T=$root/test/numerics-features
 C='FUSS-Parameters:res-threshold=1e-10;FUSS-Numerics:time-scheme=RK3;FUSS-Numerics:integration-variables=cons'
 C="$C;FUSS-IO:res-diter=1;FUSS-IO:shell-diter=10000;FUSS-IO:sol-diter=100000000;FUSS-IO:ini-diter=100000000"
-NOIRS='FUSS-Numerics:vnn=1.0;FUSS-Numerics:irs-beta=0'
-IRS='FUSS-Numerics:vnn=2.0;FUSS-Numerics:irs-beta=0.5'
+NOIRS='FUSS-Numerics:vnn=0.5;FUSS-Numerics:irs-beta=0'
+IRS='FUSS-Numerics:vnn=1.0;FUSS-Numerics:irs-beta=0.5'
 ONE='FUSS-Multigrid:levels=1;FUSS-Multigrid:cycle=none;FUSS-Parameters:iter-threshold=600000'
 for m in 1 2 3 4; do ONE="$ONE;FUSS-Multigrid:level$m-iter="; done   # the case's level budgets go
 

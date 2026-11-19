@@ -37,13 +37,17 @@ my_case/
 
 FUSS takes the grid from the initial-condition file `INPUT/ic.*` (on a restart, from the solution file it restarts from): the node coordinates of every block, one zone per block. Blocks are numbered in the order of the zones, and `bc.txt` refers to them by that number. The file format is described in [Initial Conditions](initial-conditions.md#initial-field-inputic).
 
-The dimension of the problem is taken from block 1:
+The dimension of the problem and the type of the mesh are taken from the nodes of every block:
 
-| Block 1 cells | Problem |
-|---------------|---------|
-| $n_k > 1$ | 3-D |
-| $n_k = 1$, $n_j > 1$ | 2-D plane: a layer one cell thick in $z$; 2-D axisymmetric when the two $k$-planes are a wedge rotated about the $x$ axis |
-| $n_j = n_k = 1$ | 1-D |
+| Cells | Problem |
+|-------|---------|
+| $n_k > 1$ in any block | 3-D |
+| $n_k = 1$ in every block, $n_j > 1$ in any | 2-D plane: layers one cell thick in $z$; 2-D axisymmetric when the two $k$-planes of every block are a wedge rotated about the $x$ axis |
+| $n_j = n_k = 1$ in every block | 1-D |
+
+Until October 2026 block 1 alone decided: a 3-D mesh whose block 1 is one cell thick in $z$ ran as 2-D, with block 1 decoupled from its $k$ neighbours.
+
+On a 2-D mesh the plane or wedge decision looks at every node of every block: the $k = 1$ node plane of a block must be its $k = 0$ plane translated (plane mesh), or turned about the $x$ axis by the same angle in every block (wedge), to within 1 % of the thickness of the block. The coordinates therefore need enough significant digits (a wedge of 5 degrees written with five digits does not tell its type). A block nearer a turn than a translation, or nearer a translation than a turn, but not to within that tolerance, wedges of different angles, and wedge and plane blocks together stop the run at set-up with the block and the misfit. A 3-D mesh has no angle.
 
 On a 2-D mesh faces 5 and 6 of every block must be zero-flux faces (code `0` or `300`, see [Boundary Conditions](boundary-conditions.md#face-numbering)).
 

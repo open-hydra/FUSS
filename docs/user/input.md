@@ -10,7 +10,7 @@ res-threshold = 1e-8
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 2.0               ; inline comment after a value
+vnn = 1.0               ; inline comment after a value
 time-accurate = false
 integration-variables = cons
 irs-beta = 0.5

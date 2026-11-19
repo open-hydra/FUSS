@@ -49,12 +49,12 @@ All cases use RK3 time-marching in pseudo-time (time-accurate = false) with prim
 
 | Case | VNN | IRS | IRS β | Multigrid levels | level2-iter |
 |---|---|---|---|---|---|
-| nominal | 0.5 | No  | —   | — | — |
-| irs     | 2.0 | Yes | 0.5 | — | — |
-| mg1     | 0.5 | No  | —   | 2 |  25 000 |
-| mg2     | 0.5 | No  | —   | 2 |  50 000 |
-| mg3     | 0.5 | No  | —   | 2 |  75 000 |
-| mg_irs  | 2.0 | Yes | 0.5 | 2 | 100 000 |
+| nominal | 0.25 | No  | —   | — | — |
+| irs     | 1.0 | Yes | 0.5 | — | — |
+| mg1     | 0.25 | No  | —   | 2 |  25 000 |
+| mg2     | 0.25 | No  | —   | 2 |  50 000 |
+| mg3     | 0.25 | No  | —   | 2 |  75 000 |
+| mg_irs  | 1.0 | Yes | 0.5 | 2 | 100 000 |
 
 IRS (Implicit Residual Smoothing) smooths the residual before the update, which allows a larger VNN. Multigrid is grid sequencing: level 2 (50 × 5 cells per block) runs `level2-iter` iterations, or until the residual reaches `res-threshold`; its solution is prolongated once to level 1, which runs to `res-threshold` (`level1-iter = 1 000 000` is only a cap). The coarse level is not visited again.
 
@@ -77,7 +77,7 @@ Summary of iterations required to reach res-threshold = 1 × 10⁻⁸:
 
 **Key observations**
 
-- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 089 → 99 305), because the larger allowable VNN = 2.0 effectively damps low-frequency error components more aggressively per iteration.
+- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 089 → 99 305), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
 - **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 094 to 144 106. Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 305).
 - **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 80 603 iterations — about 19 % faster than IRS alone and 4.6× faster than the nominal baseline.
 

@@ -12,6 +12,8 @@ The cell loops of every block are shared among the threads. The number of thread
 
 `FUSS.sh` also sets `ulimit -s unlimited` and `KMP_STACKSIZE=100M`, which the Intel runtime needs for the per-thread temporaries.
 
+The metrics of the ghost cells of the symmetry faces (300) are filled one layer at a time, every face of a layer before the next: on a one-cell-thick direction the second layer of one face is a first-layer ghost cell of the opposite face, which another thread would otherwise be writing in the same loop. The set-up of the metrics is the same for any number of threads.
+
 ## MPI
 
 ```bash

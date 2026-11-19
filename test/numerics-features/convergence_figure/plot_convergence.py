@@ -127,7 +127,7 @@ def main(runs, prefix):
         h.append(Line2D([], [], color=INK2, lw=0.8, ls=':')); l.append(f'threshold {thr:g}')
         fig.legend(h, l, loc='upper center', ncol=7, frameon=False, bbox_to_anchor=(0.5, 1.0),
                    handlelength=3, labelcolor=INK)
-        note = (f'RK3, cons, threshold {thr:g}. Without IRS vnn 1.0, with IRS vnn 2.0 and irs-beta 0.5; none and '
+        note = (f'RK3, cons, threshold {thr:g}. Without IRS vnn 0.5, with IRS vnn 1.0 and irs-beta 0.5; none and '
                 'IRS on one grid, cycles on the case levels with a 1-iteration descent. Numbers top right: where '
                 'each run reaches the threshold.')
         if what == 'time':

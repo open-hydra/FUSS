@@ -51,7 +51,8 @@ written every iteration, one thread:
 
 `none` and `IRS` run on one grid; the cycles on the case's levels, descending with one
 iteration per coarse level and the default `pre-iter = 2`, `post-iter = 1`, `coarse-iter = 10`.
-Without IRS `vnn = 1.0`; with IRS `vnn = 2.0` and `irs-beta = 0.5`.
+Without IRS `vnn = 0.5`; with IRS `vnn = 1.0` and `irs-beta = 0.5`. All `vnn` values of this page are in the
+current convention; the campaigns ran before October 2026 at twice these values with the former definition (the same steps).
 
 ![Residual against finest-level iterations, six configurations on four cases](images/fas-cycles-convergence-iterations.png)
 
@@ -103,7 +104,7 @@ What the figures say:
 ## Reference plate (residual_convergence)
 
 The two-material plate of the [residual convergence study](residual-convergence.md) (2 blocks of
-100 × 10 cells, 101 connection, `cons`, the case's `vnn = 0.5`), to threshold 1e-8; wall times
+100 × 10 cells, 101 connection, `cons`, the case's `vnn = 0.25`), to threshold 1e-8; wall times
 are the `Solver` line (without set-up and output), the minimum of three or four runs. The
 10-cell height caps the hierarchy at 2 levels, which caps the cycle gain: this is the *worst*
 verified configuration, and the one the `fas_v` / `fas_w` / `fas_w_irs` test cases ship.
@@ -163,8 +164,8 @@ of ATLAS main `7d35c3a`, whose sampled overlap weights close every receiver to 1
 transfers never read a chimera receiver: restriction, forcing and correction sums run over
 interior cells only, the receivers are ghost cells refreshed by each level's own chimera fill,
 and (with IRS) the ghost residual at a 102 face is already zero-gradient — the same policy IRS
-applies to every non-connection ghost. Threshold 1e-8 at the case's `vnn = 0.5`
-(the [campaign above](#six-configurations-on-four-cases) runs it at 1e-10 and `vnn = 1.0`):
+applies to every non-connection ghost. Threshold 1e-8 at the case's `vnn = 0.25`
+(the [campaign above](#six-configurations-on-four-cases) runs it at 1e-10 and `vnn = 0.5`):
 
 | Check | Result |
 |---|---|
@@ -207,10 +208,10 @@ the same wall split along its length into two 64 × 64 blocks joined by a 101 co
 the material jumps inside both blocks (so 2 ranks each own a block).
 
 On the code of the FAS review this case was the one that would not behave: the explicit
-baseline died at the liner → jacket interface within a few steps at `vnn = 0.5` (T < 0 K),
-plain IRS at `vnn = 2.0` or `1.0` locked into a bounded residual orbit with its admissibility
+baseline died at the liner → jacket interface within a few steps at `vnn = 0.25` (T < 0 K),
+plain IRS at `vnn = 1.0` or `0.5` locked into a bounded residual orbit with its admissibility
 fallback firing on ~4·10⁵ cell updates per report, the cycles inherited the orbit whenever IRS
-was on, and only `v` / `w` without IRS at `vnn = 0.2` converged (8 362 and 7 222 iterations,
+was on, and only `v` / `w` without IRS at `vnn = 0.1` converged (8 362 and 7 222 iterations,
 against 1 259 270 for the baseline). **Both symptoms were one defect in the face flux, not in
 the cycles.** An interior face took the conductivity of the lower-index cell's material: at the
 300 → 15 jump the first jacket cell exchanged heat through 20 times its own k (the face flux
@@ -233,12 +234,12 @@ cycle; wall times the `Elapsed` line):
 | Configuration | Result |
 |---|---|
 | Field vs the per-layer-block reference | 1.2e-8 K (was 35.7 K) |
-| none, `vnn = 1.2` | converges: 231 890 iterations, 1 596 s |
-| none, ceiling | `vnn = 1.25` stable (20 000 iterations), `vnn = 1.3` fails at iteration 91 (T = −43 K, outside the properties table): the RK3 limit is 1.25 ([VNN](../theory/time-integration.md#diffusive-stability-condition-vnn)) |
-| IRS, `vnn = 2.0` | descends cleanly, no halved update, but slowly: 2.4e-6 after 100 000 iterations (1 009 s) |
-| w, `vnn = 1.0` / `1.2` | 1 697 iterations (30 s) / 1 438 (26 s) |
-| w + IRS, `vnn = 1.0` | 2 842 iterations (67 s), **zero** halved updates |
-| series faces with the old cell time step, `vnn` 0.5 / 1.0 / 1.2 | stable over 3 000 iterations (residual 2.3 / 1.4 / 1.1, still descending): the face flux was the defect, the face step is what lets the run go at `vnn ≥ 1` |
+| none, `vnn = 0.6` | converges: 231 890 iterations, 1 596 s |
+| none, ceiling | `vnn = 0.625` stable (20 000 iterations), `vnn = 0.65` fails at iteration 91 (T = −43 K, outside the properties table): the RK3 limit is 0.628 ([VNN](../theory/time-integration.md#diffusive-stability-condition-vnn)) |
+| IRS, `vnn = 1.0` | descends cleanly, no halved update, but slowly: 2.4e-6 after 100 000 iterations (1 009 s) |
+| w, `vnn = 0.5` / `0.6` | 1 697 iterations (30 s) / 1 438 (26 s) |
+| w + IRS, `vnn = 0.5` | 2 842 iterations (67 s), **zero** halved updates |
+| series faces with the old cell time step, `vnn` 0.25 / 0.5 / 0.6 | stable over 3 000 iterations (residual 2.3 / 1.4 / 1.1, still descending): the face flux was the defect, the face step is what lets the run go at `vnn ≥ 0.5` |
 
 The two-block `multimat_liner` converges in all six configurations on the current code
 ([campaign table](#six-configurations-on-four-cases): to 1e-10 none 347 466
@@ -284,7 +285,7 @@ is possible, not certain.
 
 ## Practical guidance
 
-- **Recommended: `cycle = w` with IRS (`irs-beta = 0.5`, `vnn = 2.0`)**: the fewest iterations
+- **Recommended: `cycle = w` with IRS (`irs-beta = 0.5`, `vnn = 1.0`)**: the fewest iterations
   on the plate, the chimera case and every patch case of the review, textbook N-independent
   rates, insensitive to `coarse-iter` on deep hierarchies, safe with chimera and at any depth,
   and the configuration that stays stable where the others can fail (`v` on 4+ levels, the
@@ -300,7 +301,7 @@ is possible, not certain.
   is as fast ([above](#anisotropic-cells-the-honest-limit)).
 - Multimaterial meshes with large conductivity jumps inside a block are ordinary cases: the
   series face conductivity and the face-conductivity time step are always on, no key to set;
-  the liner runs every configuration at `vnn = 1.0` (`2.0` with IRS).
+  the liner runs every configuration at `vnn = 0.5` (`1.0` with IRS).
 - `coarse-iter = 10` (the default) is right for deep hierarchies; raise it only on 2-level
   hierarchies where the coarsest solve is the bottleneck.
 - `v` without IRS: 3 levels at most, unless measured on the case.

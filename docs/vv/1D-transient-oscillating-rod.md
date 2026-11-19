@@ -52,7 +52,7 @@ The oscillating wall temperature is pre-computed by `bc_time.py` and stored in `
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 0.5 |
+| VNN | 0.25 |
 | Time-accurate | true |
 | Integration variables | primitive |
 | Implicit residual smoothing | disabled |

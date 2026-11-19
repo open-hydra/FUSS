@@ -43,7 +43,7 @@ An update that used $\mathrm{d}(\rho\,c_p\,T)/\mathrm{d}T = \rho\,(A + 2B\,T)$ a
 | Parameter | Value |
 |---|---|
 | Time scheme | RK3 |
-| VNN | 0.8 |
+| VNN | 0.4 |
 | Time-accurate | true |
 | Integration variables | primitive (the test input); conservative checked as well |
 | Implicit residual smoothing | disabled |
