@@ -79,7 +79,7 @@
 | omega | 0.0 |  |  no | Prescribed-motion angular frequency [1/s] |
 | gcl-tolerance | 1.0e-10 | > 0 |  no | Max relative discrete-GCL residual before the run is stopped |
 | taper-to-boundary | .false. | logical |  no | Taper prescribed motion to zero on the block boundary |
-| skip-bc-metrics-refresh | .false. | logical |  no | TEST ONLY: do not rebuild the ghost-cell metrics after the mesh moves |
+| skip-bc-metrics-refresh | .false. | logical |  no | TEST ONLY: do not rebuild the ghost-cell and face metrics after the mesh moves |
 
 ## FUSS-Pyrolysis
 
