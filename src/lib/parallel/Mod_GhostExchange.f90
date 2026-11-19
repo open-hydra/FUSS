@@ -1196,20 +1196,38 @@ contains
       use mpi
       integer :: ierr, t, i, b, f, nreq, n, off, ii, jj, kk
       integer :: lo(3), hi(3)
+      integer :: r, c, ff
       logical, allocatable :: seen(:,:,:)
+      logical, allocatable :: via(:,:,:)
       integer, allocatable :: reqs(:), stats(:,:), toff(:), tn(:)
       real(R8), allocatable :: buf(:)
 
       if (.not. np_built) then
-        allocate(seen(6, domain%nb, 0:mpi_size_-1))
+        allocate(seen(6, domain%nb, 0:mpi_size_-1), via(6, domain%nb, domain%nb))
         seen = .false.
+        via = .false.
+        ! via(f, c, b): a block connection of block b points at face f of block c
+        do i = 1, domain%nbound
+          if (domain%bc(i)%type /= 101) cycle
+          via(domain%bc(i)%fs, domain%bc(i)%bs, domain%bc(i)%b) = .true.
+        end do
         do i = 1, domain%nbound
           if (domain%bc(i)%type /= 101) cycle
           b = domain%bc(i)%bs
           f = domain%bc(i)%fs
-          if (block_owner(b) == block_owner(domain%bc(i)%b)) cycle
-          seen(f, b, block_owner(domain%bc(i)%b)) = .true.
+          r = block_owner(domain%bc(i)%b)
+          if (block_owner(b) /= r) seen(f, b, r) = .true.
+          ! The stencil face metric of this face (Lib_Stencil_Metrics, Connection_Face_Metric) also reads the ghost
+          ! positions of the source block b at its own connections, the source cells of the blocks c it connects to
+          ! (at a corner of b: a 2 x 2 split, the block diagonal to this one): their planes too
+          do c = 1, domain%nb
+            if (block_owner(c) == r) cycle
+            do ff = 1, 6
+              if (via(ff, c, b)) seen(ff, c, r) = .true.
+            end do
+          end do
         end do
+        deallocate(via)
         np_n = count(seen)
         allocate(np_block(np_n), np_face(np_n), np_to(np_n))
         t = 0
