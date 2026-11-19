@@ -120,7 +120,7 @@ fi
 # the `kill` test above. That silently defeated every abort code the solver
 # produces: test/run_regression.sh branches on exit status and recorded a case
 # that had refused to run as 'ok', fingerprinting whatever partial output it
-# managed to write. Codes: 1 input validation, 2 geometry/mesh, 3 numerical.
+# managed to write. Code 1 on every stop (plan 14 S6, D3).
 #
 # Background runs cannot report a status here -- the solver is still running --
 # so RC stays 0 for them, by design.
