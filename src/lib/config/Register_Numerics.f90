@@ -53,6 +53,18 @@ contains
     !! ------------------------------------------------------
     !! ------------------------------------------------------
 
+    ! Space scheme ------------------------------------------
+    call reg%add( trim(section), 'diffusive-metric', obj_space_scheme%diffusive_metric, 'stencil', &
+                  'Face metric of the diffusive fluxes: stencil takes the face Jacobian from the same differences of '// &
+                  'the cell centres as the face gradient, exact for a linear field on any mesh except at the chimera '// &
+                  'faces (102), which take the two-sided balance with the cell metrics with every value; mean takes the '// &
+                  'mean of the two cell metrics at the interior faces (the block connections the two-sided balance, the '// &
+                  'walls the cell metric) and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r; read at set-up only', &
+                  'stencil, mean', .false. )
+
+    !! ------------------------------------------------------
+    !! ------------------------------------------------------
+
 
     ! Multigrid levels --------------------------------------
     call Register_Multigrid_Levels(nmgl)

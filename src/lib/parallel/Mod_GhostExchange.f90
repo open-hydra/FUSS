@@ -126,8 +126,8 @@ module FUSS_Mod_GhostExchange
   ! in increasing block order, and the messages between two ranks with one tag are
   ! matched in the order they were started (MPI 4.1, Sec. 3.7.4), so the k-th
   ! receive from a rank takes the k-th block that rank sends. All are below 32767,
-  ! the least MPI_TAG_UB the MPI standard allows. TAG_FC is reserved for the
-  ! exchange of the shared connection flux (not used yet).
+  ! the least MPI_TAG_UB the MPI standard allows. TAG_FC carries the shares of the
+  ! connection fluxes to the partner's rank (exchange_Fc_field, one flux per face).
   integer, parameter :: TAG_T = 0, TAG_TG = 1, TAG_CHIMERA = 2, TAG_R = 3, TAG_FC = 4, TAG_MATID = 6
   integer, parameter, public :: TAG_IO = 5
   ! The exchanges of the pyrolysis, the Darcy pressure and the moving mesh (plan 11), one
@@ -178,6 +178,7 @@ module FUSS_Mod_GhostExchange
   public :: gather_diagnostic_to_root
   public :: mpi_io_barrier
   public :: Ghost_Interrank
+  public :: exchange_connection_flux   ! prompt 11 (port/metric): one flux per connection face
 
 contains
 
@@ -2585,6 +2586,80 @@ contains
         Tg(g)  = blkm % T (Ig,Jg,Kg)
     enddo
   end subroutine Ghost_Interrank
+
+
+  !> One flux per connection face (prompt 11): the share of the cell, bc%Fc, of the records whose partner (the record of
+  !> the same face seen from the other block) is the owner and lives on another rank. Every rank sends, for the records
+  !> of its send list (remote records whose source block is here, so whose partner is local), the share the owner
+  !> computed for them, and stores the shares it receives in the records of its receive list that do not own their face.
+  !> The same lists and order as exchange_ghost_Tg. Call from the primary thread after the owners have set Fc.
+  subroutine exchange_connection_flux(domain)
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+
+    if (mpi_size_ <= 1) return
+#ifdef USE_MPI
+    call exchange_Fc_field(domain)
+#endif
+  end subroutine exchange_connection_flux
+
+
+#ifdef USE_MPI
+  subroutine exchange_Fc_field(domain)
+    use FUSS_Advanced_Types_m
+    use mpi
+
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: ns, nr, i, r, ierr, bc_idx, buf_pos
+    real(R8), allocatable, save :: Fc_send_buf(:), Fc_recv_buf(:)
+
+    call set_active_mg_level(domain%mg_level)
+    ns = ghost_sched%n_send
+    nr = ghost_sched%n_recv
+    if (ns == 0 .and. nr == 0) return
+    if (allocated(Fc_send_buf)) then
+      if (size(Fc_send_buf) < ns .or. size(Fc_recv_buf) < nr) deallocate(Fc_send_buf, Fc_recv_buf)
+    end if
+    if (.not. allocated(Fc_send_buf)) allocate(Fc_send_buf(max(ns,1)), Fc_recv_buf(max(nr,1)))
+
+    do r = 1, ghost_sched%n_recv_ranks
+      buf_pos = ghost_sched%recv_groups(r)%offset
+      call MPI_IRECV(Fc_recv_buf(buf_pos), ghost_sched%recv_groups(r)%count, MPI_DOUBLE_PRECISION, &
+                     ghost_sched%recv_groups(r)%rank, TAG_FC, MPI_COMM_WORLD, ghost_sched%recv_req(r), ierr)
+      call check_mpi_error(ierr)
+    end do
+
+    do r = 1, ghost_sched%n_send_ranks
+      do i = ghost_sched%send_groups(r)%offset, ghost_sched%send_groups(r)%offset + ghost_sched%send_groups(r)%count - 1
+        Fc_send_buf(i) = domain%bc(ghost_sched%send_list(i)%bc_idx)%Fc
+      end do
+      buf_pos = ghost_sched%send_groups(r)%offset
+      call MPI_ISEND(Fc_send_buf(buf_pos), ghost_sched%send_groups(r)%count, MPI_DOUBLE_PRECISION, &
+                     ghost_sched%send_groups(r)%rank, TAG_FC, MPI_COMM_WORLD, ghost_sched%send_req(r), ierr)
+      call check_mpi_error(ierr)
+    end do
+
+    if (ghost_sched%n_recv_ranks > 0) then
+      call MPI_WAITALL(ghost_sched%n_recv_ranks, ghost_sched%recv_req, &
+                       ghost_sched%mpi_stat(:,1:ghost_sched%n_recv_ranks), ierr)
+      call check_mpi_error(ierr)
+    end if
+
+    do i = 1, nr
+      bc_idx = ghost_sched%recv_list(i)%bc_idx
+      if (.not. domain%bc(bc_idx)%owner) domain%bc(bc_idx)%Fc = Fc_recv_buf(i)
+    end do
+
+    if (ghost_sched%n_send_ranks > 0) then
+      call MPI_WAITALL(ghost_sched%n_send_ranks, ghost_sched%send_req, &
+                       ghost_sched%mpi_stat(:,1:ghost_sched%n_send_ranks), ierr)
+      call check_mpi_error(ierr)
+    end if
+  end subroutine exchange_Fc_field
+#endif
 
 
 end module FUSS_Mod_GhostExchange

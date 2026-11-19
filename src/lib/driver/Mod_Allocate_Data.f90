@@ -319,7 +319,6 @@ contains
       if (allocated(domain%blk(b)%RS1))          deallocate(domain%blk(b)%RS1)
       if (allocated(domain%blk(b)%RS2))          deallocate(domain%blk(b)%RS2)
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
-      if (allocated(domain%blk(b)%Minv))         deallocate(domain%blk(b)%Minv)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)
 
       ! Fields of the list (plan 06 section 3.1), same policy as TO/R

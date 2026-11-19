@@ -11,13 +11,14 @@ contains
   !> The interior cells (volume, metric tensor, cell lengths, face normals and areas) come from MORPH through Adapter_Morph
   !> (plan 09): a moving mesh refreshes them, vol_old and the swept volumes from the same kernel every step (Update_Mesh),
   !> so the discrete GCL holds by construction. Lib_Metrics gives the mesh type, the ghost-cell metrics and the set-up
-  !> checks of the cells; Fill_Inverse_Metric the inverse metric of the interior face metric, refreshed by Update_Mesh too.
+  !> checks of the cells; Lib_Stencil_Metrics the face metrics of the diffusive fluxes, refreshed by Update_Mesh too.
   subroutine Setup_Metrics ( domain )
     use FUSS_Base_Types_m
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Lib_Metrics, only: Check_Mesh_Type, Compute_Metric_Tensor, Stop_On_Bad_Metric, bad_metric, skew_factor_max
     use FUSS_Adapter_Morph, only: Adapter_Block_Metrics
+    use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
     use FUSS_Mod_dt, only: Skew_Factor
     implicit none
@@ -51,12 +52,6 @@ contains
       endif
     enddo
     call mpi_stop_if_any ( bad, 'mesh geometry is invalid (see above)', '' )
-
-    ! Inverse metric of the interior cells, for the interior face metric (Fill_Inverse_Metric)
-    do b = 1, domain % nb
-      if (.not. is_local_block(b)) cycle
-      call Fill_Inverse_Metric ( domain % blk(b) )
-    enddo
 
     ! The size, sign and volume checks of Compute_Metric_Tensor on the interior cells, into scratch: MORPH's values stay
     do b = 1, domain % nb
@@ -99,50 +94,20 @@ contains
 
     call Setup_BC_Metrics ( domain )
 
+    ! Face metrics of the diffusive fluxes from the positions of the cell centres (after the ghost metrics: the
+    ! connections read bc%Mg(1))
+    call Setup_Face_Metrics ( domain )
+
   end subroutine Setup_Metrics
-
-
-  !> Inverse metric of the interior cells, for the diffusive face metric (the mean of the two
-  !> cells' inverse metrics, inverted): the face then needs one 3x3 inversion instead of three.
-  !> Same bounds as M (Fluxes_blk declares it with the ghost layers); the ghost entries are
-  !> zeroed, as M's are (Mod_Allocate_Data), and never read.
-  !>
-  !> Called by Setup_Metrics and, on a moving mesh, by Update_Mesh after each step's new
-  !> metric: computed once, it would keep the t = 0 geometry in every interior face flux.
-  !> Outside any OpenMP parallel region, as both callers are.
-  subroutine Fill_Inverse_Metric ( blk )
-    use FUSS_Advanced_Types_m
-    use FUSS_Lib_Diffusive, only: Inverse3
-    implicit none
-    type(FUSS_block_type), intent(inout) :: blk
-    ! Local
-    integer :: i, j, k
-
-    if ( .not. allocated(blk % Minv) ) then
-      allocate( blk % Minv, mold = blk % M )
-      blk % Minv = FUSS_tensor_3D_type( reshape([0.0_R8,0.0_R8,0.0_R8, &
-                                                 0.0_R8,0.0_R8,0.0_R8, &
-                                                 0.0_R8,0.0_R8,0.0_R8], [3,3]) )
-    endif
-
-    !$omp parallel do collapse(3) private(i, j, k)
-    do k = 1, blk % dim(3)
-    do j = 1, blk % dim(2)
-    do i = 1, blk % dim(1)
-      blk % Minv(i,j,k) % c = Inverse3 ( blk % M(i,j,k) % c )
-    enddo; enddo; enddo
-    !$omp end parallel do
-
-  end subroutine Fill_Inverse_Metric
 
 
   !> Ghost-cell metrics of every boundary record of the blocks of this rank, at set-up and on the per-step refresh of a
   !> moving mesh (Update_Mesh): they are functions of the block geometry, and on a moving mesh left at their t = 0 values
   !> the geometry the solver describes at the boundary is not the one it solves on.
   !>
-  !> bc%Mg IS LOAD-BEARING. At a block connection (101) it is the neighbour's cell metric (at a chimera face, 102, the
-  !> extrapolated ghost cell's), which BC_Connection reads in the two-sided interface temperature: the flux-continuity
-  !> temperature between the cell centres at dx1/2 and dx2/2. Measured on
+  !> bc%Mg IS LOAD-BEARING. At a block connection (101) it is the neighbour's cell metric: the two-sided interface balance
+  !> of diffusive-metric = mean (Connection_Face_Flux_Tint), the normal column of the stencil face metric and the width
+  !> of the neighbour in the series conductivity (Lib_Stencil_Metrics, Connection_Face_Flux) all read it. Measured on
   !> test/numerics-features/conjugate_two_layer (dx2/dx1 = 4, exact solution piecewise linear) before plan 14: correct
   !> max |T - T_exact| = 4.5e-09 K, every bc%Mg halved 2.9e+01 K; on multimat_Plate (equal spacing at every interface)
   !> the same sabotage changes nothing. The Darcy flux of type 2 reads it per side (Mod_Darcy, Connection_Terms).
@@ -251,6 +216,7 @@ contains
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
     use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
     use FUSS_Mod_GhostExchange, only: exchange_node_planes
+    use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     real(R8),               intent(in)    :: t, dt
@@ -306,9 +272,6 @@ contains
         write(*,'(A)')          '         Reduce the mesh velocity or the time step (lower vnn).'
         call fuss_abort ( 1 )
       endif
-
-      ! The interior face metric follows the moved cells (see Fill_Inverse_Metric)
-      call Fill_Inverse_Metric ( domain%blk(b) )
     enddo
 
     ! A block connection between two ranks builds its ghost metric from the
@@ -320,11 +283,16 @@ contains
     ! against that block's moved nodes (plan 11 stage 4).
     if ( nodeshift ) call Assert_Interface_Nodes ( domain )
 
-    ! The ghost-cell metrics are functions of the geometry that has just moved,
-    ! so they have to be rebuilt too. See Setup_BC_Metrics. (TEST ONLY
-    ! skip-bc-metrics-refresh keeps the stale ones: the red control of the
-    ! receding conjugate case.)
-    if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) call Setup_BC_Metrics ( domain, refresh = .true. )
+    ! The ghost-cell metrics and then the face metrics of the diffusive fluxes are functions of the geometry that has just
+    ! moved: rebuilt in that order (Setup_Face_Metrics reads bc%Mg(1) of the connections and the node planes brought
+    ! above). Computed once, the face metrics would keep the t = 0 geometry in every interior, wall and connection flux:
+    ! the stale inverse-metric red control of the chimera merge (2026-10-17) moved ATC 2.2 / 2.3 by 54 / 265 K,
+    ! invisible to the 1-vs-N gate. TEST ONLY skip-bc-metrics-refresh keeps both stale: the red control of the
+    ! receding conjugate case.
+    if ( .not. obj_mesh_motion%skip_bc_metrics_refresh ) then
+      call Setup_BC_Metrics ( domain, refresh = .true. )
+      call Setup_Face_Metrics ( domain )
+    endif
 
   end subroutine Update_Mesh
 

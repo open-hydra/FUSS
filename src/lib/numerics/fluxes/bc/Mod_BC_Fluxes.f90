@@ -13,7 +13,7 @@ contains
     use FUSS_Lib_BC_Fluxes_Connection
     use FUSS_Lib_BC_Fluxes_Wall
     use FUSS_Lib_BC_Fluxes_Wall_Ablating, only: BC_Wall_Ablating
-    use FUSS_Config_Types_m, only: obj_darcy, obj_ablation, obj_pyrolysis
+    use FUSS_Config_Types_m, only: obj_darcy
     use FUSS_Mod_Darcy, only: Darcy_First_Step_Pending
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -53,21 +53,14 @@ contains
           Fm = domain % bc(i) % f
           select case ( domain % bc(i) % type )
           
-            case (101,102) ! connection & chimera (101=block connect, 102=chimera)
-              if ( obj_pyrolysis%enabled ) then
-                ! k_s(T, chi) on both sides (plan 08 section 2.9; 101 only, type 2: guard 9);
-                ! q_if is the TEST ONLY dump of interface-flux.txt (plan 08 R5)
-                call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
-                                     domain % bc(i) % Tg , domain % bc(i) % matIDg, domain % bc(i) % q_if, &
-                                     chig = domain % bc(i) % chig )
-              elseif ( obj_ablation%dump_interface_flux ) then
-                ! TEST ONLY (plan 08 R5): keep the flux for interface-flux.txt
-                call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
-                                     domain % bc(i) % Tg , domain % bc(i) % matIDg, domain % bc(i) % q_if )
-              else
-                call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
-                                     domain % bc(i) % Tg , domain % bc(i) % matIDg )
-              endif
+            case (101) ! block connection: the share of the flux of the face that its owner left in this cell (Connection_Fluxes)
+              domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % Fc
+              ! TEST ONLY interface-flux.txt (plan 08 R5): the heat into the cell, the opposite of its residual share
+              domain % bc(i) % q_if = - domain % bc(i) % Fc
+
+            case (102) ! chimera: two-sided balance with the cell metric and the ghost metric
+              call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
+                                   domain % bc(i) % Tg , domain % bc(i) % matIDg )
 
             ! 300 (symmetry) and 0 (null): no flux across the face
 

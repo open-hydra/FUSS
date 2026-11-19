@@ -30,6 +30,7 @@ contains
     ! Check_Input, so the guards see it (upstream 3447dd9 sets it here). Do not move it back here.
     obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
+    obj_space_scheme%stencil_metric = ( trim(obj_space_scheme%diffusive_metric) == 'stencil' )
 
     ! Mesh motion. Derived here rather than registered directly, so that the
     ! INI exposes one readable keyword (`law`) instead of a bare on/off flag

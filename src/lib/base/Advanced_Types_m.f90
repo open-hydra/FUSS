@@ -10,6 +10,23 @@ module FUSS_Advanced_Types_m
   !! ------------------------------------------------------
   !! ------------------------------------------------------
   !! FUNDAMENTAL TYPES
+  !> Stencil face metric (Lib_Stencil_Metrics) of the interior faces of one block: Mf(i,j,k) is the face between cell
+  !> (i,j,k) and the next one along the direction
+  type :: face_metric_type
+    type(FUSS_tensor_3D_type), allocatable :: Mf(:,:,:)
+  end type face_metric_type
+
+  !> Stencil face metrics of the boundary faces of one block face (Lib_Stencil_Metrics), indexed by the two tangential
+  !> cell indices (Face_Tangential), allocated only on the block faces that have walls (wM, wset) or connections
+  !> that the record owns (cM): a thin 2-D block has two k faces of null records per cell, which carry nothing here.
+  !> wM(:,:,v,t1,t2): metric of the wall gradient, variant 1 with the ghost cells (flux), 2 one-sided inside the block
+  !> (ghost fill, wall output); cM: metric of a block connection
+  type :: boundary_metric_type
+    real(R8), allocatable :: wM(:,:,:,:,:)
+    logical,  allocatable :: wset(:,:)
+    real(R8), allocatable :: cM(:,:,:,:)
+  end type boundary_metric_type
+
   type :: block_type
     integer                                :: dim(3)           ! Number of cells in i-j-k (ghost not included)
     real(R8), allocatable                  :: vol(:,:,:)       ! Cell volume
@@ -23,9 +40,10 @@ module FUSS_Advanced_Types_m
     type(FUSS_vector_3D_type), allocatable :: node_disp(:,:,:) ! law = nodeshift: this step's displacement of the receding
                                                                ! face's nodes (Compute_Node_Recession; zero elsewhere)
     type(FUSS_tensor_3D_type), allocatable :: M(:,:,:)         ! Metric transformation tensor
-    type(FUSS_tensor_3D_type), allocatable :: Minv(:,:,:)      ! Inverse of M (interior cells filled, bounds of M), for the diffusive face metric
     type(FUSS_vector_3D_type), allocatable :: dl(:,:,:)        ! Average cell length (in i/j/k direction). eg: dl%c(1) is sqrt(dx**2+dy**2+dz**2) of the cell in the i direction
     type(FUSS_d_metrics_type)              :: dir(3)           ! Direction object. Contains: i-faces, j-faces, k-faces; eg: dir(1)%face(i,j,k)%n
+    type(face_metric_type)                 :: fm(3)            ! Stencil face metrics of the interior faces of the three directions
+    type(boundary_metric_type)             :: bm(6)            ! Stencil face metrics of the walls and connections of the six block faces
   end type block_type
 
   type :: bc_type
@@ -101,6 +119,11 @@ module FUSS_Advanced_Types_m
     ! flux of an open face; -1 where no wall BC has set it (the cell value is
     ! used there).
     real(R8) :: Tw_face = -1d0
+    ! One flux per connection face (101): the record of the same face seen from the other block, whether this record
+    ! computes the face (owner), and the share of this cell (heat into the cell, W) that the owner leaves in it
+    integer  :: partner = 0
+    logical  :: owner = .false.
+    real(R8) :: Fc = 0d0
     type(time_series_type) :: BCtime
     ! Ablating wall 306 (plan 08 section 2.1). Line 2 of bc.txt: lambda, T_inf
     ! and the two INPUT/ files (the B' table, registry index ibprime, 0 for
