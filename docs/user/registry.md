@@ -22,6 +22,8 @@
 | res-diter | 1 | > 0 |  no | Residual history iter frequency |
 | shell-diter | 1 | > 0 |  no | Shell update iter frequency |
 | ini-diter | 10000 | > 0 |  no | input.ini update iter frequency |
+| decomposition-map | none |  |  no | File of INPUT/ (name only, with the phase prefix) that gives the MPI rank of every block, in the format of the ATLAS mesh decomposer; none: blocks balanced by cell count |
+| ini-error | warn | warn, stop |  no | input.ini read again with an error: warn (the reading is not taken, the run goes on) or stop |
 | timer-diter | 0 | >= 0 |  no | Wall-clock timing report iter frequency (0 = off) |
 
 ## FUSS-Probes
@@ -68,12 +70,12 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | law | static | static ,  prescribed ,  translation ,  nodeshift |  no | Mesh motion law (nodeshift: the ablating faces 306 recede, plan 08) |
-| vel | 0.0 | real |  no | Rigid-translation velocity [m/s] |
+| vel | 0.0 |  |  no | Rigid-translation velocity [m/s] |
 | amp | 0.0 | >= 0 |  no | Prescribed-motion displacement amplitude per coordinate [m] |
-| kx | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying x [1/m] |
-| ky | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying y [1/m] |
-| kz | 0.0 | real |  no | Prescribed-motion wavenumbers multiplying z [1/m] |
-| omega | 0.0 | real |  no | Prescribed-motion angular frequency [1/s] |
+| kx | 0.0 |  |  no | Prescribed-motion wavenumbers multiplying x [1/m] |
+| ky | 0.0 |  |  no | Prescribed-motion wavenumbers multiplying y [1/m] |
+| kz | 0.0 |  |  no | Prescribed-motion wavenumbers multiplying z [1/m] |
+| omega | 0.0 |  |  no | Prescribed-motion angular frequency [1/s] |
 | gcl-tolerance | 1.0e-10 | > 0 |  no | Max relative discrete-GCL residual before the run is stopped |
 | taper-to-boundary | .false. | logical |  no | Taper prescribed motion to zero on the block boundary |
 | skip-bc-metrics-refresh | .false. | logical |  no | TEST ONLY: do not rebuild the ghost-cell metrics after the mesh moves |
@@ -93,7 +95,7 @@
 |-----------|---------|---------|----------|-------------|
 | solver | tridiag | tridiag ,  pseudo |  no | Pressure solver: tridiag = line-implicit sweeps along the open-face direction of each block (pseudo on a block whose open faces lie in several directions, or none); pseudo = damped Jacobi everywhere |
 | tol | 1.0e-8 | > 0 |  no | Stop test of the pressure sweeps: max cell mass residual <= tol * max(|face flux|, |source|, |storage|) |
-| max-iter | 100000 | > 0 |  no | Sweep cap per material step; reached -> error stop 3 |
+| max-iter | 100000 | > 0 |  no | Sweep cap per material step; reached -> the run stops (exit code 1) |
 | p-ref | 101325.0 | > 0 |  no | Pressure scale [Pa] of the reported per-sweep change (not the stop test) |
 | p-init | 101325.0 | > 0 |  no | Uniform gas pressure [Pa] on newrun; ignored on restart |
 | p-wall | 101325.0 | > 0 |  no | Dirichlet gas pressure [Pa] on an open face whose bc.txt line carries no p_w of its own |
@@ -109,11 +111,11 @@
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
 | seb-tol | 1.0e-8 | > 0 |  no | Stop test of the surface energy balance of BC 306: |dT_w| <= seb-tol*T_w, |F| <= seb-tol*max|term| and |d(beta)| <= seb-tol |
-| seb-max-iter | 50 | > 0 |  no | Iteration cap of the surface energy balance; reached -> error stop 3 |
+| seb-max-iter | 50 | > 0 |  no | Iteration cap of the surface energy balance; reached -> the run stops (exit code 1) |
 | no-char | .false. | logical |  no | TEST ONLY: B'_ch = mdot_ch = 0 on every 306 face; h_w is still read from the B' table |
-| bprime-out-of-range | clamp | clamp ,  abort |  no | A B' table query outside the table: clamp (PATO's behaviour, counted in seb.txt) or abort (error stop 3 at the first p or B'g outside) |
-| min-thickness | 0.0 | >= 0 |  no | law = nodeshift: a receding line shorter than this stops the run (error stop 2) [m]; 0 = 10 x the smallest initial cell on the receding lines, at most half the shortest line, resolved at a new run's setup and kept by a restart |
-| sdot-override | -1.0 | real |  no | TEST ONLY: the recession rate of every 306 face [m/s] (kinematic recession); < 0 = off |
+| bprime-out-of-range | clamp | clamp ,  abort |  no | A B' table query outside the table: clamp (PATO's behaviour, counted in seb.txt) or abort (the run stops (exit code 1) at the first p or B'g outside) |
+| min-thickness | 0.0 | >= 0 |  no | law = nodeshift: a receding line shorter than this stops the run (exit code 1) [m]; 0 = 10 x the smallest initial cell on the receding lines, at most half the shortest line, resolved at a new run's setup and kept by a restart |
+| sdot-override | -1.0 |  |  no | TEST ONLY: the recession rate of every 306 face [m/s] (kinematic recession); < 0 = off |
 | dump-interface-flux | .false. | logical |  no | TEST ONLY: write the flux of every 101 face to OUTPUT/<prefix>interface-flux.txt at each output |
 | perturb-interface-node | .false. | logical |  no | TEST ONLY: at step 2 move the first shared 101 node of the lowest receding block by 1e-12 m in x (the interface-node assertion must stop the run) |
 | smoothing-width | 5 | >= 1 |  no | law = nodeshift: nodes of the stencil that averages the surface recession rate along each surface grid line (thesis Eq. 5.1, truncated at a line end; odd; 1 = no smoothing) |
