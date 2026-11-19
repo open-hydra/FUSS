@@ -339,3 +339,26 @@ every case here starts from its initial condition.
     remap_uniform, smoothing, receding_front): the S3 code with only the writer patched to 17 digits prints all 34 gate
     lines exactly as S4 does, so the digits read, not the solver, move them.
   - Record: `plan-bucket/records/2026-11-18-plan14-S4/` (gates A0, A, B, C, RED-1, RED-2, D-S4-1, fresh clone, census, F2).
+- **2026-11-19, plan 14 S6 (upstream `66c8091`: input checks and `ini-error`, every stop with exit code 1, the restart
+  counters in every solution file, the solution due at the last iteration, decomposition-map; merged by `f964d8d`): 2023
+  rows of S5 compared, 6 added. 2029 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `95b1c12b`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `bc1d395` (`ae75390` changes only `coupled307/verify_faces.py`, a physics-gate reader that no
+    `FUSS.sh` or `run_regression.sh` path reads), compared with the S5 record (`3887f23`, 2023 rows, the S4 manifest) by
+    plan 14's `moved.py`. The gate battery's `-k` run (`1008b48c`) and the mpi preset's binary at one rank (`-m 1 -k`,
+    `c0a2e1ed`) give the same manifest. Physics gates 34/34 (coupled307 on `ae75390`); CTest 31/31 serial, 10/10
+    `needs-mpi`.
+  - **Attribution:**
+
+    | class (S5 → S6) | rows | measured | cause | evidence |
+    |---|---|---|---|---|
+    | identical-values | 860 (every field row: `field.tec` 74, `field<n>.tec` 772, `field-prolongated.tec` 7, `field-level<n>.tec` 7) | values equal; five `DATASETAUXDATA` records added after the last zone (`CYCLE`, `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`) | `34b48cb`: the restart counters | `moved.py`: every one of the 860 and nothing else |
+    | only in B (added) | 6: `receding_front/t2` `field20.tec` + `wall20.tec`, `adiabatic0d/T1000` and `darcy/adiabatic0d_type2` `field32.tec` + `wall32.tec` | the solution due at the last iteration (by `sol-diter` in t2, by `sol-dtime` in the other two) | `a9e7c7f` | variant `v-a9e7c7f` (that write disabled): S5's 2023 rows, 1163 bytes + the 860 above |
+    | bytes | 1163 (wall files, residual histories, the 111 probe rows, energy budgets, `seb.txt`, `darcy.txt`, `bc306-state.dat`, interface fluxes, diagnostics) | — | — | — |
+
+    No value moved, no row removed: F1's stop edits inside the time step changed no byte (no `max<=1e-12` row).
+  - **Physics numbers that moved (all PASS):** `ablation_nodeshift_inert` "identical: 28 files" → "30 files" (the two runs
+    it compares now also write `field4.tec` and `wall4.tec`, due at their last step: `a9e7c7f`; variant `v-a9e7c7f`
+    prints 28); the other 33 lines as at S5.
+  - Record: `plan-bucket/records/2026-11-19-plan14-S6/` (merge script and its replay, follow-on scripts, red controls
+    R-1..R-8, variants, census of the readers on real files).
