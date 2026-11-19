@@ -11,9 +11,9 @@
 #               Check_Input runs too early to see -- and that was only caught by
 #               trying them. Hence this file.
 #
-#               Both the error TEXT and the EXIT CODE are checked. The codes
-#               are 1 for input validation and 2 for geometry/mesh, set by
-#               plan 10 D2; before that every abort used Fortran's bare `stop`,
+#               Both the error TEXT and the EXIT CODE are checked. Every stop
+#               exits 1 since plan 14 S6 (D3; plan 10 D2's 1/2/3 retired), so the
+#               TEXT names the guard; before plan 10 every abort used Fortran's bare `stop`,
 #               which exits 0, so a guard that fired and a run that succeeded
 #               were indistinguishable by status and only the text could be
 #               trusted. Checking both means a guard that stops for the WRONG
@@ -186,8 +186,8 @@ demo restart    1 "cannot be restarted"                             "law=prescri
 # tangled:  an oscillation whose amplitude dwarfs the cell size folds cells
 #           inside out, which is a different failure and a different message.
 # ---------------------------------------------------------------------------
-demo too_fast 2 "mesh moved too far in one time step" "vel=1.0 0.0 0.0"
-demo tangled  2 "mesh update failed" \
+demo too_fast 1 "mesh moved too far in one time step" "vel=1.0 0.0 0.0"
+demo tangled  1 "mesh update failed" \
               "law=prescribed" "amp=0.05 0.05 0.0" "kx=500.0 500.0 0.0" \
               "ky=500.0 500.0 0.0" "omega=1.0"
 
@@ -605,12 +605,12 @@ demo_on "$BASE_ABL_PYRO" abl_pw_outside_gas 1 "lies outside the gas table of the
 1.0e6 2.0e6 0.1 2.0e6 0.0 1.0 0.0 300.0"
 # exit 3: the solve. A p_w inside the gas table but outside the B' table's p range clamps the lookup;
 # bprime-out-of-range = abort stops there. rhoeUeCH0 1e9 with two Newton iterations cannot converge.
-demo_on "$BASE_ABL_PYRO" abl_bprime_abort 3 "the B' table query left the table (bprime-out-of-range = abort)" \
+demo_on "$BASE_ABL_PYRO" abl_bprime_abort 1 "the B' table query left the table (bprime-out-of-range = abort)" \
     "SEC:FUSS-Ablation:bprime-out-of-range=abort" \
     "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
 0.0 3.0e5 0.1 2.0e6 0.0 1.0 0.0 300.0
 1.0e6 3.0e5 0.1 2.0e6 0.0 1.0 0.0 300.0"
-demo_on "$BASE_ABL_PYRO" seb_fail 3 "SEB did not converge" "SEC:FUSS-Ablation:seb-max-iter=2" \
+demo_on "$BASE_ABL_PYRO" seb_fail 1 "SEB did not converge" "SEC:FUSS-Ablation:seb-max-iter=2" \
     "FILE:INPUT/env_demo.dat:$ABL_ENV_HDR
 0.0 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0
 1.0e6 101325.0 1.0e9 2.0e6 0.0 1.0 0.0 300.0"
@@ -643,11 +643,11 @@ demo_on "$BASE_ABL_2BLK" abl_lline_mismatch 1 "on lines of different length" \
     "BCBLK:1:1:301:    0.000000E+00," "BCFACE:3:306:$ABL_306_LINE"
 # exit 2, the moving surface. 5.3e-3 m/s moves the 2.5 mm surface cell of demo_base by twice its size in the first
 # 0.9375 s step: the remap's sweep ratio stops it while 45 mm of the 50 mm line remain (min-thickness 25 mm).
-demo_on "$BASE_ABL" recession_too_fast 2 "the mesh moved too far in one time step" "sdot-override=5.3e-3"
+demo_on "$BASE_ABL" recession_too_fast 1 "the mesh moved too far in one time step" "sdot-override=5.3e-3"
 # min-thickness = the line itself: consumed at the first step, whatever the rate
-demo_on "$BASE_ABL" block_consumed     2 "ablating block consumed" "SEC:FUSS-Ablation:min-thickness=0.05"
+demo_on "$BASE_ABL" block_consumed     1 "ablating block consumed" "SEC:FUSS-Ablation:min-thickness=0.05"
 # R5 with the TEST ONLY perturbation of one shared node at step 2: the interface assertion stops it
-demo_on "$BASE_R5" abl_node_mismatch   2 "the mesh tore at a block interface" "SEC:FUSS-Ablation:perturb-interface-node=true"
+demo_on "$BASE_R5" abl_node_mismatch   1 "the mesh tore at a block interface" "SEC:FUSS-Ablation:perturb-interface-node=true"
 # Pyrolysis on the receding mesh (plan 08 stage C): the remap's fixed-size work vectors hold 64 sub-phases (reactions);
 # 65 are refused at the first remap (64 run: checked 2026-10-13). The conservation audit (error stop 2) cannot fire on a
 # correct remap; its demonstration is a scratch build (plan-bucket/records/2026-10-13-plan08-stageC/).
@@ -840,7 +840,7 @@ open("INPUT/properties.dat", "w").write("\n".join(p[:3] + ["I=%d, F=POINT" % cut
 bc = open("INPUT/bc.txt").read()
 assert "1.273150E+03" in bc
 open("INPUT/bc.txt", "w").write(bc.replace("1.273150E+03", "1.900000E+03"))'
-[ "$NMPI" -gt 0 ] || demo_on "$BASE" t_outside_table 3 "outside the properties table" "PY:$T_CUT"
+[ "$NMPI" -gt 0 ] || demo_on "$BASE" t_outside_table 1 "outside the properties table" "PY:$T_CUT"
 
 echo
 [ "$NMPI" -gt 1 ] && echo "$nmpi_ref demo(s) refused as a whole by an MPI guard, code 1"
