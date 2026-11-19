@@ -124,6 +124,9 @@ configures its own tree, `build-mpi/`, and builds executables of its own, `bin/F
 - With MPI the Fortran sources are compiled without `-fno-underscoring` (the MPI library exports the underscored
   names) and with `-fallow-argument-mismatch` (gfortran 10 and later reject one MPI routine called with a scalar and
   with an array).
+- In this build and in the serial one, `src/lib/numerics/space/Lib_Stencil_Metrics.f90` is compiled with
+  `-ffp-contract=off` (gfortran): the two builds contracted its face-metric arithmetic into fused multiply-adds
+  differently, and the MPI binary on one rank then differed from the serial binary in the last bits on skewed meshes.
 - `test/check_build_config.sh --preset mpi` checks `build-mpi/` against the preset; without `--preset` it checks
   `build/` against `default`.
 
