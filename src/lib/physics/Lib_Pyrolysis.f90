@@ -103,7 +103,7 @@ contains
 
 
   !> Gas properties at (p, T): linear in T between integer rows, linear in p
-  !> between the two bracketing p-levels. Outside the table: error stop 3.
+  !> between the two bracketing p-levels. Outside the table: the run stops (exit code 1).
   subroutine Gas_State ( m, p, T, W, h_pg, mu, cell )
     implicit none
     integer,  intent(in)  :: m
@@ -122,9 +122,9 @@ contains
           mt%p_lev(1), ', ', mt%p_lev(mt%Np)
         if ( present(cell) ) write(*,'(A,4I6)') '         at b, i, j, k =', cell
 #ifdef USE_MPI
-        call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+        call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-        error stop 3
+        error stop 1
       endif
       if ( mt%Np == 1 ) then
         ip = 1 ; ipp = 1 ; wp = 0.0d0
@@ -194,7 +194,7 @@ contains
 
   !> Invert E -> T by a bracketed Newton iteration on f(T) = E(T; chi) - E
   !> (plan 06 §3.2). Bracket = the material's [T_brk_lo, T_brk_hi]; outside it
-  !> the run stops (error stop 3) with the cell, its energy and its chi. A
+  !> the run stops (exit code 1) with the cell, its energy and its chi. A
   !> Newton candidate outside the current bracket is replaced by a bisection
   !> step, which does not count as converged; convergence is a Newton step of
   !> at most NEWTON_DT_TOL or |f| <= NEWTON_REL_F |E|.
@@ -216,9 +216,9 @@ contains
     if ( E < Ea .or. E > Eb ) then
       call Report( 'energy outside table range' )
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
 
     T = min( max( T_guess, Ta ), Tb )
@@ -263,9 +263,9 @@ contains
     if ( .not. converged ) then
       call Report( 'Newton did not converge' )
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
     if ( .false. ) T = T + 0.0d0 * p
 
@@ -461,9 +461,9 @@ contains
     if ( E < Ea .or. E > Eb ) then
       call Report( 'energy outside table range' )
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
 
     T = min( max( T_guess, Ta ), Tb )
@@ -501,9 +501,9 @@ contains
     if ( .not. converged ) then
       call Report( 'Newton did not converge' )
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
 
   contains
@@ -541,7 +541,7 @@ contains
   !> Lagged coefficients of the pressure equation for one cell (plan 07
   !> section 3.3; PATO DarcyLawMassModel.C:113-119): eta = eps_pg W/(R T)
   !> (eta p = eps_pg rho_g, the stored gas mass of the equation of state) and
-  !> Gamma = rho_g K/mu, with the gas state range-checked (error stop 3 names
+  !> Gamma = rho_g K/mu, with the gas state range-checked (the stop, exit code 1, names
   !> the cell). Also returns eps_pg, rho_g and the gas enthalpy.
   subroutine Darcy_Cell_Coeffs ( m, p, T, chi, cell, eta, Gam, eps, rho_g, h_pg )
     implicit none

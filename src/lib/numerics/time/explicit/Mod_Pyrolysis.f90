@@ -130,7 +130,7 @@ contains
         if ( dT > 1.0d-9 .or. dchi > 1.0d-14 ) then
           write(*,'(A)') ' [ERROR] pyrolysis: field-list round trip does not reproduce the state'
           write(*,'(A,4I6,A,ES12.4,A,ES12.4)') '         b, i, j, k =', b, i, j, k, '  |dT| = ', dT, '  |dchi| = ', dchi
-          call fuss_abort ( 3 )
+          call fuss_abort ( 1 )
         endif
         domain%blk(b)%T(i,j,k)     = T0
         domain%blk(b)%chi(:,i,j,k) = chi0

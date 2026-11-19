@@ -47,7 +47,7 @@ contains
         write(*,'(A)')            ' [ERROR] mesh geometry is invalid'
         write(*,'(A,A)')          '         ', trim(message)
         write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
-        call fuss_abort ( 2 )
+        call fuss_abort ( 1 )
       endif
 
       call Fill_Inverse_Metric ( domain % blk(b) )
@@ -246,7 +246,7 @@ contains
         write(*,'(A)')         ' [ERROR] mesh update failed'
         write(*,'(A,A)')       '         ', trim(message)
         write(*,'(A,4(I0,A))') '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
-        call fuss_abort ( 2 )
+        call fuss_abort ( 1 )
       endif
 
       ! Assert the discrete GCL every step. A violation means the geometry and
@@ -257,7 +257,7 @@ contains
         write(*,'(A,ES12.4,A,ES12.4)') '         relative residual ', gcl_rel, &
                                        ' exceeds tolerance ', obj_mesh_motion%gcl_tol
         write(*,'(A,I0)')       '         block ', b
-        call fuss_abort ( 2 )
+        call fuss_abort ( 1 )
       endif
 
       ! Moving-mesh stability. The GCL says the geometry is self-consistent; it
@@ -272,7 +272,7 @@ contains
         write(*,'(A)')          '         the conservative remap is unstable at or above 1.'
         write(*,'(A,4(I0,A))')  '         worst at block ', b, ', cell (', si, ',', sj, ',', sk, ')'
         write(*,'(A)')          '         Reduce the mesh velocity or the time step (lower vnn).'
-        call fuss_abort ( 2 )
+        call fuss_abort ( 1 )
       endif
 
       ! The interior face metric follows the moved cells (see Fill_Inverse_Metric)

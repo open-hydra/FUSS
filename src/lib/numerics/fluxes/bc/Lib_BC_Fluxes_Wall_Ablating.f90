@@ -22,7 +22,7 @@
 !> tables; at every Newton iterate beta is taken to its Picard fixed point
 !> (|d beta| <= seb-tol). Converged when, at the current iterate, the step
 !> |dT_w| <= seb-tol T_w and |F| <= seb-tol max|term|; that iterate is
-!> returned. The cap seb-max-iter (on either loop) is an error stop 3 (an
+!> returned. The cap seb-max-iter (on either loop) stops the run, exit code 1 (an
 !> unconverged T_w would feed the recession).
 !>
 !> Chemistry off with a zero emissivity: the routine solves BC 303's balance
@@ -193,9 +193,9 @@ contains
       if ( abs(dbeta) > tol ) write(*,'(A,ES14.6,A,ES12.4)') '         the blowing correction did not settle: beta = ', &
         beta, '  last change ', dbeta
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
 
     if ( trim(obj_ablation%bprime_out_of_range) == 'abort' .and. ( clamped(1) .or. clamped(2) .or. clamped(4) ) ) then
@@ -203,9 +203,9 @@ contains
       write(*,'(A,4I6)') '         face (i, j, k, f) =', Im, Jm, Km, Fm
       write(*,'(A,ES14.6,A,ES14.6,A,ES14.6)') '         p_w = ', bc%pw, '  B''g = ', Bpg, '  T_w = ', Tw
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
     if ( count_clamps ) then
       where ( clamped ) bc%nclamp = bc%nclamp + 1

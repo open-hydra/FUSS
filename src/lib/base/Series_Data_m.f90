@@ -1,5 +1,4 @@
 module FUSS_Series_Data_m
-  use FUSS_Mod_MPI, only: fuss_abort
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -40,6 +39,7 @@ contains
   !> At least two rows, t strictly increasing; any other line, a short row or
   !> a non-finite value stops the run naming the file and the line.
   subroutine time_table_load ( self, file, n )
+    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     class(time_table_t), intent(inout) :: self
     character(len=*),    intent(in)    :: file
@@ -53,7 +53,7 @@ contains
     open( newunit=u, file=trim(file), status='old', action='read', iostat=ios )
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] env table '//trim(file)//': cannot open'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'time table error (see above)' )
     endif
     allocate( rows(n+1, 64) )
     k = 0 ; ln = 0
@@ -79,7 +79,7 @@ contains
     close( u )
     if ( k < 2 ) then
       write(*,'(A)') ' [ERROR] env table '//trim(file)//': fewer than two rows'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'time table error (see above)' )
     endif
     self%n = n
     self%nrow = k
@@ -94,7 +94,7 @@ contains
     subroutine Fail ( reason )
       character(len=*), intent(in) :: reason
       write(*,'(A)') ' [ERROR] env table '//trim(file)//' line '//Itoa(ln)//': '//reason
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'time table error (see above)' )
     end subroutine Fail
 
     subroutine Grow ()

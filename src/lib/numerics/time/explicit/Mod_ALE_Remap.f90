@@ -171,13 +171,13 @@ contains
                    domain%blk(b)%T(i,j,k) )
         ! co_T extrapolates an enthalpy outside the table (upstream f3401c5) and leaves the stop to
         ! Check_And_Fix_State, which the stages reach only after reading co_Kappa(T): stop here, as
-        ! co_T did before (code 3; the master stops the run after the parallel region, and until
+        ! co_T did before (exit code 1; the master stops the run after the parallel region, and until
         ! then T is the table's edge, so the lookups of the rest of the step stay inside it)
         if ( isnan(domain%blk(b)%T(i,j,k)) .or. domain%blk(b)%T(i,j,k) <  real(obj_table%Tmin, R8) &
                                            .or. domain%blk(b)%T(i,j,k) >= real(obj_table%Tmax, R8) ) then
           write(*,'(A,4I6,ES24.15)') ' [ERROR] remapped enthalpy outside the properties table: b, i, j, k, h = ', &
             b, i, j, k, domain%blk(b)%TO(i,j,k)
-          call fuss_abort_in_thread ( 3, can_continue = .true. )
+          call fuss_abort_in_thread ( 1, can_continue = .true. )
           if ( domain%blk(b)%T(i,j,k) >= real(obj_table%Tmax, R8) ) then
             domain%blk(b)%T(i,j,k) = real(obj_table%Tmax - 1, R8)
           else
@@ -214,7 +214,7 @@ contains
   !> face), the conservation audit (decision E-D9): for E, the total sub-phase
   !> mass and (type 2) G, sum q_new V_new - sum q_old V_old must equal the sum
   !> of q_up dV_f over the block-boundary faces, the values the remap used, to
-  !> 1e-14 of sum |q_old| V_old -- else error stop 2.
+  !> 1e-14 of sum |q_old| V_old -- else the run stops (exit code 1).
   subroutine Remap_Pyrolysis_ALE ( domain )
     use FUSS_Advanced_Types_m
     use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
@@ -507,9 +507,9 @@ contains
         write(*,'(A,ES12.4,A,ES12.4,A,ES12.4)') '         sum q_new V_new - sum q_old V_old = ', lhs(a), &
           ', sum of boundary sweeps = ', rhs(a), ', tolerance ', tol
 #ifdef USE_MPI
-        call fuss_abort_in_thread ( 2 )   ! with MPI (plan 11); the line below is then not reached
+        call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-        error stop 2
+        error stop 1
       endif
     enddo
 

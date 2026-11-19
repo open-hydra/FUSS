@@ -8,7 +8,7 @@
 !> is material i of phase.txt. Structural failures stop here on every rank
 !> (error stop 1); value checks and the banner are Check_Pyrolysis_Tables (root).
 module FUSS_Load_Pyrolysis
-  use FUSS_Mod_MPI, only: fuss_abort
+  use FUSS_Mod_MPI, only: mpi_stop_all
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -35,7 +35,7 @@ contains
 
     if ( obj_table%n < 1 ) then
       write(*,'(A)') ERR//'no material in phase.txt'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
     obj_pyrolysis%nmat = obj_table%n
     if ( allocated(obj_pyrolysis%mat) ) deallocate( obj_pyrolysis%mat )
@@ -60,7 +60,7 @@ contains
           write(*,'(A)') ERR//'empty Newton bracket for material '//trim(mt%name)
           write(*,'(A,I0,A,I0,A,I0,A,I0,A)') '         virgin/char T range [', mt%Tlo_s, ', ', mt%Thi_s, &
             '] K, gas T range [', mt%Tlo_g, ', ', mt%Thi_g, '] K'
-          call fuss_abort ( 1 )
+          call mpi_stop_all ( 'pyrolysis material error (see above)' )
         endif
       end associate
     enddo
@@ -92,7 +92,7 @@ contains
     open( newunit=u, file=trim(file), status='old', action='read', iostat=ios )
     if ( ios /= 0 ) then
       write(*,'(A)') ERR//'cannot open '//trim(file)
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
 
     ! Tokenise: key = first blank-delimited token, value = the rest.
@@ -233,7 +233,7 @@ contains
       else
         write(*,'(A)') ERR//trim(file)//': '//reason
       endif
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     end subroutine Fail
 
     function Find_Key ( key, b0, b1 ) result ( idx )
@@ -327,12 +327,12 @@ contains
     ios = tec_read_points_multivars( orion, 7, trim(file) )
     if ( ios /= 0 .or. .not. allocated(orion%block) ) then
       write(*,'(A)') ERR//'cannot read '//trim(file)
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
     if ( size(orion%block) /= obj_pyrolysis%nmat ) then
       write(*,'(A)') ERR//trim(file)//': '//Itoa(size(orion%block))//' zone(s), expected one per material ('// &
         Itoa(obj_pyrolysis%nmat)//')'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
 
     do m = 1, obj_pyrolysis%nmat
@@ -366,7 +366,7 @@ contains
           if ( Tlo /= mt%Tlo_s .or. Thi /= mt%Thi_s ) then
             write(*,'(A)') ERR//trim(file)//' zone '//Itoa(m)//': T range ['//Itoa(Tlo)//', '//Itoa(Thi)// &
               '] K differs from virgin.dat ['//Itoa(mt%Tlo_s)//', '//Itoa(mt%Thi_s)//'] K'
-            call fuss_abort ( 1 )
+            call mpi_stop_all ( 'pyrolysis material error (see above)' )
           endif
           allocate( mt%cp_c(Tlo:Thi), mt%h_c(Tlo:Thi), mt%k_c(Tlo:Thi), mt%em_c(Tlo:Thi), mt%ab_c(Tlo:Thi) )
           mt%cp_c(Tlo:Thi) = orion%block(m)%vars(1,1:n,1,1)
@@ -385,7 +385,7 @@ contains
       integer,          intent(in) :: zone, row
       character(len=*), intent(in) :: reason
       write(*,'(A)') ERR//trim(file)//' zone '//Itoa(zone)//' row '//Itoa(row)//': '//reason
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     end subroutine Fail
 
   end subroutine Read_Solid_Table
@@ -408,13 +408,13 @@ contains
     ios = tec_read_points_multivars( orion, 4, trim(file) )
     if ( ios /= 0 .or. .not. allocated(orion%block) ) then
       write(*,'(A)') ERR//'cannot read '//trim(file)
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
     nz = size(orion%block)
     if ( nz < 1 .or. mod( nz, obj_pyrolysis%nmat ) /= 0 ) then
       write(*,'(A)') ERR//trim(file)//': '//Itoa(nz)//' zone(s) is not a multiple of the number of materials ('// &
         Itoa(obj_pyrolysis%nmat)//')'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     endif
     Np = nz / obj_pyrolysis%nmat
 
@@ -462,7 +462,7 @@ contains
       integer,          intent(in) :: zone, row
       character(len=*), intent(in) :: reason
       write(*,'(A)') ERR//trim(file)//' zone '//Itoa(zone)//' row '//Itoa(row)//': '//reason
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'pyrolysis material error (see above)' )
     end subroutine Fail
 
   end subroutine Read_Gas_Table

@@ -32,7 +32,7 @@ contains
                   '> 0', .false. )
 
     call reg%add( trim(section), 'seb-max-iter', obj_ablation%seb_max_iter, '50', &
-                  'Iteration cap of the surface energy balance; reached -> error stop 3', &
+                  'Iteration cap of the surface energy balance; reached -> the run stops (exit code 1)', &
                   '> 0', .false. )
 
     call reg%add( trim(section), 'no-char', obj_ablation%no_char, '.false.', &
@@ -41,11 +41,11 @@ contains
 
     call reg%add( trim(section), 'bprime-out-of-range', obj_ablation%bprime_out_of_range, 'clamp', &
                   'A B'' table query outside the table: clamp (PATO''s behaviour, counted in seb.txt) or abort '// &
-                  '(error stop 3 at the first p or B''g outside)', &
+                  '(the run stops (exit code 1) at the first p or B''g outside)', &
                   'clamp ,  abort', .false. )
 
     call reg%add( trim(section), 'min-thickness', obj_ablation%min_thickness, '0.0', &
-                  'law = nodeshift: a receding line shorter than this stops the run (error stop 2) [m]; 0 = 10 x the '// &
+                  'law = nodeshift: a receding line shorter than this stops the run (exit code 1) [m]; 0 = 10 x the '// &
                   'smallest initial cell on the receding lines, at most half the shortest line, resolved at a new '// &
                   'run''s setup and kept by a restart', &
                   '>= 0', .false. )

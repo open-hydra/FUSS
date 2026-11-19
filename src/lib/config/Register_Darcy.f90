@@ -46,7 +46,7 @@ contains
                   '> 0', .false. )
 
     call reg%add( trim(section), 'max-iter', obj_darcy%max_iter, '100000', &
-                  'Sweep cap per material step; reached -> error stop 3', &
+                  'Sweep cap per material step; reached -> the run stops (exit code 1)', &
                   '> 0', .false. )
 
     call reg%add( trim(section), 'p-ref', obj_darcy%p_ref, '101325.0', &

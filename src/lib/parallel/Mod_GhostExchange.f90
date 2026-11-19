@@ -196,7 +196,8 @@ contains
 
     if (.not. allocated(ghost_scheds)) call allocate_exchange_schedules(lev)
     if (lev < 1 .or. lev > size(ghost_scheds)) then
-      error stop 'set_active_mg_level: level outside allocated exchange schedules'
+      write(*,'(A)') ' [ERROR] set_active_mg_level: level outside allocated exchange schedules'
+      error stop 1
     end if
     ghost_sched => ghost_scheds(lev)
   end subroutine set_active_mg_level
@@ -455,7 +456,7 @@ contains
       if (.not. (e%exchange .and. e%has_ghost)) cycle
       if (e%code == 0) then
         write(*,'(A)') ' [ERROR] init_halo_fields: no accessor code for the exchanged field '//trim(e%name)
-        call fuss_abort(1)
+        call mpi_stop_all('halo exchange set-up error (see above)')
       end if
       call init_halo_field(ghost_sched%halo(fl), e%code, e%ncomp)
     end do
@@ -481,7 +482,7 @@ contains
       case (FLD_P_PG); h%tag = TAG_P_PG
       case default
         write(*,'(A,I0)') ' [ERROR] init_halo_field: no MPI tag for the exchanged field of code ', code
-        call fuss_abort(1)
+        call mpi_stop_all('halo exchange set-up error (see above)')
     end select
     entry_size = ncomp * gc
 

@@ -318,7 +318,7 @@ module FUSS_Config_Types_m
     ! USER-DEFINED INPUTS
     character(len=llen) :: solver = 'tridiag'        ! tridiag | pseudo
     real(R8) :: tol = 1.0d-8                         ! mass-residual stop test, relative to R_ref
-    integer  :: max_iter = 100000                    ! sweep cap per material step -> error stop 3
+    integer  :: max_iter = 100000                    ! sweep cap per material step -> the run stops (exit code 1)
     real(R8) :: p_ref = 101325.0d0                   ! scale of the reported per-sweep change
     real(R8) :: p_init = 101325.0d0                  ! uniform p_pg on newrun [Pa]
     real(R8) :: p_wall = 101325.0d0                  ! Dirichlet value on open faces without their own p_w [Pa]
@@ -346,7 +346,7 @@ module FUSS_Config_Types_m
     character(len=llen) :: description = 'none'
     ! USER-DEFINED INPUTS
     real(R8) :: seb_tol = 1.0d-8                     ! surface-balance Newton/Picard stop test
-    integer  :: seb_max_iter = 50                    ! iteration cap -> error stop 3
+    integer  :: seb_max_iter = 50                    ! iteration cap -> the run stops (exit code 1)
     logical  :: no_char = .false.                    ! TEST ONLY: B'_ch = mdot_ch = 0
     character(len=llen) :: bprime_out_of_range = 'clamp'   ! clamp | abort
     real(R8) :: min_thickness = 0.0d0                ! law = nodeshift: thinnest receding line [m]; 0 = min(10 x smallest cell, line/2)

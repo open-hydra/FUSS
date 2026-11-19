@@ -48,7 +48,7 @@
 !> The surface-node map is built once, at setup, by exact coordinate equality
 !> of the block-boundary nodes (they come from one MESH/ file).
 module FUSS_Mod_Recession
-  use FUSS_Mod_MPI, only: fuss_abort
+  use FUSS_Mod_MPI, only: fuss_abort, mpi_stop_all
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Series_Data_m, only: time_table_t
 
@@ -196,7 +196,7 @@ contains
     if ( trim(obj_ablation%coupled_env_file) /= 'none' ) then
       if ( obj_ablation%n_coupled == 0 ) then
         write(*,'(A)') ' [ERROR] [FUSS-Ablation] coupled-env-file is set, but bc.txt has no coupled ablating wall (307).'
-        call fuss_abort ( 1 )
+        call mpi_stop_all ( 'ablating wall set-up error (see above)' )
       endif
       call Load_Face_Blocks ( domain, 'INPUT/'//trim(obj_ablation%coupled_env_file), blocks )
       if ( .not. blocks ) then
@@ -206,7 +206,7 @@ contains
           if ( .not. ( v(1) > 0.0d0 ) .or. v(2) < 0.0d0 .or. v(4) < 0.0d0 ) then
             write(*,'(A,I0,A)') ' [ERROR] coupled-env-file INPUT/'//trim(obj_ablation%coupled_env_file)//' row ', i, &
               ': needs p_w > 0, rhoeUeCH >= 0 and q_rad >= 0'
-            call fuss_abort ( 1 )
+            call mpi_stop_all ( 'ablating wall set-up error (see above)' )
           endif
         enddo
       endif
@@ -220,7 +220,7 @@ contains
     if ( ios /= 0 ) then
       write(*,'(A)') ' [ERROR] restart with ablating faces (306): '//trim(file)//' is missing'
       write(*,'(A)') '         it holds each face''s recession, wall temperature, recession rate and Picard start'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'ablating wall set-up error (see above)' )
     endif
     allocate( seen(domain%nbound) )
     seen = .false.
@@ -259,7 +259,7 @@ contains
       if ( ( domain%bc(i)%type == 306 .or. domain%bc(i)%type == 307 ) .and. .not. seen(i) ) then
         write(*,'(A,I0,A)') ' [ERROR] '//trim(file)//': no row for the 306 face of bc.txt record ', i, &
           ' (written by a run with another bc.txt?)'
-        call fuss_abort ( 1 )
+        call mpi_stop_all ( 'ablating wall set-up error (see above)' )
       endif
     enddo
 
@@ -268,7 +268,7 @@ contains
     subroutine Fail ( reason )
       character(len=*), intent(in) :: reason
       write(*,'(A,I0,A)') ' [ERROR] '//trim(file)//' line ', ln, ': '//reason
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'ablating wall set-up error (see above)' )
     end subroutine Fail
 
   end subroutine Setup_Ablation
@@ -379,7 +379,7 @@ contains
       write(*,'(A,I0,A,5(1X,I0),A)') ' [ERROR] coupled-env-file '//trim(file)//': no "// face" block for the 307 face '// &
         'of bc.txt record ', i, ' ("// face', domain%bc(i)%b, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, &
         domain%bc(i)%f, '"); with face blocks every 307 face needs exactly one'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'ablating wall set-up error (see above)' )
     enddo
 
   contains
@@ -387,7 +387,7 @@ contains
     subroutine Fail ( reason )
       character(len=*), intent(in) :: reason
       write(*,'(A,I0,A)') ' [ERROR] coupled-env-file '//trim(file)//' line ', ln, ': '//reason
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'ablating wall set-up error (see above)' )
     end subroutine Fail
 
     subroutine Grow_Blocks ()
@@ -617,7 +617,7 @@ contains
         if ( bad ) exit
       enddo
     endif
-    if ( bad ) call fuss_abort ( 1 )
+    if ( bad ) call mpi_stop_all ( 'ablating wall set-up error (see above)' )
 
     ! min-thickness: the key, else the value a restart carried, else 10 x the
     ! smallest cell on the receding lines of this (new) run's mesh, capped at
@@ -760,7 +760,7 @@ contains
             inc(2), ',', inc(3), ',', inc(4), ')'
           write(*,'(A,ES12.4,A,ES12.4,A)') '         the receding line would keep ', L - norm2( disp ), &
             ' m, at or below min-thickness ', min_thick, ' m'
-          call fuss_abort ( 2 )
+          call fuss_abort ( 1 )
         endif
       enddo
     enddo
@@ -944,7 +944,7 @@ contains
       if ( any( nbr(1:nnb(u), u) == v ) ) return
       if ( nnb(u) == MAXNB ) then
         write(*,'(A,I0,A)') ' [ERROR] smoothing: surface node ', u, ' has too many neighbours (not a quad surface)'
-        call fuss_abort ( 1 )
+        call mpi_stop_all ( 'ablating wall set-up error (see above)' )
       endif
       nnb(u) = nnb(u) + 1
       nbr(nnb(u), u) = v
@@ -1002,7 +1002,7 @@ contains
   !> After the move and the exchange of the node planes between the ranks, before
   !> the ghost metrics are rebuilt: the four nodes of every 101 face of this rank's
   !> blocks agree bitwise with its partner's (as sorted coordinate triples), else
-  !> error stop 2 -- across ranks too (plan 11 stage 4): the partner block's planes
+  !> the run stops (exit code 1) -- across ranks too (plan 11 stage 4): the partner block's planes
   !> 0..gc of the face, its own face nodes among them, came in exchange_node_planes.
   !> TEST ONLY: perturb-interface-node moves one shared node of the lowest
   !> receding block by 1e-12 m in x at step 2 (on that block's rank).
@@ -1064,7 +1064,7 @@ contains
             write(*,'(A,3ES24.16)') '         block side: ', xa(:,pa(q))
             write(*,'(A,3ES24.16)') '         other side: ', xb(:,pb(q))
             write(*,'(A,4(I0,A))')  '         bc.txt record ', i, ', cell (', bc%i, ',', bc%j, ',', bc%k, ')'
-            call fuss_abort ( 2 )
+            call fuss_abort ( 1 )
           endif
         enddo
       end associate

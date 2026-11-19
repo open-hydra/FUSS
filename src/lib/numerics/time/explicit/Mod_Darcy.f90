@@ -30,7 +30,7 @@
 !> root and their corrections come back (Group_Corrections). Every result is
 !> the one rank's, bit for bit. MPI calls on the master thread only (FUNNELED).
 module FUSS_Mod_Darcy
-  use FUSS_Mod_MPI, only: fuss_abort
+  use FUSS_Mod_MPI, only: mpi_stop_all
   use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
@@ -108,7 +108,7 @@ contains
     call Parse_Open_Codes( obj_darcy%open_bc_types, obj_darcy%open_codes, obj_darcy%n_open, ok, bad )
     if ( .not. ok ) then
       write(*,'(A)') ' [ERROR] [FUSS-Darcy] open-bc-types: bad token "'//trim(bad)//'"'
-      call fuss_abort ( 1 )
+      call mpi_stop_all ( 'Darcy set-up error (see above)' )
     endif
     obj_darcy%description = 'type-2 gas closure: Darcy pressure equation, solver '//trim(obj_darcy%solver)
 
@@ -441,9 +441,9 @@ contains
               ' kg/m3, decomposable solid left = ', avail
             write(*,'(A)') '         (reduce the time step, or smooth the kinetics near its threshold temperature)'
 #ifdef USE_MPI
-            call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+            call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-            error stop 3
+            error stop 1
           endif
           do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
             if ( all_r .or. domain%blk(b)%chi(r,i,j,k) > domain%blk(b)%chiO(r,i,j,k) .or. &
@@ -875,9 +875,9 @@ contains
         ' kg/s, round-off floor = ', floor_max, ' kg/s'
       write(*,'(A,4I6)') '         worst cell b, i, j, k =', bw, iw, jw, kw
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     endif
     if ( rref_max > 0.0d0 ) then
       rel = resid_max / rref_max
@@ -1259,9 +1259,9 @@ contains
       write(*,'(A)') ' [ERROR] Darcy: singular line system (a sealed, quasi-steady line has no unique pressure)'
       write(*,'(A,3I6)') '         at i, j, k =', ic
 #ifdef USE_MPI
-      call fuss_abort_in_thread ( 3 )   ! with MPI (plan 11); the line below is then not reached
+      call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
 #endif
-      error stop 3
+      error stop 1
     end subroutine Singular
 
   end subroutine Thomas_Line

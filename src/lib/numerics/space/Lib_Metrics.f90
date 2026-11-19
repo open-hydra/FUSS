@@ -314,7 +314,7 @@ contains
       ! multi-rank run records the stop and returns (plan 11), and the fuss_abort_check
       ! after Setup_BC_Metrics' region ends the run; M = I below only lets that thread
       ! finish the region. Every other caller stops here.
-      call fuss_abort_in_thread ( 2, can_continue = .true. )
+      call fuss_abort_in_thread ( 1, can_continue = .true. )
 
       M % c = 0d0
       do h = 1, 3
@@ -381,7 +381,7 @@ contains
   
     if( vol <= 0d0 ) then
       write(*,'(A90)') ' [ERROR] Negative volume'
-      call fuss_abort_in_thread ( 2, can_continue = .true. )
+      call fuss_abort_in_thread ( 1, can_continue = .true. )
       ! a worker thread of a multi-rank run (plan 11): this region computes geometry
       ! only, and the master stops the run right after it
     endif
