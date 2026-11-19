@@ -424,14 +424,15 @@ run_case "test/pyrolysis/ablation/receding_front/front" 140
 # A two-level multigrid restart (plan 10 D15). Only level 1 reads the restart file, and every level used to take
 # its start time and iteration from its own IOfield, which nothing assigns above level 1: a restarted two-level run
 # numbered its iterations from 1 again (measured 2026-10-15 on 2982fc7: 30050 -> 1). Its fields cannot be compared
-# with a continuous run -- a restart starts the multigrid schedule over on the coarse level, by design -- so this
-# checks the numbering: after N + N iterations the iteration column of residual-history.dat runs 1 .. 2N without a
-# break, and field.tec's SOLUTIONTIME is 2N. $2 = coarse iterations, $3 = fine iterations per leg.
+# with a continuous run -- since plan 14 S6 a restart goes on at the grid level of its solution (upstream 34b48cb), the
+# fine one here -- so this checks the numbering: after the coarse + fine iterations of leg 1 and the fine ones of leg 2
+# the iteration column of residual-history.dat runs 1 .. coarse + 2*fine without a
+# break, and field.tec's SOLUTIONTIME is -(coarse + 2*fine). $2 = coarse iterations, $3 = fine iterations per leg.
 run_label_case () {
   local case_rel=$1 coarse=$2 fine=$3
   local src="$ROOT/$case_rel"
   local name; name=$(echo "$case_rel" | tr '/' '_')
-  local d="$WORK/$name.mg" n=$(( 2 * (coarse + fine) ))
+  local d="$WORK/$name.mg" n=$(( coarse + 2 * fine ))
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$src/INPUT" "$src/input.ini" "$src/FUSS.sh" "$d/"
   [ -d "$src/MESH" ] && cp -r "$src/MESH" "$d/"
