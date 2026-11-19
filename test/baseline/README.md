@@ -362,3 +362,26 @@ every case here starts from its initial condition.
     prints 28); the other 33 lines as at S5.
   - Record: `plan-bucket/records/2026-11-19-plan14-S6/` (merge script and its replay, follow-on scripts, red controls
     R-1..R-8, variants, census of the readers on real files).
+- **2026-11-19, plan 14 S7a (upstream `e1282a5`: vnn on MOSE's convention, mesh type from every block, the size, sign
+  and volume checks of the cells with the stop of every rank, the 3-D skew factor, linear ghost nodes; merged by
+  `a8a8f4d`, ours' decks and scripts halved by `8e9510c` and `eda00da`): 2029 rows of S6 compared, 4 added. 2033 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `1d7419ab`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `892c1d7` (`eda00da` changes only `test/run_guard_demos.sh`, which no `FUSS.sh` or
+    `run_regression.sh` path reads), compared with the S6 record (`8245e6b`, 2029 rows) by plan 14's `moved.py`. The
+    gate battery's `-k` run (`981fdc96`) and the mpi preset's binary at one rank (`-m 1 -k`, `c8e13ba3`) give the same
+    manifest. Physics gates 34/34; CTest 35/35 serial, 10/10 `needs-mpi`.
+  - **Attribution:**
+
+    | class (S6 → S7a) | rows | measured | cause | evidence |
+    |---|---|---|---|---|
+    | bytes | 2021 (72 of 75 cases) | — | `b8d8eb3`'s vnn convention (`dt = vnn / (alpha G)`, no factor 0.5) with every vnn of ours halved: exact in binary, `0.5d0 * vnn` of the old deck is `vnn` of the new | variant `v-S7a-vnn` (the merge commit with the three `0.5d0` back and the 24 decks `e1282a5` halved doubled back): S6's bytes on these rows |
+    | max<=1e-12 | 3: `chimera` `field.tec`, `wall.tec`, `residual-history.dat` | T 1.6e-14, qw 5.0e-13, residual 1.1e-14 | `30281d8`: the ghost metric of a chimera face (102) from linear ghost nodes | the same rows in `v-S7a-vnn` |
+    | max>1e-6 | 1: `chimera` `diagnostic.tec` | E (the cell residual `blk%r`) 1.66e-3 relative, 5.61e-13 absolute, against a converged residual of 3.4e-10 | `30281d8` | the same row in `v-S7a-vnn`; accepted by the lead 2026-11-19 12:18: a converged residual at its rounding floor — a last-digit change of one cell's initial T moves the same row by 2.7e-13 … 5.5e-13 on the S6 and S7a binaries (`records/2026-11-19-plan14-S7a/lead-chimera-E/`); the stage moves T by 1.6e-14 and qw by 5.0e-13 |
+    | max<=1e-12 | 3: `chimera_fixed` `field.tec`, `wall.tec`, `residual-history.dat` | T/h 7.2e-15, qw 6.8e-14, residual 5.0e-13 | `30281d8` | the same rows in `v-S7a-vnn` |
+    | max<=1e-6 | 1: `chimera_fixed` `diagnostic.tec` | E 6.1e-12 relative, 4.39e-13 absolute, against a residual of 7.2e-2 | `30281d8` | the same row in `v-S7a-vnn` |
+    | only in B (added) | 4: `skewed_3D` (`diagnostic.tec`, `field.tec`, `residual-history.dat`, `wall.tec`) | upstream's 3-D skewed deck, run through ours' `FUSS.sh` | `be42ad9`, F-S7a-3 | — |
+
+  - **Physics numbers that moved:** none; the 34 lines as at S6 (`energy_audit`'s refinements now run at vnn 0.125 and
+    0.0625, the steps of 0.25 and 0.125 before).
+  - Record: `plan-bucket/records/2026-11-19-plan14-S7a/` (resolution script, audits, the vnn census after F-S7a-1,
+    `v-S7a-vnn`, R-thin3d, the lead's floor draw `lead-chimera-E/`).
