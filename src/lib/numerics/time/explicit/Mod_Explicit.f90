@@ -379,13 +379,14 @@ contains
   !> Copy_State overwrites TO. Inside the parallel region.
   subroutine Darcy_Shift_History ( domain )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_sim_param
     use FUSS_Mod_MPI, only: is_local_block
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer :: i, j, k, b
 
-    if ( domain % iter <= 1 ) return
+    if ( obj_sim_param % iter_from_call <= 1 ) return   ! the first step of THIS process (a resumed restart continues domain%iter)
     do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle
       !$omp do collapse(3)

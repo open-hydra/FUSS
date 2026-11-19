@@ -717,7 +717,7 @@ contains
                 ! value as its T^(n-1) (Copy_State skips iter 1), so the file carries
                 ! TO. Before the first step TO is unset: the setup value is written.
                 col = col + 1
-                if ( domain%iter >= 1 ) then
+                if ( obj_sim_param%iter_from_call >= 1 ) then
                   IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%TO(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
                 else
                   IOfield%block(b)%vars(col,:,:,:) = domain%blk(b)%T_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk)
