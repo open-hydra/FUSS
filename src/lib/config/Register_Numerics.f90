@@ -88,18 +88,18 @@ contains
                   'static ,  prescribed ,  translation ,  nodeshift', .false. )
 
     call reg%add( trim(section), 'vel', obj_mesh_motion%vel, '0.0', &
-                  'Rigid-translation velocity [m/s]', 'real', .false. )
+                  'Rigid-translation velocity [m/s]', '', .false. )
 
     call reg%add( trim(section), 'amp', obj_mesh_motion%amp, '0.0', &
                   'Prescribed-motion displacement amplitude per coordinate [m]', '>= 0', .false. )
     call reg%add( trim(section), 'kx', obj_mesh_motion%kx, '0.0', &
-                  'Prescribed-motion wavenumbers multiplying x [1/m]', 'real', .false. )
+                  'Prescribed-motion wavenumbers multiplying x [1/m]', '', .false. )
     call reg%add( trim(section), 'ky', obj_mesh_motion%ky, '0.0', &
-                  'Prescribed-motion wavenumbers multiplying y [1/m]', 'real', .false. )
+                  'Prescribed-motion wavenumbers multiplying y [1/m]', '', .false. )
     call reg%add( trim(section), 'kz', obj_mesh_motion%kz, '0.0', &
-                  'Prescribed-motion wavenumbers multiplying z [1/m]', 'real', .false. )
+                  'Prescribed-motion wavenumbers multiplying z [1/m]', '', .false. )
     call reg%add( trim(section), 'omega', obj_mesh_motion%omega, '0.0', &
-                  'Prescribed-motion angular frequency [1/s]', 'real', .false. )
+                  'Prescribed-motion angular frequency [1/s]', '', .false. )
 
     ! The discrete GCL residual is asserted every step when the mesh moves; a
     ! violation means the geometry and the state update disagree about how much

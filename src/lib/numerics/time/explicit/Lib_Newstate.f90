@@ -1,5 +1,4 @@
 module FUSS_Lib_Newstate
-  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -487,11 +486,12 @@ contains
   ! T the property lookups can evaluate (they read the entries int(T) and int(T)+1): Tmin <= T < Tmax
   logical function Admissible_T ( T )
     use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Finite_m, only: Not_Finite
     implicit none
     real(R8), intent(in) :: T
 
     Admissible_T = .false.
-    if ( isnan(T) ) return
+    if ( Not_Finite(T) ) return
     if ( T < real(obj_table%Tmin, R8) .or. T >= real(obj_table%Tmax, R8) ) return
     Admissible_T = .true.
 
@@ -500,14 +500,14 @@ contains
 
   subroutine Check_And_Fix_State ( T, b, i, j, k )
     use FUSS_Config_Types_m, only: obj_table
+    use FUSS_Mod_MPI, only: stop_from_thread
     implicit none
     real(R8), intent(in) :: T
     integer, intent(in)  :: b, i, j, k
 
     ! Stop on NaN or on a temperature outside the properties table, where the lookups would read
-    ! past its ends (upstream f3401c5; the check was NaN or T < 0 only). With MPI (plan 11): fuss_abort
-    ! on the master thread or one rank keeps the code; a worker thread of a multi-rank run stops its
-    ! process (the launcher reports 255). Code 3 = numerical, until plan 14 S6 (D3).
+    ! past its ends (upstream f3401c5; the check was NaN or T < 0 only).
+    ! stop_from_thread (exit code 1), not mpi_stop_all or mpi_abort_all: this runs in OpenMP threads, MPI is FUNNELED
     ! No continuation here: giving this routine the cell's previous temperature (an
     ! intent(inout) T and a T_old argument) changed the code generated for the type-2
     ! RK loop and moved 512 manifest rows by round-off (measured 2026-10-17).
@@ -515,8 +515,7 @@ contains
       write(*,'(A,4I5)') ' [ERROR] Integration failed at b, i, j, k:', b, i, j, k
       write(*,'(A,ES14.6,A,I0,A,I0,A)') ' [ERROR] T = ', T, ' K, outside the properties table [', &
         obj_table%Tmin, ', ', obj_table%Tmax, ') K'
-      call fuss_abort_in_thread ( 3 )
-      error stop 3
+      call stop_from_thread('NaN or T outside the properties table')
     endif
 
   end subroutine Check_And_Fix_State

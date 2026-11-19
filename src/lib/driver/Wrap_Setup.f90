@@ -1,5 +1,4 @@
 module FUSS_Wrap_Setup
-  use FUSS_Mod_MPI, only: fuss_abort, mpi_size_, mpi_barrier_all
   use iso_fortran_env, only: I4 => int32, R8 => real64
 
   implicit none
@@ -20,10 +19,10 @@ contains
     use FUSS_Mod_Multigrid,        only: Setup_Multigrid, Restriction
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
-    use FUSS_IO_Probes,            only: Setup_Probes
+    use FUSS_IO_Probes,            only: Setup_Probes, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
     use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
-    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_size_, mpi_abort_all
+    use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_bcast_logical
     use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
     use FUSS_Mod_Pyrolysis,        only: Write_Energy_Budget
     use FUSS_Mod_Darcy,            only: Darcy_Setup_Blocks, Fill_Ghost_p, Darcy_Update_Velocity, Darcy_Print_Setup, &
@@ -36,6 +35,8 @@ contains
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
     integer :: m, ios
+    logical :: setup_error   ! an error found by a check of rank 0 (Stop_Together)
+    logical :: resume        ! a restart goes on with the counters of its solution
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -44,11 +45,9 @@ contains
     
     ! Load tables (thermo, transport)
     call Load_Table ()
-    if (mpi_is_root) call Check_Table ()
-    ! Root-only checks above: every rank waits for root's verdict. A refusal there
-    ! ends all ranks with its code (fuss_abort); without the wait the others ran on
-    ! into work on the refused input and failed first, the job reporting 255 (plan 11)
-    call mpi_barrier_all ()
+    setup_error = .false.
+    if (mpi_is_root) call Check_Table ( setup_error )
+    call Stop_Together ( setup_error, 'material properties error (see above)' )
 
     ! Read input.ini
     call Read_Inifile ()
@@ -63,15 +62,17 @@ contains
     ! Same reason, plan 07: the Darcy closure is selected by a [FUSS-Pyrolysis]
     ! key; every guard, the table checks and Assign_Setup read this flag.
     obj_darcy%enabled = obj_pyrolysis%enabled .and. ( trim(obj_pyrolysis%gas_closure) == 'type2' )
-    if (mpi_is_root) call Check_Input ()
-    call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    setup_error = .false.
+    if (mpi_is_root) call Check_Input ( setup_error )
+    call Stop_Together ( setup_error, 'input file error (see above)' )
     call Check_FAS ()
 
-    ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank
-    ! once the input is validated, value-checked and reported on root.
+    ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank once the input is validated (a file every
+    ! rank reads stops every rank together, mpi_stop_all), value-checked on rank 0
     if (obj_pyrolysis%enabled) call Load_Pyrolysis_Tables ()
-    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_Tables ()
-    call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    setup_error = .false.
+    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_Tables ( setup_error )
+    call Stop_Together ( setup_error, 'pyrolysis material error (see above)' )
 
     ! Allocate container objects Domain and IOfield.
     allocate ( simulation%domain  ( obj_multigrid%MGL ) )
@@ -83,11 +84,27 @@ contains
 
     ! Read file for initial solution.
     call Read_IC ( simulation%IOfield(1) )
-    if (mpi_is_root) call Check_IC ()
-    call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    ! The ranks decide together on an error of the read (Check_IC)
+    call Check_IC ()
+    ! A restart goes on from the time of the solution it reads: the physical time of a time-accurate solution, minus the
+    ! global iteration count of a steady one. A solution that holds no time (a vtk file without TIME, a Tecplot ASCII
+    ! file without SOLUTIONTIME) cannot tell where to go on: stop
+    if ( .not. obj_sim_param%newrun .and. .not. obj_io%restart%time_found ) then
+      if (mpi_is_root) then
+        write(*,'(A)') ' [ERROR] Restart from '//trim(obj_io%nameinit)//': the solution holds no time '// &
+                       '(vtk TIME, Tecplot SOLUTIONTIME), and a restart goes on from the time of its solution.'
+        write(*,'(A)') ' [ERROR]   To start from this solution, use it as the initial condition: '// &
+                       'INPUT/ic.* with newrun = true.'
+      end if
+      ! Every rank has read the solution and found no time: the ranks stop together, once rank 0 has written the message
+      call mpi_stop_all ( 'restart from a solution without a time (see above)' )
+    end if
 
     ! Allocation of data structures and copy solution from IOfield.
     call Setup_Data_Structure ( simulation%domain(1), simulation%IOfield(1) )
+    ! Every value that the initial condition gives the domain is finite, before the state is tested and the coarse
+    ! levels are built from it
+    call Check_IC_Values ( simulation%domain(1) )
     call Check_State ( simulation%domain(1) )
 
     ! With multigrid, allocate Grid and IOfield 2,...,MGL
@@ -97,23 +114,39 @@ contains
 
     ! Read Boundary Conditions file
     call Setup_BC ( simulation%domain )
-    if (mpi_is_root) call Check_BC ()
-    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_BC_Topology ( simulation%domain(1) )
-    ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so
-    ! they are checked apart; then a restart reads the faces' state back.
-    if (mpi_is_root .and. obj_ablation%enabled) call Check_Ablation ( simulation%domain(1) )
-    if (mpi_is_root .and. ( obj_ablation%enabled .or. trim(obj_mesh_motion%law) == 'nodeshift' )) &
-      call Check_Ablation_BC_Topology ( simulation%domain(1) )
-    call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    ! The checks of rank 0 on the boundary conditions, in the order of a run that stops at the first refusal: a later
+    ! check reads what an earlier one refused (plan 14 S6, D22)
+    setup_error = .false.
+    if (mpi_is_root) then
+      call Check_BC ( setup_error )
+      if ( .not. setup_error .and. obj_pyrolysis%enabled ) &
+        call Check_Pyrolysis_BC_Topology ( simulation%domain(1), setup_error )
+      ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so they are checked apart
+      if ( .not. setup_error .and. obj_ablation%enabled ) call Check_Ablation ( simulation%domain(1), setup_error )
+      if ( .not. setup_error .and. ( obj_ablation%enabled .or. trim(obj_mesh_motion%law) == 'nodeshift' ) ) &
+        call Check_Ablation_BC_Topology ( simulation%domain(1), setup_error )
+    end if
+    call Stop_Together ( setup_error, 'boundary condition error (see above)' )
+    ! A restart reads the ablating faces' state back; law = nodeshift: the receding faces, the surface-node map
     call Setup_Ablation ( simulation%domain(1), obj_sim_param%newrun )
-    ! law = nodeshift: the receding faces, the surface-node map and its rules
     call Setup_Recession ( simulation%domain(1) )
     
     ! MPI: partition blocks once on finest-level cell counts (restriction and
     ! prolongation are block-local, so a block must live on the same rank at
     ! every level), then build per-level ghost/chimera communication schedules.
-    call partition_blocks(simulation%domain(1)%nb, &
-      [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)])
+    ! The rank of every block comes from the map that decomposition-map names in INPUT/ (with the phase prefix of
+    ! bc.txt), in the format of the map of the ATLAS mesh decomposer; with none, the default, from the LPT, and no file is
+    ! read.
+    if ( trim(obj_io%decomposition_map) == 'none' ) then
+      call partition_blocks(simulation%domain(1)%nb, &
+        [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)])
+    else
+      call partition_blocks(simulation%domain(1)%nb, &
+        [(product(simulation%domain(1)%blk(ios)%dim(1:3)), ios=1, simulation%domain(1)%nb)], &
+        reshape([(simulation%domain(1)%blk(ios)%dim(1:3), ios=1, simulation%domain(1)%nb)], &
+                [3, simulation%domain(1)%nb]), &
+        'INPUT/'//trim(FUSS_phase_prefix)//trim(obj_io%decomposition_map))
+    end if
 
     call allocate_exchange_schedules(obj_multigrid%MGL)
     do m = 1, obj_multigrid%MGL
@@ -191,17 +224,21 @@ contains
             endif
             obj_sim_param%iter_general = 0
           else
-            ! The restart file is the finest level's (IOfield(1)): the coarse IOfield carry no time
-            ! (a two-level restart used to number its iterations from 1 again: plan 10 D15, upstream 9318577)
+            ! The restart solution is read on the finest level: its time and iteration count hold for every level (the
+            ! coarse IOfields are built from the fine one and hold no time)
             if (obj_time_scheme%time_accurate) then
-              simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
+              if (obj_io%restart%steady) then
+                ! A transient started from a steady solution starts at t = 0
+                simulation%domain(m)%time = 0.0d0
+              else
+                simulation%domain(m)%time = simulation%IOfield(1)%solutiontime
+              endif
               obj_sim_param%iter_general = 0
             else
-              ! ORION a978930 reads SOLUTIONTIME with its sign: a negative time is a steady solution stamped with
-              ! minus its iteration count (Wrap_Postprocess.f90:65); a positive one (a file written before the
-              ! repin, |count| with STRANDID = 0) is read as before. Stopgap until the restart counters replace it.
-              if (simulation%IOfield(1)%solutiontime < 0.0d0) then
-                obj_sim_param%iter_general = nint(-simulation%IOfield(1)%solutiontime)
+              ! The global iteration count of the solution: a steady one holds it as its time (Read_vtk_tec), a
+              ! transient one holds its physical time, of which the integer part is taken
+              if (obj_io%restart%steady) then
+                obj_sim_param%iter_general = nint(simulation%IOfield(1)%solutiontime)
               else
                 obj_sim_param%iter_general = int(simulation%IOfield(1)%solutiontime)
               endif
@@ -211,6 +248,39 @@ contains
           obj_sim_param%time_from_call = simulation%domain(m)%time 
           obj_sim_param%iter_from_call = 0
         enddo
+
+        ! The counters stored with a solution, in every format: the restart goes on as the uninterrupted run would (vnn
+        ! ramp, output cadence and numbering, residual history, probes, grid level), if that run was of the same kind,
+        ! steady or time-accurate. Otherwise, or with a solution that holds no counters (written before them), the run
+        ! starts its counters as a new one, numbers its outputs from the files in OUTPUT/ (Wrap_Postprocess), and
+        ! starts the multigrid from the coarsest level.
+        resume = .false.
+        if ( .not. obj_sim_param%newrun ) &
+          resume = obj_io%restart%found .and. ( obj_io%restart%steady .neqv. obj_time_scheme%time_accurate )
+        obj_io%restart%resumed = resume
+        if ( resume ) then
+          obj_sim_param%iter_general   = obj_io%restart%cycle
+          obj_multigrid%MG_level       = max(1, min(obj_multigrid%MGL, obj_io%restart%grid_level))
+          ! The solution read is that of the finest level, and so is its iteration count
+          simulation%domain(1)%iter    = obj_io%restart%iteration
+          obj_sim_param%time_from_call = obj_io%restart%last_output_time
+          obj_io%output_number         = obj_io%restart%output_number
+          ! A run that went on past the solution read left in residual-history.dat and in the probe files the rows of
+          ! the iterations after it, which the restart writes again: drop them
+          if (mpi_is_root) then
+            close(obj_io%unitRES)
+            call Drop_Rows_After ( 'OUTPUT/'//trim(FUSS_phase_prefix)//'residual-history.dat', 3, &
+                                   obj_io%restart%cycle, simulation%domain(1)%time )
+            open(newunit=obj_io%unitRES,file='OUTPUT/'//trim(FUSS_phase_prefix)//'residual-history.dat', &
+                 status='old',position='append',form='formatted')
+          endif
+          call Drop_Probe_Rows ( obj_io%restart%cycle, simulation%domain(1)%time )
+        endif
+        ! Time-based probe rows fall on the multiples of their dtime: a restart that goes on in time writes the next one
+        ! not reached yet; a new transient starts from the first, as a new run
+        if ( .not. obj_sim_param%newrun ) &
+          call Restart_Probes ( simulation%domain(1)%time, &
+                                resume = .not. ( obj_io%restart%steady .and. obj_time_scheme%time_accurate ) )
         call Fill_Ghost_Cell ( simulation%domain(1) )
         ! Ablating walls (plan 08): the env values at the start time, so the
         ! first step and a restart see the table's p_w
@@ -239,9 +309,10 @@ contains
     ! Print warnings onto the logfile/shell.
     if (mpi_is_root) call Print_Warnings ()
 
-    ! If errors are found, print error messages and stop the simulation.
-    if (mpi_is_root) call Stop_Simulation()
-    call mpi_barrier_all ()   ! root-only checks above (plan 11)
+    ! If errors are found, print error messages and stop the simulation (every rank together).
+    setup_error = .false.
+    if (mpi_is_root) call Stop_Simulation ( setup_error )
+    call Stop_Together ( setup_error, 'setup error (see above)' )
 
     ! Set-up is over: start the solver clock
     call timer_run_begin()
@@ -269,9 +340,9 @@ contains
     end subroutine Print_Header
 
 
-    subroutine Check_Table()
+    subroutine Check_Table ( has_error )
       implicit none
-      logical :: has_error
+      logical, intent(out) :: has_error
 
       has_error = .false.
 
@@ -288,90 +359,175 @@ contains
         write(*,'(A,T35,A)') '   Properties', 'OK'
       endif
 
-      if (has_error) call fuss_abort ( 1 )
-
     end subroutine Check_Table
 
 
-    subroutine Check_IC()
+    !> An error of the read of the initial condition (Read_IC, the reader writes it in obj_io%error_message) stops the
+    !> run. Every rank reads the file, and a rank can fail to read what rank 0 reads: the ranks take the decision
+    !> together (the largest of a flag); rank 0 writes the line of the set-up summary with the verdict of all ranks, the
+    !> first rank that found an error writes it (with its rank when the run has more than one), and every rank stops
+    !> with mpi_stop_all, exit code 1.
+    subroutine Check_IC ()
+      use FUSS_Mod_MPI, only: mpi_rank_, mpi_allreduce_max_r8, mpi_allreduce_min_r8, mpi_size_
       implicit none
+      real(R8) :: flag, flag_all, first
 
-      if (index(obj_io%error_message,'ERROR')>0) then
-        write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
-        write(*,'(4X,A)') trim(obj_io%error_message)
-        call fuss_abort ( 1 )
-      else
-        write(*,'(A,T35,A)') '   Initial conditions', 'OK'
+      flag = 0.0_R8
+      if ( index(obj_io%error_message,'ERROR') > 0 ) flag = 1.0_R8
+      call mpi_allreduce_max_r8 ( flag, flag_all )
+      if ( mpi_is_root ) then
+        if ( flag_all > 0.0_R8 ) then
+          write(*,'(A,T35,A)') '   Initial conditions', 'FAIL'
+        else
+          write(*,'(A,T35,A)') '   Initial conditions', 'OK'
+        endif
+      endif
+      if ( flag_all > 0.0_R8 ) then
+        call mpi_allreduce_min_r8 ( merge(real(mpi_rank_, R8), huge(1.0_R8), flag > 0.0_R8), first )
+        if ( flag > 0.0_R8 .and. nint(first) == mpi_rank_ ) then
+          if ( mpi_size_ > 1 ) then
+            write(*,'(4X,A,I0,A)') trim(obj_io%error_message)//' (rank ', mpi_rank_, ')'
+          else
+            write(*,'(4X,A)') trim(obj_io%error_message)
+          endif
+        endif
+        call mpi_stop_all ( 'initial condition error (see above)' )
       endif
 
     end subroutine Check_IC
 
 
-    !> The initial field must be admissible: every matID a table index, every T inside the table
+    !> The initial condition, or the solution that a restart reads, gives the domain the coordinates of its nodes and the
+    !> temperature, the material and the heat source of its cells, and a value there that is not finite (NaN, infinity)
+    !> stops the run at set-up, with the place of the value. Not_Finite reads the bits of each value, an operation on
+    !> integers that raises no floating-point exception: a test by comparison would stop a build that traps the invalid
+    !> operations (the DEBUG build) with SIGFPE at the first such operation on the value, and -ffast-math cannot fold the
+    !> test away. Each rank checks the values it holds; the ranks decide together (mpi_stop_if_any), the first rank that
+    !> found a value writes it, and every rank stops: exit code 1, in every build.
+    subroutine Check_IC_Values ( domain )
+      use FUSS_Advanced_Types_m
+      use FUSS_Finite_m, only: Not_Finite
+      use FUSS_Mod_MPI,  only: mpi_stop_if_any
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      ! Local
+      character(len=1), parameter :: axis(3) = ['x', 'y', 'z']
+      character(len=hlen) :: what
+      integer :: b, i, j, k, d
+
+      what = ''
+      blocks: do b = 1, domain%nb
+        do k = 0, domain%blk(b)%dim(3); do j = 0, domain%blk(b)%dim(2); do i = 0, domain%blk(b)%dim(1)
+          do d = 1, 3
+            if ( Not_Finite( domain%blk(b)%node(i,j,k)%c(d) ) ) then
+              write(what,'(3A,I0,A,2(I0,A),I0)') 'coordinate ', axis(d), ' of block ', b, ', node i, j, k = ', i, ', ', j, ', ', k
+              exit blocks
+            endif
+          enddo
+        enddo; enddo; enddo
+        do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
+          if ( Not_Finite( domain%blk(b)%T(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'T of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          elseif ( Not_Finite( domain%blk(b)%matID(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'matID of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          elseif ( Not_Finite( domain%blk(b)%qvol(i,j,k) ) ) then
+            write(what,'(A,I0,A,2(I0,A),I0)') 'qvol of block ', b, ', cell i, j, k = ', i, ', ', j, ', ', k
+            exit blocks
+          endif
+        enddo; enddo; enddo
+      enddo blocks
+
+      call mpi_stop_if_any ( len_trim(what) > 0, 'initial condition error (see above)', &
+        '[ERROR] '//trim(obj_io%nameinit)//' holds a value that is not finite (NaN or infinity): '//trim(what) )
+
+    end subroutine Check_IC_Values
+
+
+    !> The initial field must be admissible: every matID a table index, every T inside the table. Each rank checks the
+    !> field it read; the ranks decide together (mpi_stop_if_any), the first rank that found a cell writes it.
     subroutine Check_State ( domain )
       use FUSS_Advanced_Types_m
       use FUSS_Config_Types_m, only: obj_table
+      use FUSS_Mod_MPI, only: mpi_stop_if_any
       use ir_precision, only: str
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
       ! Local
       integer :: b, i, j, k, m
       real(R8) :: T
+      logical :: found
+      character(len=hlen) :: detail
 
-      do b = 1, domain%nb
+      found = .false.
+      detail = ''
+      blocks: do b = 1, domain%nb
         do k = 1, domain%blk(b)%dim(3); do j = 1, domain%blk(b)%dim(2); do i = 1, domain%blk(b)%dim(1)
           m = nint ( domain%blk(b)%matID(i,j,k) )
           if (m < 1 .or. m > obj_table%n) then
-            if (mpi_is_root) write(*,'(A,4I6,A)') ' [ERROR] initial condition: matID '//trim(str(.true.,m))// &
+            write(detail,'(A,4I6,A)') ' [ERROR] initial condition: matID '//trim(str(.true.,m))// &
               ' at b, i, j, k:', b, i, j, k, ' is not a material of properties.dat (1..'//trim(str(.true.,obj_table%n))//')'
-            call mpi_abort_all('initial condition outside the properties table')
+            found = .true.
+            exit blocks
           endif
           T = domain%blk(b)%T(i,j,k)
           if (.not. (T >= obj_table%Tmin .and. T < real(obj_table%Tmax,R8))) then
-            if (mpi_is_root) write(*,'(A,4I6,A,ES12.4,A)') ' [ERROR] initial condition at b, i, j, k:', b, i, j, k, &
+            write(detail,'(A,4I6,A,ES12.4,A)') ' [ERROR] initial condition at b, i, j, k:', b, i, j, k, &
               '  T =', T, ' K, outside the properties table ['//trim(str(.true.,obj_table%Tmin))//', '// &
               trim(str(.true.,obj_table%Tmax))//') K'
-            call mpi_abort_all('initial condition outside the properties table')
+            found = .true.
+            exit blocks
           endif
         enddo; enddo; enddo
-      enddo
+      enddo blocks
+
+      call mpi_stop_if_any ( found, 'initial condition outside the properties table', detail )
 
     end subroutine Check_State
 
 
-    subroutine Check_Input()
+    subroutine Check_Input ( has_error )
       use FUSS_Input_Registry
-      use FUSS_Read_Ini, only: unknown_options_message, long_values_message, input_warnings
+      use FUSS_Read_Ini, only: input_warnings, unknown_options_message, long_values_message
       implicit none
+      logical, intent(out) :: has_error
       character(len=hlen) :: out
       integer :: r
 
-      ! An option in a FUSS-owned section that nothing registered is not being
-      ! applied, whatever the user believed. Reported BEFORE the registry
-      ! validation, because a misspelt key makes the validation pass -- the
-      ! parameter simply keeps its default and looks perfectly valid.
-      if ( len_trim(unknown_options_message) > 0 ) then
+      has_error = .false.
+      ! Order (plan 14 S6, D-S6-2): Scan_Ini's errors first (levels that are not an integer, a probe numbered past a gap; upstream
+      ! 189ba21): a probe past a gap is also an option nothing registered, and its own message is the useful one. Then ours'
+      ! two checks (plan 10 D1, plan 14 D7), before the registry as in plan 10: a misspelt key keeps its default and passes
+      ! the registry, so the unknown option is the cause to name. Then the registry (upstream's rules on every key).
+      out = ''
+      if ( allocated(reg%load_error) ) then
+        out = reg%load_error
+      else if ( len_trim(unknown_options_message) > 0 ) then
+        has_error = .true.
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(unknown_options_message)
         write(*,'(4X,A)') 'This part of input.ini is not being applied. A misspelt key keeps'
         write(*,'(4X,A)') 'its default, and a repeated section header is ignored entirely --'
         write(*,'(4X,A)') 'in both cases the run would otherwise look completely normal.'
-        call fuss_abort ( 1 )
-      endif
-
-      if ( len_trim(long_values_message) > 0 ) then
+      else if ( len_trim(long_values_message) > 0 ) then
+        has_error = .true.
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(long_values_message)
         write(*,'(4X,A)') 'The value would be cut to the limit without a message.'
-        call fuss_abort ( 1 )
+      else
+        out = Validate_Registry()
+        ! decomposition-map names a file of INPUT/: the folder, and the phase prefix of bc.txt, are put before it
+        if ( index(out,'ERROR') == 0 .and. trim(obj_io%decomposition_map) /= 'none' .and. &
+             index(obj_io%decomposition_map, '/') > 0 ) &
+          out = '[ERROR] input.ini, [FUSS-IO] decomposition-map = '//trim(obj_io%decomposition_map)// &
+                ': the value is the name of a file in INPUT/, without a folder'
       endif
-
-      out = Validate_Registry()
-      if (index(out,'ERROR')>0) then
+      if ( index(out,'ERROR') > 0 ) then
+        has_error = .true.
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-        call fuss_abort ( 1 )
-      else
+      else if ( .not. has_error ) then
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
       if (allocated(input_warnings)) then
@@ -380,16 +536,19 @@ contains
         enddo
       endif
 
-      call Check_Input_Consistency()
-      call Check_Mesh_Motion_Compatibility()
-      call Check_Pyrolysis_Compatibility()
+      ! Ours' rules between keys (plan 05/06/07/08): each runs only on an input that passed what precedes it, as when
+      ! each of them stopped the run at its end
+      if ( .not. has_error ) call Check_Input_Consistency ( has_error )
+      if ( .not. has_error ) call Check_Mesh_Motion_Compatibility ( has_error )
+      if ( .not. has_error ) call Check_Pyrolysis_Compatibility ( has_error )
 
     end subroutine Check_Input
 
 
     !> Keys that are each valid but contradict one another, or the build.
-    subroutine Check_Input_Consistency()
+    subroutine Check_Input_Consistency ( has_error )
       implicit none
+      logical, intent(out) :: has_error
       logical :: bad
 
       bad = .false.
@@ -409,7 +568,7 @@ contains
       endif
 #endif
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Input_Consistency
 
@@ -433,8 +592,9 @@ contains
     !>     geometry while the fine level moves.
     !>
     !> Lifting either restriction is a separate piece of work, not a flag flip.
-    subroutine Check_Mesh_Motion_Compatibility()
+    subroutine Check_Mesh_Motion_Compatibility ( has_error )
       implicit none
+      logical, intent(out) :: has_error
       logical :: bad
 
       ! Test `law` directly rather than obj_mesh_motion%enabled: Check_Input
@@ -442,6 +602,7 @@ contains
       ! in Assign_Setup. Reading the flag here would silently test an unset
       ! value and the guard would never fire -- which is exactly what happened
       ! the first time this was written.
+      has_error = .false.
       if ( trim(obj_mesh_motion%law) == 'static' ) return
 
       bad = .false.
@@ -512,7 +673,7 @@ contains
         bad = .true.
       endif
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Mesh_Motion_Compatibility
 
@@ -522,10 +683,11 @@ contains
     !> ablation setup guard: later phases add their refusals here, each with a
     !> run_guard_demos.sh entry that shows it firing. Deliberately NOT inside
     !> Check_Mesh_Motion_Compatibility, which returns early on a static mesh.
-    subroutine Check_Pyrolysis_Compatibility()
-      use FUSS_Input_Registry, only: Registry_Is_Set
+    subroutine Check_Pyrolysis_Compatibility ( has_error )
+      use FUSS_Input_Registry, only: Key_Is_Set
       use FUSS_Register_Darcy, only: Parse_Open_Codes
       implicit none
+      logical, intent(out) :: has_error
       logical :: bad, ok
       integer :: codes(8), ncodes
       character(len=64) :: badtok
@@ -542,7 +704,7 @@ contains
       endif
 
       if ( .not. obj_pyrolysis%enabled ) then
-        if ( bad ) call fuss_abort ( 1 )
+        has_error = bad
         return
       endif
 
@@ -605,7 +767,7 @@ contains
       if ( obj_darcy%enabled ) then
         ! 13. p-gas prescribes the gas pressure of type 1; under type 2 the
         !     pressure is solved, so an explicit p-gas contradicts the choice.
-        if ( Registry_Is_Set( trim(codename)//'-Pyrolysis', 'p-gas' ) ) then
+        if ( Key_Is_Set( trim(codename)//'-Pyrolysis', 'p-gas' ) ) then
           write(*,'(A)') ' [ERROR] [FUSS-Pyrolysis] p-gas is refused with gas-closure = type2: the gas pressure is solved.'
           write(*,'(A)') '         Remove p-gas (use [FUSS-Darcy] p-init / p-wall).'
           bad = .true.
@@ -629,7 +791,7 @@ contains
         endif
       endif
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Pyrolysis_Compatibility
 
@@ -637,9 +799,10 @@ contains
     !> bc.txt-level rules of plan 06 sections 2.1 and 3.7 (root, after
     !> Check_BC): one block, no 101/102/103/104 face (chi ghosts are plan 08) and
     !> a wall BC (301-305) on the outflow end of the block.
-    subroutine Check_Pyrolysis_BC_Topology ( domain )
+    subroutine Check_Pyrolysis_BC_Topology ( domain, has_error )
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
       logical :: bad, kinetics_on
       integer :: i, fo, r, nopen
 
@@ -728,16 +891,17 @@ contains
         enddo
       endif
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Pyrolysis_BC_Topology
 
 
     !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,
     !> 2.10), with or without pyrolysis (root, after Check_BC).
-    subroutine Check_Ablation ( domain )
+    subroutine Check_Ablation ( domain, has_error )
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
       logical :: bad
       integer :: i, r, m, fo
       real(R8) :: v(8)
@@ -828,7 +992,7 @@ contains
         if ( bad ) exit
       enddo
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Ablation
 
@@ -836,21 +1000,24 @@ contains
     !> bc.txt-level rules of a RECEDING mesh (law = nodeshift, plan 08 section
     !> 2.3), with or without pyrolysis (root, after Check_Ablation). The node-
     !> map rules (a) and (b) need the surface-node map and are Setup_Recession's.
-    subroutine Check_Ablation_BC_Topology ( domain )
+    subroutine Check_Ablation_BC_Topology ( domain, has_error )
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
       logical :: bad
       integer :: i, b, f, n306
       integer, allocatable :: face_of(:)
       real(R8) :: m0
 
       bad = .false.
+      has_error = .false.
       if ( trim(obj_mesh_motion%law) /= 'nodeshift' ) return
 
       n306 = count( [( domain%bc(i)%type == 306, i = 1, domain%nbound )] )
       if ( n306 == 0 ) then
         write(*,'(A)') ' [ERROR] law = nodeshift moves the ablating faces (306), and bc.txt has none.'
-        call fuss_abort ( 1 )
+        has_error = .true.
+        return
       endif
 
       ! one receding face per block; its opposite face is not 306 as well
@@ -903,7 +1070,7 @@ contains
         end associate
       enddo
 
-      if ( bad ) call fuss_abort ( 1 )
+      has_error = bad
 
     end subroutine Check_Ablation_BC_Topology
 
@@ -913,26 +1080,27 @@ contains
 
       if (trim(obj_multigrid%cycle) == 'none') return
       if (obj_multigrid%MGL < 2) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle needs levels >= 2')
+        call mpi_stop_all('[FUSS-Multigrid] cycle needs levels >= 2')
       if (obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
+        call mpi_stop_all('[FUSS-Multigrid] cycle works on steady runs only (time-accurate = false)')
       if (obj_sim_param%HYDRA_MG) &
-        call mpi_abort_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
+        call mpi_stop_all('[FUSS-Multigrid] cycle is not available under the hydra coupling')
       if (trim(obj_time_scheme%integration_variables) == 'prim') &
-        call mpi_abort_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
+        call mpi_stop_all('[FUSS-Multigrid] cycle needs integration-variables = cons')
       if (obj_multigrid%pre_iter + obj_multigrid%post_iter < 1) &
-        call mpi_abort_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
+        call mpi_stop_all('[FUSS-Multigrid] pre-iter + post-iter must be at least 1')
 
     end subroutine Check_FAS
 
 
-    subroutine Check_BC()
+    subroutine Check_BC ( has_error )
       implicit none
+      logical, intent(out) :: has_error
 
-      if (index(obj_io_bc%error_message,'ERROR')>0) then
+      has_error = index(obj_io_bc%error_message,'ERROR') > 0
+      if ( has_error ) then
         write(*,'(A,T35,A)') '   Boundary conditions', 'FAIL'
         write(*,'(4X,A)') trim(obj_io_bc%error_message)
-        call fuss_abort ( 1 )
       else
         write(*,'(A,T35,A)') '   Boundary conditions', 'OK'
       endif
@@ -955,9 +1123,9 @@ contains
     end subroutine Print_Warnings
 
 
-    subroutine Stop_Simulation()
+    subroutine Stop_Simulation ( has_error )
       implicit none
-      logical :: has_error
+      logical, intent(out) :: has_error
 
       has_error = .false.
 
@@ -969,9 +1137,23 @@ contains
         write(*,'(A)') obj_irs%error_message;          has_error = .true.
       endif
 
-      if (has_error) call fuss_abort ( 1 )
-
     end subroutine Stop_Simulation
+
+
+    !> A check of the set-up that runs on rank 0 alone writes what it finds there. Rank 0 broadcasts whether it found an
+    !> error, and on an error every rank stops together (mpi_stop_all): rank 0 has written its message before any rank
+    !> ends, and the run ends with exit code 1. With MPI_ABORT from rank 0 alone, which makes only a best attempt to stop
+    !> the processes (MPI-4.1, section 11.4.2), the launcher can end while rank 0 is writing, and the other ranks go on
+    !> meanwhile.
+    subroutine Stop_Together ( found, why )
+      implicit none
+      logical, intent(inout)       :: found
+      character(len=*), intent(in) :: why
+
+      call mpi_bcast_logical ( found )
+      if ( found ) call mpi_stop_all ( why )
+
+    end subroutine Stop_Together
 
 
     subroutine Print_Shell_Info()
@@ -1009,6 +1191,16 @@ contains
       write(*,'(A)') ' Input/Output'
       write(*,'(A,T35,A)') '   Initial conditions file', trim(obj_io%nameinit)
       write(*,'(A,T35,A)') '   Solution format', trim(obj_io%sol_format)
+      if ( .not. obj_sim_param%newrun ) then
+        write(*,'(A,T35,A)') '   Restart from', trim(obj_io%nameinit)
+        if ( obj_io%restart%found .and. ( obj_io%restart%steady .neqv. obj_time_scheme%time_accurate ) ) then
+          write(*,'(A,T35,A)') '   Restart counters', 'restored from the solution'
+        elseif ( obj_io%restart%found ) then
+          write(*,'(A,T35,A)') '   Restart counters', 'not restored (the solution is of the other kind of run)'
+        else
+          write(*,'(A,T35,A)') '   Restart counters', 'not in the solution: counted as a new run'
+        endif
+      endif
       write(*,'(A,T35,A)') '   Probes number', str(.true.,nprobes)
       write(*,'(A)') ' ========================================================================================='
 

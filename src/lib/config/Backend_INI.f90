@@ -2,31 +2,22 @@ module FUSS_Backend_INI
   use iso_fortran_env, only: R8 => real64
   implicit none
   private
-  public :: Load_Ini, Scan_Ini, Check_Unknown_Options, Check_Value_Lengths, Reload_Runtime_Ini
+  public :: Load_Ini, Load_Param, Scan_Ini, Snapshot_Ini_Text, Check_Unknown_Options, Check_Value_Lengths, Reload_Runtime_Ini
 
   !> Parameters that MAY be changed while a run is in progress.
   !>
   !> Everything not on this list is immutable, which is the safe default: a new
   !> parameter added later is immutable until someone deliberately decides it is
   !> not. The test is not "does it look harmless" but "is it READ LIVE" -- these
-  !> seven are fetched from obj_sim_param / obj_io every step or every write, so
+  !> eight are fetched from obj_sim_param / obj_io every step or every write, so
   !> assigning them mid-run actually changes behaviour.
   !>
-  !> `iter-threshold` deliberately is NOT here, and the reason is the whole
-  !> point of this list. It is copied once into domain%itermax at
-  !> Wrap_Setup.f90:48 (and per level in Mod_Multigrid.f90:53), and the stopping
-  !> test reads domain%itermax, not obj_sim_param%iter_threshold. Re-assigning
-  !> it mid-run would therefore do exactly nothing, with no message -- the
-  !> failure mode this whole check exists to remove. Treated as immutable, an
-  !> attempt to change it is at least reported. Making it genuinely mutable
-  !> means re-deriving itermax, which needs the domain and so does not belong in
-  !> the config layer.
-  !>
-  !> This was not reasoned out in advance: the list first included
-  !> `iter-threshold`, and test/run_runtime_ini_gate.sh hung because lowering it
-  !> mid-run never stopped the run.
-  character(len=*), parameter :: RUNTIME_MUTABLE(7) = [ character(len=16) :: &
-    'res-threshold ', 'time-threshold',                                      &
+  !> iter-threshold joined the list with plan 14 S6: FUSS_postprocess re-derives
+  !> domain%itermax from it after every reading (upstream f3401c5). With more than
+  !> one multigrid level it has no effect (each level stops at its level<m>-iter,
+  !> which stays immutable).
+  character(len=*), parameter :: RUNTIME_MUTABLE(8) = [ character(len=16) :: &
+    'res-threshold ', 'time-threshold', 'iter-threshold',                    &
     'sol-diter     ', 'sol-dtime     ', 'res-diter     ', 'shell-diter   ',  &
     'ini-diter     ' ]
 
@@ -67,6 +58,10 @@ contains
   !> cannot be reached mid-run at all, so the setup-time guards do not need to
   !> re-run. Do not "simplify" this into a plain re-read later without also
   !> re-running Check_Mesh_Motion_Compatibility.
+  !>
+  !> Plan 14 S6 (D8-A2): called only for a reading that passed the whole
+  !> validation (Read_Inifile_Runtime); the reading itself comes from rank 0 on
+  !> every rank (Load_Input_File).
   subroutine Reload_Runtime_Ini ( fini, iter, report )
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg, Validate_Param
@@ -104,16 +99,7 @@ contains
         else if (associated(reg%params(i)%value%s)) then ; old_s = reg%params(i)%value%s
         endif
 
-        error = 1
-        if (associated(reg%params(i)%value%i)) then
-          call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%i, error=error)
-        else if (associated(reg%params(i)%value%r)) then
-          call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%r, error=error)
-        else if (associated(reg%params(i)%value%l)) then
-          call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%l, error=error)
-        else if (associated(reg%params(i)%value%s)) then
-          call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%s, error=error)
-        endif
+        call Load_Param ( fini, i )
 
         vout = ''
         call Validate_Param(i, vout)
@@ -159,12 +145,8 @@ contains
   !> the file against the live variable therefore reported a spurious change on
   !> every single re-read -- a 4.2 MB report file from a run nobody had edited.
   !>
-  !> The same fact is why Reload_Runtime_Ini validates PER PARAMETER, through
-  !> Validate_Param, and never calls Validate_Registry on the whole set: after
-  !> setup the registry's targets no longer all hold raw ini values, so
-  !> 'Conservative' fails its own 'cons , prim' allowed-list. The whole-set
-  !> validation result was historically discarded, which is exactly what hid
-  !> this.
+  !> The comparison stays file-to-file (a registered variable may hold a derived
+  !> value after set-up).
   function Raw_Ini_Text ( fini, i, error ) result ( txt )
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg
@@ -186,9 +168,10 @@ contains
   end function Raw_Ini_Text
 
 
-  !> Fill the file-state snapshot. Called at the end of Load_Ini, i.e. once the
-  !> setup read has happened and before anything has had a chance to overwrite
-  !> a registered variable with a derived value.
+  !> Fill the file-state snapshot. Called by Read_Inifile right after the set-up
+  !> Load_Ini (not inside Load_Ini, which every reading during the run calls too),
+  !> before anything has had a chance to overwrite a registered variable with a
+  !> derived value.
   subroutine Snapshot_Ini_Text ( fini )
     use Finer,               only: file_ini
     use FUSS_Input_Registry, only: reg
@@ -289,6 +272,9 @@ contains
       ! saved module state), so abandoning one part-way would corrupt the next.
       do while ( fini%loop( section_name=trim(sec), option_pairs=pairs ) )
         opt = adjustl(pairs(1))
+        ! "key =" without a value: FiNeR lists it but gives no value; Warn_Unread_Keys
+        ! reports it with its line (upstream 189ba21): a warning, not a stop (plan 14 D-S6-3)
+        if ( len_trim(pairs(2)) == 0 ) cycle
 
         known = .false.
         do i = 1, reg%size
@@ -390,40 +376,67 @@ contains
     use FUSS_Input_Registry, only: reg
     use Finer, only: file_ini
     implicit none
-    type(file_ini), intent(inout) :: fini
-    integer :: i, error
+    type(file_ini), intent(in) :: fini
+    integer :: i
 
     do i = 1, reg%size
-      error = 1
-
-      ! Each registry entry has exactly one associated typed pointer.
-      if (associated(reg%params(i)%value%i)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%i, error=error)
-      else if (associated(reg%params(i)%value%r)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%r, error=error)
-      else if (associated(reg%params(i)%value%l)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%l, error=error)
-      else if (associated(reg%params(i)%value%s)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%s, error=error)
-      else if (associated(reg%params(i)%value%iarr)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%iarr, error=error)
-      else if (associated(reg%params(i)%value%rarr)) then
-        call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%rarr, error=error)
-      end if
-
-      if (error == 0) reg%params(i)%is_set = .true.
+      call Load_Param(fini, i)
     end do
-
-    ! Record the file's own text for every parameter, for Reload_Runtime_Ini to
-    ! compare against later. Must happen HERE, before anything downstream
-    ! overwrites a registered variable with a derived value.
-    call Snapshot_Ini_Text ( fini )
 
   end subroutine
 
 
+  !> One key of the registry from input.ini (upstream 189ba21): its value, is_set, unread (a value that does not read
+  !> as its type, an integer written with a period or an exponent) and the text as written
+  subroutine Load_Param(fini, i)
+    use FUSS_Input_Registry, only: reg
+    use Finer, only: file_ini, err_option_vals
+    implicit none
+    type(file_ini), intent(in) :: fini
+    integer,        intent(in) :: i
+    integer :: error, error_text
+    character(len=:), allocatable :: text
+
+    error = 1
+
+    ! Each registry entry has exactly one associated typed pointer.
+    if (associated(reg%params(i)%value%i)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%i, error=error)
+    else if (associated(reg%params(i)%value%r)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%r, error=error)
+    else if (associated(reg%params(i)%value%l)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%l, error=error)
+    else if (associated(reg%params(i)%value%s)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%s, error=error)
+    else if (associated(reg%params(i)%value%iarr)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%iarr, error=error)
+    else if (associated(reg%params(i)%value%rarr)) then
+      call fini%get(reg%params(i)%section, reg%params(i)%name, val=reg%params(i)%value%rarr, error=error)
+    end if
+
+    if (error == 0) reg%params(i)%is_set = .true.
+
+    ! A key of the file whose value the reader cannot take as the type of its parameter (a value that does not
+    ! convert, a list with more values than the parameter holds, no value: FiNeR gives err_option_vals, and leaves
+    ! the parameter as it was) is an error of the file, which Validate_Registry gives with the value as written
+    reg%params(i)%unread = ( error == err_option_vals )
+    if (allocated(reg%params(i)%text)) deallocate(reg%params(i)%text)
+    call fini%get_string(section_name=reg%params(i)%section, option_name=reg%params(i)%name, val=text, error=error_text)
+    if (error_text == 0) reg%params(i)%text = text
+    ! An integer, or a list of integers, written with a period or an exponent is not one (the input form of an integer is
+    ! a signed digit string): gfortran refuses it, ifx takes it and cuts the fraction (2.7 reads 2), so the text decides,
+    ! in every build
+    if (error == 0 .and. error_text == 0 .and. &
+        (associated(reg%params(i)%value%i) .or. associated(reg%params(i)%value%iarr))) then
+      if (scan(text, '.eEdDqQ') > 0) reg%params(i)%unread = .true.
+    end if
+
+  end subroutine Load_Param
+
+
   subroutine Scan_Ini(fini, nprobes, probes_name, nmgl)
-    use Finer, only: file_ini
+    use Finer, only: file_ini, err_option_vals
+    use FUSS_Input_Registry, only: reg
     use FUSS_Config_Types_m, only: obj_sim_param, obj_pyrolysis, obj_darcy
     use FUSS_Global_m
     use IR_precision
@@ -433,14 +446,28 @@ contains
     character(len=16), allocatable, intent(out) :: probes_name(:)
     ! Local
     character(len=llen) :: wholestring
-    integer :: error, i
+    integer :: error, error_text, i
+    character(len=:), allocatable :: section, text
   
     ! Read the MGL
     nmgl = 1
     if (.not. obj_sim_param%HYDRA_MG) then
-      call fini%get(section_name=trim(codename)//'-Multigrid', option_name='levels', val=nmgl, error=error)
+      section = trim(codename)//'-Multigrid'
     else
-      call fini%get(section_name='HYDRA-Multigrid', option_name='levels', val=nmgl, error=error)
+      section = 'HYDRA-Multigrid'
+    endif
+    call fini%get(section_name=section, option_name='levels', val=nmgl, error=error)
+    ! A value that is not an integer, or no value: the run would go on with one grid level, without a word; an integer
+    ! written with a period or an exponent is not one either (gfortran refuses it, ifx takes it and cuts the fraction).
+    ! levels is no key of the registry: Validate_Registry gives this error first (Check_Input), as those of its keys
+    text = ''
+    call fini%get_string(section_name=section, option_name='levels', val=text, error=error_text)
+    if (error == err_option_vals .or. (error == 0 .and. error_text == 0 .and. scan(text, '.eEdDqQ') > 0)) then
+      if (len_trim(text) > 0) then
+        reg%load_error = '[ERROR] input.ini, ['//section//'] levels = '//trim(text)//': the value is not an integer'
+      else
+        reg%load_error = '[ERROR] input.ini, ['//section//'] levels =: the value is empty'
+      endif
     endif
 
     ! Pyrolysis (plan 06 section 3.5): the feature switch is the PRESENCE of
@@ -460,12 +487,13 @@ contains
       if (error/=0) exit
       nprobes = nprobes+1
     enddo
+    ! A probe numbered past a gap is an error of the file: Validate_Registry gives it (Check_Input)
     do i = nprobes+2, nprobes+100
       call fini%get(section_name=trim(codename)//'-Probes', option_name='probe'//trim(str(.true.,i)), val=wholestring, error=error)
       if (error == 0) then
-        write(*,'(A)') ' [ERROR] probe'//trim(str(.true.,i))//' found but probe'//trim(str(.true.,nprobes+1))// &
-                       ' is missing: the probes must be numbered without gaps'
-        error stop 'probe numbering gap'
+        reg%load_error = '[ERROR] input.ini, ['//trim(codename)//'-Probes] probe'//trim(str(.true.,i))//' found but probe'// &
+                         trim(str(.true.,nprobes+1))//' is missing: the probes must be numbered without gaps'
+        exit
       endif
     enddo
 

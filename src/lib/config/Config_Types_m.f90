@@ -34,6 +34,21 @@ module FUSS_Config_Types_m
   !! ------------------------------------------------------
   !! Input-Output -----------------------------------------
   !! ------------------------------------------------------
+  !> What a solution file says about the run that wrote it, read back by a restart (Read_vtk_tec): the kind of the
+  !> run, the global iteration count and the counters that decide the next iteration of the run (see
+  !> restart_counter_names in IO_Solution)
+  type :: restart_counters_t
+    logical  :: time_found = .true.     ! the solution holds a time (vtk TIME, Tecplot SOLUTIONTIME)
+    logical  :: steady     = .false.    ! the solution is that of a steady run (negative time, or Tecplot STRANDID = 0)
+    logical  :: found      = .false.    ! the solution holds all four counters below
+    logical  :: resumed    = .false.    ! the counters are applied (same kind of run): Wrap_Setup
+    integer  :: cycle      = 0          ! global iteration count of the run that wrote it (CYCLE)
+    integer  :: iteration  = 0          ! FUSS_ITERATION: iteration count of the written level (domain%iter)
+    integer  :: output_number = 0       ! FUSS_OUTPUT_NUMBER: number of the last numbered output
+    integer  :: grid_level = 1          ! FUSS_GRID_LEVEL: level being computed
+    real(R8) :: last_output_time = 0.d0 ! FUSS_LAST_OUTPUT_TIME: time of the last time-based output
+  end type restart_counters_t
+
   type :: io_t
     character(len=llen)  :: warning_message
     character(len=llen)  :: error_message
@@ -45,6 +60,8 @@ module FUSS_Config_Types_m
     character(len=llen)  :: sol_format, ic_format   ! solution format (native,tecplot,vtk) and formatting (ascii,raw)
     integer              :: shell_diter  ! Shell update
     integer              :: ini_diter    ! input.ini update
+    character(len=llen)  :: decomposition_map ! File of INPUT/ with the MPI rank of every block (none: balanced by cell count)
+    character(len=llen)  :: ini_error    ! input.ini read again with an error: warn (the reading not taken) or stop
     integer              :: timer_diter  ! Wall-clock timing report (0 = off)
     ! Useful variables
     character(len=llen)  :: nameinit    ! Initial file name
@@ -58,6 +75,8 @@ module FUSS_Config_Types_m
     integer              :: Onwall
     integer              :: unitRES             ! Residuals file unit
     character(len=llen)  :: unitRES_format      ! Format for residual_history_file
+    integer              :: output_number = 0   ! Number of the last numbered output (field<n>); restored by a restart
+    type(restart_counters_t) :: restart         ! What the solution that a restart reads says about its run
   end type io_t
 
   type :: io_probes_t

@@ -52,7 +52,7 @@ contains
 
     call reg%add( trim(section), 'sdot-override', obj_ablation%sdot_override, '-1.0', &
                   'TEST ONLY: the recession rate of every 306 face [m/s] (kinematic recession); < 0 = off', &
-                  'real', .false. )
+                  '', .false. )
 
     call reg%add( trim(section), 'dump-interface-flux', obj_ablation%dump_interface_flux, '.false.', &
                   'TEST ONLY: write the flux of every 101 face to OUTPUT/<prefix>interface-flux.txt at each output', &

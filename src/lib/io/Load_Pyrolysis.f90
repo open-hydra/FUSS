@@ -469,10 +469,11 @@ contains
 
 
   !> Value checks of pyrolysis.dat (root, after the loader) and the banner.
-  subroutine Check_Pyrolysis_Tables ()
+  subroutine Check_Pyrolysis_Tables ( has_error )
     use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
     use FUSS_Lib_Pyrolysis,  only: Gas_State, Tab_Lookup
     implicit none
+    logical, intent(out) :: has_error   !< rank 0's verdict, for Stop_Together (FUSS_setup)
     ! Local
     integer  :: m, i, j, r, a, c
     real(R8) :: sumF, sumeps, hv, hc, hg, W, mu, p_ban, kmax
@@ -531,9 +532,10 @@ contains
       end associate
     enddo
 
+    has_error = bad
     if ( bad ) then
       write(*,'(A,T35,A)') '   Pyrolysis tables', 'FAIL'
-      call fuss_abort ( 1 )
+      return
     endif
 
     write(*,'(A,T35,A)') '   Pyrolysis tables', 'OK'

@@ -75,6 +75,7 @@ contains
     character(len=llen) :: path
     character(len=llen) :: localpath_vtk
     character(len=llen) :: vtknames
+    character(len=llen) :: name
     integer             :: E_IO, b, i, j, k
     character(len=clen) :: format(2), extension
 
@@ -99,11 +100,15 @@ contains
       select case(trim(format(1)))
       case('vtk')
         IOfield%vtk%format = trim(format(2))
-        localpath_vtk = trim(path)//'/vtk'
+        ! As the field files (IO_Solution): the .vtm lists the block files relative to its own folder (no leading '/' in
+        ! the name), and the time is the solution time, minus the global iteration count in a steady run
+        name = file
+        if ( name(1:1) == '/' ) name = name(2:)
+        localpath_vtk = trim(path)//'vtk/'
         call execute_command_line('mkdir -p '//trim(localpath_vtk))
         vtknames = unquoted(Dvarnames)
-        E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(file), &
-                                                            vtmpath=trim(path)//trim(file),varnames=vtknames,time=domain%time)
+        E_IO = vtk_write_structured_multiblock(orion=IOfield,vtspath=trim(localpath_vtk)//trim(name), &
+                                               vtmpath=trim(path)//trim(name),varnames=vtknames,time=IOfield%solutiontime)
       case('tecplot')
         IOfield%tec%format = trim(format(2))
         ! TecIO refuses a binary stream unless the name ends in .plt/.szplt, so
