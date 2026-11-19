@@ -10,12 +10,12 @@ face and its partner at the same time, |q_A + q_B| over the run, per quantity, r
 quantity over the run, <= 1e-12. Measured 2026-10-13: q_if 1.6e-13 (the conduction kernel's round-off), qm_if and qh_if
 exactly 0 (both sides evaluate one expression on the same data). Each quantity must also be nonzero, so the pairing is
 not vacuous. Before plan 08 the Darcy row used the cell's own metric at a full-cell distance: the two sides'
-conductances differed by the spacing ratio, 4 here. FUSS_GATE_SELFTEST=1 sets the bound to 0. Exit 0 on PASS.
+conductances differed by the spacing ratio, 4 here. FUSS_GATE_SELFTEST=1 sets the bound to -1. Exit 0 on PASS.
 """
 import os
 import sys
 
-TOL = 0.0 if os.environ.get("FUSS_GATE_SELFTEST") == "1" else 1.0e-12
+TOL = -1.0 if os.environ.get("FUSS_GATE_SELFTEST") == "1" else 1.0e-12   # q_if pairs to exactly 0 since plan 14 S7 (one flux per face)
 
 
 def main():

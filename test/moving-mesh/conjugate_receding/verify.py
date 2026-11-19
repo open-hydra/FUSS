@@ -21,7 +21,7 @@ Checks:
 The red control (run_physics_gates.sh) runs a copy with [FUSS-MeshMotion] skip-bc-metrics-refresh = true: (pair) is an
 identity since plan 14 S7 (one flux per face); the gate's red control compares the stale run's interface flux with this one's.
 
-Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets the bound to 0.
+Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets the bound to -1.
 """
 import os
 import re
@@ -53,7 +53,7 @@ def read_zones(path):
 
 def main():
     case = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
-    tol = 0.0 if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1" else 1.0e-12
+    tol = -1.0 if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1" else 1.0e-12   # (pair) is exactly 0 since plan 14 S7 (one flux per face): the hook needs a bound below 0
     ok = True
 
     rows = [l.split() for l in open(os.path.join(case, "OUTPUT", "interface-flux.txt")) if not l.startswith("#")]
