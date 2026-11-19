@@ -89,7 +89,7 @@ def field(path):
     names = lines[0].split("=", 1)[1].split()
     zone = lines[1]
     n = [int(zone.split(c + "=")[1].split(",")[0]) for c in ("I", "J", "K")]
-    vals = [float(x) for x in lines[2:] if x.strip()]
+    vals = [float(x) for x in lines[2:] if x.strip() and not x.lstrip().startswith("DATASETAUXDATA")]
     nn, nc = n[0] * n[1] * n[2], (n[0] - 1) * (n[1] - 1) * max(n[2] - 1, 1)
     out, o = {}, 0
     for name in names:
