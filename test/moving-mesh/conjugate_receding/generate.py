@@ -10,7 +10,7 @@ the oracle does not depend on the hot-end condition; no pyrolysis material, so t
 [FUSS-MeshMotion] law = nodeshift, [FUSS-Ablation] sdot-override = 1e-5 m/s. Block 1 compresses toward the
 block interface (its pinned face 2); block 2 does not move.
 
-The base runs steady with IRS, which a moving mesh refuses, so: time-accurate, no IRS, vnn 0.5, 200 steps, a solution
+The base runs steady with IRS, which a moving mesh refuses, so: time-accurate, no IRS, vnn 0.25 (0.5 before plan 14 S7), 200 steps, a solution
 output every 50 steps. dump-interface-flux = true writes, at every output, the flux each 101 face put into the
 residual (OUTPUT/interface-flux.txt): the two sides of a face must cancel to round-off when bc%Mg (the neighbour's
 metric, rebuilt after every move) is current -- verify.py. The red control (run_physics_gates.sh) sets the TEST ONLY
@@ -49,7 +49,7 @@ iter-threshold = 200
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 0.5
+vnn = 0.25
 time-accurate = true
 integration-variables = cons
 

@@ -228,7 +228,7 @@ res-threshold = 1e-10
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 2.0
+vnn = 1.0
 time-accurate = false
 integration-variables = cons
 irs-beta = 0.5

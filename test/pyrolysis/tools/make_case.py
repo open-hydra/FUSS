@@ -654,7 +654,7 @@ def main():
     ap.add_argument("--kind", required=True, choices=sorted(KINDS))
     ap.add_argument("--tables", required=True, help="directory holding pyrolysis.dat virgin.dat char.dat gas.dat")
     ap.add_argument("--T0", type=float, default=None, help="initial temperature [K] (isothermal: 700/900/1200; adiabatic0d: required)")
-    ap.add_argument("--vnn", type=float, default=0.5)
+    ap.add_argument("--vnn", type=float, default=0.25)
     ap.add_argument("--no-kinetics", action="store_true")
     ap.add_argument("--ncells", type=int, default=None, help="cells along i for atc1, atc2off and conduction (default %d)" % ATC_N)
     ap.add_argument("--uniform", action="store_true", help="conduction only: equal cells instead of the 0.1 grading")
@@ -876,7 +876,7 @@ def main():
     dxs = [xs[i + 1] - xs[i] for i in range(nx)]
     dx_min = min(dxs)
     inv_l2 = 1.0 / dx_min ** 2 + 1.0 / DY ** 2
-    dt = 0.5 * args.vnn / (ALPHA_V * inv_l2)
+    dt = args.vnn / (ALPHA_V * inv_l2)
     print("make_case.py: %s -> %s" % (kind, case))
     print("  material %s (rho_v = %g), tables from %s%s" % (name, rho_v, args.tables,
           ", kinetics stripped" if strip else ", nPyroReac = %s" % nreac))

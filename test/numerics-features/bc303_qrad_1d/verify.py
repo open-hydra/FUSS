@@ -13,8 +13,9 @@ T linear between the faces). Two checks, one per dispatch site of BC 303:
 
 Tolerance. The run stops on residuotot = sqrt(sum dT^2) <= res-threshold = 1e-10
 K per iteration. The slowest error mode (Dirichlet-Robin, mu cot mu = -Bi, Bi =
-hL/k = 1, mu = 2.029) decays per iteration by dt lambda = 0.5 vnn (mu/L)^2 /
-(1/dx^2 + 1/dy^2) = 5.1e-3 (IRS leaves the slowest mode untouched), so the error
+hL/k = 1, mu = 2.029) decays per iteration by dt lambda = vnn (mu/L)^2 /
+(1/dx^2 + 1/dy^2) = 5.1e-3 (vnn 1.0; 0.5 vnn with vnn 2.0 before plan 14 S7; IRS
+leaves the slowest mode untouched), so the error
 left is about 1e-10 / 5.1e-3 = 2e-8 K; round-off and the 15-digit output are
 1e-12 K at 700 K. TOL_K = 1e-6 K keeps a 50x margin (the budget
 conjugate_two_layer uses for the same reason). The wall flux: 1e-8 relative.

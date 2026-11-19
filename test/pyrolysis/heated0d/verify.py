@@ -3,9 +3,9 @@
 
 The adiabatic0d slab with a uniform volumetric source q = 3.75e8 W/m3 (INPUT/st.tec) from 300 K, 3 s: the
 state heats at ~650 K/s (the rate of ATC1's 1 mm probe in its first second) through the whole decomposition
-and follows tools/ode0d.py (type1) exactly. Run at vnn 0.00625 (dt ~ 2.1 ms = ATC1's step): the splitting
+and follows tools/ode0d.py (type1) exactly. Run at vnn 0.003125 (0.00625 before plan 14 S7; dt ~ 2.1 ms = ATC1's step): the splitting
 error is 0.0016 K (second order: 15.8 K at vnn 0.5, 3.8 at 0.25, 0.59 at 0.1, 0.14 at 0.05, 0.034 at 0.025,
-0.008 at 0.0125; record 2026-10-08).
+0.008 at 0.0125; record 2026-10-08; the vnn values before plan 14 S7, X/2 now).
 
 Checks over every OUTPUT/field<i>.tec:
   (a) max |T - T_or1|       <= TOL_T    (0.02 K; measured 0.002 K, oracle agreement with scipy RK45 1e-4 K)

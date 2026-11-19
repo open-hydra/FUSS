@@ -133,7 +133,7 @@ def main():
     ap.add_argument("--kind", required=True, choices=["pressure_transient", "transpiration", "sharp_front"])
     ap.add_argument("--tables", required=True)
     ap.add_argument("--ncells", type=int, default=40)
-    ap.add_argument("--vnn", type=float, default=0.5)
+    ap.add_argument("--vnn", type=float, default=0.25)
     ap.add_argument("--fuss-sh", default=mc.DONOR_FUSS_SH)
     ap.add_argument("--masterdir", default=None, help="absolute MASTERDIR for FUSS.sh (a case outside the tree)")
     # pressure_transient

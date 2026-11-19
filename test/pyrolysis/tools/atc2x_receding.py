@@ -30,7 +30,8 @@ Checks (expected.json; DECISION 2026-10-13 P-D4 of plan 08):
   (bal-e)  E_tot + E_abl + Q_out - Q_src constant to 5e-10 of max(|E_tot(0)|, max |Q_out|): the remap's swept energy
            E_abl closes the budget of a receding wall. The drift is per-step round-off, not a time-step error: 5.6e-11
            (2.2) and 4.1e-11 (2.3) at 120 s, growing as t^0.5, and over the first 10 s of 2.2 it grows as the step
-           shrinks (1.4e-11, 2.0e-11, 3.1e-11 at vnn 0.5, 0.25, 0.125); an O(dt) mismatch would shrink. A swept
+           shrinks (1.4e-11, 2.0e-11, 3.1e-11 at vnn 0.5, 0.25, 0.125 before plan 14 S7, X/2 now); an O(dt) mismatch
+           would shrink. A swept
            energy missing or valued inconsistently with the remap shows at 1e-3 and above.
   (R2)     printed, not gated: e_front = max_t |x_98,FUSS - x_98,PATO| against the FUSS cell width at the front then;
            plan 08 decision 4 adds a limited (MUSCL) reconstruction iff e_front > dx_local.

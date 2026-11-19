@@ -85,7 +85,7 @@
 #                 pyrolysis   -- plan 06 phase 2, six sub-checks: kinetics_isothermal
 #                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
 #                                energy_audit (energy and solid-mass balances 1e-10,
-#                                independent state sum, vnn 0.5/0.25/0.125 first-order
+#                                independent state sum, vnn 0.25/0.125/0.0625 (0.5/0.25/0.125 before plan 14 S7) first-order
 #                                refinement, the no-kinetics variant exact zeros, 1 vs 8
 #                                threads byte-identical), ATC1 vs FIAT, and
 #                                ATC2-chemistryOff vs the bundled PATO zero-emissivity
@@ -479,7 +479,7 @@ gate_pyrolysis () {
   stage "$base/energy_audit" "$dest/energy_audit"
   solve "$dest/energy_audit" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit: solver exit $rc  (see $dest/energy_audit/run.log)"; return 1; fi
-  for v in 0.25 0.125; do
+  for v in 0.125 0.0625; do   # the 0.25 / 0.125 refinements of the convention before plan 14 S7 (vnn halved)
     stage "$base/energy_audit" "$dest/energy_audit_vnn$v"
     sed -i "s/^vnn = .*/vnn = $v/" "$dest/energy_audit_vnn$v/input.ini"
     solve "$dest/energy_audit_vnn$v" "$NTHREADS"; rc=$?
@@ -507,7 +507,7 @@ PYNOKIN
   solve "$dest/energy_audit_p8" 8; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p 8: solver exit $rc"; return 1; fi
   if ! python3 "$base/energy_audit/verify.py" "$dest/energy_audit" \
-         --vnn025 "$dest/energy_audit_vnn0.25" --vnn0125 "$dest/energy_audit_vnn0.125" \
+         --vnn025 "$dest/energy_audit_vnn0.125" --vnn0125 "$dest/energy_audit_vnn0.0625" \
          --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" > "$dest/energy_audit/verify.log" 2>&1; then
     KEYNUM="energy_audit: $(grep -E -m1 'FAIL' "$dest/energy_audit/verify.log" | sed 's/^ *//')"; return 1
   fi
@@ -868,7 +868,7 @@ bench_ladder () {
   return $rc
 }
 
-# exact transient Darcy pressure (frozen T): 2nd order in space at vnn 0.5
+# exact transient Darcy pressure (frozen T): 2nd order in space at vnn 0.25 (0.5 before plan 14 S7)
 gate_bench_pressure_transient () { bench_ladder pressure_transient bench_pressure_transient 20 40 80; }
 
 # exact steady transpiration (exponential T, Darcy mdot): 2nd order since the

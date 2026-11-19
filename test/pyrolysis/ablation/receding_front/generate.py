@@ -66,7 +66,7 @@ iter-threshold = %(steps)d
 
 [FUSS-Numerics]
 time-scheme = RK3
-vnn = 0.5
+vnn = 0.25
 time-accurate = true
 integration-variables = cons
 %(pyro)s

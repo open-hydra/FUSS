@@ -69,7 +69,7 @@ NY = 4                                    # lateral cells (solution is 1-D)
 TW = 1273.15                              # receding surface   [K]
 TINF = 273.15                             # far field          [K]
 T_END = 200.0                             # end time           [s]
-VNN = 0.5
+VNN = 0.25
 
 GRIDS = [40, 80, 160, 320]
 

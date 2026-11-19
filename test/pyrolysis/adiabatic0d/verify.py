@@ -4,10 +4,11 @@
 A 4-cell slab of real TACOT with every face adiabatic (BC 301, q = 0 on faces 1 and 2, 300 on 3/4) started at
 T0 = 1000 K: the state stays uniform and follows the ODE of tools/ode0d.py (type1 variant) exactly; the only
 FUSS error is the kinetics/energy splitting inside the RK3 stages (frozen stage temperature), second order in
-dt here (0.051 K at vnn 0.5, 0.014 at 0.25, 0.0022 at 0.1, 0.0005 at 0.05; record 2026-10-08).
+dt here (0.051 K at vnn 0.5, 0.014 at 0.25, 0.0022 at 0.1, 0.0005 at 0.05; record 2026-10-08; the vnn values
+before plan 14 S7, X/2 now).
 
 Checks over every OUTPUT/field<i>.tec:
-  (a) max |T - T_or1|      <= TOL_T    (0.10 K; measured 0.051 K at vnn 0.5)
+  (a) max |T - T_or1|      <= TOL_T    (0.10 K; measured 0.051 K at vnn 0.5 before plan 14 S7, 0.25 now)
   (b) max |chi_r - chi_or1| <= TOL_CHI  (2e-3; measured 1.22e-3)
   (c) spatial non-uniformity of T and chi <= TOL_UNIF (1e-6; measured 2e-8)
   Reported, not gated: the exact type-2 (gas storage) minus type-1 difference (0.07 K here) and the FUSS error

@@ -8,4 +8,4 @@ the generator's docstring describes the case.
 The base itself runs 5 steps to completion. The `abl_base_ok` entry checks that, so that every demo stops for its own
 reason.
 
-The first step is dt = 0.5 · vnn · Δx² / α = 0.9375 s (Δx 2.5 mm, α 1e-6 m²/s, vnn 0.3).
+The first step is dt = vnn · Δx² / α = 0.9375 s (Δx 2.5 mm, α 1e-6 m²/s, vnn 0.15; 0.5 · vnn with vnn 0.3 before plan 14 S7).

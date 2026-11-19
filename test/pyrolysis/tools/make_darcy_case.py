@@ -244,7 +244,7 @@ def write_ini(path, kind, cfg, subst, probes_T=True):
         "",
         "[FUSS-Numerics]",
         "time-scheme = RK3",
-        "vnn = 0.5",
+        "vnn = 0.25",
         "time-accurate = true",
         "integration-variables = cons",
         "",

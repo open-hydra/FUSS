@@ -65,7 +65,7 @@ def main():
                  nx, L * 1e3, TS, ", %g s ramp" % a.ramp if a.ramp > 0 else "", T0, TP),
              "A %.6g /s (one cell per crossing time at %g s); c_g %g; K_c %g; %s; C* = %.6f" % (
                  A_kin, T_REF, cg, K_C, "quasi-steady" if qs else "gas storage (eps_c 0.76)", 2 * lam)]
-    sec = lc.ini_common(title, a.tend, 0.5, 10.0, ["[FUSS-Pyrolysis]", "gas-closure = type2"],
+    sec = lc.ini_common(title, a.tend, 0.25, 10.0, ["[FUSS-Pyrolysis]", "gas-closure = type2"],
                         ["[FUSS-Darcy]", "solver = tridiag", "tol = 1e-12", "max-iter = 100000", "p-init = %.1f" % PS,
                          "p-wall = %.1f" % PS, "open-bc-types = 302", "quasi-steady = %s" % ("true" if qs else "false")],
                         generator="test/pyrolysis/tools/make_baum_atreya.py")

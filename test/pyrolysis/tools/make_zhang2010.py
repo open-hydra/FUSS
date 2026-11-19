@@ -54,7 +54,7 @@ def main():
     title = ["Zhang 2010 Table 2.1 decomposing slab (three-code verification), Henderson-form energy equation",
              "%d cells over 12.7 mm; exposed face 305 (h %g, eps %g, Tref %.6f = q_rad 25 kW/m2 + h (300 - T) - sigma T^4)," % (nx, H, EPS, Tr),
              "back face adiabatic; rho 1700 -> 1255, A 5e28, E 3.62e5, n 4.6; Q -2e5 J/kg at Tref 273 K; Cp 1100, Cg 3000, k 0.30"]
-    sec = lc.ini_common(title, TEND, 0.5, 10.0, ["[FUSS-Pyrolysis]", "gas-closure = type1", "outflow-direction = -i",
+    sec = lc.ini_common(title, TEND, 0.25, 10.0, ["[FUSS-Pyrolysis]", "gas-closure = type1", "outflow-direction = -i",
                                                   "p-gas = 101325.0"], generator="test/pyrolysis/tools/make_zhang2010.py")
     mid = nx // 2
     probes = [("front", 1, 1.0), ("midlo", mid, 1.0), ("midhi", mid + 1, 1.0), ("back", nx, 1.0)]
