@@ -14,12 +14,15 @@ sqrt(a^2 + b^2). Checks:
            the margin covers the nonlinear SEB response and the geometry feedback over 20 s)
   (sign)   the width-5 mode is reversed: a(w5) a(w1) + b(w5) b(w1) < 0 (the transfer is negative)
   (seam)   with W5_2BLK_DIR (w5 cut into two blocks joined by 101 faces at x = 0.1 m): the windows of the nodes beside
-           the seam cross it, so the surface equals w5's to 1e-13 m at every node, and T to 1e-9 of its maximum (the
-           connection kernels, plan 08 section 2.9). Since 2026-10-15 the two blocks share one line-uniform
-           correction (a correction group, plan 10 D22) and take w5's sweep path: measured 5.0e-16 m and 2.95e-12.
-           With a correction per block (2026-10-13) the two runs stopped within the Darcy tol (1e-8) apart: 7.9e-12 m
-           and 4.0e-9; the old connection rows give 5.6e-8 m and 1.1e-4; a window truncated at the seam would move the
-           nodes beside it by ~1e-5 m
+           the seam cross it, so the surface equals w5's to 1e-10 m at every node, and T to 1e-7 of its maximum (the
+           connection kernels, plan 08 section 2.9). Since 2026-10-15 the two blocks share one line-uniform correction
+           (a correction group, plan 10 D22). Measured (plan 14 S7b, last-digit draws of one cell's initial T in both
+           decks): 1e-16 ... 1e-15 m and T 5e-13 ... 8e-13 when the two runs' Darcy sweep counts agree at every step;
+           1.38e-12 m and 1.13e-9 when one step's 1e-8 stop falls one sweep apart (step 22, 902 vs 903; 1 of 6 draws
+           on the build without the per-file flag of Lib_Stencil_Metrics, 3 of 6 with it). With a correction per block
+           (2026-10-13) the runs stopped apart: 7.9e-12 m and 4.0e-9. The defects: the old connection rows give
+           5.6e-8 m and 1.1e-4; a window truncated at the seam would move the nodes beside it by ~1e-5 m. The bounds
+           sit 72 and 88 times above the one-sweep difference and 560 and 1100 times below the old connection rows
 Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 asks a ratio of 1e9.
 """
 import math
@@ -30,7 +33,7 @@ import sys
 LY, NY, NX = 0.05, 20, 40
 SELFTEST = os.environ.get("FUSS_GATE_SELFTEST") == "1"
 RATIO_MIN = 1.0e9 if SELFTEST else 4.5
-TOL_SEAM_S, TOL_SEAM_T = (0.0, 0.0) if SELFTEST else (1.0e-13, 1.0e-9)
+TOL_SEAM_S, TOL_SEAM_T = (0.0, 0.0) if SELFTEST else (1.0e-10, 1.0e-7)
 
 
 def zones(run):

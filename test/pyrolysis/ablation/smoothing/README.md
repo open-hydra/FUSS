@@ -58,6 +58,15 @@ largest term) near 1e-10 of R_ref: `tol` = 1e-10, 1e-11 and 1e-12 give the same 
 1.4e-13 m and T 3.7e-11. But a stop decided by round-off is noisy, and the restart gate's `w5` then differs by
 1.7e-10 in η_st (one-digit perturbations of its restart file: up to 3.8e-10; at `tol = 1e-8`: 5.4e-12 at most).
 
+Since 2026-10-15 the two blocks share one line-uniform correction (a correction group, plan 10 D22), so both runs
+correct all 40 columns together. Measured 2026-11-20 (plan 14 S7b: one cell's initial T moved by 0 to 5 units of its
+last digit, in both decks): when the two runs take the same sweep count at every step they agree to 1e-16 … 1e-15 m
+and T 5e-13 … 8e-13; when one step's 1e-8 stop falls one sweep apart (step 22, 902 vs 903 sweeps) the seam is
+1.38e-12 m and T 1.13e-9. That happened in 1 of the 6 draws on the build without the per-file flag of
+`Lib_Stencil_Metrics` and in 3 of 6 with it. Plan 10 had set the bounds to 1e-13 m and 1e-9, between the two values;
+since plan 14 S7b they are 1e-10 m and 1e-7 again: 72 and 88 times the one-sweep difference, 560 and 1100 times below
+the old connection rows.
+
 **The Darcy line solver.** This slab's only open face is the top 306 face, so `solver = tridiag` sweeps it
 line-implicitly along j. On it, the line solver as first built diverged at every time step: a face across the lines put
 its whole flux on the right-hand side and nothing on the diagonal. Since 2026-10-13 such a face puts its conductance on
