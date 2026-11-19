@@ -765,15 +765,15 @@ BASE_PROBE="$ROOT/test/transient/oscillating_Rod"
 # Tref = 1e6 K, from Tw = max(T, 1) the first step overshoots to ~5e11 K (f/f' with f ~ eps sigma Tref^4)
 # and each later step shrinks Tw by about 3/4 (quartic); uncapped, the loop would stop at step 52
 # (plan-bucket/14-stages/S2-scripts/d17_newton_demo.py: capped for every cell temperature in [1, 3000] K).
-# The run goes on with the last iterate (~1e6 K, ~1.1e11 W/m2 into the solid); vnn = 1e-12 keeps each
-# stage's change of the cell below 1e-6 K, so the run stays inside the table and exits 0. Asserted: the
-# warning (first printed in the set-up ghost fill, Ghost_Wall), the end-of-run count, exit 0.
+# The run goes on with the last iterate (~1e6 K, ~1.1e11 W/m2 into the solid); vnn = 5e-13 (1e-12 before plan
+# 14 S7) keeps each stage's change of the cell below 1e-6 K, so the run stays inside the table and exits 0.
+# Asserted: the warning (first printed in the set-up ghost fill, Ghost_Wall), the end-of-run count, exit 0.
 demo_on "$BASE_RAD" radiation_noconv       0 "[WARNING] wall BC 304: the wall temperature did not converge in 50 Newton steps" \
-    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
+    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=5e-13" "SEC:FUSS-Parameters:iter-threshold=3"
 demo_on "$BASE_RAD" radiation_noconv_305   0 "[WARNING] wall BC 305: the wall temperature did not converge in 50 Newton steps" \
-    "BCFACE:2:305:   0.000000E+00,    0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
+    "BCFACE:2:305:   0.000000E+00,    0.980000E+00,    0.100000E+07," "vnn=5e-13" "SEC:FUSS-Parameters:iter-threshold=3"
 demo_on "$BASE_RAD" radiation_noconv_count 0 "wall-temperature solves reached the 50-step Newton cap in this run" \
-    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=1e-12" "SEC:FUSS-Parameters:iter-threshold=3"
+    "BCFACE:2:304:   0.980000E+00,    0.100000E+07," "vnn=5e-13" "SEC:FUSS-Parameters:iter-threshold=3"
 
 
 # D5: without TecIO (USE_TECIO = false, this build) ORION stops at the first binary
