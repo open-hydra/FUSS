@@ -18,8 +18,8 @@ Checks:
           scheme pairs only to 1e-7 of it; measured 2026-10-13.)
   (moved) the mesh moved: block 1's outer face is at x = s_total (bc306-state.dat) on every j (to the 15 digits of
           field.tec), its lines are compressed uniformly, the interface nodes (x = 0.1) and block 2 are unmoved.
-The red control (run_physics_gates.sh) runs a copy with [FUSS-MeshMotion] skip-bc-metrics-refresh = true: (pair) must
-fail (measured 8e-10 of q_scale at 12.5 s, against 4e-17 with the refresh).
+The red control (run_physics_gates.sh) runs a copy with [FUSS-MeshMotion] skip-bc-metrics-refresh = true: (pair) is an
+identity since plan 14 S7 (one flux per face); the gate's red control compares the stale run's interface flux with this one's.
 
 Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets the bound to 0.
 """

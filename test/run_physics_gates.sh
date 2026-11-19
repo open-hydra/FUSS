@@ -1050,9 +1050,32 @@ gate_conjugate_receding () {
   stage "$src" "$dest/stale"
   sed -i 's/^law = nodeshift$/law = nodeshift\nskip-bc-metrics-refresh = true/' "$dest/stale/input.ini"
   solve "$dest/stale" "$NTHREADS"
-  python3 "$src/verify.py" "$dest/stale" > "$dest/stale/verify.log" 2>&1; rcr=$?
-  KEYNUM="pairing $(grep -F -m1 '(pair)' "$dest/refresh/verify.log" | awk '{print $9}') of q_scale (<= 1e-12); stale metrics $(grep -F -m1 '(pair)' "$dest/stale/verify.log" | awk '{print $9}') (must fail)"
-  if [ "$rcr" -eq 0 ]; then KEYNUM="$KEYNUM -- the red control PASSED: the check cannot see stale metrics"; return 1; fi
+  # One flux per face (upstream f6b05b8, plan 14 S7): both records of a face carry the opposite shares of ONE evaluation,
+  # so (pair) is an identity, stale metrics or not. The red control asks instead that stale metrics MOVE the interface
+  # flux; that the refreshed metrics are the right ones is the restart gate's job (run_restart_gate.sh: the restart
+  # recomputes every metric at set-up from the moved mesh and must reproduce the continuous run to 1e-11).
+  # stale_min: measured 8.523e-8 of q_scale at S7b (0.2-0.3 % of an interface flux of at most 2.7e-2 W), bound = 1/100
+  local stale_min=8.5e-10 dq
+  dq=$(python3 - "$dest/refresh" "$dest/stale" <<'PY'
+import sys
+def rows(d):
+    out = {}
+    for l in open(d + "/OUTPUT/interface-flux.txt"):
+        if l.startswith("#"):
+            continue
+        r = l.split()
+        out[tuple(r[0:6])] = float(r[11])
+    return out
+a, b = rows(sys.argv[1]), rows(sys.argv[2])
+keys = set(a) & set(b)
+q_scale = 2.0 * 50.0 * 5.0e-5 * 1000.0 / 5.0e-3
+print("%.3e" % (max(abs(a[k] - b[k]) for k in keys) / q_scale if keys else -1.0))
+PY
+)
+  KEYNUM="pairing $(grep -F -m1 '(pair)' "$dest/refresh/verify.log" | awk '{print $9}') of q_scale (<= 1e-12); stale metrics move q_if by $dq of q_scale (>= $stale_min)"
+  if ! awk -v d="$dq" -v m="$stale_min" 'BEGIN { exit !(d + 0 >= m + 0) }'; then
+    KEYNUM="$KEYNUM -- the red control did not move: stale metrics are invisible to this case"; return 1
+  fi
   return $rc
 }
 

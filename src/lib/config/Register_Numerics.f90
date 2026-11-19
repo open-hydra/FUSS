@@ -131,7 +131,7 @@ contains
     ! R5): the ghost metrics of the 101 faces stay those of the first step, so
     ! the interface-flux pairing must fail.
     call reg%add( trim(section), 'skip-bc-metrics-refresh', obj_mesh_motion%skip_bc_metrics_refresh, '.false.', &
-                  'TEST ONLY: do not rebuild the ghost-cell metrics after the mesh moves', 'logical', .false. )
+                  'TEST ONLY: do not rebuild the ghost-cell and face metrics after the mesh moves', 'logical', .false. )
 
   end subroutine Register_Mesh_Motion
 
