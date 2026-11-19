@@ -27,11 +27,9 @@
 #               runtime-mutable, so lowering it is BOTH the positive test and
 #               the mechanism that stops the run.
 #
-#               NOT `iter-threshold`, which is what this script used at first:
-#               it is copied into domain%itermax at setup and the stopping test
-#               reads itermax, so lowering it mid-run does nothing and the run
-#               hung. That is why it is classed immutable -- see RUNTIME_MUTABLE
-#               in Backend_INI.f90.
+#               `time-threshold`, not `iter-threshold`, stops every case:
+#               iter-threshold became mutable only with plan 14 S6 (D8-A2), and
+#               the scenario iter_threshold_mutable tests it on its own.
 #===============================================================================
 set -u
 
@@ -49,8 +47,8 @@ while test $# -gt 0; do
   esac
 done
 
-# -m N (plan 11): the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own launcher. Only root
-# reads input.ini and broadcasts the mutable values, and only root writes the report: one copy of it.
+# -m N (plan 11): the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own launcher. Rank 0
+# reads input.ini and passes its text to every rank (upstream 0bf87b2); only rank 0 writes the report: one copy of it.
 MPIOPT="" ; TMO=""
 if [ "$NMPI" -gt 0 ]; then
   [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
@@ -83,6 +81,7 @@ start_case () {
   sed -i 's/^iter-threshold = .*/iter-threshold = 100000000/' "$d/input.ini"
   sed -i 's/^time-threshold = .*/time-threshold = 1e30/'      "$d/input.ini"
   sed -i 's/^ini-diter     = .*/ini-diter     = 20/'          "$d/input.ini"
+  cp "$d/input.ini" "$d/input.ini.start"
 
   ( cd "$d" && $TMO ./FUSS.sh -p 1 $MPIOPT solve > run.log 2>&1 ) &
   local runner=$!
@@ -97,6 +96,13 @@ start_case () {
 
   local e
   for e in "$@"; do sed -i "$e" "$d/input.ini"; done
+  # A reading that breaks a rule is not taken as a whole (plan 14 S6, D8-A2): wait for its record, then put the file of
+  # the start back (through a copy: the solver must never read a half-written file), so the stop below is taken
+  if [ -n "${RESTORE_AFTER_REPORT:-}" ]; then
+    local w2=0
+    while [ ! -s "$d/$REPORT" ] && [ $w2 -lt 600 ]; do sleep 0.1; w2=$((w2+1)); done
+    cp "$d/input.ini.start" "$d/input.ini.new" && mv "$d/input.ini.new" "$d/input.ini"
+  fi
   # Always stop it: time-threshold is read live every step, so this is also the
   # positive control -- if the mutable path were broken the run would hang here
   # and the test would time out rather than quietly pass.
@@ -164,12 +170,23 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# A mutable parameter edited to an OUT-OF-RANGE value must be rejected, the old
-# value kept, and the rejection reported. Validation is per parameter, through
-# Validate_Param -- whole-registry validation cannot be re-run after setup.
-d=$(start_case invalid_value 's/^res-threshold = .*/res-threshold = -1.0/')
+# iter-threshold is runtime-mutable since plan 14 S6 (D8-A2): a change is applied, not reported. (start_case's
+# time-threshold edit stops the run either way; itermax is re-derived by 66c8091:Wrap_Postprocess.f90:321-328)
+d=$(start_case iter_threshold_mutable 's/^iter-threshold = .*/iter-threshold = 1/')
+if [ ! -f "$d/$REPORT" ] && grep -q "FUSS timing" "$d/run.log"; then
+  pass "iter-threshold changed mid-run is runtime-mutable: not reported"
+else
+  bad "iter_threshold_mutable: iter-threshold was treated as immutable"
+  [ -f "$d/$REPORT" ] && sed 's/^/          /' "$d/$REPORT"
+fi
+
+# ---------------------------------------------------------------------------
+# A mutable parameter edited to an OUT-OF-RANGE value is refused with the whole
+# reading (plan 14 D8-A2: ini-error = warn), the old values kept, and the
+# refusal recorded in the report and the log.
+d=$(RESTORE_AFTER_REPORT=1 start_case invalid_value 's/^res-threshold = .*/res-threshold = -1.0/')
 if [ -f "$d/$REPORT" ] && grep -q "res-threshold must be" "$d/$REPORT" \
-   && grep -q 'rejected "-1.0"' "$d/$REPORT"; then
+   && grep -q 'reading not taken' "$d/$REPORT" && grep -q 'NOT TAKEN' "$d/run.log"; then
   pass "an out-of-range mutable value is rejected: $(grep -m1 'res-threshold must' "$d/$REPORT" | sed 's/^ *//')"
 else
   bad "invalid_value: the validation result was not acted on"
