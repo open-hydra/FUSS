@@ -89,14 +89,18 @@ echo
 
 # CLEANING UP AFTER THIS SCRIPT IS NOT OPTIONAL.
 #
-# CMakeLists.txt hands add_subdirectory an explicit binary dir for ORION and
-# FiNeR: "${CMAKE_CURRENT_SOURCE_DIR}/build/lib/ORION/". That path is fixed, so
-# building from ANY build directory writes those subprojects into $ROOT/build
+# CMakeLists.txt handed add_subdirectory an explicit binary dir for ORION and
+# FiNeR: "${CMAKE_CURRENT_SOURCE_DIR}/build/lib/ORION/". That path was fixed, so
+# building from ANY build directory wrote those subprojects into $ROOT/build
 # -- while their .mod files go to the sweep's own module dir. The result is that
 # $ROOT/build is left referring to module files that are not there, and the next
 # ordinary `cmake --build build` fails with errors in ORION, PENF, FACE and
 # FiNeR that look nothing like the cause. That is not hypothetical; it happened
 # the first time this script was run.
+#
+# Since c8f1d07 they are built in the build directory given (plan 14 S9b: ORION
+# in _deps/orion-build/ with its .mod files in modules/, FiNeR and its five
+# libraries in lib/third_party/<name>/).
 #
 # So the trap below rebuilds $ROOT/build from scratch. It costs a couple of
 # minutes and it is the difference between a diagnostic and a trap for the next
@@ -139,7 +143,7 @@ for pass in A B; do
         -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
         -DCMAKE_AR=/usr/bin/gcc-ar-12 \
         -DCMAKE_RANLIB=/usr/bin/gcc-ranlib-12 \
-        -DORION_PATH="$ROOT/lib/ORION/" \
+        -DFETCHCONTENT_SOURCE_DIR_ORION="$ROOT/lib/ORION" \
         -DFINER_PATH="$ROOT/lib/third_party/FiNeR/" \
         -DCMAKE_Fortran_FLAGS="$BASE $EXTRA" \
         > "$WORK/$pass.cmake.log" 2>&1; then
