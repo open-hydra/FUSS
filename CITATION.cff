@@ -1,9 +1,54 @@
+
 cff-version: 1.2.0
-title: "FUSS"
+message: "If you use FUSS in your research, please cite it using the following metadata."
+type: software
+
+title: "FUSS: Fourier Un-Steady Solver"
+
+abstract: >-
+  FUSS (Fourier Un-Steady Solver) is an open-source solid heat-conduction
+  solver written in modern Fortran. It solves the steady-state and transient
+  Fourier heat equation on multi-block structured grids using a cell-centred
+  finite-volume formulation. FUSS supports multi-material domains,
+  temperature-dependent thermal properties, volumetric heat sources, and
+  mixed thermal boundary conditions, including prescribed temperature,
+  heat flux, convection, and radiation. Its numerical capabilities include
+  explicit time integration, implicit residual smoothing, local time
+  stepping, grid sequencing, and multigrid acceleration. Parallel execution
+  is supported through OpenMP and MPI, with output in Tecplot and VTK formats.
+
 authors:
   - family-names: "Barbato"
     given-names: "Vincenzo"
-license: GPL-3.0
-url: "https://github.com/open-hydra/FUSS"
-doi: "https://doi.org/10.5281/zenodo.20395703"
-type: software
+
+version: "1.0.0"
+date-released: "2026-11-16"
+
+doi: "10.5281/zenodo.20395702"
+
+license: "GPL-3.0"
+
+repository-code: "https://github.com/open-hydra/FUSS"
+url: "https://open-hydra.github.io/FUSS/"
+
+keywords:
+  - "solid heat conduction"
+  - "Fourier heat equation"
+  - "computational heat transfer"
+  - "thermal simulation"
+  - "steady-state heat conduction"
+  - "transient heat conduction"
+  - "finite volume method"
+  - "multi-block structured grids"
+  - "multi-material heat transfer"
+  - "temperature-dependent material properties"
+  - "boundary conditions"
+  - "convective heat transfer"
+  - "radiative heat transfer"
+  - "volumetric heat sources"
+  - "multigrid methods"
+  - "implicit residual smoothing"
+  - "numerical simulation"
+  - "Fortran"
+  - "OpenMP"
+  - "MPI"

@@ -29,7 +29,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=DEBUG
 cmake --build build
 ```
 
-`./install.sh compile` reapplies the preset and so returns to `RELEASE`. `./install.sh update --remote` moves the submodules to the latest commits of their remotes, away from the commits recorded in FUSS. See [Installation](../getting-started/installation.md).
+`./install.sh compile` reapplies the preset and so returns to `RELEASE`. See [Installation](../getting-started/installation.md), and [Versioning](versioning.md) to move a library to another release.
 
 ---
 
@@ -96,13 +96,15 @@ ATLAS builds the tables from the `[GPB-*]` sections. See [Material Properties](.
 
 ## Documentation
 
-The site is built with MkDocs and mkdocs-material (plus mkdocs-macros-plugin). A new page goes into the `nav` of `mkdocs.yml`. The GitHub workflow `.github/workflows/docs.yml` builds it with
+The site is built with [Zensical](https://zensical.org) from `docs/` and `mkdocs.yml`. A new page goes into the `nav` of `mkdocs.yml`.
 
 ```bash
-mkdocs build --strict
+pip install -r requirements-docs.txt
+zensical serve            # preview at http://localhost:8000
+zensical build --strict   # what CI checks: fails on a broken link or anchor
 ```
 
-which must pass.
+Write links relative to the page: a link that starts with `/` would leave the published site, and CI refuses it.
 
 ---
 
@@ -112,4 +114,4 @@ which must pass.
 - [ ] `ctest --test-dir build -L fast` passes; with MPI, `ctest --test-dir build -L needs-mpi` too.
 - [ ] New behaviour has a test case registered in `test/CMakeLists.txt`.
 - [ ] `docs/user/registry.md` regenerated with `bin/DocGen` if input keys changed.
-- [ ] Documentation updated; `mkdocs build --strict` passes.
+- [ ] Documentation updated; `zensical build --strict` passes.

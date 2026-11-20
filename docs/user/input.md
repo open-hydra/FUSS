@@ -1,6 +1,9 @@
 # Input File
 
-FUSS reads its settings from `input.ini` in the directory it runs in. The file is parsed by FiNeR. With MPI, rank 0 alone reads the file and passes its text to every rank, at set-up and at every reading during the run: every rank takes the same values, and an `input.ini` that differs between the folders of the ranks has no effect on the other ranks. A file that cannot be opened, is empty or has no section stops every rank with exit code 1 and the reason.
+FUSS reads its settings from `input.ini` in the directory it runs in, with the FiNeR parser.
+
+- With MPI, rank 0 alone reads the file and passes its text to every rank, at set-up and at every reading during the run. Every rank takes the same values.
+- A file that cannot be opened, is empty or has no section stops every rank with exit code 1.
 
 ## Syntax
 
@@ -18,7 +21,8 @@ irs-beta = 0.5
 
 - A section starts with `[name]`; each option is `key = value`.
 - Lines starting with `!`, `;` or `#` are comments, and `;` starts an inline comment after a value.
-- A comment line may contain `=`; a line `key = value` that the reader does not give (a key after a malformed section header, a key with no value) is reported at set-up with its line number, as `[WARNING] input.ini, line 7: key of [section] is not read ...`: the parameter keeps its default.
+- A comment line may contain `=`.
+- A `key = value` line that cannot be read (after a malformed section header, or with no value) is reported at set-up with its line number, for example `[WARNING] input.ini, line 7: key of [section] is not read ...`. The parameter keeps its default.
 
 ---
 
@@ -54,14 +58,28 @@ The other sections of the test-case files are not read by FUSS; they are the inp
 
 - A key that is not set takes its default, except `time-accurate`, which is required: without it the run stops at set-up.
 - In a FUSS section an unknown (misspelt) key, a repeated section, an invalid value or a string longer than the variable that holds it is refused at setup with the key named. Check the spelling against the [registry](registry.md).
-- Every rule of the registry is checked at set-up, in every form: a bound (`> x`, `>= x`, `< x`, `<= x`) or an interval (`in (a, b)`, with `[` or `]` for an end that belongs to it) on a number, on each value of a list; the list of names of a text; `true` or `false` for a logical. A value out of its rule stops the run with `[ERROR] <key> must be ...` under `Input file FAIL`, exit code 1. Text values are case-sensitive: `time-scheme = rk3` is rejected.
-- A value that does not read as the type of its key stops the run, with the file, the section, the key and the value as written: `sol-diter = 2.5` or `1e4` (an integer is a signed digit string), `sol-overwrite = yes`, `vnn = abc`, a list with more values than the key holds, a key with no value; so does such a `levels`. A real that is NaN or infinite (`vnn = NaN`, `1e999`) is an error too, tested on the bits of the value. The probes must be numbered without gaps (`probe3` without `probe2` stops the run).
+- Every rule of the registry is checked at set-up: bounds and intervals on numbers (on each value of a list), the allowed names of a text, `true` or `false` for a logical. A value out of its rule stops the run with `[ERROR] <key> must be ...` and exit code 1.
+- Text values are case-sensitive: `time-scheme = rk3` is rejected.
+- A value that does not read as the type of its key stops the run, naming the file, section, key and value. Examples: `sol-diter = 2.5` or `1e4` (an integer is a plain digit string), `sol-overwrite = yes`, `vnn = abc`, a list with too many values, `vnn = NaN` or `1e999`.
+- Probes must be numbered without gaps: `probe3` without `probe2` stops the run.
 - IRS is switched on by `irs-beta > 0`.
 - With more than one multigrid level `iter-threshold` has no effect: each level stops at its `level<m>-iter`. A run that sets it anyway gets a `WARNING` line under `Input file OK`.
 
 ## Changes During a Run
 
-FUSS reads `input.ini` again every `ini-diter` iterations (default 10000); every rank reads the text that rank 0 passes, so every rank takes the same decision. A reading that breaks a rule of the registry is not taken as a whole (ini-error = warn) or stops the run (ini-error = stop); a reading without error changes only the runtime-mutable keys (res-threshold, time-threshold, iter-threshold, sol-diter, sol-dtime, res-diter, shell-diter, ini-diter) and records every other change in OUTPUT/runtime-ini-ignored.txt. An error of the reading is a file that cannot be read, or a value out of its rule, that does not read as its type or that is not finite. With `ini-error = warn` (in `[FUSS-IO]`, the default) one warning gives the iteration and the error (`Input file, read again NOT TAKEN`), the run goes on with every value it had before the reading, and `OUTPUT/<prefix>runtime-ini-ignored.txt` gets the line `reading not taken: <error>`; with `ini-error = stop` every rank stops with the message and exit code 1, as at set-up. The value of `ini-error` in force when the reading starts decides. The runtime-mutable keys are `RUNTIME_MUTABLE` in `src/lib/config/Backend_INI.f90`; any other changed key keeps its set-up value and is listed in `OUTPUT/<prefix>runtime-ini-ignored.txt`, `vnn`, `level<m>-iter`, `irs-beta` and the multigrid keys among them: IRS can be neither switched on nor off during a run (see [Time Integration](../theory/time-integration.md#implicit-residual-smoothing-irs)).
+FUSS reads `input.ini` again every `ini-diter` iterations (default 10000); every rank reads the text that rank 0 passes, so every rank takes the same decision. A reading without error changes only the runtime-mutable keys (`res-threshold`, `time-threshold`, `iter-threshold`, `sol-diter`, `sol-dtime`, `res-diter`, `shell-diter`, `ini-diter`: `RUNTIME_MUTABLE` in `src/lib/config/Backend_INI.f90`). Any other changed key keeps its set-up value and is listed in `OUTPUT/<prefix>runtime-ini-ignored.txt`, `vnn`, `level<m>-iter`, `irs-beta` and the multigrid keys among them.
+
+- IRS can be neither switched on nor off during a run (see [Time Integration](../theory/time-integration.md#implicit-residual-smoothing-irs)).
+- The values read at runtime must keep to the rules of the registry, as at set-up.
+
+`ini-error` in `[FUSS-IO]` decides what an error in a runtime reading does:
+
+| `ini-error` | Effect |
+|---|---|
+| `warn` (default) | The whole reading is discarded, including its valid keys. One warning gives the iteration and the error (`Input file, read again NOT TAKEN`); the run goes on with its previous values, and `OUTPUT/<prefix>runtime-ini-ignored.txt` gets the line `reading not taken: <error>`. |
+| `stop` | Every rank stops with the message and exit code 1, as at set-up. |
+
+An error of the reading is a file that cannot be read, or a value out of its rule, that does not read as its type or that is not finite. The value of `ini-error` in force when the reading starts decides.
 
 ## Pyrolysis
 

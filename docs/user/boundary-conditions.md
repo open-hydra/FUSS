@@ -33,7 +33,7 @@ On a 2-D mesh ($n_k = 1$) faces 5 and 6 must be zero-flux faces (code `0` or `30
 | `302` | `T`, `T-time-file` | Prescribed wall temperature $T_w$ | `Tw`, or a time table |
 | `303` | `hconv`, `qrad`, `Tref` | Convection plus a prescribed flux $q_\text{rad}$ | `hconv, qrad, Tref`; optionally a fourth value `p_w` [Pa], the gas pressure of the face under the type-2 gas closure ([Input File](input.md#type-2-gas-closure-darcy)), ignored otherwise, > 0 when given |
 | `304` | `eps`, `Tref` | Radiation | `eps, Tref` |
-| `305` | see the [warning](#atlas-input) | Convection and radiation | `hconv, eps, Tref`; optionally a fourth value `p_w` [Pa], as for `303` |
+| `305` | `hconv`, `eps`, `Tref` | Convection and radiation | `hconv, eps, Tref`; optionally a fourth value `p_w` [Pa], as for `303` |
 | `306` | — (written by the case generators, not by ATLAS) | Ablating wall: surface energy balance with B′ tables (plan 08) | `lambda, T_inf, <bprime-file>, <env-file>`: see [Ablating wall](#ablating-wall-306-and-coupled-ablating-wall-307) |
 | `307` | — | Coupled ablating wall: 306's balance, exchange values from hydra | `bs is js ks fs d11 d12 d21 d22 T_inf <bprime-file>` (11 values, no `lambda`) |
 
@@ -43,7 +43,7 @@ Units: W/m² for `qw` and `qrad`, K for `Tw` and `Tref`, W/(m²·K) for `hconv`;
 - **`101`**: the face of cell $(i,j,k)$ of block `b` touches face `fs` of cell `(is, js, ks)` of block `bs`. `(d11, d12)` and `(d21, d22)` are the index steps on face `fs` that correspond to the first and second tangential index directions of face `f`. The interface temperature follows from the continuity of the heat flux, each side with its own conductivity and metric over half a cell.
 - **`102`**: `n1` and `n2` donor cells fill the first and second ghost layer; each donor line gives its block, cell indices and volume fraction. The ghost temperature is the one of the volume-weighted enthalpy of the donors, which must share one material. FUSS stops if the fractions of a layer sum to less than 0.5.
 - **`103`, `104`**: the flux is set by hydra; FUSS on its own adds nothing, and its ghost cells mirror the cells inside.
-- Any other code is read without a data line and acts as `0`: FUSS does not reject it. When such a record is followed by a data line, that line is read as the next record, and the stop it causes (a line that is not a record, a value out of range, or a record count that differs from the number of boundary faces) names the first record with a code outside this table.
+- Any other code is read without a data line and acts as `0`. If such a record is followed by a data line, that line is read as the next record and the run stops; the message names the first record with a code outside this table.
 
 ---
 
@@ -89,7 +89,8 @@ periodic
 ...
 ```
 
-- Two columns, time (s) and value; an optional first line containing `periodic` repeats the table with period $t_\text{last} - t_\text{first}$. Blank lines (also at the end of the file) are skipped, as in MOSE; the rows of the messages are the lines that hold a pair, with their line number in the file.
+- Two columns, time (s) and value. An optional first line containing `periodic` repeats the table with period $t_\text{last} - t_\text{first}$.
+- Blank lines are skipped, also at the end of the file. Error messages give the line number in the file.
 - Linear interpolation; before the first time the first value, after the last time the last value. Steady runs (`time-accurate = false`) run at time −1 and get the first value.
 - Each Runge–Kutta stage reads the table at its own time (`t^n + c_k Δt`: RK3 `0, 1, ½`), so time-dependent boundary data keep the order of the scheme; the wall output reports the value at the output time.
 - A steady run (`time-accurate = false`, and hydra not time-accurate) stays at time −1: each table gives its value there for the whole run (its first value; a `periodic` table its value at −1 within the period), and set-up prints a `[WARNING]` line saying so.
@@ -109,7 +110,7 @@ Each record is a header line followed by the data line(s) of its code (none for 
 `b` is the block, `(i, j, k)` the cell (1-based) and `f` its face (1–6). Values are free format, separated by blanks or commas.
 
 - The number of records must equal the number of boundary faces, $\sum_\text{blocks} 2\,(n_i n_j + n_j n_k + n_i n_k)$, or FUSS stops with `Boundary conditions number (...) is different than the one of the initial conditions (...)`.
-- Every block number, face number and cell index that a record carries is checked when the file is read, on every grid level: `b` (1 to the number of blocks), `i`, `j`, `k` (1 to the cells of block `b` in that direction) and `f` (1 to 6); of a connection (`101`) `bs`, `is`, `js`, `ks` (the cells of block `bs`) and `fs` (1 to 6); of a chimera record (`102`) `bD`, `iD`, `jD`, `kD` of every donor. A value outside its range stops every rank with exit code 1 and writes no solution, with the line, the record and the range, for example `bc.txt line 22 (record 11, type 101): partner block bs = 9 is outside the admissible range 1 to 2`. The partner of a `103` or a `307` and the donors of a `104` are cells of the other solver and are not tested.
+- Every block, face and cell index of a record is checked on every grid level: `b`, `i`, `j`, `k`, `f`; the partner `bs`, `is`, `js`, `ks`, `fs` of a connection (`101`); every donor `bD`, `iD`, `jD`, `kD` of a chimera record (`102`). A value out of range stops every rank with exit code 1, for example `bc.txt line 22 (record 11, type 101): partner block bs = 9 is outside the admissible range 1 to 2`. The partners of `103`, `307` and `104` belong to the other solver and are not checked.
 - Records are grouped by block (1, 2, ...) and, within a block, by face (1 to 6), the order ATLAS writes; the wall output relies on it.
 
 Records from the test cases, as ATLAS writes them:
@@ -228,12 +229,14 @@ A face takes one of the keywords `null` (code 0), `symmetry` (300), `connection`
 | `T` (without `q`, `qrad`) | `302` |
 | `T-time-file` (without `q`, `qrad`) | `302` |
 | `hconv`, `qrad`, `Tref` | `303` |
-| `eps`, `Tref` | `304` |
+| `eps`, `Tref` (without `hconv`) | `304` |
+| `hconv`, `eps`, `Tref` (without `qrad`) | `305` |
 
-ATLAS checks the rows in this order and takes the first that matches. A section that matches none, for example `hconv` and `Tref` without `qrad`, gets code `0`, a zero-flux face, without a message: pure convection needs `qrad = 0`.
+ATLAS checks the rows in this order and takes the first that matches.
 
-!!! warning "Convection with radiation (305)"
-    ATLAS 7d3c72d checks `eps`, `Tref` before `hconv`, `eps`, `Tref`: a section with all three is written as `304` and `hconv` is lost. Until ATLAS is fixed, write the `305` records in `bc.txt` by hand (data line `hconv, eps, Tref`).
+!!! warning "A section that matches no row is a zero-flux face"
+    For example `hconv` and `Tref` without `qrad`. ATLAS writes code `0` for its faces and prints a
+    warning. Pure convection needs `qrad = 0`.
 
 Sections of the test cases:
 

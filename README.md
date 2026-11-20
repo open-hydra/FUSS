@@ -71,7 +71,7 @@ ctest --test-dir build                                # all: verification cases,
 
 ## Dependencies
 
-FUSS is built on top of companion libraries: FiNeR is a Git submodule, ORION a release (2.1 or a later 2.x) that the configuration checks out in `lib/ORION`:
+FUSS is built on top of companion libraries: FiNeR v2.3.0 is the Git submodule `lib/FiNeR`, ORION a release (2.1 or a later 2.x) that the configuration checks out in `lib/ORION`:
 
 | Library | Role |
 |---|---|
@@ -79,7 +79,7 @@ FUSS is built on top of companion libraries: FiNeR is a Git submodule, ORION a r
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
 | [MORPH](https://github.com/open-hydra/MORPH) | Mesh motion: motion laws, cell geometry, swept volumes |
 
-FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are Git submodules under `lib/third_party/`, added by CMake before FiNeR (run `git submodule update --init` after pulling a change of the pins). Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration. Every library is checked against the release FUSS requires (see [Versioning](https://open-hydra.github.io/FUSS/development/versioning/)); run `git submodule update --init` after pulling a change of the FiNeR pin. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 
@@ -100,7 +100,7 @@ FUSS/
 │       │   └── time/      #   Time step, explicit RK, IRS
 │       ├── parallel/  #   MPI ghost-cell exchange
 │       └── physics/   #   Material property evaluations
-├── lib/               # Git submodule dependencies
+├── lib/               # FiNeR (submodule) and the ORION release
 ├── test/              # Test cases
 │   ├── steady-state/                 # Steady-state V&V problems (NAFEMS benchmarks)
 │   │   ├── temperature_Plate/        #   Fixed-temperature boundary

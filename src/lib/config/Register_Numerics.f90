@@ -32,7 +32,7 @@ contains
     ! Stability coefficients and related options
     call reg%add( trim(section), 'vnn', obj_time_scheme%vnn, '0.15', &
       'Diffusion number: dt = vnn rho cp / sum_d k_d |grad xi_d|^2 (limits 0.5 euler/RK2, 0.628 RK3; ' // &
-      'MOSE''s convention; until October 2026 twice this value)', '> 0', .false. )
+      'MOSE''s convention)', '> 0', .false. )
     call reg%add( trim(section), 'vnn-rise-threshold', obj_time_scheme%rampa_vnn_iter, '0', 'VNN rise threshold', '>= 0', .false. )
 
     ! Time-accurate switch

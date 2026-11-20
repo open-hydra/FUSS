@@ -101,6 +101,33 @@ IF(CMAKE_Fortran_FLAGS_RELEASE MATCHES "(^| )[-/]Q?ipo( |$)")
         UNSET(_ipo_flags)
     ENDIF()
 ENDIF()
+
+# GNU LTO has the same archive problem: -flto objects hold GIMPLE, which plain ar/ranlib index only through the
+# LTO plugin, and many distributions do not install it where binutils looks (the static library FUSSL then has no
+# symbols and the link of bin/FUSS fails with undefined references to FUSS's own modules). gcc-ar and gcc-ranlib
+# load the plugin of the compiler; CMake finds them as CMAKE_Fortran_COMPILER_AR and _RANLIB. Without them -flto
+# is dropped with a warning.
+IF(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU" AND CMAKE_Fortran_FLAGS_RELEASE MATCHES "(^| )-flto( |$)")
+    IF(CMAKE_Fortran_COMPILER_AR AND CMAKE_Fortran_COMPILER_RANLIB)
+        SET(CMAKE_AR     "${CMAKE_Fortran_COMPILER_AR}"     CACHE FILEPATH "Archiver used for LTO objects" FORCE)
+        SET(CMAKE_RANLIB "${CMAKE_Fortran_COMPILER_RANLIB}" CACHE FILEPATH "Ranlib used for LTO objects"   FORCE)
+        # plain variables too: they shadow the cache entries in the archive rules (see above)
+        SET(CMAKE_AR     "${CMAKE_Fortran_COMPILER_AR}")
+        SET(CMAKE_RANLIB "${CMAKE_Fortran_COMPILER_RANLIB}")
+        MESSAGE(STATUS "IPO                : enabled (archiver ${CMAKE_Fortran_COMPILER_AR})")
+    ELSE()
+        MESSAGE(WARNING "IPO was requested (-flto), but no gcc-ar/gcc-ranlib was found with "
+                        "${CMAKE_Fortran_COMPILER}. Disabling IPO: a static library of LTO objects needs them. "
+                        "Re-run with -DUSE_IPO=OFF to silence this.")
+        SET(_ipo_flags "${CMAKE_Fortran_FLAGS_RELEASE}")
+        WHILE(_ipo_flags MATCHES "(^| )-flto( |$)")
+            STRING(REGEX REPLACE "(^| )(-flto)( |$)" " " _ipo_flags "${_ipo_flags}")
+        ENDWHILE()
+        SET(CMAKE_Fortran_FLAGS_RELEASE "${_ipo_flags}"
+            CACHE STRING "Set the CMAKE_Fortran_FLAGS_RELEASE flags" FORCE)
+        UNSET(_ipo_flags)
+    ENDIF()
+ENDIF()
 ENDMACRO(SET_IPO_ARCHIVER)
 
 #########################################################
@@ -232,8 +259,8 @@ SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE}"
 # Interprocedural (link-time) optimizations -- on by default (USE_IPO, CMakeLists.txt); worth roughly 10 %, see
 # docs/development/performance_notes.md.  Turn it off with -DUSE_IPO=OFF (install.sh --no-ipo) if the toolchain misbehaves.
 # The flag is probed with a link step (LINK: -ipo emits IR, so a compile-only probe says yes and the link then fails), and
-# SET_IPO_ARCHIVER below falls back to a plain RELEASE when no llvm-ar/llvm-ranlib is found.  The GNU and PGI flags are
-# kept as they were.  ifx 2024.1 at -O2/-O3 without IPO is refused by CMakeLists.txt.
+# SET_IPO_ARCHIVER below sets the archiver that can index the objects (llvm-ar for Intel, gcc-ar for GNU) and falls back
+# to a plain RELEASE when it is not found.  The PGI flag is kept as it was.  ifx 2024.1 at -O2/-O3 without IPO is refused by CMakeLists.txt.
 IF(USE_IPO)
     SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE}"
                      Fortran LINK

@@ -6,7 +6,7 @@ site
 
 OUTPUT
 test/.regression
-__pycache__
+__pycache__/
 .claude-context
 
 # Claude Code working files (local only)

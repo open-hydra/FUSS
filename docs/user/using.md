@@ -45,9 +45,14 @@ The dimension of the problem and the type of the mesh are taken from the nodes o
 | $n_k = 1$ in every block, $n_j > 1$ in any | 2-D plane: layers one cell thick in $z$; 2-D axisymmetric when the two $k$-planes of every block are a wedge rotated about the $x$ axis |
 | $n_j = n_k = 1$ in every block | 1-D |
 
-Until October 2026 block 1 alone decided: a 3-D mesh whose block 1 is one cell thick in $z$ ran as 2-D, with block 1 decoupled from its $k$ neighbours.
+On a 2-D mesh FUSS decides between plane and wedge from every node of every block:
 
-On a 2-D mesh the plane or wedge decision looks at every node of every block: the $k = 1$ node plane of a block must be its $k = 0$ plane translated (plane mesh), or turned about the $x$ axis by the same angle in every block (wedge), to within 1 % of the thickness of the block. The coordinates therefore need enough significant digits (a wedge of 5 degrees written with five digits does not tell its type). A block nearer a turn than a translation, or nearer a translation than a turn, but not to within that tolerance, wedges of different angles, and wedge and plane blocks together stop the run at set-up with the block and the misfit. A 3-D mesh has no angle.
+- **plane**: the second node plane of each block is the first one translated;
+- **wedge**: it is the first one turned about the $x$ axis, by the same angle in every block.
+
+The match must hold to within 1 % of the block thickness, so the coordinates need enough significant
+digits. A block that fits neither within that tolerance, wedges of different angles, or wedge and
+plane blocks together stop the run at set-up, naming the block and the misfit.
 
 On a 2-D mesh faces 5 and 6 of every block must be zero-flux faces (code `0` or `300`, see [Boundary Conditions](boundary-conditions.md#face-numbering)).
 
@@ -173,7 +178,11 @@ FUSS | Iter =     3051 | Global iter =     3051 | Energy  residual = 0.356132E-0
 | `field-level<n>.*`, `wall-level<n>.*` | Multigrid: solution and wall data of coarse level `<n>`, written while it is computed and when the run moves to the next finer level |
 | `field-prolongated.*`, `wall-prolongated.*` | Multigrid: the coarse solution prolongated to the finest level, written with the coarse-level output (see `prolongated-diter`) |
 
-The final solution of a run is always written to `field.*`; the solution due at the last iteration (by `sol-diter` or `sol-dtime`) is written before it, with its number and its wall and diagnostic files, so a run that ends on an output iteration leaves the same files as one that goes on. The field and wall files carry the solution time: the physical time of a time-accurate run, minus the global iteration count of a steady one (a negative `SOLUTIONTIME`, no `STRANDID`, in Tecplot; the `TIME` field data in vtk). Every field file also stores the counters a restart needs: `CYCLE` (the global iteration count) and `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME`, `FUSS_RES_REFERENCE` (the residual of the first iteration, the unit of `res-threshold`), as field data in the vtk block files, as `DATASETAUXDATA` records after the last zone of a Tecplot ASCII file (six lines) and as auxiliary data of a `.szplt`. A script that reads a `.tec` file must stop at the first line that is not a number. The `.vtm` lists its block files relative to its own folder (`vtk/fieldBlock1.vts`). The text formats (`tecplot ascii`, `vtk ascii`) write every real with 17 significant digits and `.szplt` stores 64-bit values, so a restart reproduces the field exactly in every format (see [Restart](initial-conditions.md#restart)).
+- **The final solution is always written to `field.*`.** A numbered solution due at the last iteration is written before it, so a run that ends on an output iteration leaves the same files as one that goes on.
+- **Solution time.** The field and wall files carry the physical time of a time-accurate run, or minus the global iteration count of a steady one (a negative `SOLUTIONTIME` in Tecplot, the `TIME` field data in VTK).
+- **Restart counters.** Every field file also stores what a restart needs: `CYCLE` (the global iteration count), `FUSS_ITERATION`, `FUSS_OUTPUT_NUMBER`, `FUSS_GRID_LEVEL`, `FUSS_LAST_OUTPUT_TIME` and `FUSS_RES_REFERENCE` (the first residual, the unit of `res-threshold`). In a Tecplot ASCII file they are six `DATASETAUXDATA` lines after the last zone: a script that reads a `.tec` file must stop at the first line that is not a number.
+- **Exact restart.** The text formats write every real with 17 significant digits and `.szplt` stores 64-bit values, so a restart reproduces the field exactly in every format (see [Restart](initial-conditions.md#restart)).
+- The `.vtm` file lists its block files relative to its own folder (`vtk/fieldBlock1.vts`).
 
 ### Formats
 
@@ -218,7 +227,12 @@ dtime = 1.0e-1
 | `dtime` | Write at the multiples of `dtime` seconds of simulated time (at most once per step, from the first multiple after the start or restart time) |
 | `diter` | Write every `diter` iterations |
 
-Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above), one line per record: the time (or the iteration, for `diter` records) followed by the variables. A new run replaces the probe files; a restart appends to them, and creates any that are missing (for example a probe added before the restart); the rows written after the solution a restart reads are dropped first. The time-based rows fall on the multiples of `dtime`, counted with an integer, so a restart on an exact multiple writes the rows of the uninterrupted run. Every row of `residual-history.dat` and of the probe files is flushed when it is written, so a run that is killed leaves every row it wrote; the files are closed before MPI ends. The last step of the run is always sampled when its time or iteration matches. A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
+Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above): one line per record, the time (or the iteration, for `diter`) followed by the variables.
+
+- A new run replaces the probe files. A restart appends to them, creates any that are missing, and first drops the rows written after the solution it restarts from.
+- The time-based rows fall on the multiples of `dtime`, so a restarted run writes the rows of the uninterrupted one.
+- Every row is flushed when written: a killed run keeps every row it wrote. The same holds for `residual-history.dat`.
+- A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
 
 ---
 
@@ -230,7 +244,13 @@ Set `newrun = false` in `[FUSS-Parameters]`: FUSS restarts from `OUTPUT/field.*`
 
 ## Exit Codes
 
-Every error that stops the run ends it with **exit code 1**, after writing the message and flushing the output; a run that ends well has exit code 0. The line `[RANK r] STOP: <message>` names the stop (`STOP: <message>` in a serial build), and an `[ERROR]` line above it says where: the file, the line or the key and the value. With MPI every rank stops together. The errors are those of the input file, the material tables, `bc.txt` (the file, the line, the record and the type), the time tables, the initial condition or the restart solution (including a value that is not finite, and a solution without a time), the probes, the FAS and multigrid settings, a decomposition map, and the state check of the time step (a temperature that is NaN or outside the properties table, found inside the OpenMP loop: the run ends with exit code 1 on that rank and the launcher ends the others). No solution is written by a run that stops at set-up.
+A run that ends well has exit code 0. **Every error ends the run with exit code 1**, after writing the message and flushing the output.
+
+- The line `[RANK r] STOP: <message>` (`STOP: <message>` in a serial build) names the stop. An `[ERROR]` line above it says where: the file and line, or the key and value.
+- With MPI every rank stops together.
+- A run that stops at set-up writes no solution.
+
+Errors are checked in the input file, the material tables, `bc.txt`, the time tables, the initial condition or restart solution, the probes, the multigrid and FAS settings, and the decomposition map. During the run, a temperature that is NaN or outside the property table stops the run on the rank that finds it; the launcher ends the others.
 
 ---
 
