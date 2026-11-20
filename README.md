@@ -79,7 +79,7 @@ FUSS is built on top of companion libraries: FiNeR v2.3.0 is the Git submodule `
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
 | [MORPH](https://github.com/open-hydra/MORPH) | Mesh motion: motion laws, cell geometry, swept volumes |
 
-FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration. Every library is checked against the release FUSS requires (see [Versioning](https://open-hydra.github.io/FUSS/development/versioning/)); run `git submodule update --init` after pulling a change of the FiNeR pin. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration. ORION and FiNeR are checked against the releases FUSS requires (see [Versioning](https://open-hydra.github.io/FUSS/development/versioning/)); MORPH is not; run `git submodule update --init` after pulling a change of the FiNeR pin. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 

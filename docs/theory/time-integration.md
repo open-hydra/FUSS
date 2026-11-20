@@ -220,8 +220,9 @@ With `levels = n` (n > 1) in `[FUSS-Multigrid]`, FUSS builds n grids. Each coars
 - With `cycle = none` (the default) a coarse level is not visited again: this is plain grid
   sequencing.
 
-`level<m>-iter` (and `iter-threshold` without multigrid) is re-read with `input.ini`. Lowering it
-below the iterations already done ends that level at the next reading.
+`iter-threshold` (without multigrid) is re-read with `input.ini`: lowering it to or below the
+iterations already done ends the run at the next reading. `level<m>-iter` keeps its set-up value; a
+changed value is listed in `OUTPUT/<prefix>runtime-ini-ignored.txt`.
 
 **Restart.** A restart reads a solution written at level 1 and goes on at level 1: the coarse levels
 are restricted from it. A solution without the restart counters starts again from the coarsest level

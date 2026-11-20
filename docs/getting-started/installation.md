@@ -7,7 +7,7 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 - **CMake** 3.23 or newer.
 - **Fortran compiler**: GNU (`gfortran`) or Intel oneAPI (`ifx`).
 - **C and C++ compilers**: the project enables C and C++ (ORION and TecIO).
-- **git**: FiNeR is a Git submodule (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of its pin); the configuration clones FiNeR's own libraries and checks out a release of ORION (over https, the first time).
+- **git**: FiNeR and MORPH are Git submodules (`git clone --recurse-submodules`, or `git submodule update --init` after pulling a change of their pins); the configuration clones FiNeR's own libraries and checks out a release of ORION (over https, the first time).
 - **OpenMP** and **MPI**: optional.
 
 ### Dependencies
@@ -19,7 +19,7 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 | `lib/FiNeR/src/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (cloned by the configuration) | FiNeR's own libraries, at their default branches (`FUSS_FINER_DEPS=FREE`) or at fixed releases (`BACKUP`) |
 | `lib/MORPH` | [open-hydra/MORPH](https://github.com/open-hydra/MORPH) (submodule) | Mesh motion; FUSS links its library `MORPHL` |
 
-The configuration checks every library against the release FUSS requires: see [Versioning](../development/versioning.md).
+The configuration checks ORION and FiNeR against the releases FUSS requires (see [Versioning](../development/versioning.md)); `lib/MORPH` is not checked.
 
 !!! warning "ifx 2024.1 needs IPO"
     ifx 2024.1 miscompiles an ordinary Fortran loop pattern (found in MOSE) at `-O2` and `-O3`
@@ -93,7 +93,7 @@ Rebuilds without deleting `build/`, with the configuration stored in `CMakePrese
 `install.sh build` runs the equivalent of:
 
 ```bash
-git submodule sync --quiet && git submodule update --init lib/FiNeR
+git submodule sync --quiet && git submodule update --init lib/FiNeR lib/MORPH
 cmake -B build \
       -DUSE_OPENMP=true -DUSE_MPI=false -DUSE_TECIO=false \
       -DCMAKE_BUILD_TYPE=RELEASE
