@@ -81,6 +81,9 @@ fuss_register(ChimeraEdge 300 "fast;validation;numerics"
 # connection (one flux per face)
 fuss_add_folder_script(PatchTest       numerics-features/patch_test       run_patch.sh 300 "fast;validation;numerics")
 fuss_add_folder_script(ConnectionSplit numerics-features/connection_split run_split.sh 300 "fast;numerics")
+# Periodic faces (201): one sector of a helical annular wall, as two blocks and as one block periodic with itself, against
+# the full ring of 101 connections (both metrics, to round-off), symmetric sides as the control, a wrong pairing stopped
+fuss_add_folder_script(PeriodicSector  numerics-features/periodic_sector  run_sector.sh 300 "fast;validation;numerics")
 
 # Stability limit of the time step (vnn 0.5 for euler, 0.628 for RK3, with the skew factor on rhombohedral cells): a noisy
 # constant field on Cartesian and skewed 16^3 boxes stays bounded for 500 iterations just under the limits and stops just over
@@ -178,6 +181,11 @@ if (USE_MPI)
   fuss_add_test(MultigridMPI numerics-features/residual_convergence/mg_irs  300 "needs-mpi;implementation" --iters 300 --mpi 2)
   fuss_add_test(FASMPI       numerics-features/residual_convergence/fas_w_irs 300 "needs-mpi;implementation" --iters 300 --mpi 2)
   fuss_add_test(MultimatLinerMPI numerics-features/multimat_liner          300 "needs-mpi;implementation" --iters 300 --mpi 2)
+  # the periodic pair of the sector across two ranks: the output files of the serial run
+  fuss_register(PeriodicSectorMPI 300 "needs-mpi;implementation"
+                bash ${CMAKE_CURRENT_SOURCE_DIR}/numerics-features/periodic_sector/run_sector.sh
+                ${CMAKE_CURRENT_SOURCE_DIR}/numerics-features/periodic_sector ${_WORK}/PeriodicSectorMPI $<TARGET_FILE:${solver}> --mpi 2)
+  set_tests_properties(PeriodicSectorMPI PROPERTIES PROCESSORS 2)
 
   # The same output bits on 1x1, 1x4, 2x1, 4x1 and 2x2 (ranks x threads) on a box of 4 blocks and a chimera pair
   fuss_add_mpi_script(MPIBitIdentity       mpi/bit-identity/run.sh        900 "needs-mpi;implementation")

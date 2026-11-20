@@ -29,6 +29,7 @@ On a 2-D mesh ($n_k = 1$) faces 5 and 6 must be zero-flux faces (code `0` or `30
 | `102` | `chimera` | Overset connection | `n1 n2`, then `n1 + n2` lines `bD iD jD kD vf` |
 | `103` | `connection` between blocks of different phases | Coupling with the hydra fluid solver on matching faces | as `101` |
 | `104` | — | Coupling with the hydra fluid solver, donors in the other solver | as `102` |
+| `201` | `type = periodic`, `blocks`, `faces` | Periodic face: rotational or translational periodicity | as `101` |
 | `301` | `q`, `q-time-file` | Prescribed heat flux $q_w$ into the solid | `qw`, or a time table |
 | `302` | `T`, `T-time-file` | Prescribed wall temperature $T_w$ | `Tw`, or a time table |
 | `303` | `hconv`, `qrad`, `Tref` | Convection plus a prescribed flux $q_\text{rad}$ | `hconv, qrad, Tref` |
@@ -41,6 +42,7 @@ Units: W/m² for `qw` and `qrad`, K for `Tw` and `Tref`, W/(m²·K) for `hconv`;
 - **`101`**: the face of cell $(i,j,k)$ of block `b` touches face `fs` of cell `(is, js, ks)` of block `bs`. `(d11, d12)` and `(d21, d22)` are the index steps on face `fs` that correspond to the first and second tangential index directions of face `f`. The interface temperature follows from the continuity of the heat flux, each side with its own conductivity and metric over half a cell.
 - **`102`**: `n1` and `n2` donor cells fill the first and second ghost layer; each donor line gives its block, cell indices and volume fraction. The ghost temperature is the one of the volume-weighted enthalpy of the donors, which must share one material. FUSS stops if the fractions of a layer sum to less than 0.5.
 - **`103`, `104`**: the flux is set by hydra; FUSS on its own adds nothing, and its ghost cells mirror the cells inside.
+- **`201`**: a periodic face, as the two side faces of one channel of a cooling jacket (the mid-planes of the ribs between two channels: rotational periodicity about the axis) or the two ends of one period of a translationally periodic part. The record is that of a `101`: face `f` of cell $(i,j,k)$ of block `b` takes as ghost cells the cells across face `fs` of cell `(is, js, ks)` of block `bs`, and the record of that cell points back at it (each of the two faces is the boundary of the other). FUSS treats it as a block connection in everything (ghost temperatures and materials, one flux per face computed by its owner and given to both cells, the exchanges between ranks), except the positions of the cells of the other face, which lie one period away: they are moved by the rigid motion $\mathbf x \mapsto R\,\mathbf x + \mathbf t$ that takes face `fs` onto face `f` (the ghost nodes, hence the ghost metric of `diffusive-metric = mean`, and the ghost centre and its tangential neighbours of the stencil metric). The face is then, for both metrics, the interior face it is in the full mesh. No axis, angle or period is given: FUSS fits the motion of each pair of faces to the centres of the faces of its records and to the points half a cell across them (B. K. P. Horn, J. Opt. Soc. Am. A 4, 1987) and prints it at set-up, one line per direction of each pair (`Periodic faces (201)`: rotation angle and axis, translation, misfit in units of the half cell). FUSS stops at set-up when the misfit exceeds $10^{-3}$ of the smallest half cell (the faces are not images of each other with the index map of the records: a wrong pair of faces, or the cells of the two faces in another order), when the records do not fix the motion (two one-cell faces), when a face is periodic one way only, or when the two directions of a pair do not invert each other. A `201` whose partner is a `101` (or the reverse) stops the run as a connection that does not point back, and so does, when the file is read, a `201` whose `d11 d12` and `d21 d22` are not two unit index steps along the face (BCB before the fix of its periodic orientation rounded the products of the bases of the two turned faces and wrote steps up to 6 on stretched cells). AFUS writes the same records from its periodic BC (type 6 of `bcdef_file`), ATLAS/BCB from a section `type = periodic` (below).
 - Any other code is read without a data line and acts as `0`. If such a record is followed by a data line, that line is read as the next record and the run stops; the message names the first record with a code outside this table.
 
 ---
@@ -215,3 +217,24 @@ Tref = 300.0
 ```
 
 A section can be shared by several faces and blocks. ATLAS also splits a face into patches with different conditions: see the ATLAS documentation.
+
+### Periodic faces (201)
+
+A section `type = periodic` pairs two faces, given by their numbers in the mesh (`blocks`, the numbers of the zones of `mesh.tec`, and `faces`); both faces name the same section. ATLAS pairs the cells of the two faces in the order of their indices on the face, as AFUS does, and writes the `201` records of both faces:
+
+```ini
+[BCB-Block2]
+phase = solid
+face3 = per_1_6        ; side face of the sector ...
+...
+[BCB-Block7]
+phase = solid
+face4 = per_1_6        ; ... and the side face of the next sector, its image by the rotation of one sector
+...
+[per_1_6]
+type   = periodic
+blocks = 2 7
+faces  = 3 4
+```
+
+The two faces must be images of each other by a rigid motion with that order of the cells (the side faces of a sector of a mesh built by rotation, or the two ends of one period): FUSS fits the motion and stops when they are not (see `201` above). A face periodic with another face of its own block gives the block twice (`blocks = 5 5`). In a mesh with the blocks of more than one phase (hydra) the records carry the numbers of the blocks in the BC file of the phase, as the connections.

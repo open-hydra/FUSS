@@ -858,7 +858,12 @@ contains
   end subroutine BC_Symmetry_Metrics
 
 
-  subroutine BC_Connect_Metrics ( Im, Jm, Km, Fm, blkm, Is, Js, Ks, Fs, blks, d11s, d12s, d21s, d22s, Mg, dlg, volg )
+  !> Ghost cells of a face between blocks (101): their nodes are the nodes of the cells across the face fs of the
+  !> source block. A periodic face (201) gives the rigid motion of its pair of faces (Lib_Periodic), Rp and tp: the
+  !> nodes of the source block are moved by x -> Rp x + tp onto the side of face Fm, so that the ghost cells are the
+  !> cells that the full (unrolled) mesh has there.
+  subroutine BC_Connect_Metrics ( Im, Jm, Km, Fm, blkm, Is, Js, Ks, Fs, blks, d11s, d12s, d21s, d22s, Mg, dlg, volg, &
+                                  Rp, tp )
     implicit none
     integer, intent(in)               :: Im, Jm, Km, Fm, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s
     type(FUSS_block_type), intent(in)    :: blks
@@ -866,6 +871,7 @@ contains
     type(FUSS_tensor_3D_type), intent(out) :: Mg(2)
     type(FUSS_vector_3D_type), intent(out) :: dlg(2)
     real(R8), intent(out)                  :: volg(2)
+    real(R8), intent(in), optional         :: Rp(3,3), tp(3)
     ! Local
     integer      :: g, Is1, Js1, Ks1
     integer      :: II, JJ, KK, III, JJJ, KKK      
@@ -1048,6 +1054,24 @@ contains
         N2(g)%c = blks%node(iii,jjj,kkk)%c
       endif
 
+      ! Periodic face: the four nodes of layer g, taken from the source block, moved onto the side of face Fm
+      if ( present(Rp) ) then
+        select case(Fm)
+          case(1)
+            call Move ( N1(g) ) ; call Move ( N2(g) ) ; call Move ( N3(g) ) ; call Move ( N4(g) )
+          case(2)
+            call Move ( N5(g) ) ; call Move ( N6(g) ) ; call Move ( N7(g) ) ; call Move ( N8(g) )
+          case(3)
+            call Move ( N1(g) ) ; call Move ( N2(g) ) ; call Move ( N5(g) ) ; call Move ( N6(g) )
+          case(4)
+            call Move ( N3(g) ) ; call Move ( N4(g) ) ; call Move ( N7(g) ) ; call Move ( N8(g) )
+          case(5)
+            call Move ( N1(g) ) ; call Move ( N3(g) ) ; call Move ( N5(g) ) ; call Move ( N7(g) )
+          case(6)
+            call Move ( N2(g) ) ; call Move ( N4(g) ) ; call Move ( N6(g) ) ; call Move ( N8(g) )
+        end select
+      end if
+
       ! compute metric variables
       select case(Fm)
         case(1)
@@ -1088,7 +1112,15 @@ contains
           volg(g) = blkm % vol(Im, Jm, Km+g)
         end select
 
-    enddo ! End loop over ghost cell           
+    enddo ! End loop over ghost cell
+
+  contains
+
+    !> A node of the source block moved by the rigid motion of the periodic pair (present(Rp) only)
+    subroutine Move ( N )
+      type(FUSS_vector_3D_type), intent(inout) :: N
+      N % c = matmul ( Rp, N % c ) + tp
+    end subroutine Move
 
   end subroutine BC_Connect_Metrics
 

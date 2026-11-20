@@ -11,6 +11,7 @@ contains
     use FUSS_Global_m
     use FUSS_Lib_Metrics
     use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
+    use FUSS_Lib_Periodic, only: Setup_Periodic
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_max_r8, mpi_stop_if_any
     use FUSS_Mod_dt, only: Skew_Factor
     implicit none
@@ -61,6 +62,9 @@ contains
     call Check_Thin_Blocks ( domain, bad )
     call mpi_stop_if_any ( bad, 'block too thin for its connections or its faces (see above)', '' )
 
+    ! Periodic faces (201): the rigid motion of each pair of faces, before the ghost metrics that it moves
+    call Setup_Periodic ( domain )
+
     ! Largest time-step skew factor of the cells of the finest level (1 unless 3-D cells are skewed in all pairs of
     ! directions), for the set-up summary and for the tests: the factor is 1 on every cell of a 2-D mesh
     if ( domain % mg_level == 1 ) then
@@ -101,9 +105,18 @@ contains
           d12s = domain % bc(i) % d12
           d21s = domain % bc(i) % d21
           d22s = domain % bc(i) % d22
-          call BC_Connect_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
-                                    Is, Js, Ks, Fs, domain % blk(Bs), d11s, d12s, d21s, d22s, &
-                                    domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg)
+          if ( domain % bc(i) % per > 0 ) then
+            ! periodic face (201): the nodes of the source block moved by the motion of the pair
+            call BC_Connect_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
+                                      Is, Js, Ks, Fs, domain % blk(Bs), d11s, d12s, d21s, d22s, &
+                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, &
+                                      Rp = domain % per(domain % bc(i) % per) % R, &
+                                      tp = domain % per(domain % bc(i) % per) % t )
+          else
+            call BC_Connect_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
+                                      Is, Js, Ks, Fs, domain % blk(Bs), d11s, d12s, d21s, d22s, &
+                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg)
+          end if
         case(300) ! symmetry
           call BC_Symmetry_Metrics ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                      domain % bc(i) % Mg, domain % bc(i) % dlg, domain % bc(i) % volg, 1 )
