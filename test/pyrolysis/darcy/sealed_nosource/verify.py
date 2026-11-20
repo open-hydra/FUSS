@@ -3,8 +3,8 @@
 
 Every face impermeable, no gas production, uniform T: the pressure equation has the solution
 p = p-init exactly, every face flux is zero and the solver must not move anything. The run ends
-at its first material step: nothing moves, so the convergence residual (the T, chi and p
-increments) is exactly zero and the solver stops as converged -- one step is the whole test.
+at its first material step (iter-threshold = 1 since plan 14 S9): nothing moves, so the convergence residual
+(the T, chi and p increments) is exactly zero -- one step is the whole test.
 
 Checks (OUTPUT/field.tec of the last step, OUTPUT/darcy.txt):
   (a) max |p_pg - p0| / p0 <= TOL_P   (1e-14: round-off of a zero-residual sweep; measured 0)

@@ -23,8 +23,8 @@ Usage:
                       Steady: mdot(x_f) = pi x_f at every face.
     sealed_profile    gate 4.2: as mass_balance_1d with K = 1e-13 m2, quasi-steady, tol 1e-13, the
                       solid cp of the tables 1e12 (T frozen), run as material steps = Picard
-                      iterations on the lagged Gamma until p is stationary (400 steps or the
-                      residual stop); exact p^2 = p_w^2 + (pi R T mu/(W K)) (L^2 - x^2).
+                      iterations on the lagged Gamma until p is stationary (13 steps: the last stop on the
+                      residual before plan 14 S9); exact p^2 = p_w^2 + (pi R T mu/(W K)) (L^2 - x^2).
     tensor_linear_2d  gate 4.3: 2-D square 0.05 x 0.05 m, N x N cells (default 20; the plan's 40
                       takes ~10 min, see KINDS), one block, four 303 faces (hconv 0, qrad 0,
                       Tref 300) each with its own p_w on the field p^2 = p0^2 + a x (p0 = 101325,
@@ -63,14 +63,14 @@ R_UNIV = 8.314471469     # FUSS_Parameters_m
 A_LIN = 2.0e11           # Pa^2/m, the p^2 slope of tensor_linear_2d
 
 KINDS = {
-    "sealed_nosource": dict(ncells=100, T0=1000.0, quasi=False, K=1.0e-11, pi=0.0, tol=1.0e-8, iters=200, solver="tridiag"),
+    "sealed_nosource": dict(ncells=100, T0=1000.0, quasi=False, K=1.0e-11, pi=0.0, tol=1.0e-8, iters=1, solver="tridiag"),
     "mass_balance_1d": dict(ncells=100, T0=1000.0, quasi=False, K=1.0e-11, pi=0.1, tol=1.0e-8, iters=None, solver="tridiag"),
-    "sealed_profile": dict(ncells=100, T0=1000.0, quasi=True, K=1.0e-13, pi=0.1, tol=1.0e-13, iters=400, solver="tridiag"),
+    "sealed_profile": dict(ncells=100, T0=1000.0, quasi=True, K=1.0e-13, pi=0.1, tol=1.0e-13, iters=13, solver="tridiag"),
     # tensor_linear_2d: 20 x 20 cells and pseudo-vnn 0.25 (measured 2026-10-08: the damped Jacobi sweep
     # at the plan's 0.5 diverges on the 45-degree 100:1 tensor at 40 x 40 -- the lagged cross terms
     # make 0.5 marginal -- while 0.25 converges in 4.6e4 sweeps per step at 40 x 40 (40 s per step,
     # ~10 min for the Picard steps) and in ~1.1e4 at 20 x 20; the exactness test does not depend on N)
-    "tensor_linear_2d": dict(ncells=20, T0=300.0, quasi=True, K=None, pi=0.0, tol=1.0e-13, iters=200, solver="pseudo",
+    "tensor_linear_2d": dict(ncells=20, T0=300.0, quasi=True, K=None, pi=0.0, tol=1.0e-13, iters=9, solver="pseudo",
                              pseudo_vnn=0.25),
 }
 
@@ -302,11 +302,9 @@ def main():
             die("--pseudo-vnn must be in (0, 1]")
         cfg["pseudo_vnn"] = args.pseudo_vnn
     cfg["max_iter"] = 1000000 if kind == "tensor_linear_2d" else 100000
-    # the convergence residual of a quasi-steady run is sum((p - p^n)/p-ref)^2: the Picard
-    # increments bottom out at the line solve's round-off (~5e-13 relative at 160 cells,
-    # measured); the stop compares the ROOT of that sum with res-threshold, so 1e-10 (a last
-    # increment of at most ~1e-10 relative per cell) is reachable and the cap is not needed
-    cfg["res"] = "1e-10"
+    # time-accurate runs no longer end on the residual (upstream 0377da4, plan 14 S9): the iteration count is that of
+    # the last stop on res-threshold 1e-10, the ROOT of sum((p - p^n)/p-ref)^2 (measured at S8)
+    cfg["res"] = "1e-30"
     cfg["tend"] = "2.0"
     cfg["sol_dtime"] = "0.1" if kind == "mass_balance_1d" else "1e30"
     for f in mc.TABLE_FILES:

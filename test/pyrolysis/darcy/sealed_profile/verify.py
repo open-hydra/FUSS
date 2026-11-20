@@ -7,17 +7,17 @@ steady equation is linear in p^2, p^2(x) = p_w^2 + (pi R T mu/(W K)) (L^2 - x^2)
 section 3.3 lags the coefficient, so a single step would give the linear parabola, not this field).
 
 Checks over the grids N020 N040 N080 N160 (OUTPUT/field.tec, OUTPUT/darcy.txt of each):
-  (a) stationarity: the last step's dp_last <= TOL_STAT (1e-10: the run stops on the convergence
-      residual sqrt(sum((p - p^n)/p-ref)^2) <= 1e-10, i.e. a last Picard increment of at most ~1e-10
-      relative; the line solve's own round-off floor is ~5e-13 at 160 cells, measured) and the run
-      stopped before its step cap
+  (a) stationarity: the last step's dp_last <= TOL_STAT (1e-10: a last Picard increment of at most ~1e-10
+      relative; the line solve's own round-off floor is ~5e-13 at 160 cells, measured) and the run reached
+      its step cap exactly (since plan 14 S9 the cap is the stop: upstream 0377da4 ends no time-accurate run on
+      the residual; the cap is the row of the former stop sqrt(sum((p - p^n)/p-ref)^2) <= 1e-10)
   (b) max |T - T0| <= 1e-6 K on every grid
   (c) the L-inf error of p against the exact profile decreases monotonically
   (d) the observed order on the finest pair >= ORDER_MIN (1.9: the central flux of p^2 and the
       half-cell Dirichlet closure are second order; measured ~2.0)
 
 Usage: verify.py [parent_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 raises ORDER_MIN
-to 1e9 and sets the other tolerances to 0 (the proven-red hook). Python 3.6, no numpy.
+to 1e9, sets the other tolerances to 0 and the cap tolerance to -1 (the proven-red hook). Python 3.6, no numpy.
 """
 import math
 import os
@@ -35,9 +35,9 @@ ORDER_MIN = 1.9
 
 def main():
     parent = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else HERE
-    tol_stat, tol_t, order_min = TOL_STAT, TOL_T, ORDER_MIN
+    tol_stat, tol_t, order_min, tol_cap = TOL_STAT, TOL_T, ORDER_MIN, 0
     if dt.selftest():
-        tol_stat, tol_t, order_min = 0.0, 0.0, 1.0e9
+        tol_stat, tol_t, order_min, tol_cap = 0.0, 0.0, 1.0e9, -1
     ok = True
     errs, dxs = [], []
     print("sealed_profile: grids %s under %s" % (" ".join(GRIDS), parent))
@@ -55,7 +55,7 @@ def main():
         drows = dt.read_darcy(os.path.join(case, "OUTPUT", "darcy.txt"))
         cap = int(dt.ini_value(case, "iter-threshold"))
         stat = drows[-1][5]
-        stopped = len(drows) < cap
+        stopped = abs(len(drows) - cap) <= tol_cap   # the run reached its cap: the stop since plan 14 S9 (upstream 0377da4)
         good = stat <= tol_stat and stopped and dT <= tol_t
         ok &= good
         errs.append(err)

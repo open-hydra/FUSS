@@ -637,6 +637,8 @@ with open(os.path.join(case, "INPUT", "pyrolysis.dat"), "a") as fh:
 ini = os.path.join(case, "input.ini")
 s = open(ini).read()
 assert s.count("[FUSS-Darcy]\n") == 1
+assert s.count("iter-threshold = 13\n") == 1
+s = s.replace("iter-threshold = 13\n", "iter-threshold = %d\n" % {"N020": 11, "N040": 11, "N080": 11, "N160": 12}[os.path.basename(case)])
 open(ini, "w").write(s.replace("[FUSS-Darcy]\n", "[FUSS-Darcy]\nklinkenberg = true\n"))
 json.dump({"b": b, "B": B}, open(os.path.join(parent, "klinkenberg.json"), "w"))
 print("b %.6g Pa, B %.6g m2/s" % (b, B))
@@ -682,6 +684,9 @@ if seen != {"K_v", "K_c"}:
 open(p, "w").write("".join(out))
 meta["identity"], meta["K"] = True, K
 json.dump(meta, open(os.path.join(case, "case.json"), "w"), indent=1, sort_keys=True)
+ini = os.path.join(case, "input.ini"); s = open(ini).read()
+assert s.count("iter-threshold = 9\n") == 1
+open(ini, "w").write(s.replace("iter-threshold = 9\n", "iter-threshold = 10\n"))
 PYCTRL
   solve "$dest/control" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="control: solver exit $rc  (see $dest/control/run.log)"; return 1; fi

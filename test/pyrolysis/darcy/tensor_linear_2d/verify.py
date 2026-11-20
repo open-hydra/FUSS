@@ -12,8 +12,8 @@ the converged field keeps a round-off y-variation (measured 3e-13 relative, 2026
 Checks (OUTPUT/field.tec, OUTPUT/darcy.txt):
   (a) max_cells | |u_y| / |u_x| - K_yx/K_xx | <= TOL_RATIO (1e-10, plan 07 section 4.3; --control: max |u_y| / max |u_x|)
   (b) max |p - exact| / p0 printed; gated at TOL_P (1e-9: the discrete field is exact to the sweep tolerance)
-  (c) stationarity: the last step's dp_last <= TOL_STAT (1e-10, the convergence stop at a residual
-      root of 1e-10 as in sealed_profile) and the run stopped before its step cap
+  (c) stationarity: the last step's dp_last <= TOL_STAT (1e-10, as in sealed_profile) and the run reached its
+      step cap exactly (since plan 14 S9 the cap is the stop; it is the row of the former residual stop)
   (d) max |T - T0| <= 1e-6 K
 
 Usage: verify.py [case_dir] [--control]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 makes every
@@ -70,7 +70,7 @@ def main():
     drows = dt.read_darcy(os.path.join(case, "OUTPUT", "darcy.txt"))
     cap = int(dt.ini_value(case, "iter-threshold"))
     check("(c) last dp_last / p-ref", drows[-1][5], tol_stat)
-    check("(c) steps - (cap - 1), stopped before the cap", float(len(drows) - (cap - 1)), tol0)
+    check("(c) |steps - cap|, the run reached its cap (the stop since plan 14 S9)", float(abs(len(drows) - cap)), tol0)
     check("(d) max |T - T0| (K)", max(abs(v - T0) for v in T), tol_t)
     print("  info: steps %d, sweeps max %d median %d, |u_x| range %.3e..%.3e m/s"
           % (len(drows), max(r[3] for r in drows), sorted(r[3] for r in drows)[len(drows) // 2],
