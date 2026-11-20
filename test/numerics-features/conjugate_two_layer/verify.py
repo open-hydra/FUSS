@@ -24,7 +24,8 @@ in the profile is the interface treatment, which makes the expected result
 machine precision rather than a budget.
 
 The tolerance below is therefore set by the RESIDUAL threshold of the run
-(res-threshold = 1e-10), not by any discretisation argument. Observed on the
+(res-threshold = 1e-13 relative since plan 14 S9, upstream 0377da4: an absolute stop <= 8e-11;
+1e-10 absolute before), not by any discretisation argument. Observed on the
 correct code: 4.5e-09 K against a 700 K span.
 
 WHY dx2/dx1 = 4 MATTERS, AND WHY THIS CASE HAD TO BE WRITTEN
@@ -52,7 +53,8 @@ from generate import (K1, K2, L1, NX1, NX2, Q, T_COLD, T_HOT,   # noqa: E402
 
 SOLUTION = os.path.join(HERE, "OUTPUT", "field.tec")
 
-# Set by the run's residual threshold (1e-10), not by discretisation: the exact
+# Set by the run's residual threshold (relative 1e-13 since plan 14 S9: an absolute stop <= 8e-11; 1e-10
+# absolute before), not by discretisation: the exact
 # solution is representable on this grid. Two orders above what the correct
 # code achieves, and nine below what a wrong interface metric produces.
 TOL_K = 1.0e-6

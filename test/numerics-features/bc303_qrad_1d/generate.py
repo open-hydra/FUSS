@@ -156,7 +156,7 @@ INI = """\
 
 [FUSS-Parameters]
 newrun = true
-res-threshold = 1e-10
+res-threshold = 1e-12
 
 [FUSS-Numerics]
 time-scheme = RK3

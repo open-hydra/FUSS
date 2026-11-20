@@ -11,12 +11,13 @@ T linear between the faces). Two checks, one per dispatch site of BC 303:
       |qw - q_w| <= TOL_QREL q_w. The wall output (IO_Wall) recomputes Tw and qw
       with a second call of the BC routine, so this sees the output site.
 
-Tolerance. The run stops on residuotot = sqrt(sum dT^2) <= res-threshold = 1e-10
-K per iteration. The slowest error mode (Dirichlet-Robin, mu cot mu = -Bi, Bi =
+Tolerance. The run stops on residuotot = sqrt(sum dT^2) <= res-threshold x its first value
+(relative 1e-12 since plan 14 S9, upstream 0377da4: an absolute stop <= 3e-11 K per iteration;
+1e-10 K absolute before). The slowest error mode (Dirichlet-Robin, mu cot mu = -Bi, Bi =
 hL/k = 1, mu = 2.029) decays per iteration by dt lambda = vnn (mu/L)^2 /
 (1/dx^2 + 1/dy^2) = 5.1e-3 (vnn 1.0; 0.5 vnn with vnn 2.0 before plan 14 S7; IRS
 leaves the slowest mode untouched), so the error
-left is about 1e-10 / 5.1e-3 = 2e-8 K; round-off and the 15-digit output are
+left is about 3e-11 / 5.1e-3 = 6e-9 K (2e-8 K at the former 1e-10); round-off and the 15-digit output are
 1e-12 K at 700 K. TOL_K = 1e-6 K keeps a 50x margin (the budget
 conjugate_two_layer uses for the same reason). The wall flux: 1e-8 relative.
 
