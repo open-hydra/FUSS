@@ -2,7 +2,7 @@
 
 The case `../tensor_linear_2d` (plan 07 gate 4.3: a 20 × 20 square, the 45-degree permeability tensor, four open 303
 faces on p^2 = p0^2 + a x, quasi-steady, the damped Jacobi sweep `pseudo`) cut into 2 × 2 blocks of 10 × 10 cells,
-with `res-threshold = 1e-30` and `iter-threshold = 9`: the source stops on its residual at step 9, and a 1- vs N-rank
+with `res-threshold = 1e-30` and `iter-threshold = 9`: the source deck has the same cap since plan 14 S9 (the row of its former stop on the residual), and a 1- vs N-rank
 comparison cannot stop on res-threshold (the residual is a sum over the ranks).
 
 It exists for the exchanges a rotated tensor needs and a diagonal one does not: the connection rows' tangential pressure

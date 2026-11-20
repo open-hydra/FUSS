@@ -13,9 +13,9 @@ Usage:
                        [--ny N] [--depth N] [--fuss-sh <path>]
 
     sealed_nosource   gate 4.1(a): 1-D slab, N cells (default 100) x L/N, L = 0.05 m, both i-faces
-                      301 q = 0 (impermeable), pi-source = 0, T(0) = 1000 K, up to 200 material
-                      steps -- the run ends at its FIRST step, because nothing moves and the
-                      convergence residual (T, chi and p increments) is exactly zero; p must stay
+                      301 q = 0 (impermeable), pi-source = 0, T(0) = 1000 K, 1 material step (the cap
+                      since plan 14 S9; before, the run ended at that FIRST step, because nothing moves
+                      and the convergence residual (T, chi and p increments) is exactly zero); p must stay
                       at p-init to 1e-14 and every face flux at 0.
     mass_balance_1d   gate 4.1(b): face 1 sealed (301 q = 0), face 2 open (303 hconv = 0, qrad = 0,
                       Tref = 1000, p_w = 101325), pi-source = 0.1 kg/m3/s, K = 1e-11 m2 isotropic,
@@ -184,7 +184,7 @@ def write_ini(path, kind, cfg, subst, probes_T=True):
             "Sealed, source-free slab under the type-2 gas closure  (plan 07, gate 4.1(a))",
             "",
             "%(ncells)d cells x %(dx).6g m, both i-faces impermeable (BC 301, q 0), no gas source, T(0) at",
-            "%(T0)g K, up to %(iters)d material steps (the run ends at its first step: nothing moves and the",
+            "%(T0)g K, up to %(iters)d material steps (the cap; nothing moves and the",
             "convergence residual is exactly zero). The pressure must stay at p-init to round-off and every",
             "face flux at zero (verify.py reads OUTPUT/field.tec and OUTPUT/darcy.txt).",
         ],
@@ -203,7 +203,7 @@ def write_ini(path, kind, cfg, subst, probes_T=True):
             "%(ncells)d cells x %(dx).6g m, face 1 sealed, face 2 open at p_w %(pw)g Pa, pi-source %(pi)g,",
             "K %(K)g m2, constant gas (M 0.022, mu 4e-5, h 0), solid cp 1e12 (T frozen at %(T0)g K),",
             "quasi-steady: each material step is one Picard iteration on the lagged Gamma(p), run",
-            "until p is stationary (%(iters)d steps or the residual stop). Exact:",
+            "until p is stationary (%(iters)d steps: the row where the former residual stop 1e-10 fell). Exact:",
             "p^2 = p_w^2 + (pi R T mu/(W K)) (L^2 - x^2); verify.py fits the order over the grids.",
         ],
         "tensor_linear_2d": [
