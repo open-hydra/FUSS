@@ -809,15 +809,16 @@ demo_on "$BASE_PROBE" tfile_steady 0 "[WARNING] steady run: every 301/302 time t
     "time-accurate=false" "SEC:FUSS-Parameters:iter-threshold=3"
 
 # D23: a bc.txt record that names a face or block that does not exist indexed n_bf and
-# the blocks out of bounds; an unreadable record printed a line and went on.
+# the blocks out of bounds; an unreadable record printed a line and went on. Since plan 14 S8 the stop is upstream's
+# Check_Range (a616ef8), with its message.
 BC_FACE7='p = "INPUT/bc.txt"; L = open(p).read().split("\n"); f = L[0].split(); f[4] = "7"
 L[0] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
-demo_on "$BASE" bc_face_out_of_range 1 "bc.txt record 1: block 1, face 7" "PY:$BC_FACE7"
+demo_on "$BASE" bc_face_out_of_range 1 "face f of block 1 = 7 is outside the admissible range 1 to 6" "PY:$BC_FACE7"
 BC_CONN9='p = "INPUT/bc.txt"; L = open(p).read().split("\n")
 k = next(n for n, l in enumerate(L) if l.split()[-1:] == ["101"]); f = L[k + 1].split(); f[0] = "9"
 L[k + 1] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
 demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_range 1 \
-    "a 101 line is \"bs is js ks fs d11 d12 d21 d22\" with a block and face of this mesh" "PY:$BC_CONN9"
+    "partner block bs = 9 is outside the admissible range 1 to 2" "PY:$BC_CONN9"
 
 # f3401c5 (plan 14 S1): a temperature past the end of properties.dat stops the run (code 3 until
 # plan 14 S6) instead of reading past the table. The table is cut 2 K above the initial field's
