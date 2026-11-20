@@ -15,7 +15,6 @@ contains
     use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Init_Cells
     use FUSS_Mod_Darcy,      only: Darcy_Init_Cells
     use Lib_ORION_data
-    use FUSS_Mod_MPI, only: mpi_stop_all
     
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -35,13 +34,8 @@ contains
       domain%blk(b)%dim(3) = IOfield%block(b)%Nk
     enddo
     
-    ! Check if number of simulation variables in orion-field matches FUSS expectation
-    if ( size(IOfield%block(1)%vars, 1) < 3 ) then
-      write(*,'(A)')         '[ERROR] Number of variables in IOfield does not match FUSS expectation.'
-      write(*,'(A,I0,A,I0)') '        Expected: ', 3, ', Found: ', size(IOfield%block(1)%vars, 1)
-      ! Every rank read the same file: the ranks stop together, with exit code 1 (a bare stop ended with exit code 0)
-      call mpi_stop_all('initial condition has too few variables (see above)')
-    end if
+    ! IOfield holds T, matID and qvol in every block, and the pyrolysis and Darcy slots when enabled (Read_vtk_tec
+    ! allocates 3 + nchi + ndar variables and stops on an initial condition with fewer than two)
 
     do b = 1, nblocks
 

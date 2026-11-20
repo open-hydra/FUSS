@@ -2,28 +2,38 @@
 # run_patch.sh <patch_test dir> <work dir> <FUSS binary>
 # Linear-field patch test of the diffusive fluxes (see patch_case.py): one forward-Euler step from the exact field
 # T = A + g.x on non-smooth meshes, the flux sum of every cell and the wall output must vanish to round-off.
-#   part 1, default metric (stencil): 8 families (para rand jump fold2 sym wallmix box3d step), every group <= 1e-11
+#   part 1, default metric (stencil): 22 families, every group <= 1e-11 of k|g|A_cell and every wall type's q_w <= 1e-11 of k|g|
+#           para rand jump fold2 sym wallmix box3d step (the first set)
+#           jump2 fan fan4 (cell sizes 1:2 and a fan at the faces, dyadic), star3 star5 (3 and 5 blocks around one point),
+#           rough3d (3 blocks, stretched, two folds), wall3dA wall3dB sym3d (every wall type on skewed 3-D cells),
+#           conn14 conn14s conn14p (connection with a 1:4 jump, fold and shear, owner on either side, control),
+#           flipA flipB (connections with reversed and exchanged index axes)
 #   part 2, metric-mean (diffusive-metric = mean): para exact (<= 1e-11), and `step` (one jump of the cell size 1.5)
 #           shows the bias (1+r)^2/(4r) - 1 of the mean metric: 6.4201e-3 of k|g|A_cell in the interior group, +- 1e-7
+#   part 3, conservation: conn14c and starc3 (random T, adiabatic walls): the sum of the residuals of all cells is 0
+#           (<= 1e-11 of the sum of their absolute values), so every flux of a connection is seen alike by both sides
 set -u
 src=$(cd "$1" && pwd); work=$2; bin=$3
 export OMP_NUM_THREADS=1 KMP_STACKSIZE=100M MPLBACKEND=Agg
 ulimit -s unlimited 2>/dev/null
 rm -rf "$work"; mkdir -p "$work"
 fail=0
-for fam in para rand jump fold2 sym wallmix box3d step; do
+FAMILIES="para rand jump fold2 sym wallmix box3d step jump2 fan fan4 star3 star5 rough3d wall3dA wall3dB sym3d conn14 conn14s conn14p flipA flipB"
+n=0
+for fam in $FAMILIES; do
   w=$work/$fam
-  python3 "$src/patch_case.py" case $fam "$w" > /dev/null || exit 1
+  python3 -B "$src/patch_case.py" case $fam "$w" > /dev/null || exit 1
   (cd "$w" && "$bin" > run.log 2>&1) || { echo "FAIL: $fam: solver exit status $?"; tail -n 5 "$w/run.log"; exit 1; }
-  python3 "$src/patch_case.py" check "$w" 1e-11 | tee "$w/check.txt" | grep -v ' ok$' && fail=1
+  python3 -B "$src/patch_case.py" check "$w" 1e-11 | tee "$w/check.txt" | grep -v ' ok$' && fail=1
+  n=$((n + 1))
 done
-echo "part 1 (stencil): $( [[ $fail -eq 0 ]] && echo 'all groups <= 1e-11' || echo FAIL )"
+echo "part 1 (stencil): $n families, $( [[ $fail -eq 0 ]] && echo 'all groups and wall fluxes <= 1e-11' || echo FAIL )"
 mfail=0
 for fam in para step; do
   w=$work/mean-$fam
-  python3 "$src/patch_case.py" case $fam "$w" --metric mean > /dev/null || exit 1
+  python3 -B "$src/patch_case.py" case $fam "$w" --metric mean > /dev/null || exit 1
   (cd "$w" && "$bin" > run.log 2>&1) || { echo "FAIL: mean $fam: solver exit status $?"; tail -n 5 "$w/run.log"; exit 1; }
-  python3 "$src/patch_case.py" check "$w" 1e-11 > "$w/check.txt"
+  python3 -B "$src/patch_case.py" check "$w" 1e-11 > "$w/check.txt"
   if [[ $fam == para ]]; then
     grep -q FAIL "$w/check.txt" && { grep FAIL "$w/check.txt"; mfail=1; }
   else
@@ -34,4 +44,12 @@ for fam in para step; do
   fi
 done
 echo "part 2 (metric-mean): $( [[ $mfail -eq 0 ]] && echo PASS || echo FAIL )"
-[[ $fail -eq 0 && $mfail -eq 0 ]] && echo PASS || exit 1
+cfail=0
+for fam in conn14c starc3; do
+  w=$work/$fam
+  python3 -B "$src/patch_case.py" case $fam "$w" > /dev/null || exit 1
+  (cd "$w" && "$bin" > run.log 2>&1) || { echo "FAIL: $fam: solver exit status $?"; tail -n 5 "$w/run.log"; exit 1; }
+  python3 -B "$src/patch_case.py" check "$w" 1e-11 | tee "$w/check.txt" | grep -v ' ok$' && cfail=1
+done
+echo "part 3 (conservation): $( [[ $cfail -eq 0 ]] && echo PASS || echo FAIL )"
+[[ $fail -eq 0 && $mfail -eq 0 && $cfail -eq 0 ]] && echo PASS || exit 1

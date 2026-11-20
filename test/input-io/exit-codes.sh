@@ -20,6 +20,9 @@ plate bc-null;    sed -i '1s/302/303/; 2s/.*/ 750.0,, 273.15,/' "$WORK/bc-null/I
 plate bc-text;    sed -i '1s/302/303/; 2s/.*/ 750.0, 0.0, abc,/' "$WORK/bc-text/INPUT/bc.txt"; go bc-text 'bc.txt line 2 \(record 1, type 303\)'
 plate bc-count;  head -n -2 "$WORK/bc-count/INPUT/bc.txt" > "$WORK/bc-count/INPUT/bc.new"; mv "$WORK/bc-count/INPUT/bc.new" "$WORK/bc-count/INPUT/bc.txt"; go bc-count 'Boundary conditions number'
 plate bc-missing; rm "$WORK/bc-missing/INPUT/bc.txt"; go bc-missing 'Boundary condition file not found'
+# a code that FUSS does not know is read without a data line: its data line is read as the next record, and the stop names it
+# (the stop is the line of record 2 under ifx, the record count under gfortran, whose list-directed read of the count fails first)
+plate bc-code;    sed -i '1s/302$/399/' "$WORK/bc-code/INPUT/bc.txt"; go bc-code 'record 1 has code 399, not one of'
 
 # bc.txt: a block number, a face or a cell index outside the block, in the record itself (nominal, 2 blocks of 100 x 10 x 1 cells:
 # line 21 is the header of record 11, a connection of block 1 face 2, line 22 its partner), in the partner of a connection (101),
@@ -49,7 +52,7 @@ go bc-donor-index 'bc.txt line 23 \(record 11, type 102\): donor 1, cell index j
 chim bc-donor-late;   sed -i '24s/^ *2 *2 *1 /       2     101       1 /' "$WORK/bc-donor-late/INPUT/bc.txt"
 go bc-donor-late 'bc.txt line 24 \(record 11, type 102\): donor 2, cell index iD of block 2 = 101 is outside the admissible range 1 to 100'
 
-# time tables of a wall temperature (302): decreasing times, a missing file, an empty file
+# time tables of a wall temperature (302): decreasing times, a missing file, an empty file, a row that is not a number
 tt() {  # tt <name> <file content or -> <regex>
   plate "$1"; sed -i '2s/.*/ INPUT\/Twall.txt,/' "$WORK/$1/INPUT/bc.txt"
   [[ $2 != - ]] && printf "$2" > "$WORK/$1/INPUT/Twall.txt"
@@ -59,6 +62,10 @@ tt table-decreasing '0.0 300\n1.0 310\n0.5 320\n' 'time table .*Twall.txt.*times
 tt table-missing    -                                  'time table .*Twall.txt.*not found'
 tt table-empty      ''                                 'time table .*Twall.txt.*empty'
 tt table-bad-row    '0.0 300\n1.0 abc\n'               'time table .*Twall.txt.*cannot read row 2'
+tt table-bad-line   '0.0 300\n\n1.0 abc\n'             'time table .*Twall.txt.*cannot read row 2 \(line 3\)'
+# blank lines, also at the end, are not rows (as MOSE)
+plate table-blank; sed -i '2s/.*/ INPUT\/Twall.txt,/' "$WORK/table-blank/INPUT/bc.txt"
+printf '0.0 300\n\n1.0 310\n  \n\n' > "$WORK/table-blank/INPUT/Twall.txt"; run "$WORK/table-blank"; expect_ok table-blank "$WORK/table-blank"
 
 # the probes: a block that does not exist; an index outside the block; an unknown variable
 rod probe-block; sed -i -E 's|^index-position = 1 90 1 1|index-position = 5 90 1 1|' "$WORK/probe-block/input.ini"; go probe-block 'probe block 5 does not exist'
@@ -88,6 +95,23 @@ L[k] = ' NaN'
 open(f, 'w').write('\n'.join(L))
 PY
 go ic-nan 'ic.tec holds a value that is not finite.*T of block 1, cell i, j, k = 6, 1, 1'
+
+# an initial condition with T only (no matID): matID was read out of the bounds of the variables
+plate ic-1var
+python3 - "$WORK/ic-1var/INPUT/ic.tec" <<'PY'
+import sys
+f = sys.argv[1]; L = open(f).read().split('\n')
+L[0] = L[0].replace(' matID', ''); L[1] = L[1].replace('[4-5]=CELLCENTERED', '[4]=CELLCENTERED')
+n = 2 + 3 * 61 * 41 * 2 + 60 * 40          # header, nodes, temperatures: the matID values follow
+open(f, 'w').write('\n'.join(L[:n]) + '\n')
+PY
+go ic-1var 'ic.tec: block 1 holds 1 variable\(s\); FUSS needs T and matID'
+
+# properties.dat: a value that is not finite and a density of zero, in the row of 1 K that no cell of the plate reaches
+plate prop-nan;  sed -i -E '0,/^1\.0 [0-9.]+ /s//1.0 NaN /' "$WORK/prop-nan/INPUT/properties.dat"
+go prop-nan 'properties.dat, material mat, row T = 1 K: Cp is not finite'
+plate prop-zero; sed -i -E '0,/^1\.0 ([0-9.]+) [0-9.]+ /s//1.0 \1 0.0 /' "$WORK/prop-zero/INPUT/properties.dat"
+go prop-zero 'properties.dat, material mat, row T = 1 K: Density = +0.000E\+00 must be > 0'
 
 # the stop of a rank that is not rank 0 is tested with MPI (mpi-exit-codes.sh)
 finish

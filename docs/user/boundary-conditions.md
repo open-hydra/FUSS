@@ -43,7 +43,7 @@ Units: W/m² for `qw` and `qrad`, K for `Tw` and `Tref`, W/(m²·K) for `hconv`;
 - **`101`**: the face of cell $(i,j,k)$ of block `b` touches face `fs` of cell `(is, js, ks)` of block `bs`. `(d11, d12)` and `(d21, d22)` are the index steps on face `fs` that correspond to the first and second tangential index directions of face `f`. The interface temperature follows from the continuity of the heat flux, each side with its own conductivity and metric over half a cell.
 - **`102`**: `n1` and `n2` donor cells fill the first and second ghost layer; each donor line gives its block, cell indices and volume fraction. The ghost temperature is the one of the volume-weighted enthalpy of the donors, which must share one material. FUSS stops if the fractions of a layer sum to less than 0.5.
 - **`103`, `104`**: the flux is set by hydra; FUSS on its own adds nothing, and its ghost cells mirror the cells inside.
-- Any other code is read without a data line and acts as `0`: FUSS does not reject it.
+- Any other code is read without a data line and acts as `0`: FUSS does not reject it. When such a record is followed by a data line, that line is read as the next record, and the stop it causes (a line that is not a record, a value out of range, or a record count that differs from the number of boundary faces) names the first record with a code outside this table.
 
 ---
 
@@ -89,7 +89,7 @@ periodic
 ...
 ```
 
-- Two columns, time (s) and value; an optional first line containing `periodic` repeats the table with period $t_\text{last} - t_\text{first}$.
+- Two columns, time (s) and value; an optional first line containing `periodic` repeats the table with period $t_\text{last} - t_\text{first}$. Blank lines (also at the end of the file) are skipped, as in MOSE; the rows of the messages are the lines that hold a pair, with their line number in the file.
 - Linear interpolation; before the first time the first value, after the last time the last value. Steady runs (`time-accurate = false`) run at time −1 and get the first value.
 - Each Runge–Kutta stage reads the table at its own time (`t^n + c_k Δt`: RK3 `0, 1, ½`), so time-dependent boundary data keep the order of the scheme; the wall output reports the value at the output time.
 - A steady run (`time-accurate = false`, and hydra not time-accurate) stays at time −1: each table gives its value there for the whole run (its first value; a `periodic` table its value at −1 within the period), and set-up prints a `[WARNING]` line saying so.

@@ -43,7 +43,7 @@ $$
 r = \Bigl[\sum_{i} \bigl(T_i^{n+1} - T_i^{n}\bigr)^2\Bigr]^{1/2},
 $$
 
-evaluated every `res-diter` iterations.  The run stops when $r$ falls to `res-threshold`, or when the iteration or time limit is reached.
+evaluated every `res-diter` iterations.  A steady run stops when $r$ has fallen to `res-threshold` times its value at the first iteration (of the grid level), or when the iteration limit is reached; a time-accurate run stops at the time or the iteration limit.
 
 ---
 

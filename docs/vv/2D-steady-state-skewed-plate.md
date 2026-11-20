@@ -29,15 +29,17 @@ The wall data vary from cell to cell, so `make_inputs.py` writes `MESH/mesh.tec`
 | Integration variables | prim |
 | Implicit residual smoothing | β = 0.5 |
 | Initial condition | 1300 K |
-| Residual threshold | 1 × 10⁻¹² (reached at iteration 3154) |
+| Residual threshold | 1 × 10⁻¹² of the first residual (reached at iteration 2 471) |
 
 ## Results
 
 | Quantity | Error | Tolerance |
 |---|---|---|
-| Field, max \|T − T<sub>exact</sub>\| | 1.8 × 10⁻¹¹ K | 10⁻⁶ K |
-| Faces 1–4, max \|T<sub>w</sub> − T<sub>exact</sub>\| | ≤ 1.8 × 10⁻¹¹ K | 10⁻⁶ K |
-| Faces 1–4, max \|q<sub>w</sub> − q\| / \|q\| | ≤ 9.6 × 10⁻¹³ | 10⁻⁶ |
+| Field, max \|T − T<sub>exact</sub>\| | 5.6 × 10⁻⁹ K | 10⁻⁶ K |
+| Faces 1–4, max \|T<sub>w</sub> − T<sub>exact</sub>\| | ≤ 5.6 × 10⁻⁹ K | 10⁻⁶ K |
+| Faces 1–4, max \|q<sub>w</sub> − q\| / \|q\| | ≤ 2.2 × 10⁻¹⁰ | 10⁻⁶ |
+
+The errors are those of the iteration, not of the scheme: the run stops when the residual has fallen by 10⁻¹² from its first value (554 K), and they fall with the threshold (with the absolute threshold 10⁻¹² of the release before, they were 1.8 × 10⁻¹¹ K and 9.6 × 10⁻¹³).
 
 Since October 2026 the face and wall metrics are built from the same differences of the cell centres as the gradients (`diffusive-metric = stencil`), so the linear field is reproduced exactly on any mesh, not only on parallelograms: the linear-field patch test of the CTest suite (`PatchTest`) checks it on random, folded, symmetric and 3-D meshes (≤ 10⁻¹³ of k\|g\|A).
 

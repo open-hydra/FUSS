@@ -33,7 +33,7 @@ $$T_L = \frac{k\,T_0/L + h\,T_\text{ref} + q_\text{rad}}{k/L + h}, \qquad T(x) =
 | Integration variables | prim |
 | Implicit residual smoothing | β = 0.5 |
 | Initial condition | 300 K |
-| Residual threshold | 1 × 10⁻⁸ (reached at iteration 43 987) |
+| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 43 477) |
 
 ## Results and verification
 
@@ -41,10 +41,10 @@ $$T_L = \frac{k\,T_0/L + h\,T_\text{ref} + q_\text{rad}}{k/L + h}, \qquad T(x) =
 
 | Quantity | Error | Tolerance |
 |---|---|---|
-| Field, max \|T − T_exact\| | 2.4 × 10⁻⁶ K | 10⁻³ K |
-| Face 2, max \|T_w − T_L\| | 2.2 × 10⁻⁶ K | 10⁻³ K |
-| Face 2, max \|q_w − q\| / q | 3.0 × 10⁻⁸ | 10⁻⁴ |
-| Face 1, max \|q_w + q\| / q (the flux leaves the rod) | 7.2 × 10⁻⁸ | 10⁻⁴ |
+| Field, max \|T − T_exact\| | 2.9 × 10⁻⁶ K | 10⁻³ K |
+| Face 2, max \|T_w − T_L\| | 2.7 × 10⁻⁶ K | 10⁻³ K |
+| Face 2, max \|q_w − q\| / q | 3.6 × 10⁻⁸ | 10⁻⁴ |
+| Face 1, max \|q_w + q\| / q (the flux leaves the rod) | 8.8 × 10⁻⁸ | 10⁻⁴ |
 
 The finite-volume scheme is exact for a linear profile, so the errors are those of the residual convergence. Before October 2026 BC 303 dropped `qrad` (the flux and the wall output read a field that only BC 301 sets): the run ended at T_L = 347.37 K and this test failed.
 

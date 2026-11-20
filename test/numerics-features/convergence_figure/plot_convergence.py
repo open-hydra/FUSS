@@ -108,7 +108,6 @@ def main(runs, prefix):
         for ax in axes.flat:
             ax.set_yscale('log')
             ax.grid(True, which='major', color=GRID, lw=0.6)
-            ax.axhline(thr, color=INK2, lw=0.8, ls=':')
             ax.xaxis.set_major_locator(matplotlib.ticker.MaxNLocator(nbins=5))
             if ax.get_xlim()[1] >= 10000:
                 fmt = lambda v, _: '0' if v == 0 else f'{v / 1000:g}k'  # noqa: E731
@@ -124,12 +123,11 @@ def main(runs, prefix):
             axes[row, 0].set_ylabel('residual  ||ΔT|| per iteration [K]')
         h = [Line2D([], [], color=CYCLE[cyc][0], lw=1.6, ls=(0, (4, 2)) if irs else '-') for cyc, irs in CFGS]
         l = [label(cyc, irs) for cyc, irs in CFGS]
-        h.append(Line2D([], [], color=INK2, lw=0.8, ls=':')); l.append(f'threshold {thr:g}')
         fig.legend(h, l, loc='upper center', ncol=7, frameon=False, bbox_to_anchor=(0.5, 1.0),
                    handlelength=3, labelcolor=INK)
-        note = (f'RK3, cons, threshold {thr:g}. Without IRS vnn 0.5, with IRS vnn 1.0 and irs-beta 0.5; none and '
-                'IRS on one grid, cycles on the case levels with a 1-iteration descent. Numbers top right: where '
-                'each run reaches the threshold.')
+        note = (f'RK3, cons; each run ends when its residual has fallen by res-threshold {thr:g} from the first residual '
+                'of its finest level (numbers top right: where).\nWithout IRS vnn 0.5, with IRS vnn 1.0 and irs-beta 0.5; '
+                'none and IRS on one grid, cycles on the case levels with a 1-iteration descent.')
         if what == 'time':
             note += ('\nWall time: the Elapsed line of each run, one core per run, several runs at a time on a '
                      'shared node, spread uniformly over the iterations of the run.')

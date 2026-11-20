@@ -29,14 +29,14 @@ and is linear in each layer. `make_inputs.py` writes `MESH/mesh.tec` and `INPUT/
 | Time scheme | RK3, VNN 0.25, local time step |
 | Integration variables | cons |
 | Initial condition | 700 K |
-| Residual threshold | 1 × 10⁻¹² (reached at iteration 81 800) |
+| Residual threshold | 1 × 10⁻¹² of the first residual (reached at iteration 64 200) |
 
 ## Results
 
 | Quantity | Error | Tolerance |
 |---|---|---|
-| Field, max \|T − T<sub>exact</sub>\| | 5.2 × 10⁻¹⁰ K | 10⁻⁶ K |
-| Faces 1, 2: max \|q<sub>w</sub> − q\| / \|q\| | ≤ 2.3 × 10⁻¹² | 10⁻⁶ |
+| Field, max \|T − T<sub>exact</sub>\| | 1.3 × 10⁻⁷ K | 10⁻⁶ K |
+| Faces 1, 2: max \|q<sub>w</sub> − q\| / \|q\| | ≤ 5.5 × 10⁻¹⁰ | 10⁻⁶ |
 
 Before October 2026 the face between two materials took the conductivity of the lower-index cell only. On this case the run then left the properties table at the first jacket cell ($i = 15$, $T = -128$ K) at VNN 0.25; with the face-conductivity time step it converged, but to a field 37.5 K off and a wall flux 11 % off.
 

@@ -49,7 +49,7 @@ $$\frac{k\,(T_1 - T_L)}{L} = \varepsilon\,\sigma\left(T_L^4 - T_\text{ref}^4\rig
 | Steady-state convergence | time-accurate = false |
 | Integration variables | primitive |
 | Implicit residual smoothing | enabled (β = 0.5) |
-| Residual threshold | 1 × 10⁻⁸ (reached at iteration 56 507) |
+| Residual threshold | 1 × 10⁻⁸ of the first residual (reached at iteration 56 642) |
 | Initial condition | 1000 K |
 
 ## Grid structure
