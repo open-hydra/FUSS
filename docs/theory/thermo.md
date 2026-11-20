@@ -97,7 +97,7 @@ Where the properties are evaluated:
 
 | Property | Used for | Temperature |
 |---|---|---|
-| $k$ | interior faces | mean of the two cell temperatures, material of the lower-index cell |
+| $k$ | interior faces | mean of the two cell temperatures; between two materials the series conductivity of the two half cells |
 | $k$ | block-connection, chimera and wall faces | temperature of each cell |
 | $\rho\,c_p$ | `prim` update | cell temperature |
 | $\alpha = k/(\rho\,c_p)$ | time step | cell temperature |
@@ -105,7 +105,7 @@ Where the properties are evaluated:
 
 !!! warning "Temperature range"
 
-    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked: without IRS a temperature outside this range, or NaN, stops the run with an error naming the cell; with IRS the cell's smoothed update is halved until admissible (see [Admissible updates](time-integration.md#admissible-updates)).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
+    A lookup reads the rows $\lfloor T \rfloor$ and $\lfloor T \rfloor + 1$, so it is valid for $T_\text{min} \le T < T_\text{max}$.  After every Runge–Kutta stage each cell is checked, with or without IRS: a temperature outside this range, or not finite, stops the run with an error naming the cell and exit code 1 (see [Admissible updates](time-integration.md#admissible-updates); until October 2026 a smoothed update was halved instead).  Temperatures are not clamped.  The table must therefore cover every temperature the solution can reach, prescribed wall temperatures included.
 
 ---
 
@@ -208,7 +208,7 @@ material = aluminium
 T        = 300.0
 ```
 
-The `material` keyword must match one of the names declared in `[GPB-Phase1]`.  Interior faces take the conductivity of the lower-index cell's material, so a material may change only across a block boundary.
+The `material` keyword must match one of the names declared in `[GPB-Phase1]`.  A material may also change inside a block: the face between two materials takes the series conductivity of the two half cells (see [Face Conductivity](numerics.md#face-conductivity)).
 
 ---
 

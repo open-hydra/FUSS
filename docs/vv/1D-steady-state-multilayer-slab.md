@@ -29,7 +29,7 @@ and is linear in each layer. `make_inputs.py` writes `MESH/mesh.tec` and `INPUT/
 | Time scheme | RK3, VNN 0.25, local time step |
 | Integration variables | cons |
 | Initial condition | 700 K |
-| Residual threshold | 1 × 10⁻¹² (reached at iteration 79 600) |
+| Residual threshold | 1 × 10⁻¹² (reached at iteration 81 800) |
 
 ## Results
 

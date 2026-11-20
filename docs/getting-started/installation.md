@@ -19,6 +19,10 @@ FUSS is built with CMake, either through the `install.sh` script or by calling C
 | `lib/third_party/{PENF,FACE,FLAP,BeFoR64,StringiFor}` | [szaghi](https://github.com/szaghi) (submodules) | FiNeR's own libraries, added by CMake before FiNeR; pinned at the tags of MOSE (PENF v2.0.1, FACE v1.1.17, FLAP v2.5.3, BeFoR64 v1.2.4, StringiFor v1.8.0) |
 | `lib/MORPH` | [open-hydra/MORPH](https://github.com/open-hydra/MORPH) (submodule) | Mesh motion; FUSS links its library `MORPHL` |
 
+### ifx 2024.1 and IPO
+
+ifx 2024.1 (tested: 2024.1.0, build 20240308) compiles a loop of the ghost metrics of MOSE wrongly at `-O2` and `-O3` without interprocedural optimization: a minimal program in standard Fortran gives wrong values at `-O2` and `-O3`, also at the default level with no `-O` option, and the right ones at `-O0`, `-O1` and with `-ipo`. FUSS built without IPO (the RELEASE build of ifx up to 2026-10-28, whose `-ipo` was dropped silently; see the CHANGELOG) passes every case of the stress battery and of the patch tests, so no miscompiled loop is known in FUSS; CMake refuses that build all the same, as MOSE does, because the pattern is ordinary Fortran. The refused builds are the RELEASE build with `-DUSE_IPO=OFF` (`--no-ipo`) or whose toolchain cannot do IPO, and the TESTING build (`-O2`); the RELEASE build with IPO (the default) and the DEBUG build (`-O0`) are accepted. `-DFUSS_ALLOW_IFX_NOIPO=ON` turns the refusal into a warning. Other versions of ifx have not been tested.
+
 ## Build with `install.sh`
 
 ```bash
@@ -47,6 +51,7 @@ Global options: `-h`, `--help` (usage) and `-v`, `--verbose` (log the configurat
 | `--use-openmp` | OpenMP |
 | `--use-mpi` | MPI |
 | `--use-tecio` | TecIO, for Tecplot binary (`.szplt`) files |
+| `--no-ipo` | Without interprocedural (link-time) optimization in the RELEASE build (`-DUSE_IPO=OFF`) |
 | `--include-orion=PATH` | Use an external ORION tree instead of the submodule |
 | `--include-finer=PATH` | Use an external FiNeR tree instead of the submodule |
 | `--include-morph=PATH` | Use an external MORPH tree instead of the submodule |
@@ -97,6 +102,7 @@ cmake --build build
 
 - `ORION_PATH` and `FINER_PATH` default to `lib/ORION/` and `lib/third_party/FiNeR/`; `FINER_DEPS_PATH` (default `lib/third_party/`) is where CMake finds PENF, FACE, FLAP, BeFoR64 and StringiFor, which it adds before FiNeR. A submodule that is not initialised is initialised by CMake (`git submodule update --init`); FiNeR older than v2.1.0 stops the configuration.
 - `MORPH_PATH` defaults to the submodule `lib/MORPH/`; only its library `MORPHL` is built.
+- `USE_IPO` (default ON) adds the interprocedural optimization (`-ipo` with Intel; `-flto` with GNU) to the RELEASE flags (results of a RELEASE build with ifx change at round-off against builds before 2026-10-28, see the CHANGELOG); with ifx the archiver is the `llvm-ar` and `llvm-ranlib` of the compiler (`-DIPO_AR`, `-DIPO_RANLIB` give them for another layout of the installation), and IPO is dropped with a warning when they are not found. `install.sh` writes `CMAKE_AR`, `CMAKE_RANLIB` and `USE_IPO` into `CMakePresets.json`.
 - `USE_TECIO` is an ORION option and defaults to ON there: pass `-DUSE_TECIO=false` to build without TecIO.
 - `CMAKE_BUILD_TYPE` is `RELEASE` (default), `DEBUG` (`-O0`, warnings, traceback, bounds checking) or `TESTING` (`-O2`); see `cmake/SetFortranFlags.cmake`.
 - Use the `build/` directory: ORION, FiNeR and its libraries are built in `lib/` of the build directory (`-B` elsewhere leaves the source tree clean), and the executables always go to `bin/`.

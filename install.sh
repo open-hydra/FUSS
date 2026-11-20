@@ -30,6 +30,7 @@ Commands:
     --use-openmp            Use OpenMP
     --use-mpi               Use MPI
     --use-tecio             Use TecIO
+    --no-ipo                Disable interprocedural (link-time) optimization
 
   compile                   Compile the program using the CMakePresets file
 
@@ -63,6 +64,8 @@ function write_presets() {
   FC=$(grep -E '^CMAKE_Fortran_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   CC=$(grep -E '^CMAKE_C_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   CXX=$(grep -E '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  AR=$(grep '^CMAKE_AR:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  RANLIB=$(grep '^CMAKE_RANLIB:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
 
   # The mpi preset (plan 11 section 2.1): a second tree, build-mpi/, with its own executable
   # bin/FUSS-mpi. gfortran + Intel MPI with the compiler wrapper bypassed: Intel's mpif90
@@ -117,9 +120,12 @@ EOM
         "CMAKE_Fortran_COMPILER": "${FC}",
         "CMAKE_C_COMPILER": "${CC}",
         "CMAKE_CXX_COMPILER": "${CXX}",
+        "CMAKE_AR": "${AR}",
+        "CMAKE_RANLIB": "${RANLIB}",
         "USE_TECIO": "${USE_TECIO}",
         "USE_OPENMP": "${USE_OPENMP}",
-        "USE_MPI": "${USE_MPI}"
+        "USE_MPI": "${USE_MPI}",
+        "USE_IPO": "${USE_IPO}"
       }
     }${MPI_PRESET}
   ]
@@ -137,12 +143,14 @@ MORPH_PATH=$(pwd)'/lib/MORPH/'
 USE_OPENMP="false"
 USE_MPI="false"
 USE_TECIO="false"
+# IPO is on by default; CMake self-disables it if the toolchain cannot do it.
+USE_IPO="true"
 REMOTE="false"
 BUILD_TYPE="RELEASE"
 
 # Define allowed options for each command using regular arrays
 CMD=("build" "compile" "update")
-CMD_OPTIONS_build=("--compilers --include-orion --include-finer --include-morph --use-openmp --use-mpi --use-tecio")
+CMD_OPTIONS_build=("--compilers --include-orion --include-finer --include-morph --use-openmp --use-mpi --use-tecio --no-ipo")
 CMD_OPTIONS_update=("--remote")
 CMD_OPTIONS_compile=("--preset=NAME")
 
@@ -212,6 +220,10 @@ while [[ $# -gt 0 ]]; do
             [[ "$COMMAND" == "build" ]] || { error " --use-tecio is only valid for 'build' command"; exit 1; }
             USE_TECIO="true"
             ;;
+        --no-ipo)
+            [[ "$COMMAND" == "build" ]] || { error " --no-ipo is only valid for 'build' command"; exit 1; }
+            USE_IPO="false"
+            ;;
         --remote)
             [[ "$COMMAND" == "update" ]] || { error " --remote is only valid for 'update' command"; exit 1; }
             REMOTE="true"
@@ -263,6 +275,7 @@ case "$COMMAND" in
         log "Use OpenMP: $USE_OPENMP"
         log "Use MPI: $USE_MPI"
         log "Use TecIO: $USE_TECIO"
+        log "Use IPO: $USE_IPO"
         if [[ -z "${FC+x}" || -z "${CXX+x}" || -z "${CC+x}" ]]; then
           log "Compilers not set. CMake will decide."
         else
@@ -276,7 +289,7 @@ case "$COMMAND" in
           ok=1; for dep in PENF FACE FLAP BeFoR64 StringiFor; do [[ -f ${FINER_PATH%/}/src/third_party/$dep/CMakeLists.txt ]] || ok=0; done
           if [[ $ok == 1 ]]; then FINER_DEPS_ARG="-DFINER_DEPS_PATH=${FINER_PATH%/}/src/third_party/"; log "FiNeR libraries: ${FINER_PATH%/}/src/third_party/"; fi
         fi
-        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH $FINER_DEPS_ARG -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
+        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH $FINER_DEPS_ARG -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DUSE_IPO=$USE_IPO -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
         cmake --build $BUILD_DIR || exit 1
         log "[OK] Compilation successful"
 

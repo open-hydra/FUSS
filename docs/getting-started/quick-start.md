@@ -131,7 +131,7 @@ T = 273.15
 | `sol-diter`, `sol-overwrite`, `sol-format` | Write `OUTPUT/field.tec` every 10000 iterations and at the end, overwriting it |
 | `ini-diter = 1000` | Re-read the runtime keys of `input.ini` every 1000 iterations |
 
-All keys: [Input Parameters](../user/registry.md). Comment lines in `input.ini` start with `!`, `;` or `#`; a comment line must not contain `=`.
+All keys: [Input Parameters](../user/registry.md). Comment lines in `input.ini` start with `!`, `;` or `#`; a comment line may contain `=` (FiNeR 2.1.0 or later).
 
 ---
 

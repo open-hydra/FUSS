@@ -21,6 +21,34 @@ plate bc-text;    sed -i '1s/302/303/; 2s/.*/ 750.0, 0.0, abc,/' "$WORK/bc-text/
 plate bc-count;  head -n -2 "$WORK/bc-count/INPUT/bc.txt" > "$WORK/bc-count/INPUT/bc.new"; mv "$WORK/bc-count/INPUT/bc.new" "$WORK/bc-count/INPUT/bc.txt"; go bc-count 'Boundary conditions number'
 plate bc-missing; rm "$WORK/bc-missing/INPUT/bc.txt"; go bc-missing 'Boundary condition file not found'
 
+# bc.txt: a block number, a face or a cell index outside the block, in the record itself (nominal, 2 blocks of 100 x 10 x 1 cells:
+# line 21 is the header of record 11, a connection of block 1 face 2, line 22 its partner), in the partner of a connection (101),
+# in the donor of a chimera record (102, chimera deck: line 21 the header of record 11, line 23 its first donor). The stop is at the
+# reading, with the line, the record, the value and the range: before, a block that does not exist ended the run in the MPI
+# library (exit 6) or with a segmentation fault, and a donor cell outside its block was read past the array without a message.
+# The donors of a coupled wall (104) are cells of the other solver: not tested.
+chim() { prep numerics-features/chimera "$WORK/$1"; setkey "$WORK/$1" iter-threshold 5; }
+nominal bc-range-ctl; run "$WORK/bc-range-ctl"; expect_ok bc-range-ctl "$WORK/bc-range-ctl"
+chim bc-range-chim-ctl; run "$WORK/bc-range-chim-ctl"; expect_ok bc-range-chim-ctl "$WORK/bc-range-chim-ctl"
+nominal bc-own-block;  sed -i '21s/.*/       7     100       1       1       2     101/' "$WORK/bc-own-block/INPUT/bc.txt"
+go bc-own-block 'bc.txt line 21 \(record 11, type 101\): block b = 7 is outside the admissible range 1 to 2'
+nominal bc-own-index;  sed -i '21s/.*/       1     100      11       1       2     101/' "$WORK/bc-own-index/INPUT/bc.txt"
+go bc-own-index 'bc.txt line 21 \(record 11, type 101\): cell index j of block 1 = 11 is outside the admissible range 1 to 10'
+nominal bc-own-face;   sed -i '21s/.*/       1     100       1       1       7     101/' "$WORK/bc-own-face/INPUT/bc.txt"
+go bc-own-face 'bc.txt line 21 \(record 11, type 101\): face f of block 1 = 7 is outside the admissible range 1 to 6'
+nominal bc-partner-block; sed -i '22s/.*/       9       1       1       1       1       1       0       0       1/' "$WORK/bc-partner-block/INPUT/bc.txt"
+go bc-partner-block 'bc.txt line 22 \(record 11, type 101\): partner block bs = 9 is outside the admissible range 1 to 2'
+nominal bc-partner-index; sed -i '22s/.*/       2       1      99       1       1       1       0       0       1/' "$WORK/bc-partner-index/INPUT/bc.txt"
+go bc-partner-index 'bc.txt line 22 \(record 11, type 101\): partner cell index js of block 2 = 99 is outside the admissible range 1 to 10'
+nominal bc-partner-face; sed -i '22s/.*/       2       1       1       1       0       1       0       0       1/' "$WORK/bc-partner-face/INPUT/bc.txt"
+go bc-partner-face 'bc.txt line 22 \(record 11, type 101\): partner face fs of block 2 = 0 is outside the admissible range 1 to 6'
+chim bc-donor-block;  sed -i '23s/^ *2 /       9 /' "$WORK/bc-donor-block/INPUT/bc.txt"
+go bc-donor-block 'bc.txt line 23 \(record 11, type 102\): donor 1, block bD = 9 is outside the admissible range 1 to 2'
+chim bc-donor-index;  sed -i '23s/^ *2 *1 *1 /       2       1      99 /' "$WORK/bc-donor-index/INPUT/bc.txt"
+go bc-donor-index 'bc.txt line 23 \(record 11, type 102\): donor 1, cell index jD of block 2 = 99 is outside the admissible range 1 to 7'
+chim bc-donor-late;   sed -i '24s/^ *2 *2 *1 /       2     101       1 /' "$WORK/bc-donor-late/INPUT/bc.txt"
+go bc-donor-late 'bc.txt line 24 \(record 11, type 102\): donor 2, cell index iD of block 2 = 101 is outside the admissible range 1 to 100'
+
 # time tables of a wall temperature (302): decreasing times, a missing file, an empty file
 tt() {  # tt <name> <file content or -> <regex>
   plate "$1"; sed -i '2s/.*/ INPUT\/Twall.txt,/' "$WORK/$1/INPUT/bc.txt"

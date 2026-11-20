@@ -311,7 +311,7 @@ subroutine Check_Multigrid ( domain )
   subroutine coarse2fine_corr ( fT, fmatID, cT, cmatID, h0, fDim, cDim )
     use FUSS_Global_m
     use FUSS_Lib_Solid, only: co_H, co_T
-    use FUSS_Lib_Newstate, only: Admissible_T, IRS_HALVINGS
+    use FUSS_Lib_Newstate, only: Admissible_T, FAS_HALVINGS
     implicit none
     integer, intent(in), dimension(3) :: fDim, cDim
     real(R8), intent(inout), dimension(1-gc:fDim(1)+gc,1-gc:fDim(2)+gc,1-gc:fDim(3)+gc) :: fT
@@ -337,11 +337,11 @@ subroutine Check_Multigrid ( domain )
 
       call co_H ( fmatID(i,j,k), fT(i,j,k), h )
       theta = 1d0
-      do n = 0, IRS_HALVINGS
+      do n = 0, FAS_HALVINGS
         call co_T ( fmatID(i,j,k), h + theta*dhf(i,j,k), Tnew )
         if ( Admissible_T( Tnew ) ) exit
         theta = 0.5d0 * theta
-        if (n == IRS_HALVINGS) Tnew = fT(i,j,k)
+        if (n == FAS_HALVINGS) Tnew = fT(i,j,k)
       enddo
       if (theta < 1d0) fas_fallbacks = fas_fallbacks + 1
       fT(i,j,k) = Tnew

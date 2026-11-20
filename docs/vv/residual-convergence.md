@@ -68,23 +68,24 @@ Summary of iterations required to reach res-threshold = 1 × 10⁻⁸:
 
 | Case | Initial residual | Final residual | Iterations |
 |---|---|---|---|
-| nominal | 6.88 × 10² | ~1.0 × 10⁻⁸ | 369 089 |
-| irs     | 2.00 × 10³ | ~1.0 × 10⁻⁸ |  99 305 |
-| mg1     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 294 094 |
-| mg2     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 219 100 |
-| mg3     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 144 106 |
-| mg_irs  | 1.42 × 10³ | ~1.0 × 10⁻⁸ |  80 603 |
+| nominal | 6.88 × 10² | ~1.0 × 10⁻⁸ | 369 498 |
+| irs     | 2.00 × 10³ | ~1.0 × 10⁻⁸ |  99 415 |
+| mg1     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 294 644 |
+| mg2     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 223 371 |
+| mg3     | 4.87 × 10² | ~1.0 × 10⁻⁸ | 212 414 |
+| mg_irs  | 1.42 × 10³ | ~1.0 × 10⁻⁸ |  79 816 |
 
 **Key observations**
 
-- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 089 → 99 305), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
-- **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 094 to 144 106. Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 305).
-- **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 80 603 iterations — about 19 % faster than IRS alone and 4.6× faster than the nominal baseline.
+- **IRS** alone reduces the iteration count by ≈ 3.7× relative to the nominal RK3 run (369 498 → 99 415), because the larger allowable VNN = 1.0 effectively damps low-frequency error components more aggressively per iteration.
+- **Multigrid** alone improves with a larger coarse-grid iteration budget: increasing `level2-iter` from 25 000 (mg1) to 75 000 (mg3) cuts the total iteration count from 294 644 to 212 414 (mg2: 223 371). Even the best multigrid-only case (mg3) remains less efficient than IRS alone (99 415): more than twice the iterations.
+- **Combining multigrid and IRS** (mg_irs) yields the best result of all configurations, converging in 79 816 iterations — about 20 % fewer iterations than IRS alone and 4.6× faster than the nominal baseline.
 
-All six runs reach the same solution: the final fields differ from the piecewise-linear profile above by at most 6.4 × 10⁻⁶ K (1.6 × 10⁻⁶ K with IRS). The iteration counts above are reproduced exactly by the current code.
+All six runs reach the same solution: the final fields differ from the piecewise-linear profile above by at most 6.4 × 10⁻⁶ K (1.6 × 10⁻⁶ K with IRS). The iteration counts, the initial residuals, the final fields and the figure (with its data in `SOLUTION/*.dat`) are those of one re-measurement of the six cases as shipped, none of them capped, with the final binary of the sync of October 2026 (`verify/sync-2026-10` a616ef8, `USE_IPO` on, ifx 2024.1, one thread); the counts are the same, to the digit, as those of the runs of the sync before the IPO switch (`chimera-mpi` af13cab). The histories in `SOLUTION/*.dat` are thinned to every 100th row (the first 100 rows, the 300 rows after each multigrid level change, the first and the last row are kept, so the last row of each file is the converged iteration of the table); the full history is reproduced by re-running the case.
 
 ```bash
 cd test/numerics-features/residual_convergence/<case> && ./FUSS.sh solve   # one case
 cd test/numerics-features/residual_convergence && python3 plot.py         # the figure, from SOLUTION/
+# SOLUTION/<case>.dat: the OUTPUT/residual-history.dat of that case run to the threshold, thinned to every 100th row
 ```
 - All six cases reach the same residual threshold of 1 × 10⁻⁸, confirming that none of the acceleration strategies compromises the converged solution.

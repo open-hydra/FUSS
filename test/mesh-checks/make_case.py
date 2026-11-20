@@ -11,6 +11,10 @@ Standard library only. Every deck is a few hundred cells of constant properties 
   chimturn  two plane blocks joined by chimera faces (102, one donor per ghost cell); the edges along the face of block 1 grow
             4 times across its first cell at the chimera face, so that the first ghost layer turns over
   chimwall  the block 1 of chimturn alone, a wall (302) where the chimera face was
+  thin1, thin1s, thin1j, thin1ws, thin1jws, thin1w, thin1jw   (thin-blocks.sh) a block one cell across in an index direction of
+            a plane mesh: thin1, thin1s a 1 x 8 block joined to an 8 x 8 block through a connection (101) on its i face,
+            thin1j an 8 x 1 block through a j face (s: sheared, x += 0.3 y); thin1ws, thin1jws a 1 x 8 and an 8 x 1 block
+            sheared with walls (302) only; thin1w, thin1jw the same unsheared (lines orthogonal)
 """
 import math
 import os
@@ -211,7 +215,45 @@ def chimwall():
     return [b1], ini_text(5)
 
 
-PARTS = {'thin3d': thin3d, 'mixed2d': mixed2d, 'fold2d': fold2d, 'fold3d': fold3d, 'chimturn': chimturn, 'chimwall': chimwall}
+def sheared(fn, a=0.3):
+    return lambda i, j, k: tuple([fn(i, j, k)[0] + a * fn(i, j, k)[1]] + list(fn(i, j, k)[1:]))
+
+
+def thin_walls(nx, ny, shear):
+    """One block nx x ny (one of them 1), plane mesh, walls (302) with T linear in y on the four lateral faces."""
+    h = 0.0625
+    fn = (lambda i, j, k: (h * i, j / ny, (k - 0.5) * LZ)) if nx == 1 else (lambda i, j, k: (i / nx, h * j, (k - 0.5) * LZ))
+    b = Block('Block1', nx, ny, 1, sheared(fn) if shear else fn)
+    walls([b], (1, 2, 3, 4), lambda c: T0 + 100.0 * c[1])
+    return [b], ini_text(1, scheme='euler')
+
+
+def thin_conn(across_j, shear):
+    """An 8 x 8 block and a block one cell across its connection (101): block 2 is 1 x 8 on the i face 2 of block 1, or 8 x 1
+    on its j face 4; walls (302) on every other lateral face."""
+    n, h = 8, 0.0625
+    b1 = Block('Block1', n, n, 1, lambda i, j, k: (0.5 * i / n, j / n, (k - 0.5) * LZ))
+    if not across_j:
+        b2 = Block('Block2', 1, n, 1, lambda i, j, k: (0.5 + h * i, j / n, (k - 0.5) * LZ))
+        b1.faces.update({2: ('conn', 2, 1)}); b2.faces.update({1: ('conn', 1, 2)})
+    else:
+        b2 = Block('Block2', n, 1, 1, lambda i, j, k: (0.5 * i / n, 1.0 + h * j, (k - 0.5) * LZ))
+        b1.faces.update({4: ('conn', 2, 3)}); b2.faces.update({3: ('conn', 1, 4)})
+    if shear:
+        for b in (b1, b2):
+            for plane in b.nodes:
+                for row in plane:
+                    for nd in row:
+                        nd[0] += 0.3 * nd[1]
+    walls([b1, b2], (1, 2, 3, 4), lambda c: T0 + 100.0 * c[1])
+    return [b1, b2], ini_text(1, scheme='euler')
+
+
+PARTS = {'thin3d': thin3d, 'mixed2d': mixed2d, 'fold2d': fold2d, 'fold3d': fold3d, 'chimturn': chimturn, 'chimwall': chimwall,
+         'thin1': lambda: thin_conn(False, False), 'thin1s': lambda: thin_conn(False, True),
+         'thin1j': lambda: thin_conn(True, False), 'thin1ws': lambda: thin_walls(1, 8, True),
+         'thin1jws': lambda: thin_walls(8, 1, True), 'thin1w': lambda: thin_walls(1, 8, False),
+         'thin1jw': lambda: thin_walls(8, 1, False)}
 
 if __name__ == '__main__':
     if len(sys.argv) != 3 or sys.argv[1] not in PARTS:

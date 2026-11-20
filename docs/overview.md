@@ -73,8 +73,8 @@ $\dot{q}_\text{vol}$ is a cell field read from `INPUT/st.tec` when that file exi
 |-|-|
 | Grid | Structured multi-block hexahedral grids (1-D and 2-D cases have one cell in the unused directions), two ghost layers per block |
 | Diffusive flux | Cell-centred finite volume; face gradient from the difference across the face plus tangential central differences |
-| Face metric | Inverse of the mean of the two cells' inverse metrics: exact for linear fields on stretched orthogonal meshes |
-| Face conductivity | $k$ at the mean of the two cell temperatures; at block connections the interface temperature follows from heat-flux continuity, each side with its own conductivity |
+| Face metric | `diffusive-metric = stencil` (default): Jacobian of the face built from the same differences of the cell centres as the face gradient, exact for a linear field on any mesh; `mean`: mean of the two cell metrics (FUSS before October 2026) |
+| Face conductivity | $k$ at the mean of the two cell temperatures; between two materials inside a block the two half cells are in series; at block connections the interface temperature follows from heat-flux continuity, each side with its own conductivity |
 | Walls | Ghost cells $2T_w - T$; boundary flux from the wall model |
 
 See [Spatial Discretisation](theory/numerics.md).
@@ -86,7 +86,7 @@ See [Spatial Discretisation](theory/numerics.md).
 | Schemes | `euler` (default), `RK2` (Heun), `RK3` (SSP) |
 | Time step | Diffusive limit set by `vnn`; local step for steady runs, global minimum for `time-accurate = true` |
 | Implicit residual smoothing | `irs-beta`: two Jacobi sweeps per direction |
-| Multigrid | Grid sequencing: coarsest level first, prolongation to the next finer level, no cycles |
+| Multigrid | Grid sequencing: coarsest level first, prolongation to the next finer level; FAS V and W cycles (`cycle = v` or `w`) on the levels below the running one |
 
 See [Time Integration](theory/time-integration.md).
 

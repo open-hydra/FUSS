@@ -71,7 +71,7 @@ With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ i
 
 !!! tip "Choosing VNN"
 
-    The default is 0.15. Without IRS stay below the limit of the scheme (0.5 for euler and RK2, 0.628 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 1 with `irs-beta = 0.5` (1.5 did not converge on a test plate); the [admissible-update check](#admissible-updates) catches overshoots out of the properties table.
+    The default is 0.15. Without IRS stay below the limit of the scheme (0.5 for euler and RK2, 0.628 for RK3), with a margin where the mesh varies quickly. With IRS, steady runs can use larger values: the test cases run at 1 with `irs-beta = 0.5`; the [admissible-update check](#admissible-updates) stops the run on an overshoot out of the properties table.
 
 ---
 
@@ -114,13 +114,11 @@ with smoothing parameter $\varepsilon$ specified by `irs-beta` in the input file
 
 ### Effect on stability
 
-The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D, allowing VNN values of 1 or more to be used without instability.
+The smoothing amplifies the stable VNN limit by approximately $(1 + 2\varepsilon)$ per direction.  With $\varepsilon = 0.5$ (a common choice) the effective limit is $(1 + 1)^3 \approx 8$ times the un-smoothed value in 3-D. This is the estimate behind the decks of the suite that run IRS at VNN = 1; the limit of a given case is not computed, and the admissible-update check below catches an overshoot.
 
 ### Admissible updates
 
-The smoothed update of a cell mixes the updates of its neighbours. Above the explicit limit it can overshoot the temperatures imposed at the boundaries and leave the range of the properties table, where the property lookups would read past its ends. Each smoothed update is therefore checked: the new temperature must be finite and lie in $[T_\text{min}, T_\text{max})$, the first and last temperature of `properties.dat`. A cell that fails halves its smoothed update until the new state is admissible (at most 10 times), and otherwise keeps no update in that stage. The halved update keeps the implicit damping: the earlier fallback to the cell's own *unsmoothed* update reintroduced exactly the explicit update IRS exists to stabilise, and on a stiff multimaterial mesh (large conductivity jumps, squeezed cells) enough cells fell back at once to lock the run into a bounded residual orbit. The number of halved or dropped cells, summed over the MPI ranks, is printed every `shell-diter` iterations. An admissible smoothed update is applied unchanged.
-
-Without IRS nothing is replaced: a temperature outside the table, or NaN, stops the run with an error message naming the cell, and a non-zero exit status.
+The smoothed update of a cell mixes the updates of its neighbours. Above the explicit limit it can overshoot the temperatures imposed at the boundaries and leave the range of the properties table, where the property lookups would read past its ends. Every update, smoothed or explicit, is therefore checked after each stage: the new temperature must be finite and lie in $[T_\text{min}, T_\text{max})$, the first and last temperature of `properties.dat`. A cell that fails stops the run: the rank that finds it writes an error message naming the block, the cell, the temperature and the table range, and ends with exit code 1 (the check runs inside an OpenMP loop, where no MPI call is allowed: the launcher ends the other ranks); nothing is clamped or replaced. This is MOSE's rule (`Check_And_Fix_State`). Until October 2026 a smoothed update that failed was halved until admissible (at most 10 times) and otherwise dropped, with an `IRS:` count printed every `shell-diter` iterations; the fallback had been introduced for a stiff multimaterial mesh whose runs it kept in a bounded residual orbit, a symptom of the face-conductivity defect fixed on 2026-10-14 (see [FAS cycles](../vv/fas-cycles.md#stress-campaign)), and no case of the test suite or of the FAS acceptance set ever used it (zero fallbacks on every row of `fuss-stress/ref/237c9c2/fas_vv.md`), so it was removed with the sync of October 2026 (decision D2). The two guards of the FAS cycles stay: a prolongated correction that leaves the table is halved or dropped, and a coarse-level smoothing update under a forcing is halved (`FAS:` reports), because a forced coarse problem is not a physical time evolution ([FAS cycles](#fas-cycles)).
 
 ### Input settings
 
