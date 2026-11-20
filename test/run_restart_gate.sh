@@ -9,9 +9,10 @@
 #               iterations followed by a restart for another N, and compares the
 #               two solutions field by field.
 #
-#               Twelve cases (the run_case calls at the end; qs_N100 and
-#               conjugate_receding are described there), because they fail
-#               for unrelated reasons:
+#               Fifteen legs (fourteen run_case calls, heated0d_type2 twice,
+#               and the multigrid numbering leg at the end; qs_N100,
+#               conjugate_receding, receding_front/front and mg1 are
+#               described there), because they fail for unrelated reasons:
 #
 #                 qvol_Plate         static mesh WITH a volumetric source. The
 #                                    source file name used to be assigned only
@@ -188,7 +189,8 @@ run_case () {
   local src="$ROOT/$case_rel"
   local name; name=$(echo "$case_rel${fmt:+ $fmt}" | tr '/ ' '__')
   local cont="$WORK/$name.cont" rst="$WORK/$name.rst"
-  local ff=field.tec; [ "${fmt%% *}" = vtk ] && ff=field.vtm
+  local ff=field.tec floor="within the ASCII floor"
+  [ "${fmt%% *}" = vtk ] && { ff=field.vtm; floor="within the budget; a binary restart file has no ASCII floor"; }
   if [ -n "$fmt" ] && ! grep -q '^sol-format *=' "$src/input.ini"; then bad "$case_rel: no sol-format key to set to $fmt"; return; fi
 
   rm -rf "$cont" "$rst"
@@ -229,15 +231,15 @@ PY
 
   set_iters "$cont" "$((2*half))" "true"
   ( cd "$cont" && $SOLVE ) > "$cont/run.log" 2>&1 \
-    || { bad "$case_rel: continuous run failed (see $cont/run.log)"; return; }
+    || { bad "$case_rel${fmt:+ ($fmt)}: continuous run failed (see $cont/run.log)"; return; }
 
   set_iters "$rst" "$half" "true"
   ( cd "$rst" && $SOLVE ) > "$rst/run1.log" 2>&1 \
-    || { bad "$case_rel: first leg failed (see $rst/run1.log)"; return; }
+    || { bad "$case_rel${fmt:+ ($fmt)}: first leg failed (see $rst/run1.log)"; return; }
 
   set_iters "$rst" "$half" "false"
   ( cd "$rst" && $SOLVE ) > "$rst/run2.log" 2>&1 \
-    || { bad "$case_rel: restarted leg failed (see $rst/run2.log)"; return; }
+    || { bad "$case_rel${fmt:+ ($fmt)}: restarted leg failed (see $rst/run2.log)"; return; }
 
   local out rc
   out=$(python3 - "$cont/OUTPUT/$ff" "$rst/OUTPUT/$ff" "$tol" <<'PY'
@@ -413,7 +415,7 @@ PY
     printf '        %s\n' "$out"
   fi
   if [ $rc -eq 0 ]; then
-    pass "$case_rel${fmt:+ ($fmt)}: restart reproduces the continuous run (within the ASCII floor)"
+    pass "$case_rel${fmt:+ ($fmt)}: restart reproduces the continuous run ($floor)"
   else
     bad "$case_rel${fmt:+ ($fmt)}: restarted run differs from the continuous run"
   fi
