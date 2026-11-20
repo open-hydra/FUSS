@@ -79,7 +79,7 @@ With `vnn-rise-threshold = N` the step is scaled by $n/N$ during the first $N$ i
 
 ### Time-accurate mode (`time-accurate = true`)
 
-The global minimum time step is used at every iteration.  The solver advances to the physical time `time-threshold`, writing field snapshots at intervals controlled by `sol-dtime` or `sol-diter`.  With a boundary-condition time table the residual threshold does not end the run (the table keeps forcing the solution): only `time-threshold` or `iter-threshold` do.
+The global minimum time step is used at every iteration.  The solver advances to the physical time `time-threshold`, writing field snapshots at intervals controlled by `sol-dtime` or `sol-diter`.  The residual threshold does not end a time-accurate run, with or without a boundary-condition time table: only `time-threshold` or `iter-threshold` do (`res-threshold` is a test of steady runs, below). The residual is still printed and written to `residual-history.dat` every `res-diter` iterations: the Euclidean norm over all cells of the change of one iteration, $r = \sqrt{\sum (T - T^{\mathrm{old}})^2 + \sum \sum_r (\chi_r - \chi_r^{\mathrm{old}})^2 + \sum \left((p - p^{\mathrm{old}})/p_{\mathrm{ref}}\right)^2}$, where the reaction advancements `chi_r` count with pyrolysis and the gas pressure with the type-2 gas closure ($p_{\mathrm{ref}}$ = `[FUSS-Darcy] p-ref`, default 101325 Pa); without them it is the temperature change alone.
 
 This mode is required for all transient problems: oscillating boundary conditions, evolving temperature profiles, probe monitoring.
 
