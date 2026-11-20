@@ -51,16 +51,16 @@
 | vnn-rise-threshold | 0 | >= 0 |  no | VNN rise threshold |
 | time-accurate | .false. | logical | yes | Time accurate switch |
 | integration-variables | cons | cons ,  prim |  no | Integration variables (cons/prim) |
-| irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; the value is re-read at runtime) |
+| irs-beta | 0.0 | >= 0 |  no | Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (set-up value only: a change during the run is listed in runtime-ini-ignored.txt) |
 | diffusive-metric | stencil | stencil, mean |  no | Face metric of the diffusive fluxes: stencil takes the face Jacobian from the same differences of the cell centres as the face gradient, exact for a linear field on any mesh except at the chimera faces (102), which take the two-sided balance with the cell metrics with every value; mean takes the mean of the two cell metrics at the interior faces (the block connections the two-sided balance, the walls the cell metric) and overstates the gradient by (1+r)^2/(4r) at a cell-size ratio r; read at set-up only |
 
 ## FUSS-Multigrid
 
 | Parameter | Default | Allowed | Required | Description |
 |-----------|---------|---------|----------|-------------|
-| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (re-read at runtime) |
-| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (re-read at runtime) |
-| prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime) |
+| level1-iter | 0 | >= 0 |  no | Iterations for multigrid level 1 (set-up value only) |
+| level2-iter | 0 | >= 0 |  no | Iterations for multigrid level 2 (set-up value only) |
+| prolongated-diter | 0 | >= 0 |  no | Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; set-up value only) |
 | cycle | none | none, v, w |  no | FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). w is the robust choice: v without IRS can limit-cycle on 4 or more levels |
 | pre-iter | 2 | >= 0 |  no | FAS: smoothing iterations on a level before its coarse-grid visit |
 | post-iter | 1 | >= 0 |  no | FAS: smoothing iterations on a level after the coarse-grid correction |

@@ -47,8 +47,8 @@ contains
     obj_irs%warning_message = 'none'
     obj_irs%error_message   = 'none'
     call reg%add( trim(section), 'irs-beta', obj_irs%beta, '0.0', &
-                  'Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (only at set-up; '// &
-                  'the value is re-read at runtime)', '>= 0', .false. )
+                  'Implicit residual smoothing coefficient: 0 = off, > 0 switches IRS on (set-up value only: '// &
+                  'a change during the run is listed in runtime-ini-ignored.txt)', '>= 0', .false. )
 
     !! ------------------------------------------------------
     !! ------------------------------------------------------
@@ -154,10 +154,10 @@ contains
     if (.not. obj_sim_param%HYDRA_MG) then 
       do m = 1, obj_multigrid%MGL
         write(option,'(A5,I0,A5)') 'level', m, '-iter'
-        call reg%add( trim(codename)//'-Multigrid', trim(option), obj_multigrid%iter_threshold(m), '0', 'Iterations for multigrid level '//trim(str(.true.,m))//' (re-read at runtime)', '>= 0', .false. )
+        call reg%add( trim(codename)//'-Multigrid', trim(option), obj_multigrid%iter_threshold(m), '0', 'Iterations for multigrid level '//trim(str(.true.,m))//' (set-up value only)', '>= 0', .false. )
       enddo
       call reg%add( trim(codename)//'-Multigrid', 'prolongated-diter', obj_multigrid%prolongated_diter, '0', &
-        'Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime)', '>= 0', .false. )
+        'Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; set-up value only)', '>= 0', .false. )
       call reg%add( trim(codename)//'-Multigrid', 'cycle', obj_multigrid%cycle, 'none', &
         'FAS cycle on the levels below the running one: none = grid sequencing only, v, w (steady runs, integration-variables cons). '// &
         'w is the robust choice: v without IRS can limit-cycle on 4 or more levels', 'none, v, w', .false. )
@@ -170,10 +170,10 @@ contains
     else
       do m = 1, obj_multigrid%MGL
         write(option,'(A5,I0,A5)') 'level', m, '-iter'
-        call reg%add( 'HYDRA-Multigrid', trim(option), obj_multigrid%iter_threshold(m), '0', 'Iterations for multigrid level '//trim(str(.true.,m))//' (re-read at runtime)', '>= 0', .false. )
+        call reg%add( 'HYDRA-Multigrid', trim(option), obj_multigrid%iter_threshold(m), '0', 'Iterations for multigrid level '//trim(str(.true.,m))//' (set-up value only)', '>= 0', .false. )
       enddo
       call reg%add( 'HYDRA-Multigrid', 'prolongated-diter', obj_multigrid%prolongated_diter, '0', &
-        'Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; re-read at runtime)', '>= 0', .false. )
+        'Coarse levels: least level iterations between two writes of field/wall-prolongated, which are always written at the end of a level (0 = with every field write; set-up value only)', '>= 0', .false. )
     endif
 
   end subroutine Register_Multigrid_Levels  
