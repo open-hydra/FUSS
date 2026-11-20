@@ -23,9 +23,10 @@ Global Options:
 
 Commands:
   build                     Perform a full build
-    --include-orion=<path>  Set external ORION path
+    --include-orion=<path>  Build a local ORION checkout instead of a release
     --include-finer=<path>  Set external FiNeR path
     --include-morph=<path>  Set external MORPH path
+    --update-deps           Select again the newest release of ORION (deps.lock)
     --compilers=<name>      Set compilers (intel, gnu)
     --use-openmp            Use OpenMP
     --use-mpi               Use MPI
@@ -66,6 +67,11 @@ function write_presets() {
   CXX=$(grep -E '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   AR=$(grep '^CMAKE_AR:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
   RANLIB=$(grep '^CMAKE_RANLIB:FILEPATH=' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2-)
+  # the local ORION checkout, when given
+  local sources=""
+  if [[ -n $ORION_PATH ]]; then
+    sources+="        \"FETCHCONTENT_SOURCE_DIR_ORION\": \"${ORION_PATH}\","$'\n'
+  fi
 
   # The mpi preset (plan 11 section 2.1): a second tree, build-mpi/, with its own executable
   # bin/FUSS-mpi. gfortran + Intel MPI with the compiler wrapper bypassed: Intel's mpif90
@@ -113,8 +119,7 @@ EOM
       "description": "Default preset",
       "binaryDir": "\${sourceDir}/build",
       "cacheVariables": {
-        "ORION_PATH": "${ORION_PATH}",
-        "FINER_PATH": "${FINER_PATH}",
+${sources}        "FINER_PATH": "${FINER_PATH}",
         "MORPH_PATH": "${MORPH_PATH}",
         "CMAKE_BUILD_TYPE": "${BUILD_TYPE}",
         "CMAKE_Fortran_COMPILER": "${FC}",
@@ -137,7 +142,9 @@ EOF
 # Default global values
 COMMAND=""
 COMPILERS=""
-ORION_PATH=$(pwd)'/lib/ORION/'
+# ORION: the release of deps.lock, or the newest one that FUSS accepts (see CMakeLists.txt)
+ORION_PATH=""
+UPDATE_DEPS="false"
 FINER_PATH=$(pwd)'/lib/third_party/FiNeR/'
 MORPH_PATH=$(pwd)'/lib/MORPH/'
 USE_OPENMP="false"
@@ -150,7 +157,7 @@ BUILD_TYPE="RELEASE"
 
 # Define allowed options for each command using regular arrays
 CMD=("build" "compile" "update")
-CMD_OPTIONS_build=("--compilers --include-orion --include-finer --include-morph --use-openmp --use-mpi --use-tecio --no-ipo")
+CMD_OPTIONS_build=("--compilers --include-orion --include-finer --include-morph --update-deps --use-openmp --use-mpi --use-tecio --no-ipo")
 CMD_OPTIONS_update=("--remote")
 CMD_OPTIONS_compile=("--preset=NAME")
 
@@ -190,7 +197,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --include-orion=*)
             [[ "$COMMAND" == "build" ]] || { error " --include-orion is only valid for 'build' command"; exit 1; }
-            ORION_PATH="${1#*=}"
+            # absolute: CMake takes the folder from the build directory
+            ORION_PATH=$(cd "${1#*=}" && pwd) || { error "No folder ${1#*=}"; exit 1; }
             ;;
         --include-finer=*)
             [[ "$COMMAND" == "build" ]] || { error " --include-finer is only valid for 'build' command"; exit 1; }
@@ -199,6 +207,10 @@ while [[ $# -gt 0 ]]; do
         --include-morph=*)
             [[ "$COMMAND" == "build" ]] || { error " --include-morph is only valid for 'build' command"; exit 1; }
             MORPH_PATH="${1#*=}"
+            ;;
+        --update-deps)
+            [[ "$COMMAND" == "build" ]] || { error " --update-deps is only valid for 'build' command"; exit 1; }
+            UPDATE_DEPS="true"
             ;;
         --compilers=*)
             [[ "$COMMAND" == "build" ]] || { error " --compilers is only valid for 'build' command"; exit 1; }
@@ -249,7 +261,6 @@ case "$COMMAND" in
         task "Building $project"
 
         task "Cloning submodules"
-        [[ $ORION_PATH == $(pwd)'/lib/ORION/' ]] && git submodule update --init lib/ORION
         if [[ $FINER_PATH == $(pwd)'/lib/third_party/FiNeR/' ]]; then
           # FiNeR and its five libraries (PENF, FACE, FLAP, BeFoR64, StringiFor): CMake adds the libraries before FiNeR
           git submodule update --init lib/third_party/FiNeR lib/third_party/PENF lib/third_party/FACE \
@@ -269,7 +280,8 @@ case "$COMMAND" in
         fi
         log "Build dir: $BUILD_DIR"
         log "Build type: $BUILD_TYPE"
-        log "ORION path: $ORION_PATH"
+        log "ORION: ${ORION_PATH:-release}"
+        log "Update ORION: $UPDATE_DEPS"
         log "FINER path: $FINER_PATH"
         log "MORPH path: $MORPH_PATH"
         log "Use OpenMP: $USE_OPENMP"
@@ -281,7 +293,6 @@ case "$COMMAND" in
         else
           log "Compilers: FC=$FC, CXX=$CXX, CC=$CC"
         fi
-        rm -rf $BUILD_DIR
         # FiNeR's five libraries: the FUSS submodules lib/third_party/<dep> (plan 14 D5), unless --include-finer names
         # another FiNeR whose src/third_party/ holds all five (hydra's figaro build FUSS): then those (plan 14 D-S4-1)
         FINER_DEPS_ARG=""
@@ -289,7 +300,15 @@ case "$COMMAND" in
           ok=1; for dep in PENF FACE FLAP BeFoR64 StringiFor; do [[ -f ${FINER_PATH%/}/src/third_party/$dep/CMakeLists.txt ]] || ok=0; done
           if [[ $ok == 1 ]]; then FINER_DEPS_ARG="-DFINER_DEPS_PATH=${FINER_PATH%/}/src/third_party/"; log "FiNeR libraries: ${FINER_PATH%/}/src/third_party/"; fi
         fi
-        cmake -B $BUILD_DIR -DORION_PATH=$ORION_PATH -DFINER_PATH=$FINER_PATH $FINER_DEPS_ARG -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DUSE_IPO=$USE_IPO -DCMAKE_BUILD_TYPE=$BUILD_TYPE || exit 1
+        CMAKE_ARGS=(-DFINER_PATH=$FINER_PATH $FINER_DEPS_ARG -DMORPH_PATH=$MORPH_PATH -DUSE_TECIO=$USE_TECIO -DUSE_OPENMP=$USE_OPENMP -DUSE_MPI=$USE_MPI -DUSE_IPO=$USE_IPO -DCMAKE_BUILD_TYPE=$BUILD_TYPE)
+        if [[ -n $ORION_PATH ]]; then
+          CMAKE_ARGS+=(-DFETCHCONTENT_SOURCE_DIR_ORION="$ORION_PATH")
+        fi
+        if [[ $UPDATE_DEPS == "true" ]]; then
+          CMAKE_ARGS+=(-DSEMVER_UPDATE=ALL)
+        fi
+        rm -rf $BUILD_DIR
+        cmake -B $BUILD_DIR "${CMAKE_ARGS[@]}" || exit 1
         cmake --build $BUILD_DIR || exit 1
         log "[OK] Compilation successful"
 

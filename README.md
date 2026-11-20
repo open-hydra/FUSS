@@ -62,7 +62,7 @@ See the [Quick Start](https://open-hydra.github.io/FUSS/getting-started/quick-st
 ### Run the Test Suite
 
 ```bash
-ctest --test-dir build -L fast                        # 23 tests (24 with TecIO), about a minute
+ctest --test-dir build -L fast                        # 24 tests (25 with TecIO), about a minute
 ctest --test-dir build -LE "needs-mpi|verification"   # the pull-request check (.github/workflows/ctest.yml)
 ctest --test-dir build -L verification                # observed order and FAS = single grid, about a minute on 6 cores
 ctest --test-dir build                                # all: verification cases, smoke runs, MPI checks
@@ -71,7 +71,7 @@ ctest --test-dir build                                # all: verification cases,
 
 ## Dependencies
 
-FUSS is built on top of companion libraries, included as Git submodules:
+FUSS is built on top of companion libraries: FiNeR is a Git submodule, ORION a release (2.1 or a later 2.x) that the configuration checks out in `lib/ORION`:
 
 | Library | Role |
 |---|---|

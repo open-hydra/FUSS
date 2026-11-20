@@ -13,3 +13,7 @@ __pycache__
 .claude/
 plan-bucket/
 CLAUDE.md
+
+# Release of ORION checked out by the configure (cmake/SemVerDeps.cmake), and the one selected
+deps.lock
+lib/ORION

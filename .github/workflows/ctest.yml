@@ -22,9 +22,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # FUSS: lib/ORION (ORION a978930), lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor} and lib/MORPH: eight submodules, none
-          # nested (the layout of the pins theme). CMake would try `git submodule update --init` itself when one is missing
-          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner.
+          # FUSS: lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor} and lib/MORPH: seven submodules, none nested (the layout of the
+          # pins theme). CMake would try `git submodule update --init` itself when one is missing
+          # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner. ORION is not a
+          # submodule: the configure checks out the newest release it accepts, over https (cmake/SemVerDeps.cmake).
           submodules: recursive
 
       - name: Install system dependencies
@@ -67,7 +68,7 @@ jobs:
         run: cmake --build build --parallel $(nproc)
 
       - name: Run tests
-        # The PR tier: the 39 tests of a build without MPI and TecIO (23 fast, 14 validation, 15 smoke), minus the full forms
+        # The PR tier: the 40 tests of a build without MPI and TecIO (24 fast, 14 validation, 15 smoke), minus the full forms
         # of the verification cases (label verification: ConvergenceOrder and MultigridSolution, about a minute on 6 cores,
         # run on request). FUSS has no needs-cantera and needs-sundials. The longest test is ConvectivePlate
         # (about two minutes at one thread; TIMEOUT 1200 in its registration).
@@ -78,7 +79,11 @@ jobs:
   test-mpi:
     # gfortran with the MPI library of Ubuntu (Open MPI): the build with USE_MPI=ON and the needs-mpi tier, which the job above
     # does not register.
-    runs-on: ubuntu-latest
+    # FUSS: ubuntu-24.04 (Open MPI 4.1.6) and not ubuntu-latest. On Ubuntu 26.04 (Open MPI 5.0.10, PRRTE 3.0.13), which the
+    # label ubuntu-latest moves to in November 2026, mpirun ends with a segmentation fault when it launches two programs in
+    # two folders (`mpirun -n 1 -wdir a FUSS : -n 1 -wdir b FUSS`, MPIExitCodes and MPIRuntimeInput): the launcher fails, not
+    # FUSS. The same command passes with Open MPI 5.0.10 and 5.0.11 of conda-forge.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository

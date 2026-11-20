@@ -3,7 +3,7 @@
 !>   INPUT/<prefix>virgin.dat      1 K rows: cp h ki kj kk emissivity absorptivity, one zone per material
 !>   INPUT/<prefix>char.dat        same layout and the same T range as virgin.dat
 !>   INPUT/<prefix>gas.dat         1 K rows: p M h mu, one zone per (material, p-level), p ascending
-!> The Tecplot files go through ORION's tec_read_points_multivars exactly as
+!> The Tecplot files go through Read_Points_Table (FUSS_Load_Table) exactly as
 !> INPUT/<prefix>properties.dat does (Load_Table.f90); zone i of a solid file
 !> is material i of phase.txt. Structural failures stop here on every rank
 !> (error stop 1); value checks and the banner are Check_Pyrolysis_Tables (root).
@@ -314,7 +314,7 @@ contains
   !> columns cp h ki kj kk emissivity absorptivity.
   subroutine Read_Solid_Table ( file, virgin )
     use FUSS_Config_Types_m, only: obj_pyrolysis
-    use Lib_Tecplot,         only: tec_read_points_multivars
+    use FUSS_Load_Table,     only: Read_Points_Table
     use Lib_ORION_data
     implicit none
     character(len=*), intent(in) :: file
@@ -324,7 +324,7 @@ contains
     integer  :: ios, m, i, n, Tlo, Thi, v
     real(R8) :: T1, val
 
-    ios = tec_read_points_multivars( orion, 7, trim(file) )
+    ios = Read_Points_Table( orion, 7, trim(file) )
     if ( ios /= 0 .or. .not. allocated(orion%block) ) then
       write(*,'(A)') ERR//'cannot read '//trim(file)
       call mpi_stop_all ( 'pyrolysis material error (see above)' )
@@ -396,7 +396,7 @@ contains
   !> rows 1 K apart in every zone of a material; columns p M h mu.
   subroutine Read_Gas_Table ( file )
     use FUSS_Config_Types_m, only: obj_pyrolysis
-    use Lib_Tecplot,         only: tec_read_points_multivars
+    use FUSS_Load_Table,     only: Read_Points_Table
     use Lib_ORION_data
     implicit none
     character(len=*), intent(in) :: file
@@ -405,7 +405,7 @@ contains
     integer  :: ios, m, i, n, Tlo, Thi, v, nz, Np, ip, z
     real(R8) :: T1, p, val
 
-    ios = tec_read_points_multivars( orion, 4, trim(file) )
+    ios = Read_Points_Table( orion, 4, trim(file) )
     if ( ios /= 0 .or. .not. allocated(orion%block) ) then
       write(*,'(A)') ERR//'cannot read '//trim(file)
       call mpi_stop_all ( 'pyrolysis material error (see above)' )
