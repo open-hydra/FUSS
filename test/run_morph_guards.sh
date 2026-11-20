@@ -36,7 +36,7 @@ echo "  component: $MORPH"
 echo
 
 if [ ! -x "$MORPH/test/run_morph_guards.sh" ]; then
-  bad "no MORPH at $MORPH: run git submodule update --init lib/MORPH (or ./install.sh update)"
+  bad "no MORPH at $MORPH: run git submodule update --init lib/MORPH (or ./install.sh build)"
   echo; echo "1 MORPH guard(s) FAILED"; exit 1
 fi
 

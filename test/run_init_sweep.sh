@@ -98,9 +98,9 @@ echo
 # FiNeR that look nothing like the cause. That is not hypothetical; it happened
 # the first time this script was run.
 #
-# Since c8f1d07 they are built in the build directory given (plan 14 S9b: ORION
-# in _deps/orion-build/ with its .mod files in modules/, FiNeR and its five
-# libraries in lib/third_party/<name>/).
+# Since c8f1d07 they are built in the build directory given (plan 14 S9c: ORION
+# in _deps/orion-build/ with its .mod files in modules/, FiNeR in
+# _deps/finer-build/ and its five libraries in _deps/finer-build/src/third_party/<name>/).
 #
 # So the trap below rebuilds $ROOT/build from scratch. It costs a couple of
 # minutes and it is the difference between a diagnostic and a trap for the next
@@ -125,6 +125,11 @@ restore () {
 }
 trap restore EXIT
 
+# FiNeR's five libraries in the mode of the tree's own build (CMakeLists.txt FUSS_FINER_DEPS: FREE unless its
+# cache says BACKUP): a configure in the other mode would move the clones in lib/FiNeR/src/third_party, or stop
+FINER_DEPS_MODE=$(sed -n 's/^FUSS_FINER_DEPS:[A-Z]*=//p' "$ROOT/build/CMakeCache.txt" 2>/dev/null)
+FINER_DEPS_MODE=${FINER_DEPS_MODE:-FREE}
+
 for pass in A B; do
   case $pass in
     A) EXTRA="$FLAGS_A" ;;
@@ -144,7 +149,7 @@ for pass in A B; do
         -DCMAKE_AR=/usr/bin/gcc-ar-12 \
         -DCMAKE_RANLIB=/usr/bin/gcc-ranlib-12 \
         -DFETCHCONTENT_SOURCE_DIR_ORION="$ROOT/lib/ORION" \
-        -DFINER_PATH="$ROOT/lib/third_party/FiNeR/" \
+        -DFUSS_FINER_DEPS="$FINER_DEPS_MODE" \
         -DCMAKE_Fortran_FLAGS="$BASE $EXTRA" \
         > "$WORK/$pass.cmake.log" 2>&1; then
     echo "FAILED to configure -- see $WORK/$pass.cmake.log"; exit 1
