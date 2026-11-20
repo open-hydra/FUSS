@@ -455,3 +455,48 @@ every case here starts from its initial condition.
   - Record: `plan-bucket/records/2026-11-19-plan14-S7b/` (resolution scripts, audits, red controls R-corner, R-pair,
     R-D10, the self-test hooks and the seam's old rows, the variants, the strict A/Bs, the serial vs one-rank FMA
     analysis, the memory and timing measurements).
+- **2026-11-20, plan 14 S9 (upstream `ca34e96`, PR #4 follow-ups: `9ed0595` input checks, `029620a` the FAS level-1
+  budget, `f3c805a` the wall output from the residual's ghosts (fill, then the state restored), `a4d784b` tests,
+  `0377da4` `res-threshold` relative to the first residual of the run or grid level and for steady runs only, with a
+  fifth restart counter `FUSS_RES_REFERENCE`; merged by `281aaa2`, follow-ons `f4536e9` (F-S9-1: the six time-accurate
+  Darcy decks run to the cap where they used to stop, D-S9-1 (c)), `7ff4fde` (F-S9-3: ours' three steady decks take
+  res-threshold at or below the old absolute stop, D-S9-2 (b)), `5652d52` (F-S9-1b, comments), `d816513` (F-S9-5, docs),
+  `56647e5` (F-S9-6, the wall output's own solves out of the Newton-cap count)): 2033 rows of S8 compared, 1126 moved.
+  2033 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `ccbe78d6`, gfortran 12.2.1) on sprop2,
+    on one pinned core (the host was over its cores), on a snapshot of `7ff4fde`, compared with S8's record (S8 made no
+    baseline of its own: `5529086`'s 2033 rows, which S8's `-k` reproduced) by plan 14's `moved.py`. `5652d52`,
+    `d816513` and `56647e5` came after the recording: comments, one docs paragraph and a diagnostic flag that changes
+    no value (`56647e5`: the wall output's own 304/305 solves are neither counted nor reported). Identity on `56647e5`
+    measured: its fresh builds (on sprop2: FUSS `1c10ad80` for `-k`, FUSS-mpi `09d91558` for `-m 1 -k`, run on pcprop9
+    as frozen binaries) give this manifest byte for byte; they differ from the `-B` binary only by the embedded source paths.
+  - **Classes** (S8 → S9; the files are in the record's `moved/`):
+
+    | class | rows | cases | cause | attribution |
+    |---|---|---|---|---|
+    | bytes | 907 | — | — | — |
+    | identical-values, `aux +FUSS_RES_REFERENCE` | 850 | every field file of the decks whose stop did not move (61 `field.tec`, 775 `field<N>`, 7 `field-prolongated`, 7 `field-level<N>`), the six Darcy decks included | `0377da4`'s fifth restart counter | values identical by `numdiff` |
+    | the stop moved: `field.tec`, `wall.tec`, `diagnostic.tec` (E), `residual-history.dat` (shape) | 56 (14 × 4) | the 14 steady decks with a finite rt: `chimera`, `convective_Plate`, `qvol_Plate`, `temperature_Plate`, `radiative_Rod` (shared), `convective_qrad_Rod`, `multilayer_Slab`, `skewed_Plate`, `fas_v`, `fas_w`, `fas_w_irs` (upstream's), `bc303_qrad_1d`, `conjugate_two_layer`, `qvol_Manufactured_Plate` (ours, F-S9-3) | `0377da4` (+ F-S9-3 for ours' three) | every single-level stop is the first history row with res <= rt x the run's own `FUSS_RES_REFERENCE`; histories: S9 = S8's first rows (10 decks) or S8 = S9's first rows (ours' three and `radiative_Rod`); `v-abs` against S8: every row that is neither a wall file nor the aux record is bytes (0 shape rows: S8's stop rows); the 14 `wall.tec` as in the wall rows below (12 at max<=1e-12, 2 bytes) |
+    | wall files, max<=1e-12 | 217 | 23 decks (20 `wall.tec`, 184 `wall<N>`, 7 `wall-prolongated`, 6 `wall-level<N>`); largest 8.8e-13 (`multimat_Plate` qw), the others <= 8e-16 | `f3c805a` (the wall output's Tw/qw from the ghost cells just filled, as the residual's) | `v-wallout` (= `v-abs` + the old `.false.` call) gives S8's bytes on every wall row |
+    | wall files, larger | 3 | `conservation` (Tw 1.9e-8, 5.8e-6 K), `conservation_4blk` (Tw 4.3e-7, 1.3e-4 K), `skewed_3D` (qw 0.21 relative, 2.0e5 W/m2) | `f3c805a` on non-orthogonal walls: ONLY the face-edge cells move (2 per zone of 20-60 cells on the moving meshes; 12 of 16 and 16 of 24 on `skewed_3D`'s 4x4 / 6x4 faces, i.e. every edge cell), the interior cells keep S8's bytes | `v-wallout` S8's bytes; upstream `ca34e96`'s own build on `skewed_3D` writes the same `wall.tec` to 2.2e-15 |
+
+    Everything else is bytes: the six Darcy decks' histories and `darcy.txt` (1, 13 x 4, 9 steps: their caps), every
+    other time-accurate deck, `time_convergence/simdir` (its cap, 1000), probes, budgets, `interface-flux.txt`,
+    `bc306-state.dat`.
+  - **Stops**: the step-0 census predicted every single-level stop from S8's histories exactly except
+    `multilayer_Slab` (818 → 642, predicted 790): `res-diter = 100` there, so the history's first row is iteration 100
+    (1.9499) while the reference is iteration 1's residual (`FUSS_RES_REFERENCE` 194.849); 1e-12 x 194.849 =
+    1.9485e-10, row 641 2.0055e-10, row 642 (iteration 64200) 1.9443e-10. Not a defect: the census took the first
+    PRINTED row as the reference. D-S9-1 (c): `sealed_nosource` cap 1, `sealed_profile/N020..N160` 13,
+    `tensor_linear_2d` 9, res-threshold 1e-30 (the Klinkenberg grids 11/11/11/12 and the tensor control 10 are set by
+    the physics gate). D-S9-2 (b): `bc303_qrad_1d` 1e-12, `conjugate_two_layer` 1e-13, `qvol_Manufactured_Plate` 1e-10
+    (relative), stops 5187, 8201, 5189.
+  - **Physics numbers that moved** (S8 → S9, every other line equal, 34/34 PASS): `bc303_qrad_1d` interior 2.811e-9 →
+    8.305e-10 K, wall 2.517e-9 K / 2.517e-7 W/m2 → 7.436e-10 K / 7.436e-8 W/m2; `conjugate_two_layer` -4.4543e-9 →
+    -3.5288e-9 K (both F-S9-3). Upstream's steady decks against upstream `ca34e96`'s own build: the same stop rows
+    (`skewed_Plate` 2471, `multilayer_Slab` 642, `convective_qrad_Rod` 43477, `fas_v`/`fas_w`/`fas_w_irs`
+    5719/2964/869), fields and walls within <= 5.0e-13 relative, `diagnostic.tec` E at its residual floor (`multilayer_Slab` and
+    `convective_qrad_Rod` field and wall bytes).
+  - Record: `plan-bucket/records/2026-11-20-plan14-S9/` (resolution script, audits, the follow-on scripts, the red
+    controls R-acc, F-S9-1, R-res, R-out and the output-cadence measurement, the Newton-cap count, the variants, the
+    moved table and stop rules).
