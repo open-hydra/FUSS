@@ -385,3 +385,73 @@ every case here starts from its initial condition.
     0.0625, the steps of 0.25 and 0.125 before).
   - Record: `plan-bucket/records/2026-11-19-plan14-S7a/` (resolution script, audits, the vnn census after F-S7a-1,
     `v-S7a-vnn`, R-thin3d, the lead's floor draw `lead-chimera-E/`).
+- **2026-11-20, plan 14 S7b (upstream `639a0dd`: the stencil face metric from the differences of the cell centres,
+  `diffusive-metric = stencil` the default; the wall gradient on the metric of the same position differences; one flux
+  per block-connection face; `Minv` removed; merged by `b299c24`, follow-ons `5bb18d7` (node planes for the corner cells
+  on N ranks), `7b51fac`, `c7a4089` (the pairing gate's red control), `f8e4c5a`, `910da92` (self-test hooks), `793bbce`
+  (`Lib_Stencil_Metrics.f90` without FMA contraction), `c679a33` (the smoothing seam bounds)): 2033 rows of S7a
+  compared, 1096 moved. 2033 rows.**
+  - **How measured:** `run_regression.sh -B -p 1` (a fresh preset build, binary `0686098b`) on sprop2 (gfortran 12.2.1),
+    on a snapshot of `793bbce` (`c679a33` changes only `test/pyrolysis/ablation/smoothing/verify.py` and its README,
+    which no `FUSS.sh` or `run_regression.sh` path reads), compared with the S7a record (`b146e6d`, 2033 rows) by plan
+    14's `moved.py`. The gate battery's `-k` run (`622b1fa4`) and the mpi preset's binary at one rank (`-m 1 -k`,
+    `456e111a`) give the same manifest. Physics gates 34/34 (`ablation_smoothing` on `c679a33`); CTest 37/37 serial
+    (PatchTest, ConnectionSplit added), 10/10 `needs-mpi` (QvolPlate, RuntimeInput, ConvectivePlate and
+    MultimatLinerMPI timed out in the battery at load 100–123 and pass when re-run at load 77).
+  - **Attribution** (variants of `910da92`: `v-S6` = `diffusive-metric = mean` by default, the inverse-mean face metric
+    of S6 and every 101 record its own two-sided flux; `v-own` = the same with the owner's one flux per face kept;
+    `v-S6` on `793bbce` gives `v-S6` on `910da92` on all 2033 rows (the flagged file computes nothing in mean mode), so
+    both apply to this baseline; `v-own` was not re-run on `793bbce`, by the same reason):
+
+    | class (S7a → S7b) | rows | reproduced by `v-S6` (S7a's bytes) | of these `v-own` at S7a's bytes: `a6a8c09`, `11a77f3`, `82103de` (and D11's k_s mean at the 101 faces of the pyrolysis decks) | of these `v-own` moves: `f6b05b8` (one flux per face) |
+    |---|---|---|---|---|
+    | bytes | 937 | — | — | — |
+    | max<=1e-12 | 761 | 760 | 545 | 215 |
+    | max<=1e-6 | 94 | 93 | 41 | 52 |
+    | max>1e-6 | 232 | 229 | 161 | 68 |
+    | shape | 9 | 9 | 2 | 7 |
+
+    - Not reproduced as bytes: 5 rows, `conservation` and `conservation_4blk` `field.tec`/`wall.tec` (S7b moves them by
+      0.8e-6 … 5.1e-6) and `skewed_3D` `diagnostic.tec` (E): `v-S6` gives S7a's values to 1.3e-16 … 7.2e-16. Code
+      generation by 00-method §7.2.1: `-ffp-contract=off` builds of `b146e6d` and of `910da92` + the `v-S6` edits give
+      the same bytes on all 10 rows of the three cases (lead's ruling 2026-11-19 14:28).
+    - The per-file flag (`793bbce`, the user's decision of 2026-11-20) moves 64 rows of `910da92`'s run, in 20 cases:
+      45 solution rows by at most 1e-12, 18 `diagnostic.tec` (E, the cell residual at its rounding floor, up to 0.6
+      relative), 1 shape (`skewed_Plate` `residual-history.dat`, two iterations fewer: 3164 → 3162 rows). Cause: gfortran
+      contracts `Face_Inverse` into fused multiply-adds differently in the default and the mpi preset (29 and 32);
+      without contraction in that one file the `-m 1 -k` run equals the serial one on all 2033 rows (at `910da92` they
+      differed on 6: `skewed_Plate` 4, `skewed_3D` 2; upstream `639a0dd` shows the same difference). Against S7a 63 of
+      the 64 rows were already moved by `639a0dd`; the 64th, `chimera_fixed` `residual-history.dat` (5.0e-13), is the
+      one row the flag adds, and `skewed_Plate`'s `residual-history.dat` goes from max<=1e-12 to shape.
+    - `shape` (row counts, not format; `v-S6` gives S7a's bytes, so S7a's row count, on all 9): `conjugate_two_layer`
+      `residual-history.dat` one iteration more to converge (8127 → 8128 rows); `baum_atreya2007/full_N100_20blk` `back`,
+      `darcy`, `residual-history`, `surf`, `x05`, `x10`, `x20` one step more to pass 300 s (3420 → 3421 rows);
+      `skewed_Plate` `residual-history.dat` two iterations fewer (above).
+    - `baum_atreya2007/full_N100_20blk` (68 rows, the largest moves: T 1e-4 per snapshot, p_pg and chi tens of per cent at
+      the front, wall qw 2.4e-2): the 20-block run lands on the single-block `full_N100`. At S7a its probes differed from
+      `full_N100` by up to 9.7 K, 9.2e4 Pa, 0.16 s and one step (3420 vs 3421 rows); at S7b they are the same 3421 times,
+      T within 1.6e-12 K, p within 1.7e-9 Pa (lead's measurement, record `lead-baum-split/split_vs_unsplit.out`): the 19
+      connections now take the interior rule (D11: the same-material mean of the two k_s). The per-snapshot classes are
+      large because each snapshot is written one iteration later (CYCLE 2266 → 2267) at a sharp front.
+    - The other largest solution moves: `conservation` h 1.8e-6, `conservation_4blk` h 5.1e-6 (the cut cells' stencil
+      metric); `conjugate_receding_t2` wall qw 1.6e-5, interface flux 2.5e-8; `coupled307/run307_4blk` wall mdot_pg
+      1.5e-10, probes 4e-11. The `u_pg_2` columns of the pyrolysis decks move by O(1) relative at 1e-14 … 1e-20 absolute:
+      a velocity component that is zero but for round-off.
+    - `v-D11a` (D11 (a) in place of (b)): the stage's manifest byte for byte, so no deck reaches D11 (b)'s series branch.
+  - **Physics numbers that moved** (S7a → S7b; inside their tolerances; one tolerance changed, below):
+    `conservation` 2.117e-15 → 1.764e-15 (1.941e-15 at `910da92`, the per-file flag moves it); `conjugate_two_layer`
+    -4.4688e-9 → -4.4543e-9 K; `conjugate_receding` pairing 7.595e-17 → 0 (one flux per face), its red control now
+    "stale metrics move q_if by 8.523e-8 of q_scale (>= 8.5e-10)" (`stale_min` = the measured move / 100);
+    `conjugate_receding_t2` q_if 1.095e-13 → 0; `ablation_seb_closure` |beta - closed form| 9.326e-15 → 3.886e-15;
+    `ablation_coupled307` mirror 7.1e-11 → 6.8e-11; `ablation_receding_front` sweep 3.41e-13 → 3.39e-13, replica
+    3.80e-14 → 5.46e-14, t2 1.76e-13 → 1.77e-13; `ablation_smoothing` ratio 4.6213 → 4.6210, seam 7.841e-16 →
+    1.383e-12 m (T 1.128e-9 of its maximum). The seam check takes one of two values: 1e-16 … 1e-15 m when the
+    two-block and the one-block runs take the same Darcy sweep count at every step, 1.38e-12 m and T 1.13e-9 when
+    step 22's 1e-8 stop falls one sweep apart (902 vs 903). Last-digit draws of one cell's initial T flip it in 1 of 6 on
+    `910da92` and in 3 of 6 on `793bbce` (lead's measurement, record `lead-seam-floor/draws.out`), so the plan-10 bounds
+    1e-13 m / 1e-9 sat between the two values; `c679a33` sets 1e-10 m / 1e-7 again (plan 08 stage D's; the user's
+    decision of 2026-11-20): 72 and 88 times the one-sweep value, 560 and 1100 times below the old connection rows,
+    which still fail at 5.5e-8 m / 1.1e-4 (red control on `c679a33`).
+  - Record: `plan-bucket/records/2026-11-19-plan14-S7b/` (resolution scripts, audits, red controls R-corner, R-pair,
+    R-D10, the self-test hooks and the seam's old rows, the variants, the strict A/Bs, the serial vs one-rank FMA
+    analysis, the memory and timing measurements).
