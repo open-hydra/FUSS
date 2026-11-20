@@ -12,7 +12,7 @@ directory data/Materials/Composites/TACOT:
     char.dat        same layout, same T range as virgin.dat
     gas.dat         T p M h mu                                (nvar = 4), one zone per p-level
 
-Tecplot layout (what ORION's tec_read_points_multivars accepts, plan 06 section 3.2):
+Tecplot layout (what FUSS's Read_Points_Table accepts, plan 06 section 3.2):
 line 1 `TITLE = "FUSS pyrolysis table"`, line 2 `VARIABLES = "T" ...`, then per zone
 `ZONE T="<material>"` (gas: `ZONE T="<material> p=<p>"`), `I=<rows>, F=POINT`, and the rows,
 blank-separated reals; nothing after the last zone's last row.
