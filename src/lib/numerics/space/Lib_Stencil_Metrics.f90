@@ -18,7 +18,9 @@
 !> index directions with one cell (a 1-D case, the k direction of a 2-D mesh), where the field does not vary.
 !>
 !> Positions: the centre of a cell is the mean of its eight nodes; the first layer of ghost cells takes the position at
-!> which its value is right for a linear field: the centre of the source cell across a face between blocks (101);
+!> which its value is right for a linear field: the centre of the source cell across a face between blocks (101), moved
+!> by the rigid motion of the pair of faces across a periodic face (201, Lib_Periodic), as the centres of the source
+!> cells that the tangential differences of the face take;
 !> behind a wall (301-305) and a chimera face (102) 2 x_f - x1 (x_f the centre of the face: Ghost_Wall's 2 Tw - T1
 !> with the wall value at the face centre; ATLAS builds the receiver cell on linearly extrapolated ghost nodes, centred
 !> at 2 x_f - x1); behind a symmetry face (300) and a null face (0, adiabatic, the same ghost copy) the mirror image of
@@ -256,10 +258,12 @@ contains
   end subroutine Ghost_Position
 
 
-  !> Position of the first ghost cell of a face between blocks (101): the centre of the source cell.
+  !> Position of the first ghost cell of a face between blocks (101): the centre of the source cell; of a periodic face
+  !> (201) that centre moved by the rigid motion of the pair of faces (Lib_Periodic).
   subroutine Connection_Ghost_Position ( domain, xc, r )
     use FUSS_Advanced_Types_m
     use FUSS_Parameters_m, only: guide
+    use FUSS_Lib_Periodic, only: Periodic_Move
     implicit none
     type(FUSS_domain_type), intent(in) :: domain
     type(centres_t), intent(inout) :: xc(:)
@@ -273,6 +277,8 @@ contains
     Jg = domain % bc(r) % j - guide(domain % bc(r) % f,2)
     Kg = domain % bc(r) % k - guide(domain % bc(r) % f,3)
     xc(b) % x(:,Ig,Jg,Kg) = xc(bs) % x(:,domain % bc(r) % is, domain % bc(r) % js, domain % bc(r) % ks)
+    if ( domain % bc(r) % per > 0 ) &
+      xc(b) % x(:,Ig,Jg,Kg) = Periodic_Move ( domain % per(domain % bc(r) % per), xc(b) % x(:,Ig,Jg,Kg) )
 
   end subroutine Connection_Ghost_Position
 
@@ -364,6 +370,7 @@ contains
     use FUSS_Lib_BC_Fluxes, only: Face_Tangential
     use FUSS_Global_m, only: ndir
     use FUSS_Parameters_m, only: guide
+    use FUSS_Lib_Periodic, only: Periodic_Move
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     type(centres_t), intent(in) :: xc(:)
@@ -386,10 +393,12 @@ contains
       case default ; tb = [1, 2]
     end select
 
-    ! Cells of the source block that hold Tg(3:6) (Fill_BC_Ghost_Connection), and their positions
+    ! Cells of the source block that hold Tg(3:6) (Fill_BC_Ghost_Connection), and their positions; of a periodic face
+    ! (201) moved by the rigid motion of the pair onto the side of face Fm, where the ghost cells are
     call Source_Neighbours ( domain % bc(r), sc )
     do q = 1, 4
       xg(:,q) = xc(bs) % x(:,sc(1,q),sc(2,q),sc(3,q))
+      if ( domain % bc(r) % per > 0 ) xg(:,q) = Periodic_Move ( domain % per(domain % bc(r) % per), xg(:,q) )
     enddo
 
     ! Face Jacobian: the cells in the order L, R of block b (the ghost metric is that of the ghost cell, bc%Mg(1))

@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   without IPO (`-DFUSS_ALLOW_IFX_NOIPO=ON` overrides).
 - Versioning control: ORION is required as 2.1 or a later 2.x, FiNeR is pinned at v2.3.0; a library off its
   requirement stops the configure (`-DFUSS_PIN_CHECK=WARNING` overrides). See `docs/development/versioning.md`.
+- Periodic faces, BC `201` (the record of a `101`, as ATLAS/BCB's `type = periodic` and AFUS write it): a block
+  connection whose cells of the other face are moved by the rigid motion of the pair of faces, fitted at set-up to
+  the records (no axis or angle in input), for both `diffusive-metric` values. Faces that are not images by a rigid
+  motion, or periodic one way only, stop the run. Tests `PeriodicSector` and `PeriodicSectorMPI`.
 
 ### Changed
 
