@@ -22,7 +22,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # FUSS: lib/ORION (ORION a978930), lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor}: seven submodules, none
+          # FUSS: lib/ORION (ORION a978930), lib/third_party/{FiNeR, PENF, FACE, FLAP, BeFoR64, StringiFor} and lib/MORPH: eight submodules, none
           # nested (the layout of the pins theme). CMake would try `git submodule update --init` itself when one is missing
           # (ensure_submodule_initialized), but the checkout does it once and with the cache of the runner.
           submodules: recursive
@@ -104,9 +104,9 @@ jobs:
       - name: Configure
         # FUSS: Mod_MPI.f90 is compiled with -fallow-argument-mismatch (src/lib/CMakeLists.txt:27-29, parallel theme c581f84) for
         # gfortran >= 10: it is what an `mpi` module without ignore-TKR interfaces (Intel MPI's) needs; with Open MPI's module
-        # it is harmless. The SetFortranFlags flag -fno-underscoring is on with gfortran, as in MOSE: this job passes only if
-        # Open MPI's Fortran library exports the lower-case names without a trailing underscore too (MOSE's own test-mpi job
-        # has the same flag and passes; with Intel MPI's library the link of FUSS fails, see ctest_alignment.md section 7).
+        # it is harmless. The SetFortranFlags flag -fno-underscoring is set only without MPI (plan 14 D6): this job links the
+        # underscored names (mpi_init_), which Intel MPI's libmpifort exports and Open MPI's Fortran library is expected to
+        # export too (S8 U4; MOSE keeps the flag with MPI).
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=TESTING \

@@ -195,7 +195,7 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
     needs it.
   - `energy-budget.txt` gains the swept-out columns (see [Pyrolysis](#output)).
 - **Refused at setup:**
-  - multigrid, or MPI (OpenMP only until plan 11);
+  - multigrid;
   - `law = translation` or `prescribed` with a 306 face, or `law = nodeshift` without one;
   - a receding block that owns a coupled face (103, 104, 307), several materials or a volumetric source;
   - an even `smoothing-width`;

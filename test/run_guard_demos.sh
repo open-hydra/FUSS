@@ -483,8 +483,7 @@ demo_pyro probe_unknown_var  1 "unknown probe variable \"q\"" "variables=T q"
 # Ablating-wall guards (plan 08 stage A: the bc.txt line, the env and B' tables, the setup rules, the restart
 # state, the solve), on test/pyrolysis/ablation/demo_base (kinematic 306, legacy material) and demo_base_pyro
 # (type 2, the toy B' table). abl_base_ok and abl_base_pyro_ok first prove that both bases run as committed, so
-# that every demo below stops for its own reason. The MPI refusal ("OpenMP-only until plan 11") needs -m 2 and
-# has no demo, as guard 8.
+# that every demo below stops for its own reason.
 # ---------------------------------------------------------------------------
 ABL_ENV_HDR="// t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge"
 demo_ok_on () {   # $1 = base, $2 = name: the base must run to completion (exit 0, no [ERROR])
