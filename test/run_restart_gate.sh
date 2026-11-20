@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_restart_gate.sh
-#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL]]]...
+#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]...
 #  DESCRIPTION: A restarted run must reproduce a continuous one across the
 #               restart point (plan 05 section 6).
 #
@@ -75,6 +75,13 @@
 #                                    (restarting with T_prev := T: rel|dT|
 #                                    2.7e-8, chi 1.2e-7; with eta_prev :=
 #                                    eta_st: 7.7e-8 and 3.4e-7).
+#                 pyrolysis/darcy/heated0d_type2 in vtk raw  the same case
+#                                    written and restarted through the binary
+#                                    VTK files (field.vtm, vtk/*.vts; plan 14
+#                                    S9b): the restart there finds chi_* and
+#                                    the four type-2 columns by name and
+#                                    refuses a file that does not carry them.
+#                                    Same fields, same budget as above.
 #                 pyrolysis/ablation/seb_closure  the ablating wall BC 306 (plan
 #                                    08): besides field.tec, each face's state
 #                                    in OUTPUT/bc306-state.dat -- the Newton
@@ -151,7 +158,7 @@ while test $# -gt 0; do
     -w | --work) WORK=$2; shift 2 ;;
     -m | --mpi)  NMPI=$2; shift 2 ;;
     -c | --case) ONLY+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL]]]..."; exit 1 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]..."; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -177,10 +184,12 @@ echo
 
 # $1 = case path relative to the repo root, $2 = iterations per half
 run_case () {
-  local case_rel=$1 half=$2 tol=${3:-1.0e-11}
+  local case_rel=$1 half=$2 tol=${3:-1.0e-11} fmt=${4:-}   # fmt: a sol-format value, empty = the case's own
   local src="$ROOT/$case_rel"
-  local name; name=$(echo "$case_rel" | tr '/' '_')
+  local name; name=$(echo "$case_rel${fmt:+ $fmt}" | tr '/ ' '__')
   local cont="$WORK/$name.cont" rst="$WORK/$name.rst"
+  local ff=field.tec; [ "${fmt%% *}" = vtk ] && ff=field.vtm
+  if [ -n "$fmt" ] && ! grep -q '^sol-format *=' "$src/input.ini"; then bad "$case_rel: no sol-format key to set to $fmt"; return; fi
 
   rm -rf "$cont" "$rst"
   for d in "$cont" "$rst"; do
@@ -196,9 +205,9 @@ run_case () {
   done
 
   set_iters () {  # $1 = dir, $2 = iterations, $3 = newrun
-    python3 - "$1/input.ini" "$2" "$3" <<'PY'
+    python3 - "$1/input.ini" "$2" "$3" "$fmt" <<'PY'
 import re, sys
-p, it, newrun = sys.argv[1], sys.argv[2], sys.argv[3]
+p, it, newrun, fmt = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 s = open(p).read()
 def setkey(s, key, val):
     pat = re.compile(r"^(%s\s*=).*$" % re.escape(key), re.M)
@@ -210,6 +219,8 @@ s = setkey(s, "iter-threshold", it)
 s = setkey(s, "res-threshold", "1e-30")
 s = setkey(s, "time-threshold", "1e30")
 s = setkey(s, "sol-overwrite", "true")
+if fmt:
+    s = setkey(s, "sol-format", fmt)
 if "iter-threshold" not in s:
     s = s.replace("[FUSS-Parameters]", "[FUSS-Parameters]\niter-threshold = " + it, 1)
 open(p, "w").write(s)
@@ -229,8 +240,8 @@ PY
     || { bad "$case_rel: restarted leg failed (see $rst/run2.log)"; return; }
 
   local out rc
-  out=$(python3 - "$cont/OUTPUT/field.tec" "$rst/OUTPUT/field.tec" "$tol" <<'PY'
-import re, sys
+  out=$(python3 - "$cont/OUTPUT/$ff" "$rst/OUTPUT/$ff" "$tol" <<'PY'
+import re, struct, sys
 
 def read_tec(path):
     # every zone (one per block), each variable's values concatenated block after block
@@ -255,9 +266,49 @@ def read_tec(path):
             sys.exit(2)
     return out, len(zones)
 
+def read_vtm(path):
+    # field.vtm lists one StructuredGrid file per block; each holds Points (x y z interleaved) and the cell arrays,
+    # raw appended (a byte-count header, then the values), as read_tec returns them
+    out, nz = {}, 0
+    for f in re.findall(r'file="([^"]+)"', open(path).read()):
+        b = open(path[:path.rfind("/") + 1] + f, "rb").read()
+        i = b.find(b'<AppendedData encoding="raw">')
+        head, base = b[:i].decode(), b.index(b"_", i) + 1
+        e = ">" if 'byte_order="BigEndian"' in head else "<"
+        hl, hc = (8, "Q") if 'header_type="UInt64"' in head else (4, "I")
+        ext = [int(x) for x in re.search(r'<Piece Extent="([^"]+)"', head).group(1).split()]
+        ni, nj, nk = ext[1] - ext[0] + 1, ext[3] - ext[2] + 1, ext[5] - ext[4] + 1
+        n_nodal, n_cell = ni * nj * nk, (ni - 1) * (nj - 1) * max(nk - 1, 1)
+        def arr(tag):
+            a = dict(re.findall(r'(\w+)="([^"]*)"', tag))
+            if a.get("type") != "Float64" or a.get("format") != "appended":
+                print("VTK-ARRAY %s %s: %s %s, expected Float64 appended" % (f, a.get("Name"), a.get("type"), a.get("format")))
+                sys.exit(2)
+            o = base + int(a["offset"])
+            n = struct.unpack(e + hc, b[o:o + hl])[0] // 8
+            return a["Name"], list(struct.unpack(e + "%dd" % n, b[o + hl:o + hl + 8 * n]))
+        pts = re.search(r"<Points>(.*?)</Points>", head, re.S).group(1)
+        _, v = arr(re.search(r"<DataArray[^>]*>", pts).group(0))
+        if len(v) != 3 * n_nodal:
+            print("ZONE-SIZE %s: %d point values for %d expected" % (f, len(v), 3 * n_nodal))
+            sys.exit(2)
+        for c, k in enumerate(("x", "y", "z")):
+            out.setdefault(k, []).extend(v[c::3])
+        for tag in re.findall(r"<DataArray[^>]*>", re.search(r"<CellData>(.*?)</CellData>", head, re.S).group(1)):
+            k, v = arr(tag)
+            if len(v) != n_cell:
+                print("ZONE-SIZE %s %s: %d values for %d expected" % (f, k, len(v), n_cell))
+                sys.exit(2)
+            out.setdefault(k, []).extend(v)
+        nz += 1
+    return out, nz
+
+def read_field(path):
+    return read_vtm(path) if path.endswith(".vtm") else read_tec(path)
+
 REL_TOL = float(sys.argv[3])   # 1e-11 unless the case passes its own (see the header): the ASCII round-trip floor is ~1e-15
 
-(a, nza), (b, nzb) = read_tec(sys.argv[1]), read_tec(sys.argv[2])
+(a, nza), (b, nzb) = read_field(sys.argv[1]), read_field(sys.argv[2])
 if nza != nzb or nza == 0:
     print("ZONE-COUNT %d vs %d" % (nza, nzb))
     sys.exit(2)
@@ -362,16 +413,16 @@ PY
     printf '        %s\n' "$out"
   fi
   if [ $rc -eq 0 ]; then
-    pass "$case_rel: restart reproduces the continuous run (within the ASCII floor)"
+    pass "$case_rel${fmt:+ ($fmt)}: restart reproduces the continuous run (within the ASCII floor)"
   else
-    bad "$case_rel: restarted run differs from the continuous run"
+    bad "$case_rel${fmt:+ ($fmt)}: restarted run differs from the continuous run"
   fi
 }
 
 if [ "${#ONLY[@]}" -gt 0 ]; then
   for spec in "${ONLY[@]}"; do
-    IFS=: read -r c_rel c_half c_tol <<< "$spec"
-    run_case "$c_rel" "${c_half:-200}" "${c_tol:-1.0e-11}"
+    IFS=: read -r c_rel c_half c_tol c_fmt <<< "$spec"
+    run_case "$c_rel" "${c_half:-200}" "${c_tol:-1.0e-11}" "${c_fmt:-}"
   done
 else
 run_case "test/steady-state/qvol_Plate"      200
@@ -390,6 +441,9 @@ run_case "test/pyrolysis/darcy/mass_balance_1d" 200
 # budget, 1e-10: one-digit perturbations of the restart file end 0.7e-11 ..
 # 1.9e-11 apart (header), a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
 run_case "test/pyrolysis/darcy/heated0d_type2"  200 1.0e-10
+# the same case through the binary VTK restart (plan 14 S9b): field.vtm must carry chi_* and the four type-2 columns
+# by name (a renamed chi_1 or T_prev is refused since S9b, accepted silently before)
+run_case "test/pyrolysis/darcy/heated0d_type2"  200 1.0e-10 "vtk raw"
 # quasi-steady type 2 with threshold kinetics (2026-10-13): the gas the stages
 # released beyond the prediction waits in (eta_st - eta_prev) p_pg, all three
 # restart columns; 800 steps per half (~136 s each, inside the 300 s case) cross many cell fronts
