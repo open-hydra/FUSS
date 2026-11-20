@@ -231,7 +231,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: mpi_is_root, is_local_block, mpi_reduce_sum_r8_array
-    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature, wall_newton_quiet
     use FUSS_Lib_Ghost, only: Fill_Ghost_Cell
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -261,6 +261,8 @@ contains
       kept_Tg(:,i)   = domain%bc(i)%Tg
       kept_matIDg(i) = domain%bc(i)%matIDg
     end do
+    ! The wall solves of the output (the fill's Ghost_Wall and the face loop below) are not counted (Lib_BC_Fluxes_Wall)
+    wall_newton_quiet = .true.
     !$omp parallel
     call Fill_Ghost_Cell ( domain )
     !$omp end parallel
@@ -312,6 +314,8 @@ contains
 
       enddo ! face
     enddo ! block
+
+    wall_newton_quiet = .false.
 
     ! The state of the run back, as it was before the fill above
     do b = 1, domain%nb

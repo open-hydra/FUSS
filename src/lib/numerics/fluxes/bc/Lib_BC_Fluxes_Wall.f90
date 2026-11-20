@@ -12,6 +12,10 @@ module FUSS_Lib_BC_Fluxes_Wall
   !> used, plan 14 D17); summed over the ranks and printed once at the end of the run (Wrap_Postprocess).
   !> A real: exact to 2**53, reduced by mpi_reduce_sum_r8 as it is.
   real(R8), public :: wall_newton_capped = 0d0
+  !> True while the solution output re-evaluates the walls (Extract_Properties_From_BC: its ghost fill and its own
+  !> Wall_Temperature calls): those solves are not the run's, so they are neither counted nor reported, and the count
+  !> does not depend on the output cadence. Set and reset in serial code only.
+  logical, public :: wall_newton_quiet = .false.
 
 contains
 
@@ -89,7 +93,7 @@ contains
     ! Not converged in the 50 steps: the last iterate is used, as upstream (plan 14 D17, user 2026-11-11;
     ! plan 10 D12's stop retired). Every such solve is counted; the first one of the rank prints one line
     ! (this routine runs in OpenMP threads: the count and the line are one critical section; no MPI here).
-    if ( .not. converged ) then
+    if ( .not. converged .and. .not. wall_newton_quiet ) then
       !$omp critical (wall_newton_cap)
       wall_newton_capped = wall_newton_capped + 1d0
       if ( wall_newton_capped == 1d0 ) &
