@@ -72,6 +72,7 @@ Every boundary cell face has a type code in `INPUT/bc.txt`. ATLAS writes the cod
 | 101 | Block connection | `face* = connection` |
 | 102 | Chimera (overset) interface | `face* = chimera` |
 | 103, 104 | Coupling with the hydra fluid solver | hydra only |
+| 201 | Periodic face (rotational or translational periodicity) | a section with `type = periodic`, `blocks`, `faces` |
 | 301 | Heat flux into the solid $q_w$, constant or time table | `q` or `q-time-file` |
 | 302 | Wall temperature $T_w$, constant or time table | `T` or `T-time-file` |
 | 303 | $q = h_\text{conv}(T_\text{ref} - T_w) + q_\text{rad}$ | `hconv`, `qrad`, `Tref` |

@@ -7,7 +7,7 @@ module FUSS_IO_BC
   public :: Print_BC_Summary
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
-  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating, ncoupled_abl
+  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating, ncoupled_abl, nperiodic
   logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
   character(len=64) :: bc_name = 'bc.txt'               ! the file being read, for the messages of its errors
   integer :: rec_other = 0, ti_other = 0                 ! the first record of that file with a code outside the documented
@@ -117,7 +117,7 @@ contains
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
       if ( ios == 0 ) call Note_Code ( n_proof + 2, ti )
       select case(ti)
-      case(101,301,302,303,304,305,306,307,103)
+      case(101,201,301,302,303,304,305,306,307,103)
         read( unitfile,*,iostat=ios )
       case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
@@ -190,6 +190,7 @@ contains
       ncoupled = 0
       nablating = 0
       ncoupled_abl = 0
+      nperiodic = 0
       has_tdep_bc = .false.
     endif
 
@@ -227,8 +228,14 @@ contains
 
       ! Second line is BC type-dependent
       select case( bc(i)%type )
-        case(101)
-          if (level == 1) nconnect = nconnect + 1
+        case(101, 201)
+          ! 201 (periodic) has the record of a 101, whose cell of the other face is the image of the ghost cell by the
+          ! rigid motion of the pair of faces (Setup_Periodic): from here on it is a 101 with per /= 0
+          if (bc(i)%type == 201) then
+            if (level == 1) nperiodic = nperiodic + 1
+          else
+            if (level == 1) nconnect = nconnect + 1
+          end if
           bc(i)%bs = IEMPTY ; bc(i)%is = IEMPTY ; bc(i)%js = IEMPTY ; bc(i)%ks = IEMPTY ; bc(i)%fs = IEMPTY
           bc(i)%d11 = IEMPTY ; bc(i)%d12 = IEMPTY ; bc(i)%d21 = IEMPTY ; bc(i)%d22 = IEMPTY
           call Next_Line ( unitfile, pline, ios, nline )
@@ -246,6 +253,20 @@ contains
           call Check_Range ( i, bc(i)%type, nline, 'partner cell index ks of block '//trim(str(.true.,bc(i)%bs)), &
                              bc(i)%ks, 1, dims(3,bc(i)%bs) )
           call Check_Range ( i, bc(i)%type, nline, 'partner face fs of block '//trim(str(.true.,bc(i)%bs)), bc(i)%fs, 1, 6 )
+          if (bc(i)%type == 201) then
+            ! The orientation of a periodic face: (d11, d12) and (d21, d22) are unit index steps along the face (one of
+            ! them 0 0 on a 2-D mesh), not parallel. BCB before the fix of its periodic BC rounded the products of the
+            ! bases of two faces turned by the angle of the sector, and wrote steps up to 6 on faces of cells longer
+            ! along one direction than along the other: the ghost nodes and the neighbours would be other cells
+            if ( .not. Unit_Orientation ( bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22 ) ) &
+              call BC_Value_Error ( i, bc(i)%type, nline, pline, 'the orientation d11 d12 d21 d22 of a periodic face is '// &
+                                    'not two unit index steps along the face (BC file of a BCB without the fix of the '// &
+                                    'periodic orientation: rebuild BCB and the BC file)' )
+            bc(i)%type = 101
+            bc(i)%per  = -1
+          else
+            bc(i)%per  = 0
+          end if
 
         case(300)
           if (level == 1) nsym = nsym + 1
@@ -516,6 +537,7 @@ contains
         write(*,'(A)') '     B'' table '//trim(Bprime_Describe(it))
       enddo
     endif
+    if (nperiodic > 0) write(*,'(A,T35,I0)') '   Periodic', nperiodic
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
     ! A steady run stays at time -1 (Wrap_Setup): each 301/302 time table gives one value for the whole run,
     ! its first (a periodic table: its value at -1 within the period; Series_Data_m). Plan 14 D16, user 2026-11-11
@@ -626,7 +648,7 @@ contains
 
     if ( rec_other > 0 ) return
     select case ( ti )
-    case ( 0, 101, 102, 103, 104, 200, 300, 301, 302, 303, 304, 305, 306, 307 )
+    case ( 0, 101, 102, 103, 104, 200, 201, 300, 301, 302, 303, 304, 305, 306, 307 )
     case default
       rec_other = n
       ti_other  = ti
@@ -645,7 +667,7 @@ contains
 
     hint = ''
     if ( rec_other > 0 .and. rec_other < n ) hint = '; record '//trim(str(.true.,rec_other))//' has code '// &
-      trim(str(.true.,ti_other))//', not one of 0, 101-104, 200, 300-307: FUSS reads it without a data line'
+      trim(str(.true.,ti_other))//', not one of 0, 101-104, 200, 201, 300-307: FUSS reads it without a data line'
 
   end function Code_Hint
 
@@ -664,6 +686,22 @@ contains
     call mpi_stop_all ( trim(head)//trim(why)//': "'//trim(line(1:min(len(line),200)))//'"' )
 
   end subroutine BC_Value_Error
+
+
+  !─────────────────────────────────────────────────────────────────────────────
+  ! Unit_Orientation: whether (d11, d12) and (d21, d22) are two unit index steps along a face, not parallel, the second
+  !   one also 0 0 (the k direction of a 2-D mesh).
+  pure logical function Unit_Orientation ( d11, d12, d21, d22 )
+    implicit none
+    integer, intent(in) :: d11, d12, d21, d22
+
+    Unit_Orientation = .false.
+    if ( abs(d11) + abs(d12) /= 1 ) return
+    if ( abs(d21) + abs(d22) > 1 ) return
+    if ( abs(d21) + abs(d22) == 1 .and. abs(d11*d21) + abs(d12*d22) /= 0 ) return
+    Unit_Orientation = .true.
+
+  end function Unit_Orientation
 
 
   !─────────────────────────────────────────────────────────────────────────────

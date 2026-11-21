@@ -286,6 +286,11 @@ contains
         write(msg,'(A,I0,A,I0,A)') 'Connection records ', i, ' and ', p, ' do not point at each other'
         call mpi_abort_all ( trim(msg) )
       end if
+      ! A periodic face (201) is periodic from both sides: its partner record is a 201 too
+      if ( ( domain % bc(i) % per /= 0 ) .neqv. ( domain % bc(p) % per /= 0 ) ) then
+        write(msg,'(A,I0,A,I0,A)') 'Connection records ', i, ' and ', p, ': one is periodic (201), the other is not (101)'
+        call mpi_abort_all ( trim(msg) )
+      end if
       domain % bc(i) % partner = p
       if ( mod(domain % bc(i) % f, 2) == 0 .and. mod(domain % bc(p) % f, 2) == 1 ) then
         domain % bc(i) % owner = .true.

@@ -124,6 +124,11 @@ module FUSS_Advanced_Types_m
     integer  :: partner = 0
     logical  :: owner = .false.
     real(R8) :: Fc = 0d0
+    ! Periodic face (201: a connection 101 between two faces that are images of each other by a rigid motion): the
+    ! index of its pair of faces in domain%per (Setup_Periodic), 0 for a block connection, -1 from the read of the BC
+    ! file until Setup_Periodic. Every value of the record is that of a 101: only the positions of the cells of the
+    ! other face are moved by the motion of the pair (the ghost nodes, the ghost centre and its neighbours)
+    integer  :: per = 0
     type(time_series_type) :: BCtime
     ! Ablating wall 306 (plan 08 section 2.1). Line 2 of bc.txt: lambda, T_inf
     ! and the two INPUT/ files (the B' table, registry index ibprime, 0 for
@@ -153,6 +158,16 @@ module FUSS_Advanced_Types_m
     ! and enthalpy fluxes of the face, written to interface-flux.txt
     real(R8) :: q_if = 0d0, qm_if = 0d0, qh_if = 0d0
   end type FUSS_bc_type
+
+  !> A pair of periodic faces (201): face f of block b takes as ghost cells the cells of face fs of block bs, moved by
+  !> the rigid motion x -> R x + t that takes face fs onto face f (and the cells inside face fs onto the ghost cells
+  !> of face f). Fitted by Setup_Periodic to the centres of the faces of the records and to the points half a cell
+  !> across them; misfit is the largest distance of a fitted point from the image of its partner [m]
+  type :: periodic_pair_type
+    integer  :: b = 0, f = 0, bs = 0, fs = 0
+    real(R8) :: R(3,3) = 0d0, t(3) = 0d0
+    real(R8) :: misfit = 0d0, hmin = 0d0
+  end type periodic_pair_type
   !! ------------------------------------------------------
   !! ------------------------------------------------------
 
@@ -169,6 +184,7 @@ module FUSS_Advanced_Types_m
     integer, dimension(:,:), allocatable             :: n_bf             ! Number of bc elements per faces per block
     type(FUSS_block_type), dimension(:), allocatable :: blk              ! Allocatable block type
     type(FUSS_bc_type),    dimension(:), allocatable :: bc               ! Allocatable bc object
+    type(periodic_pair_type), dimension(:), allocatable :: per           ! Pairs of periodic faces (201), Setup_Periodic
     ! MPI local BC indices (built by build_local_bc_index)
     integer                                          :: n_local_bc = 0
     integer, dimension(:), allocatable               :: local_bc_idx

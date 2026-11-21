@@ -115,6 +115,7 @@ is the heat flux **into the solid** (W/m²): positive when the solid is heated t
 | `101` | block connection | $T$ and $k\,\nabla T\cdot\hat{\mathbf n}$ continuous | `bs is js ks fs d11 d12 d21 d22` |
 | `102` | chimera | ghost cells from overlapping donor cells | `n1 n2`, then `n1+n2` lines `bD iD jD kD volume_fraction` |
 | `103`, `104` | coupling with the hydra fluid solver | $q_\text{in}$ set by hydra | as `101` / as `102` |
+| `201` | periodic face | as `101`, with the cells of the other face moved by the rigid motion $R\,\mathbf x + \mathbf t$ of the pair | as `101` |
 | `301` | heat flux | $q_\text{in} = q_w$ | $q_w$, or a table file |
 | `302` | temperature | $T_w$ prescribed | $T_w$, or a table file |
 | `303` | convection (+ $q_\text{rad}$) | $q_\text{in} = h_\text{conv}\,(T_\text{ref} - T_w) + q_\text{rad}$ | `hconv qrad Tref` |
