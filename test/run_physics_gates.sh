@@ -1213,6 +1213,11 @@ gate_periodic_motion () {
   KEYNUM="$k1 / $KEYNUM"
 }
 
+# B2: the inner wall receding (306, law = nodeshift) across the pair, two blocks and one block periodic with itself
+gate_periodic_receding () {
+  periodic_gate receding receding 1e-11 --nodes test/moving-mesh/periodic/receding test/moving-mesh/periodic/receding1
+}
+
 # ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
@@ -1221,7 +1226,7 @@ CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium co
        ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
        ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
        ablation_smoothing ablation_receding_front
-       periodic_motion)
+       periodic_motion periodic_receding)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

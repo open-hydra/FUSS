@@ -312,7 +312,8 @@ contains
 
     ! The shared nodes of every block interface must still coincide bitwise; after
     ! the exchange, so that a face shared with another rank's block is checked
-    ! against that block's moved nodes (plan 11 stage 4).
+    ! against that block's moved nodes (plan 11 stage 4). A periodic face (201)
+    ! shares no node: Check_Periodic_Faces above checks it by images.
     if ( nodeshift ) call Assert_Interface_Nodes ( domain )
 
     ! The ghost-cell metrics and then the face metrics of the diffusive fluxes are functions of the geometry that has just

@@ -35,6 +35,10 @@
 !> per-face rates would tear the mesh). The node moves along its grid line,
 !> its normal component -sdot dt. Assert_Interface_Nodes then checks after the
 !> move that the four nodes of every 101 face agree bitwise on both sides.
+!> A periodic pair (201) joins a node of one face and its image on the other
+!> into one surface node whose images move by the image of its displacement
+!> (Setup_Recession_Seams, Move_Seam_Node; plan 14 S9d): its faces are checked
+!> by images (Mod_Periodic_Checks), not here.
 !>
 !> SMOOTHING (plan 08 section 2.6, thesis Eq. 5.1). Before the displacement,
 !> the nodal rate is averaged along each surface grid line over
@@ -46,7 +50,8 @@
 !> previous one), and a shared node gets one value. Written as nu_k + mean(
 !> nu_j - nu_k), so a uniform rate is returned bit for bit.
 !> The surface-node map is built once, at setup, by exact coordinate equality
-!> of the block-boundary nodes (they come from one MESH/ file).
+!> of the block-boundary nodes (they come from one MESH/ file); then the
+!> periodic seams join the images, and the windows are built on the result.
 module FUSS_Mod_Recession
   use FUSS_Mod_MPI, only: fuss_abort, mpi_stop_all
   use iso_fortran_env, only: I4 => int32, R8 => real64
@@ -55,7 +60,7 @@ module FUSS_Mod_Recession
   implicit none
   private
   public :: Ablation_Update_Env, Setup_Ablation, Write_Ablation_Outputs
-  public :: Setup_Recession, Compute_Node_Recession, Assert_Interface_Nodes, Write_Interface_Flux
+  public :: Setup_Recession, Setup_Recession_Seams, Compute_Node_Recession, Assert_Interface_Nodes, Write_Interface_Flux
   public :: recede_dir, recede_side
 
   logical, save :: seb_file_started = .false.
@@ -70,6 +75,12 @@ module FUSS_Mod_Recession
     integer  :: ninc = 0, nface = 0
     integer, allocatable :: inc(:,:)      ! (4, ninc): b, i, j, k
     integer, allocatable :: face(:)       ! bc indices
+    ! periodic images (201, plan 14 S9d; Setup_Recession_Seams): ngrp groups of equal coordinates, group gr at
+    ! x = Q(:,:,gr) x_1 + c (Q(:,:,1) = I); grp, fgrp the group of each incarnation and face; rep the incarnation whose
+    ! line gives the direction (group 1); pslot its slot in seam_e (0: no images)
+    integer  :: ngrp = 1, rep = 1, pslot = 0
+    integer,  allocatable :: grp(:), fgrp(:)
+    real(R8), allocatable :: Q(:,:,:)
   end type surf_node_t
   type(surf_node_t), allocatable, save :: smap(:)
 
@@ -81,6 +92,14 @@ module FUSS_Mod_Recession
   !> other, nearest first; 0 = beyond the line end), h = (smoothing-width-1)/2
   integer, allocatable, save :: win(:,:,:)
   integer, save :: hwin = 0
+  !> the corner map of the 306 faces (the surface node of corner q of the o-th 306 face), from Setup_Recession to
+  !> Setup_Recession_Seams, which joins the periodic images and builds the windows on it
+  integer, allocatable, save :: fc_set(:,:)
+  !> surface nodes with periodic images (plan 14 S9d): their number, the segments of their slots by the block of the
+  !> representative (3 reals each, nb + 1 offsets) and the line direction of each this step (Allgather_Seam_Lines)
+  integer, save :: npcls = 0
+  integer,  allocatable, save :: pc_off(:)
+  real(R8), allocatable, save :: seam_e(:,:)
   !> TEST ONLY [FUSS-Ablation] coupled-env-file: the exchange values of the
   !> 307 faces of a standalone run (t p_w rhoeUeCH h_r q_rad), one table for
   !> every face (coupled_env), or one per face when the file holds `// face b i
@@ -640,8 +659,11 @@ contains
     write(*,'(A,I0,A,I0,A,ES12.4,A)') '   Receding blocks (nodeshift)   ', count( recede_dir > 0 ), &
       ', surface nodes ', size(smap), ', min-thickness ', min_thick, ' m'
 
-    ! the smoothing windows (pair 4 (o - 1) + q is corner q of the o-th 306 face)
-    call Setup_Smoothing ( reshape( pnode(1:nsf), [4, nsf/4] ) )
+    ! the corner map (pair 4 (o - 1) + q is corner q of the o-th 306 face): Setup_Recession_Seams builds the
+    ! smoothing windows on it, after Setup_Metrics, once the periodic seams have joined the images
+    if ( allocated(fc_set) ) deallocate( fc_set )
+    allocate( fc_set(4, nsf/4) )
+    fc_set = reshape( pnode(1:nsf), [4, nsf/4] )
 
   end subroutine Setup_Recession
 
@@ -670,6 +692,9 @@ contains
     ! every 306 face's rate, area and normal, from the rank of its block (plan 11 stage
     ! 4): the recession and the nodal rates below run over every face on every rank
     if ( mpi_size_ > 1 ) call Allgather_306_State ( domain )
+    ! the line direction of every surface node with periodic images, from the rank of its representative's block
+    ! (plan 14 S9d): every rank moves a node and its images by the same displacement
+    if ( mpi_size_ > 1 .and. npcls > 0 ) call Allgather_Seam_Lines ( domain )
 #endif
 
     ! the recession rates (TEST ONLY override) and the recession so far
@@ -709,6 +734,10 @@ contains
     do n = 1, size(smap)
       sdn = sdn_n(n)
       if ( sdn == 0.0d0 ) cycle               ! no motion: the nodes stay bitwise
+      if ( smap(n)%ngrp > 1 ) then             ! a node with periodic images (201, plan 14 S9d)
+        call Move_Seam_Node ( domain, n, sdn, dt )
+        cycle
+      endif
       nrm = 0.0d0
       do q = 1, smap(n)%nface
         associate ( bc => domain%bc(smap(n)%face(q)) )
@@ -1034,7 +1063,7 @@ contains
       endif
 #endif
       do i = 1, domain%nbound
-        if ( domain%bc(i)%type /= 101 .or. domain%bc(i)%b /= br ) cycle
+        if ( domain%bc(i)%type /= 101 .or. domain%bc(i)%per /= 0 .or. domain%bc(i)%b /= br ) cycle
         call face_nodes( domain%bc(i)%f, domain%bc(i)%i, domain%bc(i)%j, domain%bc(i)%k, nd )
         domain%blk(br)%node(nd(1,1),nd(2,1),nd(3,1))%c(1) = domain%blk(br)%node(nd(1,1),nd(2,1),nd(3,1))%c(1) + 1.0d-12
         write(*,'(A,I0,A,3(I0,A))') '   TEST ONLY perturb-interface-node: block ', br, ', node (', &
@@ -1045,6 +1074,7 @@ contains
 
     do i = 1, domain%nbound
       if ( domain%bc(i)%type /= 101 ) cycle
+      if ( domain%bc(i)%per /= 0 ) cycle      ! a periodic face (201): images, not shared nodes (Check_Periodic_Faces)
 #ifdef USE_MPI
       if ( mpi_size_ > 1 .and. .not. is_local_block( domain%bc(i)%b ) ) cycle   ! the block's own rank checks it
 #endif
@@ -1119,6 +1149,392 @@ contains
     close( u )
 
   end subroutine Write_Interface_Flux
+
+
+  !> Once at setup, law = nodeshift, after Setup_Metrics of the finest level (its pairs of periodic faces, domain%per),
+  !> on every rank and on the full mesh (deallocate_remote_computation_data keeps the nodes of every block): the
+  !> periodic seams of the receding surface (201, plan 14 S9d Part B), then the smoothing windows.
+  !>
+  !> A receding surface that a periodic pair cuts is one surface in the ring of copies that the pair stands for: a node
+  !> of face f and its image on face fs (x_f = R x_fs + t) are one surface node. Every 306 corner on face f of a periodic
+  !> record is paired with the corner of face fs whose image by the pair's motion lies within the pair's tolerance
+  !> (MISFIT_MAX half cells, Lib_Periodic), and the surface nodes so paired are joined. The groups of a joined node (its
+  !> nodes of equal coordinates, as Setup_Recession found them) keep the rotation Q that turns the vectors of the first
+  !> group into theirs (x_gr = Q x_1 + c; Q = R^T for the image on face fs of a node of face f). Compute_Node_Recession
+  !> (Move_Seam_Node) then sums the faces of every group into the normal (Q^T N), takes the line direction of the
+  !> representative incarnation (the first of group 1) on every rank, and moves the incarnations of group gr by Q d: the
+  !> two faces stay images and the pair keeps its set-up motion (Mod_Periodic_Checks). The smoothing lines run on across
+  !> the seam: the walk follows the faces of the joined node. Stops (every rank, from the same data):
+  !>  - (a') a 306 corner on a periodic face whose image on the other face is no 306 corner: the receding patch must be
+  !>    closed across the periodic seam, as across a block connection (rule (a));
+  !>  - (b') the line of an image incarnation differs in length from the representative's by more than the tolerance
+  !>    (absolute, MISFIT_MAX of the smallest half cell of the pairs: rule (b) is bitwise, (b') cannot be; lines that
+  !>    differ within it make the images drift by about |d| s dL / L^2 a step, which the per-step check of the pairs,
+  !>    Mod_Periodic_Checks, stops once it grows past the set-up bound);
+  !>  - a node that is its own periodic image (equal coordinates by two paths that turn vectors differently: a receding
+  !>    node on the axis of a rotational pair). Not built: an axisymmetric wedge takes symmetry faces (300). A defensive
+  !>    stop without a test (plan 14 S9d Part B, O-AXIS): a sector meshed to the axis (R0 = 0) stops earlier today, at
+  !>    Check_Folded_Cells (Setup_Metrics) when the axis nodes of a cell differ, and at MORPH's corner-Jacobian check of
+  !>    the first step when they coincide; only a non-degenerate block with the axis on an edge could reach it.
+  !> Without a periodic record this only builds the smoothing windows, from the corner map of Setup_Recession.
+  subroutine Setup_Recession_Seams ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_mesh_motion
+    use FUSS_Lib_Periodic,   only: Periodic_Move, MISFIT_MAX
+    use FUSS_Mod_MPI,        only: mpi_is_root
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer  :: i, g, q, p, a, c, k, n, r, s, b, ne, nn, nset, nchg, pmin, gi, ni, nf
+    integer  :: nd(3,4), ns(3,4)
+    integer, allocatable :: ea(:), ec(:), eg(:), root(:), newid(:), nslot(:)
+    logical, allocatable :: has(:)
+    real(R8), allocatable :: cQ(:,:,:)
+    real(R8) :: xa(3,4), xb(3,4), d, dmin, tol, tolg, L1, L2, I3(3,3)
+    type(surf_node_t), allocatable :: jm(:)
+
+    if ( trim(obj_mesh_motion%law) /= 'nodeshift' ) return
+    npcls = 0
+    if ( .not. any( domain%bc(:)%per > 0 ) ) then
+      call Setup_Smoothing ( fc_set )
+      return
+    endif
+    nn  = size(smap)
+    ! rule (b') (step 5): an absolute tolerance on the line lengths, that of the tightest pair (rule (b) is bitwise, (b')
+    ! cannot be: the image's line is rotated); a step 1 edge takes its own pair's (tolg)
+    tol = MISFIT_MAX * minval( domain%per(:)%hmin )
+    I3  = 0.0d0
+    I3(1,1) = 1.0d0 ; I3(2,2) = 1.0d0 ; I3(3,3) = 1.0d0
+
+    ! 1. the seam edges (a, c, g): a surface node a at a corner of face f of a periodic record of pair g, and the surface
+    !    node c at the corner of face fs that the pair's motion takes there, x_a = R_g x_c + t_g
+    allocate( ea(4*domain%nbound), ec(4*domain%nbound), eg(4*domain%nbound) )
+    ne = 0
+    do i = 1, domain%nbound
+      g = domain%bc(i)%per
+      if ( g <= 0 ) cycle
+      call face_nodes ( domain%bc(i)%f,  domain%bc(i)%i,  domain%bc(i)%j,  domain%bc(i)%k,  nd )
+      call face_nodes ( domain%bc(i)%fs, domain%bc(i)%is, domain%bc(i)%js, domain%bc(i)%ks, ns )
+      do q = 1, 4
+        xa(:,q) = domain%blk(domain%bc(i)%b )%node(nd(1,q),nd(2,q),nd(3,q))%c
+        xb(:,q) = domain%blk(domain%bc(i)%bs)%node(ns(1,q),ns(2,q),ns(3,q))%c
+      enddo
+      tolg = MISFIT_MAX * domain%per(g)%hmin                   ! the set-up tolerance of this record's pair
+      do q = 1, 4
+        a = Surface_Node_At ( xa(:,q) )
+        if ( a == 0 ) cycle                                    ! not a node of the receding surface
+        dmin = huge(1.0d0) ; pmin = 1
+        do p = 1, 4
+          d = norm2( xa(:,q) - Periodic_Move( domain%per(g), xb(:,p) ) )
+          if ( d < dmin ) then
+            dmin = d ; pmin = p
+          endif
+        enddo
+        if ( dmin > tolg ) then                                ! the pair, not the 306 patch
+          write(*,'(A,I0,A,3ES14.6,A)') ' [ERROR] law = nodeshift: bc.txt record ', i, ': the receding surface node (', &
+            xa(:,q), ') lies on a periodic face (201)'
+          write(*,'(A,ES10.3,A,ES10.3,A)') '         and no corner of the other face of its record has its image there '// &
+            '(nearest ', dmin, ' m, tolerance ', tolg, ' m = MISFIT_MAX of the pair''s half cell): the corner nodes of '// &
+            'the two faces are not images, although their face centres were at set-up (Setup_Periodic).'
+          call mpi_stop_all ( 'ablating wall set-up error (see above)' )
+        endif
+        c = Surface_Node_At ( xb(:,pmin) )
+        if ( c == 0 ) then
+          write(*,'(A,I0,A,3ES14.6,A)') ' [ERROR] law = nodeshift: bc.txt record ', i, ': the receding surface node (', &
+            xa(:,q), ') lies on a periodic face (201)'
+          write(*,'(A,ES10.3,A,ES10.3,A)') '         and its image on the other face of the pair (', dmin, &
+            ' m away, tolerance ', tolg, ' m) is no node of a 306 face: the 306 patch '// &
+            'must be closed across periodic faces, as across 101 interfaces (plan 08 section 2.3 (a)).'
+          call mpi_stop_all ( 'ablating wall set-up error (see above)' )
+        endif
+        ne = ne + 1 ; ea(ne) = a ; ec(ne) = c ; eg(ne) = g
+      enddo
+    enddo
+
+    ! 2. the joined nodes: every surface node takes the smallest surface node joined to it (its root)
+    allocate( root(nn) )
+    root = [( n, n = 1, nn )]
+    nchg = 1
+    do while ( nchg > 0 )
+      nchg = 0
+      do k = 1, ne
+        s = min( root(ea(k)), root(ec(k)) )
+        if ( root(ea(k)) /= s ) then
+          root(ea(k)) = s ; nchg = nchg + 1
+        endif
+        if ( root(ec(k)) /= s ) then
+          root(ec(k)) = s ; nchg = nchg + 1
+        endif
+      enddo
+    enddo
+
+    ! 3. the rotation of every surface node relative to its root: I at the root, Q_c = R_g^T Q_a along an edge; every
+    !    edge must agree with it (else the node is its own image)
+    allocate( cQ(3,3,nn), has(nn) )
+    has = .false.
+    do n = 1, nn
+      if ( root(n) == n ) then
+        cQ(:,:,n) = I3 ; has(n) = .true.
+      endif
+    enddo
+    nchg = 1
+    do while ( nchg > 0 )
+      nchg = 0
+      do k = 1, ne
+        a = ea(k) ; c = ec(k)
+        if ( has(a) .and. .not. has(c) ) then
+          cQ(:,:,c) = matmul( transpose( domain%per(eg(k))%R ), cQ(:,:,a) ) ; has(c) = .true. ; nchg = nchg + 1
+        elseif ( has(c) .and. .not. has(a) ) then
+          cQ(:,:,a) = matmul( domain%per(eg(k))%R, cQ(:,:,c) ) ; has(a) = .true. ; nchg = nchg + 1
+        endif
+      enddo
+    enddo
+    do k = 1, ne
+      if ( norm2( matmul( transpose( domain%per(eg(k))%R ), cQ(:,:,ea(k)) ) - cQ(:,:,ec(k)) ) > 2.0d0 * MISFIT_MAX ) then
+        write(*,'(A,3ES14.6,A)') ' [ERROR] law = nodeshift: the receding surface node (', smap(ea(k))%x, &
+          ') is its own periodic image (it lies on the axis of a periodic pair, 201).'
+        write(*,'(A)') '         Its displacement would have to be its own image: not built. An axisymmetric wedge takes '// &
+          'symmetry faces (300).'
+        call mpi_stop_all ( 'ablating wall set-up error (see above)' )
+      endif
+    enddo
+
+    ! 4. the joined map, one node per root in the order of the roots; group gr of a node = its gr-th surface node
+    allocate( newid(nn) )
+    nset = 0
+    do n = 1, nn
+      if ( root(n) == n ) then
+        nset = nset + 1 ; newid(n) = nset
+      endif
+    enddo
+    do n = 1, nn
+      newid(n) = newid(root(n))
+    enddo
+    allocate( jm(nset) )
+    jm(:)%ngrp = 0
+    do n = 1, nn
+      s = newid(n)
+      jm(s)%ngrp  = jm(s)%ngrp  + 1
+      jm(s)%ninc  = jm(s)%ninc  + smap(n)%ninc
+      jm(s)%nface = jm(s)%nface + smap(n)%nface
+    enddo
+    do s = 1, nset
+      allocate( jm(s)%inc(4,jm(s)%ninc), jm(s)%grp(jm(s)%ninc), jm(s)%face(jm(s)%nface), jm(s)%fgrp(jm(s)%nface), &
+                jm(s)%Q(3,3,jm(s)%ngrp) )
+      jm(s)%ngrp = 0 ; jm(s)%ninc = 0 ; jm(s)%nface = 0
+    enddo
+    do n = 1, nn                                     ! n ascending: the root of a set (its smallest node) comes first
+      s = newid(n)
+      if ( root(n) == n ) jm(s)%x = smap(n)%x
+      jm(s)%ngrp = jm(s)%ngrp + 1
+      gi = jm(s)%ngrp
+      jm(s)%Q(:,:,gi) = cQ(:,:,n)
+      ni = jm(s)%ninc ; nf = jm(s)%nface
+      jm(s)%inc(:,ni+1:ni+smap(n)%ninc) = smap(n)%inc(:,1:smap(n)%ninc)
+      jm(s)%grp(ni+1:ni+smap(n)%ninc)   = gi
+      jm(s)%face(nf+1:nf+smap(n)%nface) = smap(n)%face(1:smap(n)%nface)
+      jm(s)%fgrp(nf+1:nf+smap(n)%nface) = gi
+      jm(s)%ninc  = ni + smap(n)%ninc
+      jm(s)%nface = nf + smap(n)%nface
+    enddo
+
+    ! 5. rule (b'): the line of an image incarnation as long as the representative's within tol, absolute (rule (b)
+    !    compared the equal ones bitwise)
+    do s = 1, nset
+      if ( jm(s)%ngrp == 1 ) cycle
+      L1 = line_length( domain, jm(s)%inc(:,1) )
+      do r = 2, jm(s)%ninc
+        if ( jm(s)%grp(r) == 1 ) cycle
+        L2 = line_length( domain, jm(s)%inc(:,r) )
+        if ( abs( L2 - L1 ) > tol ) then
+          write(*,'(A,I0,A,I0,A,3ES14.6,A)') ' [ERROR] law = nodeshift: blocks ', jm(s)%inc(1,1), ' and ', &
+            jm(s)%inc(1,r), ' hold the receding node (', jm(s)%x, ') and its periodic image (201) on lines of '// &
+            'different length'
+          write(*,'(A,2ES24.16,A)') '         (', L1, L2, ' m): the two faces of the pair would stop being images '// &
+            '(plan 08 section 2.3 (b)).'
+          call mpi_stop_all ( 'ablating wall set-up error (see above)' )
+        endif
+      enddo
+    enddo
+
+    ! 6. the joined map in place, the corner map in its numbering, and the slots of the joined nodes with images, block
+    !    of the representative after block (the segments of Allgather_Seam_Lines)
+    call move_alloc( jm, smap )
+    do n = 1, size(fc_set,2)
+      do q = 1, 4
+        fc_set(q,n) = newid( fc_set(q,n) )
+      enddo
+    enddo
+    if ( allocated(pc_off) ) deallocate( pc_off )
+    if ( allocated(seam_e) ) deallocate( seam_e )
+    allocate( pc_off(domain%nb + 1), nslot(domain%nb) )
+    nslot = 0
+    do s = 1, size(smap)
+      if ( smap(s)%ngrp > 1 ) nslot( smap(s)%inc(1,1) ) = nslot( smap(s)%inc(1,1) ) + 1
+    enddo
+    pc_off(1) = 0
+    do b = 1, domain%nb
+      pc_off(b+1) = pc_off(b) + 3 * nslot(b)
+    enddo
+    npcls = pc_off(domain%nb + 1) / 3
+    nslot = 0
+    do s = 1, size(smap)
+      if ( smap(s)%ngrp == 1 ) cycle
+      b = smap(s)%inc(1,1)
+      nslot(b) = nslot(b) + 1
+      smap(s)%pslot = pc_off(b) / 3 + nslot(b)
+    enddo
+    allocate( seam_e(3, max(npcls, 1)) )
+    seam_e = 0.0d0
+    if ( mpi_is_root .and. npcls > 0 ) write(*,'(A,I0,A,I0,A)') '   Periodic seams (201)          ', npcls, &
+      ' surface nodes joined with their images, ', size(smap), ' surface nodes'
+
+    call Setup_Smoothing ( fc_set )
+
+  contains
+
+    !> The surface node at exactly x (smap is in lexicographic order of x, Setup_Recession), 0 = none
+    integer function Surface_Node_At ( x ) result ( m )
+      real(R8), intent(in) :: x(3)
+      integer :: lo, hi, mid
+      lo = 1 ; hi = size(smap) + 1
+      do while ( lo < hi )
+        mid = ( lo + hi ) / 2
+        if ( lex_lt( smap(mid)%x, x ) ) then
+          lo = mid + 1
+        else
+          hi = mid
+        endif
+      enddo
+      m = 0
+      if ( lo <= size(smap) ) then
+        if ( all( smap(lo)%x == x ) ) m = lo
+      endif
+    end function Surface_Node_At
+
+  end subroutine Setup_Recession_Seams
+
+
+  !> One step of a surface node with periodic images (Setup_Recession_Seams, plan 14 S9d), from Compute_Node_Recession:
+  !> the normal from the faces of every group turned into the frame of the first group (Q^T N), the line direction of the
+  !> representative incarnation (with more than one rank the copy of Allgather_Seam_Lines, from the rank of its block:
+  !> every rank moves the node and its images by the same displacement, as one rank does), and the displacement Q d of
+  !> the incarnations of group gr: a node and its image move by images. The consumed-block stop as for every node.
+  subroutine Move_Seam_Node ( domain, n, sdn, dt )
+    use FUSS_Advanced_Types_m
+    use FUSS_Lib_BC_Fluxes, only: Face_Index
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,       only: mpi_size_, is_local_block
+#endif
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer,  intent(in) :: n
+    real(R8), intent(in) :: sdn, dt
+    ! Local
+    integer  :: q, r, gq, dr, fi, fj, fk, inc(4)
+    real(R8) :: A, nrm(3), e(3), cosang, disp(3), dg(3), L
+
+    nrm = 0.0d0
+    do q = 1, smap(n)%nface
+      associate ( bc => domain%bc(smap(n)%face(q)) )
+        call Face_Index ( bc%f, dr, bc%i, bc%j, bc%k, fi, fj, fk )
+        A  = domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%A
+        gq = smap(n)%fgrp(q)
+        if ( gq > 1 ) then
+          nrm = nrm + A * matmul( transpose( smap(n)%Q(:,:,gq) ), domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%N ) &
+                    * real( 1 - 2 * mod(bc%f,2), R8 )
+        else
+          nrm = nrm + A * domain%blk(bc%b)%dir(dr)%f(fi,fj,fk)%N * real( 1 - 2 * mod(bc%f,2), R8 )
+        endif
+      end associate
+    enddo
+    nrm = nrm / norm2( nrm )
+#ifdef USE_MPI
+    if ( mpi_size_ > 1 ) then
+      e = seam_e(:,smap(n)%pslot)
+    else
+      e = Line_Direction ( domain, smap(n)%inc(:,smap(n)%rep) )
+    endif
+#else
+    e = Line_Direction ( domain, smap(n)%inc(:,smap(n)%rep) )
+#endif
+    cosang = abs( dot_product( nrm, e ) )
+    disp = ( sdn * dt / cosang ) * e
+    do r = 1, smap(n)%ninc
+      inc = smap(n)%inc(:,r)
+#ifdef USE_MPI
+      if ( mpi_size_ > 1 .and. .not. is_local_block(inc(1)) ) cycle   ! moved and checked by its own rank
+#endif
+      if ( smap(n)%grp(r) > 1 ) then
+        dg = matmul( smap(n)%Q(:,:,smap(n)%grp(r)), disp )
+      else
+        dg = disp
+      endif
+      domain%blk(inc(1))%node_disp(inc(2),inc(3),inc(4))%c = dg
+      L = line_length( domain, inc )
+      if ( L - norm2( dg ) <= min_thick ) then
+        write(*,'(A,I0,A,3(I0,A))') ' [ERROR] ablating block consumed: block ', inc(1), ', surface node (', &
+          inc(2), ',', inc(3), ',', inc(4), ')'
+        write(*,'(A,ES12.4,A,ES12.4,A)') '         the receding line would keep ', L - norm2( dg ), &
+          ' m, at or below min-thickness ', min_thick, ' m'
+        call fuss_abort ( 1 )
+      endif
+    enddo
+
+  end subroutine Move_Seam_Node
+
+
+  !> The unit direction of the receding line at the surface node inc = (b, i, j, k), from the node toward its
+  !> neighbour on the line (the expression of Compute_Node_Recession).
+  function Line_Direction ( domain, inc ) result ( e )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    integer,                intent(in) :: inc(4)
+    real(R8) :: e(3)
+    ! Local
+    integer :: b, nb_idx(3)
+
+    b = inc(1)
+    nb_idx = inc(2:4)
+    if ( recede_side(b) == 2 ) then
+      nb_idx(recede_dir(b)) = nb_idx(recede_dir(b)) - 1
+    else
+      nb_idx(recede_dir(b)) = nb_idx(recede_dir(b)) + 1
+    endif
+    e = domain%blk(b)%node(nb_idx(1),nb_idx(2),nb_idx(3))%c - domain%blk(b)%node(inc(2),inc(3),inc(4))%c
+    e = e / norm2( e )
+
+  end function Line_Direction
+
+
+#ifdef USE_MPI
+  !> The line direction of every surface node with periodic images (plan 14 S9d) from the rank of its representative's
+  !> block, on every rank (seam_e): Move_Seam_Node moves the node and its images by the same displacement on every rank.
+  !> Exact copies; collective; once a step, after Allgather_306_State.
+  subroutine Allgather_Seam_Lines ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Mod_MPI, only: is_local_block, mpi_allgather_block_segments
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer  :: n, s
+    real(R8), allocatable :: v(:)
+
+    allocate( v(max(3*npcls, 1)) )
+    v = 0.0d0
+    do n = 1, size(smap)
+      s = smap(n)%pslot
+      if ( s == 0 ) cycle
+      if ( .not. is_local_block( smap(n)%inc(1,smap(n)%rep) ) ) cycle
+      v(3*s-2:3*s) = Line_Direction ( domain, smap(n)%inc(:,smap(n)%rep) )
+    enddo
+    call mpi_allgather_block_segments ( v, pc_off )
+    seam_e(:,1:npcls) = reshape( v(1:3*npcls), [3, npcls] )
+    deallocate( v )
+
+  end subroutine Allgather_Seam_Lines
+#endif
 
 
   ! ---------------------------------------------------------------------------

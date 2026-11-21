@@ -30,7 +30,7 @@ contains
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
-    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
+    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession, Setup_Recession_Seams
     use FUSS_Mod_Periodic_Checks,  only: Check_Periodic_Translation
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -168,6 +168,9 @@ contains
     ! moving mesh, Check_Mesh_Motion_Compatibility), fitted by Setup_Metrics; every rank, from the same data.
     ! law = translation: a velocity that the copies of the periodic domain cannot follow stops here (Mod_Periodic_Checks)
     call Check_Periodic_Translation ( simulation%domain(1) )
+    ! law = nodeshift: the periodic seams of the receding surface, then its smoothing windows (Mod_Recession; also
+    ! without a periodic face: the windows are built here since S9d)
+    call Setup_Recession_Seams ( simulation%domain(1) )
     
     ! Setup probes location, output files, and variables to be printed (before the
     ! nodes of remote blocks are freed: placing a probe searches every block)
@@ -935,20 +938,6 @@ contains
         endif
       enddo
       if ( ip == 0 ) return
-
-      ! S9d interim refusal R2 (Part A; removed by Part B commit B2)
-      ! law = nodeshift: not supported yet in this commit. The surface-node map joins block-boundary nodes by equal
-      ! coordinates (Setup_Recession), so the
-      ! two faces of a pair, one period apart, would recede apart, and Assert_Interface_Nodes (Mod_Recession), which
-      ! checks every 101 face for bitwise shared nodes, would stop the first step ("the mesh tore at a block interface").
-      if ( trim(obj_mesh_motion%law) == 'nodeshift' ) then
-        write(*,'(A)') ' [ERROR] mesh motion: law = nodeshift does not yet take a periodic face (201).'
-        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
-          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. The receding nodes are not joined across a pair'
-        write(*,'(A)') '         (one period apart), and its interface check would take the pair for a torn interface.'
-        has_error = .true.
-      endif
-      ! end of S9d interim refusal R2
 
       ! S9d interim refusal R3 (Part A; removed by Part B commit B3)
       ! gas-closure = type2: not supported yet in this commit. Connection_Terms (Mod_Darcy) takes the gas permeability of

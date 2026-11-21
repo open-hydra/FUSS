@@ -15,6 +15,7 @@
 !>    this rank's blocks against the pair's motion of the set-up, by Setup_Periodic's own measure (Record_Points: the
 !>    centres of the two faces and the points half a cell across them); it stops on GROWTH: beyond the pair's set-up
 !>    misfit plus the set-up tolerance (MISFIT_MAX half cells). The ranks stop together.
+!> The ablating wall (law = nodeshift) keeps the images through Setup_Recession_Seams (Mod_Recession).
 !> The bound 2 MISFIT_MAX of the set-up checks: an invariant direction or tensor seen through a rotation fitted within
 !> the pair's tolerance (an angle error of at most MISFIT_MAX half cell over a face of at least a half cell) moves by at
 !> most that fraction.

@@ -853,9 +853,6 @@ for r, raw in recs:
     else:
         out += raw
 open("INPUT/bc.txt", "w").write("\n".join(out))'
-# S9d interim refusal R2 (Part A; removed by Part B commit B2)
-demo_on "$BASE_ABL" periodic_nodeshift 1 "law = nodeshift does not yet take a periodic face (201)" "PY:$PERIODIC_J"
-# end of S9d interim refusal R2
 # S9d interim refusal R3 (Part A; removed by Part B commit B3)
 demo_on "$BASE_ABL_PYRO" periodic_darcy 1 "a periodic face (201) is not yet supported under gas-closure = type2" \
     "PY:$PERIODIC_J"
@@ -872,6 +869,13 @@ demo_on "$BASE_PER/translate"  periodic_across 1 "law = translation moves the me
     "vel=0.0 2.0e-3 0.0"
 demo_on "$BASE_PER/prescribed" periodic_wobble 1 "periodic faces (201) no longer images after the mesh motion" \
     "amp=0.0 2.0e-4 0.0"
+# B2: a receding wall across the seam of a block periodic with itself joins the seam (rc 0; the committed deck: a base
+# one cell across j cannot take a 201, Check_Thin_Blocks); a receding patch that the seam does not close stops at set-up
+# (Setup_Recession_Seams; base written by generate.py). No demo of the axis-node stop: an R0 = 0 sector is refused
+# before it (Check_Folded_Cells; MORPH's corner Jacobian), plan 14 S9d Part B O-AXIS
+demo_on "$BASE_PER/receding1" periodic_nodeshift_runs 0 "surface nodes joined with their images"
+python3 "$BASE_PER/generate.py" openseam sector1 "$WORK/base_periodic_openseam" > /dev/null
+demo_on "$WORK/base_periodic_openseam" periodic_openseam 1 "the 306 patch must be closed across periodic faces"
 
 # ---------------------------------------------------------------------------
 # A left-handed block (plan 14 S9d, D-S9d-6): MIRROR_Z mirrors N040 (z -> -z in INPUT/ic.tec, whose nodes FUSS reads, and
