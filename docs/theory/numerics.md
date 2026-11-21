@@ -306,6 +306,10 @@ message names the block and the cell.
   with $\mathbf{e}_{i,j,k}$ the three edges from that corner and $s$ the orientation of the block.
   Corners with an edge of zero length (on an axis) are skipped. In 2-D the corners decide for the
   whole cell; in 3-D they are a necessary condition.
+- **Left-handed block**: the interior metrics need a positive signed volume, so a block whose index
+  directions are left-handed ($\mathbf{e}_i\cdot(\mathbf{e}_j\times\mathbf{e}_k) < 0$ at every corner of
+  every cell) stops, and the message says so. Number the block right-handed (reverse one index
+  direction, or swap two), or mirror the mesh when the problem allows it.
 - **Block one cell across**, on every grid level:
     - the block across a block connection must have at least two cells across its face, because the
       two ghost layers of the connection are its first two cells;
