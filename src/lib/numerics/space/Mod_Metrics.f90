@@ -48,6 +48,14 @@ contains
         write(*,'(A)')            ' [ERROR] mesh geometry is invalid'
         write(*,'(A,A)')          '         ', trim(message)
         write(*,'(A,4(I0,A))')    '         at block ', b, ', cell (', ci, ',', cj, ',', ck, ')'
+        ! A whole block numbered left-handed: ours refuses it, upstream accepts it (plan 14 S9d, D-S9d-6, O-LEFT-HANDED)
+        if ( Left_Handed_Block ( domain%blk(b) ) ) then
+          write(*,'(A,I0,A)') '         Block ', b, ' is left-handed in (i, j, k): e_i . (e_j x e_k) < 0 at every corner of'
+          write(*,'(A)')      '         every cell, a block numbered the other way, not an inverted cell. FUSS refuses a'
+          write(*,'(A)')      '         left-handed block (its metrics need a positive volume): number the block right-handed'
+          write(*,'(A)')      '         (reverse one index direction, or swap two), or mirror the mesh (one coordinate to its'
+          write(*,'(A)')      '         negative) when the problem allows it.'
+        endif
         bad = .true.
         exit
       endif
@@ -396,6 +404,39 @@ contains
     end function Triple
 
   end subroutine Check_Folded_Cells
+
+  !> A left-handed block in (i, j, k): e_i . (e_j x e_k) < 0 at every corner of every cell, the edges from the corner as
+  !> Check_Folded_Cells takes them (a corner with an edge of zero length, on an axis, is skipped). Ours' interior metrics
+  !> (MORPH) need a positive volume and refuse such a block, which upstream accepts (plan 14 S9d, D-S9d-6, O-LEFT-HANDED);
+  !> Setup_Metrics asks only after MORPH refused the block, to name the cause.
+  function Left_Handed_Block ( blk ) result ( left )
+    use FUSS_Advanced_Types_m, only: FUSS_block_type
+    implicit none
+    type(FUSS_block_type), intent(in) :: blk
+    logical :: left
+    ! Local
+    integer  :: i, j, k, ca, cb, cc, ntest
+    real(R8) :: ei(3), ej(3), ek(3)
+
+    left = .false.
+    ntest = 0
+    associate ( node => blk % node )
+      do k = 1, blk % dim(3); do j = 1, blk % dim(2); do i = 1, blk % dim(1)
+        do cc = 0, 1; do cb = 0, 1; do ca = 0, 1
+          ei = node(i,      j-1+cb, k-1+cc)%c - node(i-1,    j-1+cb, k-1+cc)%c
+          ej = node(i-1+ca, j,      k-1+cc)%c - node(i-1+ca, j-1,    k-1+cc)%c
+          ek = node(i-1+ca, j-1+cb, k     )%c - node(i-1+ca, j-1+cb, k-1   )%c
+          if ( norm2 ( ei ) * norm2 ( ej ) * norm2 ( ek ) == 0d0 ) cycle
+          ntest = ntest + 1
+          if ( .not. ( ei(1) * ( ej(2)*ek(3) - ej(3)*ek(2) ) + ei(2) * ( ej(3)*ek(1) - ej(1)*ek(3) ) &
+                     + ei(3) * ( ej(1)*ek(2) - ej(2)*ek(1) ) < 0d0 ) ) return
+        enddo; enddo; enddo
+      enddo; enddo; enddo
+    end associate
+    ! every tested corner is negative; a block with no corner tested (every one skipped) is not called left-handed
+    left = ( ntest > 0 )
+
+  end function Left_Handed_Block
 
   !> Blocks too thin for the ghost cells and the face gradients of their boundary faces. Two defects, one stop each, on
   !> every multigrid level (Setup_Metrics runs on each; the domain is that of the level):

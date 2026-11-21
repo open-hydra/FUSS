@@ -866,6 +866,33 @@ demo_on "$BASE_ABL_PYRO" periodic_darcy 1 "a periodic face (201) is not yet supp
 # end of S9d interim refusal R3
 demo_pyro periodic_type1 1 "gas-closure = type1 does not take a periodic face (201)" "PY:$PERIODIC_J"
 
+# ---------------------------------------------------------------------------
+# A left-handed block (plan 14 S9d, D-S9d-6): MIRROR_Z mirrors N040 (z -> -z in INPUT/ic.tec, whose nodes FUSS reads, and
+# in MESH/mesh.tec), so that every cell has a negative signed volume. Ours' interior metrics (MORPH) refuse the block, as
+# before S9d (upstream accepts a consistently left-handed block: O-LEFT-HANDED); the message must now say that the
+# block is left-handed and how to fix it.
+# ---------------------------------------------------------------------------
+MIRROR_Z='import re
+# INPUT/ic.tec (the node coordinates FUSS reads, IO_Solution) and MESH/mesh.tec: z -> -z in every zone, by toggling the sign
+# of each z token (no float round trip, every other byte kept): a left-handed copy of a right-handed block
+def mirror(p):
+    out, c = [], [0, 0]
+    for l in open(p).read().split("\n"):
+        m = re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", l)
+        if m:
+            c[0], c[1] = int(m.group(1)) * int(m.group(2)) * int(m.group(3)), 0
+        elif c[0] and l.strip() and not l.strip()[0].isalpha():
+            def f(mo):
+                c[1] += 1
+                v = mo.group(0)
+                return (v[1:] if v[0] == "-" else "-" + v) if 2 * c[0] < c[1] <= 3 * c[0] else v
+            l = re.sub(r"\S+", f, l)
+        out.append(l)
+    open(p, "w").write("\n".join(out))
+mirror("INPUT/ic.tec")
+mirror("MESH/mesh.tec")'
+demo_on "$BASE" left_handed_block 1 "is left-handed in (i, j, k)" "PY:$MIRROR_Z"
+
 # f3401c5 (plan 14 S1): a temperature past the end of properties.dat stops the run (code 3 until
 # plan 14 S6) instead of reading past the table. The table is cut 2 K above the initial field's
 # maximum and the hot wall raised to 1900 K, so the first stage leaves the table next to that wall.
