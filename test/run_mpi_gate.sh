@@ -76,7 +76,9 @@ done
   "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2"
   "test/pyrolysis/ablation/coupled307/run307_4blk:4"
   "test/moving-mesh/periodic/translate:2" "test/moving-mesh/periodic/prescribed:2"
-  "test/moving-mesh/periodic/receding:2" "test/moving-mesh/periodic/receding1:2")
+  "test/moving-mesh/periodic/receding:2" "test/moving-mesh/periodic/receding1:2"
+  "test/pyrolysis/darcy/periodic_static:2" "test/pyrolysis/darcy/periodic_static1:2"
+  "test/pyrolysis/ablation/periodic_receding:2")
 
 export FUSS_MPIGATE_RESIDUAL=${FUSS_MPIGATE_RESIDUAL:-1}   # residual-history.dat compared by default (plan 14 S5)
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }

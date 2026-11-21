@@ -1218,6 +1218,28 @@ gate_periodic_receding () {
   periodic_gate receding receding 1e-11 --nodes test/moving-mesh/periodic/receding test/moving-mesh/periodic/receding1
 }
 
+# B3: gas-closure = type2, K transversely isotropic about the axis of the pair, on a static mesh and with the inner wall
+# receding (306 with the TACOT B' table, its env pattern periodic in theta, smoothing-width 5). The Darcy pressure is
+# iterated to [FUSS-Darcy] tol: the tolerance is the measured floor of plan 14 S9d Part B section 8 (M-B3-a), not 1e-11.
+# The ablation leg is the one whose rate differs across the seam (env_hi / env_lo): it is the RED of the join's rate and
+# windows (mutations m-B2-3, m-B2-4); 20 steps, its env tables scaled and its outer face adiabatic (generate.py
+# ENV_SCALE: with w5_2blk's own tables this perturbed mesh shears until it tangles at ~3.4 mm of recession; with the
+# outer face's -3.0e4 W/m^2 the outer layer froze below the tables). Every type-2 deck runs [FUSS-Darcy] tol = 1e-10,
+# where the iteration sits on its floor. TOL = 10 x the largest sector-vs-ring difference of twelve draws (the three
+# legs at tol 1e-10, 3e-11, 1e-11, 1e-12), rounded up to one digit: largest 9.942e-12 (T, one block, tol 3e-11); draws
+# (two blocks | one block | ablation) 1e-10 3.2e-13 | 6.7e-12 | 9.0e-12, 3e-11 1.5e-12 | 9.9e-12 | 2.5e-12, 1e-11 and
+# 1e-12 1.2e-12 | 9.5e-12 | 2.5e-12 (plan 14 S9d Part B M-B3-a)
+TOL_PERIODIC_DARCY=1e-10
+gate_periodic_darcy () {
+  local k1
+  periodic_gate darcy darcy "$TOL_PERIODIC_DARCY" "--vars T,p_pg" test/pyrolysis/darcy/periodic_static \
+    test/pyrolysis/darcy/periodic_static1 || return 1
+  k1=$KEYNUM
+  periodic_gate ablation ablation "$TOL_PERIODIC_DARCY" "--vars T,p_pg --nodes" test/pyrolysis/ablation/periodic_receding \
+    || { KEYNUM="$k1 / $KEYNUM"; return 1; }
+  KEYNUM="$k1 / $KEYNUM"
+}
+
 # ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
@@ -1226,7 +1248,7 @@ CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium co
        ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
        ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
        ablation_smoothing ablation_receding_front
-       periodic_motion periodic_receding)
+       periodic_motion periodic_receding periodic_darcy)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

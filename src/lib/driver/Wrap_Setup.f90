@@ -31,7 +31,7 @@ contains
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
     use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession, Setup_Recession_Seams
-    use FUSS_Mod_Periodic_Checks,  only: Check_Periodic_Translation
+    use FUSS_Mod_Periodic_Checks,  only: Check_Periodic_Translation, Check_Periodic_Permeability
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
@@ -116,8 +116,6 @@ contains
     setup_error = .false.
     if (mpi_is_root) then
       call Check_BC ( setup_error )
-      ! Periodic faces (201): the combinations not built yet stop here (plan 14 S9d Part A, interim refusals R1-R3)
-      if ( .not. setup_error ) call Check_Periodic_Compatibility ( simulation%domain(1), setup_error )
       if ( .not. setup_error .and. obj_pyrolysis%enabled ) &
         call Check_Pyrolysis_BC_Topology ( simulation%domain(1), setup_error )
       ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so they are checked apart
@@ -171,6 +169,8 @@ contains
     ! law = nodeshift: the periodic seams of the receding surface, then its smoothing windows (Mod_Recession; also
     ! without a periodic face: the windows are built here since S9d)
     call Setup_Recession_Seams ( simulation%domain(1) )
+    ! gas-closure = type2: the permeability tensors invariant under the rotation of every pair (Mod_Periodic_Checks)
+    call Check_Periodic_Permeability ( simulation%domain(1) )
     
     ! Setup probes location, output files, and variables to be printed (before the
     ! nodes of remote blocks are freed: placing a probe searches every block)
@@ -917,44 +917,6 @@ contains
       has_error = bad
 
     end subroutine Check_Pyrolysis_BC_Topology
-
-
-    !> Periodic faces (201, upstream 477e50b): the set-up refusals of the combinations whose periodic treatment is not
-    !> built yet (plan 14 S9d Part A, interim; root, after Check_BC). Each refusal is one block between two marker lines,
-    !> R1 to R3, which Part B removes with its guard demos (commits B1 to B3). A 201 is read as a 101 with per = -1
-    !> (IO_BC); Setup_Periodic numbers the pairs later, inside Setup_Metrics, so a 101 with per /= 0 is the test here.
-    subroutine Check_Periodic_Compatibility ( domain, has_error )
-      implicit none
-      type(FUSS_domain_type), intent(in) :: domain
-      logical, intent(out) :: has_error
-      integer :: i, ip
-
-      has_error = .false.
-      ip = 0
-      do i = 1, domain%nbound
-        if ( domain%bc(i)%type == 101 .and. domain%bc(i)%per /= 0 ) then
-          ip = i
-          exit
-        endif
-      enddo
-      if ( ip == 0 ) return
-
-      ! S9d interim refusal R3 (Part A; removed by Part B commit B3)
-      ! gas-closure = type2: not supported yet in this commit. Connection_Terms (Mod_Darcy) takes the gas permeability of
-      ! the cell across a pair unrotated
-      ! (right for a translational pair, or when K_v, K_c and B are invariant under the pair's rotation), and no
-      ! periodic Darcy case has been run.
-      if ( obj_darcy%enabled ) then
-        write(*,'(A)') ' [ERROR] Darcy: a periodic face (201) is not yet supported under gas-closure = type2.'
-        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
-          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. The gas permeability of the cell across the pair'
-        write(*,'(A)') '         is taken unrotated (wrong for a rotational pair unless K_v, K_c and B are invariant'
-        write(*,'(A)') '         under its rotation), and no periodic Darcy case has been run.'
-        has_error = .true.
-      endif
-      ! end of S9d interim refusal R3
-
-    end subroutine Check_Periodic_Compatibility
 
 
     !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,

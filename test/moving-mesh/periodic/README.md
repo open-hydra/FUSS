@@ -9,8 +9,13 @@ imports `make_sector.py` (it edits nothing there) and writes:
 | `translate/` | `translate` | `law = translation` along x, the axis of the pair |
 | `prescribed/` | `prescribed` | `law = prescribed`, a displacement along x that depends on x only |
 | `receding/`, `receding1/` | `receding` | `law = nodeshift`: the inner wall is a 306 receding at a uniform rate (`sdot-override`); two blocks, and one block periodic with itself |
-| `../../pyrolysis/darcy/periodic_static/`, `periodic_static1/` | `darcy` | `gas-closure = type2` on a static mesh, `K` transversely isotropic about x; two blocks, and one block periodic with itself |
-| `../../pyrolysis/ablation/periodic_receding/` | `ablation` | type 2 and `nodeshift`: the inner wall a 306 with the TACOT B' table, `env_hi.dat` on the first third of every sector and `env_lo.dat` on the rest (w5_2blk's env_hi with rhoeUeCH0 × 0.1 and × 0.05: the rate differs 2× across the seam, the recession stays ~11 % of the line budget), `smoothing-width = 5`; 20 steps |
+| `../../pyrolysis/darcy/periodic_static/`, `periodic_static1/` | `darcy` | `gas-closure = type2` on a static mesh, `K` transversely isotropic about x, `[FUSS-Darcy] tol = 1e-10`; two blocks, and one block periodic with itself |
+| `../../pyrolysis/ablation/periodic_receding/` | `ablation` | type 2 and `nodeshift`: the inner wall a 306 with the TACOT B' table, `env_hi.dat` on the first third of every sector and `env_lo.dat` on the rest (w5_2blk's env_hi with rhoeUeCH0 × 0.3 and × 0.15), the outer face adiabatic, `[FUSS-Darcy] tol = 1e-10`, `smoothing-width = 5`; 20 steps: rate and recession ~3× apart across the seam, ≤ 0.72 mm of recession (21 % of the ~3.4 mm at which this perturbed mesh tangles; `generate.py` ENV_SCALE) |
+
+The type-2 decks iterate the Darcy pressure to `[FUSS-Darcy] tol = 1e-10`: the comparison with the ring is only as sharp
+as the iteration. At the default 1e-8 the one-block deck, whose closed chain sweeps otherwise than its ring, differs
+from it by 2.9e-10 in T (the iteration tolerance); from 1e-10 down the iteration sits on its floor and every deck
+differs from its ring by round-off only (<= 1e-11; the table is in `generate.py`).
 
 Every motion here takes a node of one periodic face and its image to images: that is what a periodic domain can
 follow (`src/lib/numerics/space/Mod_Periodic_Checks.f90`). The ring of 6 sectors joined by block connections (101) is

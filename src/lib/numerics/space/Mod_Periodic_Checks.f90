@@ -16,6 +16,8 @@
 !>    centres of the two faces and the points half a cell across them); it stops on GROWTH: beyond the pair's set-up
 !>    misfit plus the set-up tolerance (MISFIT_MAX half cells). The ranks stop together.
 !> The ablating wall (law = nodeshift) keeps the images through Setup_Recession_Seams (Mod_Recession).
+!>  - Check_Periodic_Permeability (set-up, gas-closure = type2): the permeability tensors of every material are
+!>    invariant under the rotation of every pair, to 2 MISFIT_MAX.
 !> The bound 2 MISFIT_MAX of the set-up checks: an invariant direction or tensor seen through a rotation fitted within
 !> the pair's tolerance (an angle error of at most MISFIT_MAX half cell over a face of at least a half cell) moves by at
 !> most that fraction.
@@ -24,7 +26,7 @@ module FUSS_Mod_Periodic_Checks
 
   implicit none
   private
-  public :: Check_Periodic_Translation, Check_Periodic_Faces
+  public :: Check_Periodic_Translation, Check_Periodic_Faces, Check_Periodic_Permeability
 
 contains
 
@@ -116,5 +118,58 @@ contains
     call mpi_stop_if_any ( iw > 0, 'periodic faces (201) no longer images after the mesh motion (see above)', detail )
 
   end subroutine Check_Periodic_Faces
+
+
+  !> Set-up, gas-closure = type2, on every rank (the materials and the pairs are the same on every rank): the
+  !> permeability tensors K_v, K_c and, with [FUSS-Darcy] klinkenberg = true, B_v, B_c of every material, given in the
+  !> global axes (Load_Pyrolysis; axes-follow-grid is not built), are invariant under the rotation R of every periodic
+  !> pair: ||R K R^T - K||_F <= 2 MISFIT_MAX ||K||_F. The connection rows of the Darcy closure (Mod_Darcy,
+  !> Connection_Terms) average the face tensor of the two cells and take the neighbour's as it is, while across a
+  !> rotational pair the ghost cell is the image of the source cell, whose tensor is R K R^T. With every tensor invariant
+  !> the two are equal, and so is every Gamma = rho_g K(tau, p) / mu built from them (Lib_Pyrolysis, Perm_Tensor: the
+  !> four tensors with scalar weights). A tensor that is not describes no periodic domain in global axes (the copies
+  !> would carry R^m K R^-m): the run stops. A translational pair (R = I to the fit) passes by itself. Conduction needs
+  !> no such check: the conductivity is a scalar (Lib_Solid, co_Kappa; the pyrolysis k_s).
+  subroutine Check_Periodic_Permeability ( domain )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis, obj_darcy
+    use FUSS_Lib_Periodic,   only: MISFIT_MAX
+    use FUSS_Mod_MPI,        only: mpi_stop_all
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer  :: g, m, w
+    real(R8) :: K(3,3), dev
+    character(len=3)   :: kname
+    character(len=600) :: msg
+
+    if ( .not. obj_darcy%enabled ) return
+    if ( .not. allocated(domain%per) ) return
+    do g = 1, size(domain%per)
+      do m = 1, obj_pyrolysis%nmat
+        do w = 1, 4
+          if ( w > 2 .and. .not. obj_darcy%klinkenberg ) cycle
+          select case ( w )
+            case (1) ; K = obj_pyrolysis%mat(m)%Kp_v ; kname = 'K_v'
+            case (2) ; K = obj_pyrolysis%mat(m)%Kp_c ; kname = 'K_c'
+            case (3) ; K = obj_pyrolysis%mat(m)%Bp_v ; kname = 'B_v'
+            case default ; K = obj_pyrolysis%mat(m)%Bp_c ; kname = 'B_c'
+          end select
+          if ( norm2(K) == 0d0 ) cycle
+          dev = norm2 ( matmul ( matmul ( domain%per(g)%R, K ), transpose ( domain%per(g)%R ) ) - K ) / norm2(K)
+          if ( dev > 2d0 * MISFIT_MAX ) then
+            write(msg,'(A,4(I0,A),ES10.3,A)') '[ERROR] periodic faces (201) with gas-closure = type2: '//kname// &
+              ' of material '//trim(obj_pyrolysis%mat(m)%name)//' is not invariant under the rotation of the pair block ', &
+              domain%per(g)%b, ' face ', domain%per(g)%f, ' <- block ', domain%per(g)%bs, ' face ', domain%per(g)%fs, &
+              ' (||R K R^T - K|| / ||K|| = ', dev, ', tolerance 2e-3): the tensors are given in the global axes, and a '// &
+              'periodic domain needs the same tensor in every copy. Give a tensor invariant under the rotation '// &
+              '(isotropic, or transversely isotropic about the axis of the pair), or mesh the full ring'
+            call mpi_stop_all ( trim(msg) )
+          end if
+        end do
+      end do
+    end do
+
+  end subroutine Check_Periodic_Permeability
 
 end module FUSS_Mod_Periodic_Checks

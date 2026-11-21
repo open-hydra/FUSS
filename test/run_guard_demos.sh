@@ -822,10 +822,10 @@ demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_
     "partner block bs = 9 is outside the admissible range 1 to 2" "PY:$BC_CONN9"
 
 # ---------------------------------------------------------------------------
-# Periodic faces (201, upstream 477e50b): the interim refusals R1-R3 of plan 14 S9d Part A (Check_Periodic_Compatibility
-# in Wrap_Setup.f90; Part B removes each block of demos below with its block there, commits B1-B3), and guard 9's text
-# for a 201 under type 1 (permanent). PERIODIC_J makes faces 3 and 4 of block 1 a periodic pair, a translation along j
-# (every base below has a uniform j spacing, y independent of i and k).
+# Periodic faces (201, upstream 477e50b) with ours' features (plan 14 S9d): guard 9's refusal of a 201 under type 1
+# (Part A, permanent) and the demos of Part B (Mod_Periodic_Checks, Setup_Recession_Seams). PERIODIC_J makes faces 3 and
+# 4 of block 1 a periodic pair, a translation along j (every base it is used on has a uniform j spacing, y independent
+# of i and k); the rotational pairs are the decks of test/moving-mesh/periodic (generate.py).
 # ---------------------------------------------------------------------------
 PERIODIC_J='import re
 # block 1 faces 3 and 4 (j-min, j-max) -> a periodic pair (201): the cell (i, 1, k) of face 3 takes as ghosts the cells
@@ -853,10 +853,6 @@ for r, raw in recs:
     else:
         out += raw
 open("INPUT/bc.txt", "w").write("\n".join(out))'
-# S9d interim refusal R3 (Part A; removed by Part B commit B3)
-demo_on "$BASE_ABL_PYRO" periodic_darcy 1 "a periodic face (201) is not yet supported under gas-closure = type2" \
-    "PY:$PERIODIC_J"
-# end of S9d interim refusal R3
 demo_pyro periodic_type1 1 "gas-closure = type1 does not take a periodic face (201)" "PY:$PERIODIC_J"
 # Part B (plan 14 S9d). B1: a translational pair follows a translation and a prescribed motion (expected rc 0, the pair
 # printed at set-up); a translation across the axis of a rotational pair stops at set-up, a prescribed displacement
@@ -876,6 +872,12 @@ demo_on "$BASE_PER/prescribed" periodic_wobble 1 "periodic faces (201) no longer
 demo_on "$BASE_PER/receding1" periodic_nodeshift_runs 0 "surface nodes joined with their images"
 python3 "$BASE_PER/generate.py" openseam sector1 "$WORK/base_periodic_openseam" > /dev/null
 demo_on "$WORK/base_periodic_openseam" periodic_openseam 1 "the 306 patch must be closed across periodic faces"
+# B3: type 2 across a rotational pair with K invariant under its rotation (rc 0; the committed deck: a base one cell
+# across j cannot take a 201); a permeability not invariant under the rotation of the pair stops at set-up
+# (Check_Periodic_Permeability)
+demo_on "$ROOT/test/pyrolysis/darcy/periodic_static" periodic_darcy_runs 0 " Periodic faces (201): x(face f) = R x(face fs) + t"
+demo_on "$ROOT/test/pyrolysis/darcy/periodic_static" periodic_aniso 1 "is not invariant under the rotation of the pair" \
+    "PYRO:K_v 1.6e-11 0 0 0 1.6e-11 0 0 0 3.2e-11" "PYRO:K_c 2e-11 0 0 0 2e-11 0 0 0 4e-11"
 
 # ---------------------------------------------------------------------------
 # A left-handed block (plan 14 S9d, D-S9d-6): MIRROR_Z mirrors N040 (z -> -z in INPUT/ic.tec, whose nodes FUSS reads, and
