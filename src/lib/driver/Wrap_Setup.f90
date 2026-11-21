@@ -115,6 +115,8 @@ contains
     setup_error = .false.
     if (mpi_is_root) then
       call Check_BC ( setup_error )
+      ! Periodic faces (201): the combinations not built yet stop here (plan 14 S9d Part A, interim refusals R1-R3)
+      if ( .not. setup_error ) call Check_Periodic_Compatibility ( simulation%domain(1), setup_error )
       if ( .not. setup_error .and. obj_pyrolysis%enabled ) &
         call Check_Pyrolysis_BC_Topology ( simulation%domain(1), setup_error )
       ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so they are checked apart
@@ -858,9 +860,17 @@ contains
         select case ( domain%bc(i)%type )
           case (101)
             if ( obj_darcy%enabled ) cycle
-            write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
-              'cross block faces); use type2 for a multi-block mesh.'
-            write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is a block connection (101) on face ', domain%bc(i)%f
+            if ( domain%bc(i)%per /= 0 ) then
+              ! a periodic face (201) is read as a 101 with per /= 0 (IO_BC, upstream 477e50b)
+              write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 does not take a periodic face (201): FUSS reads it '// &
+                'as a block connection (101), and the outflow line integral does not cross block faces.'
+              write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is a periodic face (201) on face ', &
+                domain%bc(i)%f, ' of block ', domain%bc(i)%b
+            else
+              write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
+                'cross block faces); use type2 for a multi-block mesh.'
+              write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is a block connection (101) on face ', domain%bc(i)%f
+            endif
             bad = .true.
             exit
           case (102, 103, 104)
@@ -898,6 +908,73 @@ contains
       has_error = bad
 
     end subroutine Check_Pyrolysis_BC_Topology
+
+
+    !> Periodic faces (201, upstream 477e50b): the set-up refusals of the combinations whose periodic treatment is not
+    !> built yet (plan 14 S9d Part A, interim; root, after Check_BC). Each refusal is one block between two marker lines,
+    !> R1 to R3, which Part B removes with its guard demos (commits B1 to B3). A 201 is read as a 101 with per = -1
+    !> (IO_BC); Setup_Periodic numbers the pairs later, inside Setup_Metrics, so a 101 with per /= 0 is the test here.
+    subroutine Check_Periodic_Compatibility ( domain, has_error )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
+      integer :: i, ip
+
+      has_error = .false.
+      ip = 0
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type == 101 .and. domain%bc(i)%per /= 0 ) then
+          ip = i
+          exit
+        endif
+      enddo
+      if ( ip == 0 ) return
+
+      ! S9d interim refusal R1 (Part A; removed by Part B commit B1)
+      ! law = translation or prescribed: not supported yet in this commit. The rigid motion x -> R x + t of each pair is
+      ! fitted once (Setup_Periodic) and the per-step refresh of the ghost metrics (Update_Mesh) keeps it, which is right
+      ! for a motion that commutes with the pair (d = R d_s at the image nodes: any translation of a translational pair,
+      ! a translation along the axis of a rotational one); Part B allows those and refuses the others, which make the
+      ! problem itself non-periodic.
+      if ( trim(obj_mesh_motion%law) == 'translation' .or. trim(obj_mesh_motion%law) == 'prescribed' ) then
+        write(*,'(A)') ' [ERROR] mesh motion: law = '//trim(obj_mesh_motion%law)//' does not yet move a periodic face (201).'
+        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
+          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. Nothing checks yet that a step keeps the two faces'
+        write(*,'(A)') '         of a pair images of each other by the rigid motion fitted at set-up.'
+        has_error = .true.
+      endif
+      ! end of S9d interim refusal R1
+
+      ! S9d interim refusal R2 (Part A; removed by Part B commit B2)
+      ! law = nodeshift: not supported yet in this commit. The surface-node map joins block-boundary nodes by equal
+      ! coordinates (Setup_Recession), so the
+      ! two faces of a pair, one period apart, would recede apart, and Assert_Interface_Nodes (Mod_Recession), which
+      ! checks every 101 face for bitwise shared nodes, would stop the first step ("the mesh tore at a block interface").
+      if ( trim(obj_mesh_motion%law) == 'nodeshift' ) then
+        write(*,'(A)') ' [ERROR] mesh motion: law = nodeshift does not yet take a periodic face (201).'
+        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
+          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. The receding nodes are not joined across a pair'
+        write(*,'(A)') '         (one period apart), and its interface check would take the pair for a torn interface.'
+        has_error = .true.
+      endif
+      ! end of S9d interim refusal R2
+
+      ! S9d interim refusal R3 (Part A; removed by Part B commit B3)
+      ! gas-closure = type2: not supported yet in this commit. Connection_Terms (Mod_Darcy) takes the gas permeability of
+      ! the cell across a pair unrotated
+      ! (right for a translational pair, or when K_v, K_c and B are invariant under the pair's rotation), and no
+      ! periodic Darcy case has been run.
+      if ( obj_darcy%enabled ) then
+        write(*,'(A)') ' [ERROR] Darcy: a periodic face (201) is not yet supported under gas-closure = type2.'
+        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
+          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. The gas permeability of the cell across the pair'
+        write(*,'(A)') '         is taken unrotated (wrong for a rotational pair unless K_v, K_c and B are invariant'
+        write(*,'(A)') '         under its rotation), and no periodic Darcy case has been run.'
+        has_error = .true.
+      endif
+      ! end of S9d interim refusal R3
+
+    end subroutine Check_Periodic_Compatibility
 
 
     !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,

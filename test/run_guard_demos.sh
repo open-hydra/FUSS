@@ -296,7 +296,7 @@ blk, face, typ, line2 = spec.split(":", 3)
 blk, face, typ = int(blk), int(face), int(typ)
 lines = open(p).read().split("\n")
 out, i = [], 0
-WITH_LINE2 = {101, 103, 301, 302, 303, 304, 305, 306, 307}
+WITH_LINE2 = {101, 103, 201, 301, 302, 303, 304, 305, 306, 307}
 while i < len(lines):
     f = lines[i].split()
     if len(f) == 6 and all(t.lstrip("-").isdigit() for t in f):
@@ -332,7 +332,7 @@ face, typ, line2 = spec.split(":", 2)
 face, typ = int(face), int(typ)
 lines = open(p).read().split("\n")
 out, i = [], 0
-WITH_LINE2 = {101, 103, 301, 302, 303, 304, 305, 306, 307}
+WITH_LINE2 = {101, 103, 201, 301, 302, 303, 304, 305, 306, 307}
 while i < len(lines):
     f = lines[i].split()
     if len(f) == 6 and all(t.lstrip("-").isdigit() for t in f):
@@ -819,6 +819,52 @@ k = next(n for n, l in enumerate(L) if l.split()[-1:] == ["101"]); f = L[k + 1].
 L[k + 1] = "".join("%8s" % t for t in f); open(p, "w").write("\n".join(L))'
 demo_on "$ROOT/test/numerics-features/conjugate_two_layer" bc_connection_out_of_range 1 \
     "partner block bs = 9 is outside the admissible range 1 to 2" "PY:$BC_CONN9"
+
+# ---------------------------------------------------------------------------
+# Periodic faces (201, upstream 477e50b): the interim refusals R1-R3 of plan 14 S9d Part A (Check_Periodic_Compatibility
+# in Wrap_Setup.f90; Part B removes each block of demos below with its block there, commits B1-B3), and guard 9's text
+# for a 201 under type 1 (permanent). PERIODIC_J makes faces 3 and 4 of block 1 a periodic pair, a translation along j
+# (every base below has a uniform j spacing, y independent of i and k).
+# ---------------------------------------------------------------------------
+PERIODIC_J='import re
+# block 1 faces 3 and 4 (j-min, j-max) -> a periodic pair (201): the cell (i, 1, k) of face 3 takes as ghosts the cells
+# across face 4 of cell (i, nj, k), and the reverse; orientation 1 0 0 1 (i on i, k on k: the two faces are images by a
+# translation along j on every base this edit is used on: uniform j spacing, y independent of i and k)
+L2 = {101, 103, 201, 301, 302, 303, 304, 305, 306, 307}
+lines = open("INPUT/bc.txt").read().split("\n")
+recs, i = [], 0
+while i < len(lines):
+    f = lines[i].split()
+    if len(f) == 6 and all(t.lstrip("-").isdigit() for t in f):
+        r = [int(t) for t in f]
+        assert r[5] not in (102, 104), "chimera record: the edit does not handle it"
+        n = 2 if r[5] in L2 else 1
+        recs.append((r, lines[i:i + n])); i += n
+    else:
+        recs.append((None, [lines[i]])); i += 1
+nj = max(r[2] for r, _ in recs if r and r[0] == 1 and r[4] == 4)
+out = []
+for r, raw in recs:
+    if r and r[0] == 1 and r[4] in (3, 4):
+        js, fs = (nj, 4) if r[4] == 3 else (1, 3)
+        out += ["%8d%8d%8d%8d%8d%8d" % (r[0], r[1], r[2], r[3], r[4], 201),
+                "%8d%8d%8d%8d%8d%8d%8d%8d%8d" % (1, r[1], js, r[3], fs, 1, 0, 0, 1)]
+    else:
+        out += raw
+open("INPUT/bc.txt", "w").write("\n".join(out))'
+# S9d interim refusal R1 (Part A; removed by Part B commit B1)
+demo_on "$BASE" periodic_translation 1 "law = translation does not yet move a periodic face (201)" "PY:$PERIODIC_J"
+demo_on "$BASE" periodic_prescribed  1 "law = prescribed does not yet move a periodic face (201)" "law=prescribed" \
+    "PY:$PERIODIC_J"
+# end of S9d interim refusal R1
+# S9d interim refusal R2 (Part A; removed by Part B commit B2)
+demo_on "$BASE_ABL" periodic_nodeshift 1 "law = nodeshift does not yet take a periodic face (201)" "PY:$PERIODIC_J"
+# end of S9d interim refusal R2
+# S9d interim refusal R3 (Part A; removed by Part B commit B3)
+demo_on "$BASE_ABL_PYRO" periodic_darcy 1 "a periodic face (201) is not yet supported under gas-closure = type2" \
+    "PY:$PERIODIC_J"
+# end of S9d interim refusal R3
+demo_pyro periodic_type1 1 "gas-closure = type1 does not take a periodic face (201)" "PY:$PERIODIC_J"
 
 # f3401c5 (plan 14 S1): a temperature past the end of properties.dat stops the run (code 3 until
 # plan 14 S6) instead of reading past the table. The table is cut 2 K above the initial field's
