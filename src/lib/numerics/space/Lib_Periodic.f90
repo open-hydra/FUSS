@@ -37,7 +37,7 @@ module FUSS_Lib_Periodic
 
   implicit none
   private
-  public :: Setup_Periodic, Periodic_Move
+  public :: Setup_Periodic, Periodic_Move, Record_Points, MISFIT_MAX
 
   real(R8), parameter :: MISFIT_MAX = 1d-3    ! largest misfit of a fitted point, and largest distance of a point of the
                                               ! face from its image there and back, in units of the smallest half cell

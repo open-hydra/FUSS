@@ -242,6 +242,7 @@ contains
     use FUSS_Adapter_Morph,  only: Adapter_Update_Mesh
     use FUSS_Mod_Recession,  only: Compute_Node_Recession, Assert_Interface_Nodes
     use FUSS_Mod_GhostExchange, only: exchange_node_planes
+    use FUSS_Mod_Periodic_Checks, only: Check_Periodic_Faces
     use FUSS_Lib_Stencil_Metrics, only: Setup_Face_Metrics
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -303,6 +304,11 @@ contains
     ! A block connection between two ranks builds its ghost metric from the
     ! neighbour's node planes: bring them to this rank first (plan 11 stage 2).
     call exchange_node_planes ( domain )
+
+    ! Periodic faces (201): the two faces of every pair must still be images by the pair's motion of the set-up, the
+    ! motion the ghost metrics below are rebuilt with (plan 14 S9d, Mod_Periodic_Checks); after the exchange, which
+    ! brings the other face of a pair across ranks
+    call Check_Periodic_Faces ( domain )
 
     ! The shared nodes of every block interface must still coincide bitwise; after
     ! the exchange, so that a face shared with another rank's block is checked

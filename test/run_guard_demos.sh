@@ -39,6 +39,7 @@ BASE_ABL="$ROOT/test/pyrolysis/ablation/demo_base"
 BASE_ABL_PYRO="$ROOT/test/pyrolysis/ablation/demo_base_pyro"
 BASE_ABL_2BLK="$ROOT/test/pyrolysis/ablation/demo_base_2blk"
 BASE_R5="$ROOT/test/moving-mesh/conjugate_receding"
+BASE_PER="$ROOT/test/moving-mesh/periodic"       # plan 14 S9d Part B: the periodic decks (generate.py)
 WORK="${TMPDIR:-/tmp}/fuss-guard-demos.$$"
 NMPI=0
 
@@ -852,11 +853,6 @@ for r, raw in recs:
     else:
         out += raw
 open("INPUT/bc.txt", "w").write("\n".join(out))'
-# S9d interim refusal R1 (Part A; removed by Part B commit B1)
-demo_on "$BASE" periodic_translation 1 "law = translation does not yet move a periodic face (201)" "PY:$PERIODIC_J"
-demo_on "$BASE" periodic_prescribed  1 "law = prescribed does not yet move a periodic face (201)" "law=prescribed" \
-    "PY:$PERIODIC_J"
-# end of S9d interim refusal R1
 # S9d interim refusal R2 (Part A; removed by Part B commit B2)
 demo_on "$BASE_ABL" periodic_nodeshift 1 "law = nodeshift does not yet take a periodic face (201)" "PY:$PERIODIC_J"
 # end of S9d interim refusal R2
@@ -865,6 +861,17 @@ demo_on "$BASE_ABL_PYRO" periodic_darcy 1 "a periodic face (201) is not yet supp
     "PY:$PERIODIC_J"
 # end of S9d interim refusal R3
 demo_pyro periodic_type1 1 "gas-closure = type1 does not take a periodic face (201)" "PY:$PERIODIC_J"
+# Part B (plan 14 S9d). B1: a translational pair follows a translation and a prescribed motion (expected rc 0, the pair
+# printed at set-up); a translation across the axis of a rotational pair stops at set-up, a prescribed displacement
+# across it at the first step (Mod_Periodic_Checks)
+demo_on "$BASE" periodic_translation_runs 0 " Periodic faces (201): x(face f) = R x(face fs) + t" "PY:$PERIODIC_J"
+demo_on "$BASE" periodic_prescribed_runs  0 " Periodic faces (201): x(face f) = R x(face fs) + t" "law=prescribed" \
+    "SEC:FUSS-MeshMotion:amp=1.0e-4 0.0 0.0" "SEC:FUSS-MeshMotion:kx=60.0 0.0 0.0" "SEC:FUSS-MeshMotion:omega=0.5" \
+    "PY:$PERIODIC_J"
+demo_on "$BASE_PER/translate"  periodic_across 1 "law = translation moves the mesh across the axis of the pair" \
+    "vel=0.0 2.0e-3 0.0"
+demo_on "$BASE_PER/prescribed" periodic_wobble 1 "periodic faces (201) no longer images after the mesh motion" \
+    "amp=0.0 2.0e-4 0.0"
 
 # ---------------------------------------------------------------------------
 # A left-handed block (plan 14 S9d, D-S9d-6): MIRROR_Z mirrors N040 (z -> -z in INPUT/ic.tec, whose nodes FUSS reads, and

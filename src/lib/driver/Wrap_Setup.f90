@@ -31,6 +31,7 @@ contains
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
     use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession
+    use FUSS_Mod_Periodic_Checks,  only: Check_Periodic_Translation
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
@@ -162,6 +163,11 @@ contains
     do m = 1, obj_multigrid%MGL
       call Setup_Metrics ( simulation%domain(m) )
     end do
+
+    ! Periodic faces (201) with ours' features (plan 14 S9d Part B), on the pairs of the finest level (the only level of a
+    ! moving mesh, Check_Mesh_Motion_Compatibility), fitted by Setup_Metrics; every rank, from the same data.
+    ! law = translation: a velocity that the copies of the periodic domain cannot follow stops here (Mod_Periodic_Checks)
+    call Check_Periodic_Translation ( simulation%domain(1) )
     
     ! Setup probes location, output files, and variables to be printed (before the
     ! nodes of remote blocks are freed: placing a probe searches every block)
@@ -929,21 +935,6 @@ contains
         endif
       enddo
       if ( ip == 0 ) return
-
-      ! S9d interim refusal R1 (Part A; removed by Part B commit B1)
-      ! law = translation or prescribed: not supported yet in this commit. The rigid motion x -> R x + t of each pair is
-      ! fitted once (Setup_Periodic) and the per-step refresh of the ghost metrics (Update_Mesh) keeps it, which is right
-      ! for a motion that commutes with the pair (d = R d_s at the image nodes: any translation of a translational pair,
-      ! a translation along the axis of a rotational one); Part B allows those and refuses the others, which make the
-      ! problem itself non-periodic.
-      if ( trim(obj_mesh_motion%law) == 'translation' .or. trim(obj_mesh_motion%law) == 'prescribed' ) then
-        write(*,'(A)') ' [ERROR] mesh motion: law = '//trim(obj_mesh_motion%law)//' does not yet move a periodic face (201).'
-        write(*,'(A,I0,A,I0,A,I0,A)') '         bc.txt record ', ip, ' is a periodic face (201) on face ', &
-          domain%bc(ip)%f, ' of block ', domain%bc(ip)%b, '. Nothing checks yet that a step keeps the two faces'
-        write(*,'(A)') '         of a pair images of each other by the rigid motion fitted at set-up.'
-        has_error = .true.
-      endif
-      ! end of S9d interim refusal R1
 
       ! S9d interim refusal R2 (Part A; removed by Part B commit B2)
       ! law = nodeshift: not supported yet in this commit. The surface-node map joins block-boundary nodes by equal

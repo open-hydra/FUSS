@@ -1166,6 +1166,53 @@ gate_conjugate_receding_t2 () {
   return $rc
 }
 
+# plan 14 S9d Part B: periodic faces (201) with ours' features. One sector of upstream's PeriodicSector against the full
+# ring it stands for (test/moving-mesh/periodic/generate.py writes the ring and the symmetry control; the sector is the
+# committed deck, first checked against a fresh generation), compare.py on T (and the nodes on a moving mesh) over the
+# six sectors of the ring: periodic_gate NAME VARIANT TOL "COMPARE OPTIONS" SECTOR_DECK [SECTOR1_DECK]
+periodic_gate () {
+  local name=$1 v=$2 tol=$3 opts=$4 deck=$5 deck1=${6:-} g="$ROOT/test/moving-mesh/periodic" dest="$WORK/periodic_$1" rc k f
+  [ "$SELFTEST" = "1" ] && tol=0
+  for k in sector ${deck1:+sector1}; do
+    python3 "$g/generate.py" "$v" "$k" "$dest/fresh-$k" > /dev/null || { KEYNUM="$v $k: generate.py failed"; return 1; }
+  done
+  for f in INPUT MESH input.ini; do
+    diff -r "$ROOT/$deck/$f" "$dest/fresh-sector/$f" > /dev/null || { KEYNUM="$deck/$f differs from generate.py's"; return 1; }
+    [ -z "$deck1" ] || diff -r "$ROOT/$deck1/$f" "$dest/fresh-sector1/$f" > /dev/null \
+      || { KEYNUM="$deck1/$f differs from generate.py's"; return 1; }
+  done
+  stage "$ROOT/$deck" "$dest/sector"
+  [ -z "$deck1" ] || stage "$ROOT/$deck1" "$dest/sector1"
+  for k in ring sym ${deck1:+ring1}; do
+    python3 "$g/generate.py" "$v" "$k" "$dest/gen-$k" > /dev/null || { KEYNUM="$v $k: generate.py failed"; return 1; }
+    stage "$dest/gen-$k" "$dest/$k"
+  done
+  for k in sector ring sym ${deck1:+sector1 ring1}; do
+    solve "$dest/$k" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$v $k: solver exit $rc  (see $dest/$k/run.log)"; return 1; }
+  done
+  python3 "$g/compare.py" "$dest/ring" "$dest/sector" "$tol" $opts > "$dest/compare.log" 2>&1; rc=$?
+  KEYNUM="$v: $(sed -n 's/^[^:]*: \([^;]*\);.*/\1/p' "$dest/compare.log")"
+  [ "$rc" -eq 0 ] || return 1
+  if [ -n "$deck1" ]; then
+    python3 "$g/compare.py" "$dest/ring1" "$dest/sector1" "$tol" $opts > "$dest/compare1.log" 2>&1; rc=$?
+    KEYNUM="$KEYNUM; one block: $(sed -n 's/^[^:]*: \([^;]*\);.*/\1/p' "$dest/compare1.log")"
+    [ "$rc" -eq 0 ] || return 1
+  fi
+  python3 "$g/compare.py" "$dest/ring" "$dest/sym" 1e-6 --differ > "$dest/sym.log" 2>&1 \
+    || { KEYNUM="$KEYNUM; the symmetry control gives the ring (see $dest/sym.log)"; return 1; }
+  KEYNUM="$KEYNUM (<= $tol)"
+}
+
+# B1: a translation along the axis of the pair, and a prescribed displacement along it that depends on x only
+gate_periodic_motion () {
+  local k1 k2
+  periodic_gate translate translate 1e-11 --nodes test/moving-mesh/periodic/translate || return 1
+  k1=$KEYNUM
+  periodic_gate prescribed prescribed 1e-11 --nodes test/moving-mesh/periodic/prescribed || { KEYNUM="$k1 / $KEYNUM"; return 1; }
+  KEYNUM="$k1 / $KEYNUM"
+}
+
 # ---------------------------------------------------------------------------
 CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
@@ -1173,7 +1220,8 @@ CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium co
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
        ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
        ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
-       ablation_smoothing ablation_receding_front)
+       ablation_smoothing ablation_receding_front
+       periodic_motion)
 
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in

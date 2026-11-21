@@ -61,7 +61,10 @@ done
 # receding block on the last rank (the rates' allgather, the faces' state to root), the smoothed slab whose
 # two blocks share the receding surface (the nodal rates across ranks, the interface assertion), the coupled
 # ablating wall 307 cut in four with its faces on the last rank (hydra's contract: the exchange values exist
-# on the rank of the face's block only, as the TEST ONLY coupled-env-file now writes them)
+# on the rank of the face's block only, as the TEST ONLY coupled-env-file now writes them); plan 14 S9d Part B:
+# the periodic sectors (test/moving-mesh/periodic) on two ranks, blocks A and B on different ranks: the periodic pair
+# and the block connection between them across the ranks, the per-step check of the pair, the joined seam of a
+# receding wall (its line directions from the rank of the representative), the Darcy rows across the pair
 [ "${#CASES[@]}" -gt 0 ] || CASES=("test/transient/multimat_Plate:4" "test/numerics-features/conjugate_two_layer_fixed:2"
   "test/moving-mesh/freestream_4blk:4" "test/moving-mesh/conservation_4blk:4" "test/moving-mesh/receding_4blk:4"
   "test/moving-mesh/receding/N040:2" "test/numerics-features/chimera_fixed:2"
@@ -71,7 +74,8 @@ done
   "test/pyrolysis/darcy/mass_balance_1d_2x:2"
   "test/moving-mesh/conjugate_receding:2:verify" "test/moving-mesh/conjugate_receding_t2:2:verify"
   "test/pyrolysis/ablation/atc22_4blk:4" "test/pyrolysis/ablation/smoothing/w5_2blk:2"
-  "test/pyrolysis/ablation/coupled307/run307_4blk:4")
+  "test/pyrolysis/ablation/coupled307/run307_4blk:4"
+  "test/moving-mesh/periodic/translate:2" "test/moving-mesh/periodic/prescribed:2")
 
 export FUSS_MPIGATE_RESIDUAL=${FUSS_MPIGATE_RESIDUAL:-1}   # residual-history.dat compared by default (plan 14 S5)
 [ -n "${I_MPI_ROOT:-}" ] || { echo "needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
