@@ -93,7 +93,7 @@ p-gas             = 101325.0     ; type1 only: [Pa] pressure at which the gas ta
 hbar-guard-report = false        ; report the materials with rho_v = rho_c at setup
 ```
 
-Requirements enforced at setup (`error stop 1` with a message): `integration-variables = cons`, `time-accurate = true`, no IRS, one grid level, `law = static` or `law = nodeshift` (the receding mesh of an ablating wall BC 306: every step the pyrolysis state is remapped conservatively onto the moved cells, at most 64 reactions), no chimera (102, 104) or coupled (103) face, and no periodic face (201: for now under `type2`; never under `type1`, as any connection); under `type1` also one block without block connections (101: its outflow line integral does not cross block faces), an `outflow-direction` and a wall BC (301–307) on the outflow end of the block. Under `type2` blocks may be connected (101): the reaction state, the gas pressure and both conductivities cross the connection, and its gas mass and enthalpy flows are conservative (the two blocks evaluate one face flux).
+Requirements enforced at setup (`error stop 1` with a message): `integration-variables = cons`, `time-accurate = true`, no IRS, one grid level, `law = static` or `law = nodeshift` (the receding mesh of an ablating wall BC 306: every step the pyrolysis state is remapped conservatively onto the moved cells, at most 64 reactions), no chimera (102, 104) or coupled (103) face; under `type1` also one block without block connections (101) or periodic faces (201: its outflow line integral does not cross block faces), an `outflow-direction` and a wall BC (301–307) on the outflow end of the block. Under `type2` blocks may be connected (101): the reaction state, the gas pressure and both conductivities cross the connection, and its gas mass and enthalpy flows are conservative (the two blocks evaluate one face flux).
 
 `type1` is exact only for one-dimensional, quasi-steady gas flow with an impermeable back face. The gas crosses an interior face with the enthalpy at the mean temperature of the two cells and leaves the block at the wall temperature of the outflow face (second order in space; until 2026-10-15 every face took the upstream cell's temperature, first order: ATC1's 100-cell mesh was 7 K too hot at 1 mm, 1 s, now 1.9 K). `type2` solves the gas momentum (Darcy) and the gas storage instead; see [Type-2 gas closure](#type-2-gas-closure-darcy).
 
@@ -134,7 +134,7 @@ quasi-steady  = false         ; true: no gas storage (neither in the mass balanc
 All keys and defaults: [Parameter Registry](registry.md#fuss-darcy).
 
 - **Open faces.** By default the convective (303) and radiative-convective (305) faces are open, `p = p_w`; the value line of a 303 or 305 face takes an optional fourth number `p_w` [Pa] (`hconv, qrad, Tref, p_w`; without it `p-wall` applies). Any wall code of `{301, 302, 303, 304, 305, 306, 103}` can be listed in `open-bc-types`. An ablating wall (306, 307) is open whatever the list holds, at the `p_w` of its env table or exchange.
-- **Refused at setup:** `[FUSS-Darcy]` without `gas-closure = type2`; `p-gas` with `type2`; `pseudo-vnn` outside (0, 1]; an unknown `open-bc-types` token; `axes-follow-grid = true` (not built); a 102 or 104 (chimera) face; a periodic face (201: for now; the permeability across a pair is not rotated); no open face while gas is produced (kinetics on, or `pi-source > 0`); no open face with `quasi-steady = true`; a material without `K_v`/`K_c`; a `p_w ≤ 0` in `bc.txt`.
+- **Refused at setup:** `[FUSS-Darcy]` without `gas-closure = type2`; `p-gas` with `type2`; `pseudo-vnn` outside (0, 1]; an unknown `open-bc-types` token; `axes-follow-grid = true` (not built); a 102 or 104 (chimera) face; a periodic face (201) whose rotation $R$ does not leave a material's `K_v`, `K_c` (and `B_v`, `B_c` with `klinkenberg = true`) invariant, $\lVert R K R^T - K\rVert > 2\cdot 10^{-3}\lVert K\rVert$ (the tensors are in the global axes and the cell across the pair is the image of the source cell: the copies of a periodic domain would differ; an isotropic tensor, or one transversely isotropic about the axis of the pair, passes); no open face while gas is produced (kinetics on, or `pi-source > 0`); no open face with `quasi-steady = true`; a material without `K_v`/`K_c`; a `p_w ≤ 0` in `bc.txt`.
 - **Solver.** `tridiag` solves each grid line along the direction of a block's open faces exactly. A block without an
   open face whose 101 face ends the lines of a line-implicit block continues them.
   - The lines of a block, and the blocks across a connection, are coupled by line Jacobi with the conductance across the
@@ -215,7 +215,11 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
 - **Refused at setup:**
   - multigrid;
   - `law = translation` or `prescribed` with a 306 face, or `law = nodeshift` without one;
-  - for now, a periodic face (201) with any `law` but `static`;
+  - with a periodic face (201): a receding node on the axis of the pair (its own image), a 306 patch that a periodic
+    seam does not close (the image of a receding node on the other face is no 306 node), or a receding line and its
+    image whose lengths differ by more than $10^{-3}$ of the smallest half cell of the pairs. A receding wall across a
+    pair moves a node and its image by images: they are one surface
+    node, with the faces of both sides, and the smoothing runs on across the seam;
   - a receding block that owns a coupled face (103, 104, 307), several materials or a volumetric source;
   - an even `smoothing-width`;
   - a chemistry-on env row without `[FUSS-Pyrolysis]` or without a B′ table;
