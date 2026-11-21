@@ -500,3 +500,11 @@ every case here starts from its initial condition.
   - Record: `plan-bucket/records/2026-11-20-plan14-S9/` (resolution script, audits, the follow-on scripts, the red
     controls R-acc, F-S9-1, R-res, R-out and the output-cadence measurement, the Newton-cap count, the variants, the
     moved table and stop rules).
+- **2026-11-21, plan 14 S9d (upstream `4f5673c`, PR #9: periodic faces, BC 201, merged by `97f98c9`; Part B `ce948ab`,
+  `239cd60`, `c85c7bc`, `cb4702c`: periodic faces under ours' moving mesh and type-2 pyrolysis) — seven cases added; no
+  pre-existing result changed. 2066 rows.** The 2033 rows of the previous record (`462a72c0`) are byte-identical, row by
+  row (keys compared: 0 differ, 0 only in the old record), from a fresh preset build (`run_regression.sh -B -p 1`,
+  binary `be062db8`, gfortran 12.2.1 on pcprop4's E cores); the 33 added rows are `test/moving-mesh/periodic/translate`
+  and `prescribed` (3 each), `receding` and `receding1` (5 each), `test/pyrolysis/darcy/periodic_static` and
+  `periodic_static1` (5 each) and `test/pyrolysis/ablation/periodic_receding` (7). `-m 1 -k` (FUSS-mpi at one rank)
+  writes the same 2066 rows. Record: `plan-bucket/records/2026-11-20-plan14-S9d/`.
