@@ -72,3 +72,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - VTK wall output of multigrid runs (crash or empty file).
 - Build of the MPI code with gfortran ≥ 10.
 - The gfortran RELEASE build with IPO did not link (plain `ar` cannot index `-flto` objects).
+
+### Pyrolysis, ablating walls and mesh motion (branch `worktree-porous-pyrolysis`)
+
+In this branch only; upstream `main` up to `4f5673c` is merged in (2026-11-17 to 2026-11-21).
+
+- Pyrolysing porous materials, `[FUSS-Pyrolysis]`: `gas-closure = type1` (quasi-steady one-dimensional outflow of the
+  pyrolysis gas) or `type2` (Darcy pressure, `[FUSS-Darcy]`).
+- Ablating wall, BC `306`: surface energy balance with B′ tables, `[FUSS-Ablation]`; the wall recedes with
+  `[FUSS-Numerics] law = nodeshift`. Coupled ablating wall, BC `307`: the same balance, with the exchange values given
+  by hydra.
+- Mesh motion through MORPH (the submodule `lib/MORPH`): `[FUSS-Numerics] law` = `static`, `prescribed`,
+  `translation` or `nodeshift`; the solution is remapped onto the moved mesh (conservative, first order).
+- MPI for all of the above: pyrolysis and Darcy, the ablating walls, the receding mesh.
+- Periodic faces (`201`) with these features: a moving mesh whose motion takes a node of a periodic face and its image
+  to images (translation along the axis of the pair, prescribed motions of that kind, the receding wall of
+  `law = nodeshift`, whose nodes on a periodic seam are joined with their images), checked at set-up and every step;
+  type-2 pyrolysis across periodic faces when the permeability tensors are invariant under the pair's rotation.
+- The hook that a coupling driver (hydra) passes to the solve has an explicit interface: one argument,
+  `type(FUSS_domain_type), intent(inout) :: domain`.
+
+Where this branch behaves differently from upstream:
+
+- An unknown key in a FUSS section of `input.ini` stops the run:
+  `[ERROR] unknown option in input.ini: [<section>] <key>`.
+- A block whose cells are all left-handed stops the run, with a message that names the block (upstream accepts it).
+- Under pyrolysis, a face between two materials inside a block takes the mean of the two cells' conductivities; across
+  a block connection, the two half cells in series.
+- A steady run with a 301/302 time table warns at set-up that the table is held at its value at time −1. A 304/305
+  wall whose temperature does not converge in 50 Newton steps warns, the last iterate is used and the run goes on.
