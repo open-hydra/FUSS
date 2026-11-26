@@ -117,7 +117,7 @@ The solution file gains the columns `chi_1 … chi_nsub` (reaction advancements,
 
 ### Type-2 gas closure (Darcy)
 
-`gas-closure = type2` solves the gas pressure `p_pg` of the pyrolysis gas from the gas mass balance with Darcy's law, `∂(ε_g ρ_g)/∂t + ∇·(ρ_g u_g) = π`, `u_g = −(K/(μ ε_g))·∇p` (`ρ_g = p W/(ℜ T)`, `W` and `μ` from `gas.dat`, `K` the blended permeability tensor), once per material step: the conductance `ρ_g K/μ` at the start of the step, the storage coefficient `ε_g W/(ℜT)` extrapolated to its end (limited: never below half its start value) and the gas production to its middle. The pressure update itself is backward Euler, so a transient pressure field is first order in time (exact pressure-diffusion benchmark, `test/pyrolysis/exact/pressure_transient`); `T` and `χ` keep the second order of the 0-D gates. The stored gas mass `ε_g ρ_g` is carried as a state and corrected at the end of the step so that the gas mass balance closes to round-off; when the correction would take a cell's stored gas below half its start value (threshold kinetics), the reactions that ran supply the difference. The stored energy becomes `E = H_s(T, χ) + ε_g (ρ_g h_g − p)`, and the gas enthalpy is advected with the Darcy mass flux. The gas leaves through the **open** faces, where `p` is prescribed, with the enthalpy `h_g(p_w, T_w)` at the wall temperature `T_w` that the face's BC computes (the cell temperature on a face without one, 103); every other face is impermeable.
+`gas-closure = type2` solves the gas pressure `p_pg` of the pyrolysis gas from the gas mass balance with Darcy's law, `∂(ε_g ρ_g)/∂t + ∇·(ρ_g u_g) = π`, `u_g = −(K/(μ ε_g))·∇p` (`ρ_g = p W/(ℜ T)`, `W` and `μ` from `gas.dat`, `K` the blended permeability tensor), once per material step: the conductance `ρ_g K/μ` at the start of the step, the storage coefficient `ε_g W/(ℜT)` extrapolated to its end (an extrapolation below half the start value is replaced by the start value) and the gas production to its middle. The pressure update itself is backward Euler, so a transient pressure field is first order in time (exact pressure-diffusion benchmark, `test/pyrolysis/exact/pressure_transient`); `T` and `χ` keep the second order of the 0-D gates. The stored gas mass `ε_g ρ_g` is carried as a state and corrected at the end of the step so that the gas mass balance closes to round-off; when the correction would empty a cell's stored gas (threshold kinetics), the reactions that ran supply the difference, up to a tenth of the start value. The stored energy becomes `E = H_s(T, χ) + ε_g (ρ_g h_g − p)`, and the gas enthalpy is advected with the Darcy mass flux. The gas leaves through the **open** faces, where `p` is prescribed, with the enthalpy `h_g(p_w, T_w)` at the wall temperature `T_w` that the face's BC computes (the cell temperature on a face without one, 103); every other face is impermeable.
 
 ```ini
 [FUSS-Pyrolysis]
@@ -145,7 +145,7 @@ All keys and defaults: [Parameter Registry](registry.md#fuss-darcy).
     into blocks converges as the uncut one (to round-off). Lines that carry the same data (a one-dimensional case cut
     into identical lines, in one block or several) are therefore solved exactly in one sweep.
   - A two-dimensional block takes more sweeps (hundreds on a 40 × 20 slab).
-  - A block whose open faces lie in several directions, or none, falls back to `pseudo`. `max-iter` sweeps without convergence stop the run (`error stop 3`). `OUTPUT/<prefix>darcy.txt` records per step `iter time block sweeps resid dp_last`.
+  - A block whose open faces lie in several directions, or none, falls back to `pseudo`. `max-iter` sweeps without convergence stop the run (exit code 1). `OUTPUT/<prefix>darcy.txt` records per step `iter time block sweeps resid dp_last`.
 - **Quasi-steady.** With no stored gas, the difference between the gas the pressure solve expels (production predicted at the mid-step temperature) and the gas the RK stages release waits as a carry, `(eta_st − eta_prev)·p_pg` (restart columns), and joins the next step's source (never below zero): the gas mass is exact with a one-step lag.
 - **Output.** The solution file gains `p_pg`, the cell gas velocity `u_pg_1 u_pg_2 u_pg_3` [m/s] and the state of the scheme `eta_prev`, `eta_st`, `T_prev` (read back on restart with `p_pg`; a type-2 run restarted from a file without them, such as a type-1 solution, starts the gas at `p-init` and the equation of state with a NOTICE, and its first step has no extrapolation history); `mdot_pg` is the magnitude of the cell's Darcy mass flux `|ρ_g (K/μ)·∇p|` [kg m⁻² s⁻¹] and `u_pg` the interstitial velocity. `energy-budget.txt` gains an eighth column `M_g`, the stored gas mass. A probe may record `variables = T p_pg`.
 
@@ -161,7 +161,7 @@ values from hydra. For the `bc.txt` lines, the env table and the B′ table, see
 ```ini
 [FUSS-Ablation]
 seb-tol             = 1.0e-8   ; stop test of the surface energy balance
-seb-max-iter        = 50       ; reached -> error stop 3
+seb-max-iter        = 50       ; reached -> the run stops (exit code 1)
 bprime-out-of-range = clamp    ; clamp | abort
 ```
 

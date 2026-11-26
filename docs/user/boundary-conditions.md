@@ -195,7 +195,8 @@ clamped outside its range, evaluated once per step at the step's end time.
 sub-blocks of decreasing B′g, `T` monotonic within a sub-block (repeated `T` allowed). The header line `// kind:
 equilibrium | finite-rate | forced-equilibrium` records the provenance. A 4-D finite-rate table adds `rhoeueCM` as the
 first column (`// axes: rhoeueCM p Bprime-g T`). Queries outside the table are clamped and counted in `seb.txt`, or
-stop the run with `[FUSS-Ablation] bprime-out-of-range = abort`. The equilibrium TACOT table of the test cases and its
+stop the run with `[FUSS-Ablation] bprime-out-of-range = abort` (on `p`, B′g or `rhoeueCM`; a query outside the `T` range
+is always clamped). The equilibrium TACOT table of the test cases and its
 provenance: `test/pyrolysis/ablation/tables/`.
 
 **307 line 2**: the 103 connectivity record of the MOSE partner face, then `T_inf <bprime-file>`. hydra writes the
