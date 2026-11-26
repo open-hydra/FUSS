@@ -116,6 +116,8 @@ nav:
     - Spatial Discretization: theory/numerics.md
     - Time Integration: theory/time-integration.md
     - Material Properties: theory/thermo.md
+    - Pyrolysis: theory/pyrolysis.md
+    - Ablating Walls: theory/ablation.md
 
   - Verification & Validation:
     - vv/index.md

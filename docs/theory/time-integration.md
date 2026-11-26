@@ -100,6 +100,8 @@ $$
 | block connection, chimera | $2k_Pk_N/(k_P+k_N)$ |
 | wall, symmetry, coupling | the cell's own $k$ |
 
+Under pyrolysis this face pass is not made: the step takes $k_s/(\rho_s\,c_{p,s})$ of the cell (see [Time Step with Pyrolysis](#time-step-with-pyrolysis)).
+
 Where every face carries the cell's own $k$ the step is the plain cell formula. A block of one
 material with a constant $k$ column is not even visited, so such meshes cost nothing more. Elsewhere
 the face pass costs up to nine property lookups per cell and iteration (seven in 2-D). Taking the
@@ -149,6 +151,65 @@ multigrid). The default, 1e-10, is a fall of ten orders.
 - **Restart.** The first residual is stored with every solution (`FUSS_RES_REFERENCE`), so a restart
   ends where the uninterrupted run ends.
 - `residual-history.dat` and the log report the residual as it is, not divided by the first one.
+
+---
+
+## Time Step with Pyrolysis
+
+With `[FUSS-Pyrolysis]` the run is time-accurate, with `integration-variables = cons`, without IRS and on one grid level (the set-up refuses anything else). The Runge–Kutta stages advance the stored energy $E$ and the reaction advancements $\chi$ together; the type-2 gas closure adds a pressure solve before them. The model is that of [Pyrolysis](pyrolysis.md).
+
+### Order of operations
+
+One step from $t^n$ to $t^{n+1} = t^n + \Delta t$:
+
+1. **Time step.** $\Delta t$ is the global minimum of the cell steps (below).
+2. **Wall values.** The env tables of the ablating walls (306), and the exchange values of the coupled ones (307), are evaluated once, at $t^{n+1}$.
+3. **Start-of-step state.** $T^n$, $\chi^n$ and, under type 2, $p^n$ and the stored gas $G^n$ are saved.
+4. **Pressure (type 2).** The pressure equation is solved once for $p^{n+1}$, with coefficients from the start-of-step state and the production predicted at the mid-step temperature. The first step of a new run is run twice, the second time with the history the first pass supplies.
+5. **Stages** $s = 1 \dots n_\text{RK}$, at the stage times of the scheme:
+    1. ghost cells of $T$ and $\chi$;
+    2. conduction fluxes with $k_s$, then the boundary fluxes; an ablating wall solves its surface energy balance here;
+    3. **kinetics**: for every reaction, the closed-form increment $\delta\chi_r^{(s)} = \Phi(\chi_r^n;\ \kappa_r(T^{(s)}),\ \Delta t) - \chi_r^n$ from the start-of-step advancement over the full step, with $\kappa$ at the stage temperature;
+    4. **gas enthalpy**: type 1 integrates the stage production along the outflow lines and adds the enthalpy flow; type 2 adds the enthalpy flow of the Darcy mass flux of $p^{n+1}$;
+    5. **update**: $E$ and $\chi$ are advanced with the weights of the scheme, then $T$ is found by inverting $E$ at the new $\chi$, and the cached $\rho_s$, $c_{p,s}$, $k_s$ are refreshed.
+6. **Gas-mass closure (type 2).** The difference between the gas the solid released in the stages and the gas the pressure solve expelled goes into $G^{n+1}$, and $T$ is inverted again at constant $E$.
+
+**Kinetics in the stages.** Each stage applies its increment as a forward-Euler stage applies $\Delta t\,\mathcal L$, so with the coefficients of [Time Schemes](#time-schemes)
+
+$$
+\chi^{n+1} = \chi^n + \sum_s b_s\,\delta\chi^{(s)},
+\qquad
+b = (1);\ (\tfrac12, \tfrac12);\ (\tfrac16, \tfrac16, \tfrac23)
+$$
+
+for euler, RK2 and RK3. Each increment is exact for the rate frozen at its stage temperature, and the weights are positive and sum to 1, so a stiff reaction ($\kappa\Delta t \gg 1$) cannot overshoot $\chi = 1$. The stored energy is advanced by the stage formula of the scheme itself, with the stage increment $\Delta t\,(-R/V + \dot q_\text{vol})$.
+
+**Pressure in the stages (type 2).** Every stage reads $p^{n+1}$ as frozen data. The state at which a stage inverts $E$ carries the share of the step the stage has reached: $p^{(s)} = p^n + c_s(p^{n+1} - p^n)$ and $G^{(s)} = G^n + c_s(G^{n+1} - G^n)$, with $c_s$ the time fraction of the stage's output (SSP RK3: 1, ½, 1). The first stage starts from $E^n$ itself.
+
+### What limits the time step
+
+The cell step keeps the VNN form of [Diffusive Stability Condition](#diffusive-stability-condition-vnn) with the cached properties of the cell:
+
+$$
+\Delta t_i = \frac{\text{VNN}}{\alpha_i\,f\sum_d \lvert\nabla\xi_d\rvert_i^2},
+\qquad
+\alpha_i = \frac{k_{s,i}}{\rho_{s,i}\,c_{p,s,i}} .
+$$
+
+| Enters $\Delta t$ | Does not enter $\Delta t$ |
+|--------------------|----------------------------|
+| $k_s$, $\rho_s$, $c_{p,s}$ of the cell (current $T$ and $\chi$) | the face conductivities (no face pass) |
+| the cell metric and the skew factor $f$ | the heat capacity of the stored gas (leaving it out only shortens $\Delta t$) |
+| `vnn` and its ramp | the reaction rates: the kinetics are integrated in closed form |
+| | the gas pressure: it is solved implicitly |
+| | the gas advection: no Péclet or Courant limit is applied |
+| | the surface energy balance of an ablating wall |
+
+The time step does not resolve the reactions. A step that is long compared with $1/\kappa$ stays stable but loses accuracy, and under type 2 a mid-step prediction that crosses a threshold temperature can force the [end-of-step correction](pyrolysis.md#end-of-step-mass-correction) to draw on the solid.
+
+### Residual
+
+The residual of a pyrolysis run adds the change of the advancements, and under type 2 that of the pressure scaled by `p-ref` (see [Time-accurate mode](#time-accurate-mode-time-accurate-true)). It is reported only: a time-accurate run ends at `time-threshold` or `iter-threshold`.
 
 ---
 
