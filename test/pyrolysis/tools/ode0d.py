@@ -281,7 +281,7 @@ class Case(object):
 
     def fuss_fields(self):
         """per OUTPUT/field<i>.tec, sorted in time: dict t, T and chi (cell 1), the spatial spreads unif_T and unif_chi
-        (per reaction), and dp, the spread of p_pg over the cells (0 without a p_pg field)"""
+        (per reaction), dp, the spread of p_pg over the cells, and pmax, its largest value (0 without a p_pg field)"""
         outdir = os.path.join(self.case_dir, "OUTPUT")
         out = []
         for f in os.listdir(outdir):
@@ -291,7 +291,7 @@ class Case(object):
             chis = [d["chi_%d" % (k + 1)] for k in range(self.nsub)]
             p = d.get("p_pg") or [0.0]
             out.append({"t": t, "T": d["T"][0], "chi": [c[0] for c in chis], "unif_T": max(d["T"]) - min(d["T"]),
-                        "unif_chi": [max(c) - min(c) for c in chis], "dp": max(p) - min(p)})
+                        "unif_chi": [max(c) - min(c) for c in chis], "dp": max(p) - min(p), "pmax": max(p)})
         out.sort(key=lambda r: r["t"])
         return out
 
@@ -327,11 +327,14 @@ def n_steps(case_dir):
 
 def check_ladder(name, cases, dt, pato_tables=None):
     """The gate of the 0-D cases (adiabatic0d, heated0d and their type-2 twins): FUSS against the oracle on a ladder of
-    runs of one case at vnn, vnn/2, vnn/4 (coarsest first; refinement = 1/vnn, the step scales with vnn).
-      error  e_T = max_t |T - T_or|, e_chi = max_t,r |chi_r - chi_or,r| per run. Type 1: the convergence rule
-             (tools/conv_rule.py) with p = 2 (the kinetics/energy splitting inside the RK3 stages). Type 2: the error
-             must fall on every rung; the observed order on the finest pair is printed, not gated (no expected order
-             is stated for the type-2 step: the pressure step is first order in time, the splitting second order).
+    runs of one case at successive halvings of vnn (coarsest first; refinement = 1/vnn, the step scales with vnn): the
+    gates run vnn, vnn/2, vnn/4, except adiabatic0d_type2 on vnn/4, vnn/8, vnn/16, because on its first two halvings
+    the T error does not yet fall (1.66e-2, 1.99e-2, 8.56e-3 K: outside the asymptotic range).
+      error  e_T = max_t |T - T_or|, e_chi = max_t,r |chi_r - chi_or,r| per run, both closures by the convergence rule
+             (tools/conv_rule.py) with p = 2 (the kinetics/energy splitting inside the RK3 stages). Under type 2 the
+             pressure excursion max(p_pg) - p-wall stays at most 0.075 Pa (adiabatic) and 0.503 Pa (heated) with
+             K = 1e-7 m2: these cases test the kinetics/energy splitting under type 2, not the time order of the
+             pressure step (printed per ladder).
       non-uniformity of the uniform state, per run. Type 1: every cell sees the same arithmetic but the 301 faces'
              ghost values, one rounding per RK3 stage per step and no amplification (conduction contracts a
              difference, the endothermic source damps it): T spread <= N_steps x 3 x eps x max T, chi spread <=
@@ -379,10 +382,7 @@ def check_ladder(name, cases, dt, pato_tables=None):
     else:
         refine = [1.0 / v for v in vnn]
         for label, errs, fmt in (("max |T - T_or%s| [K]" % tag, eTs, "%.4e"), ("max |chi - chi_or%s|" % tag, ecs, "%.3e")):
-            if variant == "type1":
-                good, text = cr.check(label, errs, refine, 2, fmt=fmt)
-            else:
-                good, text = cr.check_falls(label, errs, refine, fmt=fmt)
+            good, text = cr.check(label, errs, refine, 2, fmt=fmt)
             ok &= good
             print("  %s  %s" % (text, "PASS" if good else "FAIL"))
     sel = cr.selftest()
@@ -409,6 +409,10 @@ def check_ladder(name, cases, dt, pato_tables=None):
         print("  vnn %-9g non-uniformity T %.2e K (bound %.2e: %s); chi %s (bounds %s)  %s"
               % (v, uT, bT, how, " ".join("%.1e" % u for u in uc), " ".join("%.1e" % b for b in bc),
                  "PASS" if good else "FAIL"))
+    if variant == "type2":
+        pw = float(input_value(cases[0], "p-wall", o.p_gas))
+        print("  info: pressure excursion max(p_pg) - p-wall up to %.3e Pa over the ladder (the pressure step's time order"
+              " is not resolved at this size)" % max(r["pmax"] - pw for rr in recs for r in rr))
     t1 = recs[0]
     d2 = max((orc["type2"][r["t"]][0] - orc["type1"][r["t"]][0] for r in t1), key=abs)
     line = "  info (vnn %g): type2 - type1 (exact) max %.4f K" % (vnn[0], d2)

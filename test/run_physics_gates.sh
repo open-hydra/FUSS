@@ -773,28 +773,36 @@ PYCTRL
 
 # 4.1 (d) the two 0-D decompositions under type 2 against the exact type-2 ODE
 gate_darcy_0d () {
-  local dest="$WORK/darcy_0d" rc sub ad ht v lad d
+  local dest="$WORK/darcy_0d" rc sub ad ht v lad d fs vad vht
   rm -rf "$dest"; mkdir -p "$dest"
-  # each case on the ladder vnn, vnn/2, vnn/4 of its own vnn (plan 17 P17-D1; the type-2 order is printed, not gated)
+  # each case on three successive halvings of its own vnn, by the convergence rule with p = 2 (plan 17 P17-D1, D7):
+  # heated0d_type2 on vnn, vnn/2, vnn/4; adiabatic0d_type2 on vnn/4, vnn/8, vnn/16, because on its first two halvings
+  # the T error does not yet fall (outside the asymptotic range)
   for sub in adiabatic0d_type2 heated0d_type2; do
-    stage "$DARCY/$sub" "$dest/$sub"
-    lad=("$dest/$sub")
-    for v in $(awk -F'= ' '/^vnn = /{printf "%.10g %.10g", $2 / 2, $2 / 4}' "$dest/$sub/input.ini"); do
-      stage "$DARCY/$sub" "$dest/${sub}_vnn$v"
-      sed -i "s/^vnn = .*/vnn = $v/" "$dest/${sub}_vnn$v/input.ini"
-      lad+=("$dest/${sub}_vnn$v")
+    if [ "$sub" = adiabatic0d_type2 ]; then fs="4 8 16"; else fs="1 2 4"; fi
+    lad=()
+    for v in $(awk -F'= ' -v fs="$fs" '/^vnn = /{n = split(fs, f, " "); for (i = 1; i <= n; i++) printf "%.10g ", $2 / f[i]}' \
+               "$DARCY/$sub/input.ini"); do
+      if [ "$v" = "$(awk -F'= ' '/^vnn = /{printf "%.10g", $2}' "$DARCY/$sub/input.ini")" ]; then
+        d="$dest/$sub"; stage "$DARCY/$sub" "$d"
+      else
+        d="$dest/${sub}_vnn$v"; stage "$DARCY/$sub" "$d"
+        sed -i "s/^vnn = .*/vnn = $v/" "$d/input.ini"
+      fi
+      lad+=("$d")
     done
     for d in "${lad[@]}"; do
       solve "$d" "$NTHREADS"; rc=$?
       if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $d/run.log)"; return 1; fi
     done
     if ! darcy_verify "" "$DARCY/$sub/verify.py" "${lad[@]}"; then
-      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$sub/verify.log" | sed 's/^ *//')"; return 1
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "${lad[0]}/verify.log" | sed 's/^ *//')"; return 1
     fi
+    if [ "$sub" = adiabatic0d_type2 ]; then vad="${lad[0]}/verify.log"; else vht="${lad[0]}/verify.log"; fi
   done
-  ad=$(grep -F 'order on the finest pair' "$dest/adiabatic0d_type2/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
-  ht=$(grep -F 'order on the finest pair' "$dest/heated0d_type2/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
-  KEYNUM="vs the exact type-2 ODE on vnn, vnn/2, vnn/4: errors fall; observed order T/chi: 0-D adiabatic ${ad:-?}, 0-D heated ${ht:-?} (printed, not gated)"
+  ad=$(grep -F 'order on the finest pair' "$vad" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  ht=$(grep -F 'order on the finest pair' "$vht" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  KEYNUM="vs the exact type-2 ODE, order T/chi in [1.6, 2.4]: 0-D adiabatic (vnn/4, /8, /16) ${ad:-?}, 0-D heated (vnn, /2, /4) ${ht:-?}"
   return 0
 }
 

@@ -17,11 +17,12 @@ self-difference at dt 1e-4 s vs 5e-5 s is 1.7e-9 K, the RHS jumps at each of the
   (the data difference, -0.15 K) when PATO's TACOT tables are on this machine.
 
 Under gas-closure = type2 (plan 07 gate 4.1(d), test/pyrolysis/darcy/heated0d_type2: both 301 faces open at
-p-wall, K = 1e-7 m2 so that the pressure excursion stays below 0.5 Pa and the fixed-p oracle applies) the
-oracle is the type2 variant; (a) and (b) must fall on every rung, their observed order is printed (no expected
-order is stated for the type-2 step), and the non-uniformity bound is the floor 1e-5 of tools/ode0d.py, set from
-measured draws (the gas storage -eps p inside E follows the sub-pascal pressure excursion; the candidate physics
-bound printed beside it is not adopted, see check_ladder).
+p-wall, K = 1e-7 m2, so that the pressure excursion stays at most 0.503 Pa and the fixed-p oracle applies) the
+oracle is the type2 variant and (a), (b) take the same rule with p = 2 on the same ladder vnn, vnn/2, vnn/4. At this
+excursion the case tests the kinetics/energy splitting under type 2, not the time order of the pressure step. The
+non-uniformity bound is the floor 1e-5 of tools/ode0d.py, set from measured draws (the gas storage -eps p inside E
+follows the sub-pascal pressure excursion; the candidate physics bound printed beside it is not adopted, see
+check_ladder).
 
 Usage: verify.py case_dir [case_dir ...]   (coarsest first; one dir only: FAIL, the rule needs a ladder)
 Exit 0 on PASS, 1 on FAIL. Python 3.6, no numpy (imports ../tools/ode0d.py, conv_rule.py).
