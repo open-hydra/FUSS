@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_restart_gate.sh
-#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]...
+#        USAGE: ./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]... [-b FUSS_BINARY]
 #  DESCRIPTION: A restarted run must reproduce a continuous one across the
 #               restart point (plan 05 section 6).
 #
@@ -153,13 +153,15 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WORK="${TMPDIR:-/tmp}/fuss-restart-gate.$$"
 NMPI=0
 ONLY=()
+BIN="${FUSS_GATE_BIN:-}"
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -m | --mpi)  NMPI=$2; shift 2 ;;
     -c | --case) ONLY+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]..."; exit 1 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]... [-b FUSS_BINARY]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -175,12 +177,21 @@ if [ "$NMPI" -gt 0 ]; then
 fi
 
 mkdir -p "$WORK"
+# -b PATH (or FUSS_GATE_BIN): every run takes that executable, copied once into $WORK/.master/bin under the name its
+# FUSS.sh looks for (FUSS, or FUSS-mpi under -m), which is then their MASTERDIR; without it, bin/ of this tree as before
+MASTERDIR=$ROOT
+if [ -n "$BIN" ]; then
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+  MASTERDIR="$WORK/.master"
+  mkdir -p "$MASTERDIR/bin" && cp "$BIN" "$MASTERDIR/bin/${FUSS_EXE:-FUSS}" || exit 1
+fi
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "FUSS restart gate"
 echo "  work dir : $WORK"
+[ -n "$BIN" ] && echo "  binary   : $BIN ($(md5sum < "$BIN" | cut -c1-8))"
 echo
 
 # $1 = case path relative to the repo root, $2 = iterations per half
@@ -202,7 +213,7 @@ run_case () {
     cp "$src"/*.dat "$d/" 2>/dev/null || true
     # The copies sit one level deeper than any real case, so point FUSS.sh at
     # the master binary by absolute path instead of counting ../ levels.
-    sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+    sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
     mkdir -p "$d/OUTPUT" "$d/bin"
   done
 
@@ -492,7 +503,7 @@ run_label_case () {
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$src/INPUT" "$src/input.ini" "$src/FUSS.sh" "$d/"
   [ -d "$src/MESH" ] && cp -r "$src/MESH" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
   sed -i "s/^level1-iter = .*/level1-iter = $fine/; s/^level2-iter = .*/level2-iter = $coarse/; \
           s/^res-threshold = .*/res-threshold = 1e-30/; s/^newrun = .*/newrun = true/" "$d/input.ini"

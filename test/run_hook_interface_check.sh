@@ -12,7 +12,8 @@
 #
 #               Two tiny programs are compiled against the preset build's
 #               module directory (build/modules, where fuss_wrap_solve.mod
-#               lives): one passes a procedure with the WRONG signature and
+#               lives; FUSS_MODULE_DIR names another tree's, FC the compiler): one
+#               passes a procedure with the WRONG signature and
 #               must fail to compile with an interface diagnostic; one passes
 #               the right signature and must compile. A check that has never
 #               been seen to fail is not a check, so the wrong one comes first.
@@ -21,7 +22,7 @@ set -u
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 FC=${FC:-gfortran}
-MODDIR="$ROOT/build/modules"
+MODDIR="${FUSS_MODULE_DIR:-$ROOT/build/modules}"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/fuss-hook-check.XXXXXX")
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }

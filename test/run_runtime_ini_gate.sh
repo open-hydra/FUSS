@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_runtime_ini_gate.sh
-#        USAGE: ./test/run_runtime_ini_gate.sh [-w WORKDIR] [-m NRANKS]
+#        USAGE: ./test/run_runtime_ini_gate.sh [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]
 #  DESCRIPTION: input.ini is re-read every `ini-diter` iterations WHILE THE RUN
 #               IS IN PROGRESS. This gates what that re-read is allowed to do
 #               (plan 10, D3).
@@ -37,19 +37,23 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 BASE="$ROOT/test/moving-mesh/receding/N040"
 WORK="${TMPDIR:-/tmp}/fuss-runtime-ini.$$"
 NMPI=0
+BIN="${FUSS_GATE_BIN:-}"
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -m | --mpi)  NMPI=$2; shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS]"; exit 1 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 # -m N (plan 11): the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own launcher. Rank 0
 # reads input.ini and passes its text to every rank (upstream 0bf87b2); only rank 0 writes the report: one copy of it.
-MPIOPT="" ; TMO=""
+# Every run is bounded (timeout signals the solver's whole process group): a run the edits below fail to stop is a
+# FAIL after 300 s (900 s on N > 1 ranks), never a hang
+MPIOPT="" ; TMO="timeout 300"
 if [ "$NMPI" -gt 0 ]; then
   [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
   export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
@@ -57,12 +61,21 @@ if [ "$NMPI" -gt 0 ]; then
 fi
 
 mkdir -p "$WORK"
+# -b PATH (or FUSS_GATE_BIN): every run takes that executable, copied once into $WORK/.master/bin under the name its
+# FUSS.sh looks for (FUSS, or FUSS-mpi under -m), which is then their MASTERDIR; without it, bin/ of this tree as before
+MASTERDIR=$ROOT
+if [ -n "$BIN" ]; then
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+  MASTERDIR="$WORK/.master"
+  mkdir -p "$MASTERDIR/bin" && cp "$BIN" "$MASTERDIR/bin/${FUSS_EXE:-FUSS}" || exit 1
+fi
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "FUSS runtime input.ini gate"
 echo "  work dir : $WORK"
+[ -n "$BIN" ] && echo "  binary   : $BIN ($(md5sum < "$BIN" | cut -c1-8))"
 echo
 
 REPORT="OUTPUT/runtime-ini-ignored.txt"
@@ -74,7 +87,7 @@ start_case () {
 
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$BASE/INPUT" "$BASE/MESH" "$BASE/input.ini" "$BASE/FUSS.sh" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
 
   # Run effectively forever, and re-read input.ini often.

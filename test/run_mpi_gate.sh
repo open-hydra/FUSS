@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_mpi_gate.sh
-#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]...
+#        USAGE: ./test/run_mpi_gate.sh [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]... [-b FUSS_BINARY]
 #  DESCRIPTION: A case run on N MPI ranks must give the outputs of the same case
 #               run on one rank (plan 11 section 2.5). Both runs use the mpi
 #               preset's bin/FUSS-mpi at OMP_NUM_THREADS=1, the N-rank one through
@@ -37,13 +37,15 @@ set -u
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WORK="${TMPDIR:-/tmp}/fuss-mpi-gate.$$"
 CASES=()
+BIN="${FUSS_GATE_BIN:-}"
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -c | --case) CASES+=("$2"); shift 2 ;;
     -r | --residual) export FUSS_MPIGATE_RESIDUAL=1; shift ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]..."; exit 1 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]... [-b FUSS_BINARY]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -86,12 +88,20 @@ export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
 "$ROOT/test/check_build_config.sh" --preset mpi || { echo "refusing to grade a build that does not match the preset"; exit 1; }
 
 mkdir -p "$WORK"
+# -b PATH (or FUSS_GATE_BIN): every run takes that executable, copied once into $WORK/.master/bin/FUSS-mpi, which is
+# then the MASTERDIR of the cases' FUSS.sh; without it, bin/FUSS-mpi of this tree as before
+MASTERDIR=$ROOT
+if [ -n "$BIN" ]; then
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+  MASTERDIR="$WORK/.master"
+  mkdir -p "$MASTERDIR/bin" && cp "$BIN" "$MASTERDIR/bin/$FUSS_EXE" || exit 1
+fi
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
 
 echo "FUSS MPI gate: N ranks against one"
-echo "  binary   : $ROOT/bin/FUSS-mpi ($(md5sum "$ROOT/bin/FUSS-mpi" | cut -c1-8))"
+echo "  binary   : $MASTERDIR/bin/FUSS-mpi ($(md5sum "$MASTERDIR/bin/FUSS-mpi" | cut -c1-8))"
 echo "  work dir : $WORK"
 echo
 if python3 -I "$ROOT/test/check_mpi_tags.py" --dir "$ROOT/src" > "$WORK/mpi-tags.log" 2>&1; then
@@ -109,7 +119,7 @@ for spec in "${CASES[@]}"; do
     cp -r "$src/INPUT" "$src/input.ini" "$src/FUSS.sh" "$d/"
     [ -d "$src/MESH" ] && cp -r "$src/MESH" "$d/"
     cp "$src"/*.dat "$d/" 2>/dev/null || true
-    sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+    sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
     mkdir -p "$d/OUTPUT" "$d/bin"
     ( cd "$d" && timeout 900 ./FUSS.sh -p 1 -m "$r" solve ) > "$d/run.log" 2>&1
     rc=$?

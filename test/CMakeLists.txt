@@ -264,3 +264,58 @@ endforeach()
 fuss_add_physics_gate(RecedingAll receding 3600 -a)
 # the cross-thread leg of pyrolysis (energy_audit at 1 and FUSS_GATE_THREADS threads, byte for byte)
 set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
+
+# The other gate scripts, 1 thread. ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
+# MPI gates, the build's own compiler (its version: gfortran reads only its own .mod files), CMakePresets.json
+set(_REQ bash ${CMAKE_CURRENT_SOURCE_DIR}/ctest_requires.sh)
+set(_FC "fc=${CMAKE_Fortran_COMPILER}")
+if (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  set(_FC "fc=${CMAKE_Fortran_COMPILER}:${CMAKE_Fortran_COMPILER_VERSION}")
+endif()
+# a run split in two halves with a restart between reproduces the continuous run (run_restart_gate.sh)
+fuss_add_gate(Gate_Restart 1800 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_Restart)
+# every set-up refusal stops the configuration it is meant to reject, with its text and exit code 1
+fuss_add_gate(Gate_GuardDemos 1800 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_GuardDemos)
+# input.ini read again during the run: only the runtime-mutable keys apply (each run bounded at 300 s)
+fuss_add_gate(Gate_RuntimeIni 2400 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_runtime_ini_gate.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_RuntimeIni)
+# the per-stage hook is checked at compile time, against this tree's modules
+fuss_add_gate(Gate_HookInterface 300 "gate;implementation;verification"
+              ${_REQ} ${_FC} -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_hook_interface_check.sh)
+set_property(TEST Gate_HookInterface APPEND PROPERTY ENVIRONMENT
+             "FC=${CMAKE_Fortran_COMPILER}" "FUSS_MODULE_DIR=${CMAKE_Fortran_MODULE_DIRECTORY}")
+# MORPH (MORPH_PATH of this tree) depends on no FUSS module, stops nowhere, compiles -Wall clean; its unit programs give
+# the same output at 1 and 8 threads (MORPH's own script)
+fuss_add_gate(Gate_MorphGuards 300 "gate;implementation;verification"
+              ${_REQ} ${_FC} -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_morph_guards.sh)
+set_property(TEST Gate_MorphGuards APPEND PROPERTY ENVIRONMENT "FC=${CMAKE_Fortran_COMPILER}" "MORPH_PATH=${MORPH_PATH}")
+set_tests_properties(Gate_MorphGuards PROPERTIES PROCESSORS 8)
+# every point-to-point MPI call of src/ carries a distinct named tag constant (static)
+fuss_add_gate(Gate_MPITags 300 "gate;implementation;verification"
+              python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/check_mpi_tags.py --dir ${CMAKE_SOURCE_DIR}/src)
+# this tree was configured as its preset of CMakePresets.json says (mpi with USE_MPI, else default); skip without one
+fuss_add_gate(Gate_BuildConfig 300 "gate;implementation;verification"
+              ${_REQ} file=${CMAKE_SOURCE_DIR}/CMakePresets.json --
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/check_build_config.sh --preset ${_FUSS_PRESET})
+
+# MPI gates (mpi-gate, not needs-mpi: CI's MPI job runs Open MPI, these launch Intel MPI's $I_MPI_ROOT/bin/mpirun and
+# skip without it). The forms and rank counts of the records: run_mpi_gate.sh (up to 4 ranks), the restart of the
+# 4-block receding slab on 4 ranks, the guard demos on 2, the runtime input on 4
+if (USE_MPI)
+  fuss_add_gate(Gate_MPI 3600 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_mpi_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_MPI)
+  fuss_add_gate(Gate_RestartMPI 1800 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_RestartMPI -m 4 -c test/moving-mesh/receding_4blk:200)
+  fuss_add_gate(Gate_GuardDemosMPI 1800 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_GuardDemosMPI -m 2)
+  fuss_add_gate(Gate_RuntimeIniMPI 6000 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_runtime_ini_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_RuntimeIniMPI -m 4)
+  set_tests_properties(Gate_MPI Gate_RestartMPI Gate_RuntimeIniMPI PROPERTIES PROCESSORS 4)
+  set_tests_properties(Gate_GuardDemosMPI PROPERTIES PROCESSORS 2)
+endif()

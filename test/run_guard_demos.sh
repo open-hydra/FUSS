@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_guard_demos.sh
-#        USAGE: ./test/run_guard_demos.sh [-w WORKDIR] [-m NRANKS]
+#        USAGE: ./test/run_guard_demos.sh [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]
 #  DESCRIPTION: Every moving-mesh guard is run against the configuration it is
 #               supposed to reject, and must actually reject it.
 #
@@ -42,12 +42,14 @@ BASE_R5="$ROOT/test/moving-mesh/conjugate_receding"
 BASE_PER="$ROOT/test/moving-mesh/periodic"       # plan 14 S9d Part B: the periodic decks (generate.py)
 WORK="${TMPDIR:-/tmp}/fuss-guard-demos.$$"
 NMPI=0
+BIN="${FUSS_GATE_BIN:-}"
 
 while test $# -gt 0; do
   case $1 in
     -w | --work) WORK=$2; shift 2 ;;
     -m | --mpi)  NMPI=$2; shift 2 ;;
-    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS]"; exit 1 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -62,6 +64,14 @@ if [ "$NMPI" -gt 0 ]; then
 fi
 
 mkdir -p "$WORK"
+# -b PATH (or FUSS_GATE_BIN): every run takes that executable, copied once into $WORK/.master/bin under the name its
+# FUSS.sh looks for (FUSS, or FUSS-mpi under -m), which is then their MASTERDIR; without it, bin/ of this tree as before
+MASTERDIR=$ROOT
+if [ -n "$BIN" ]; then
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+  MASTERDIR="$WORK/.master"
+  mkdir -p "$MASTERDIR/bin" && cp "$BIN" "$MASTERDIR/bin/${FUSS_EXE:-FUSS}" || exit 1
+fi
 fail=0
 pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
 bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
@@ -89,6 +99,7 @@ echo "FUSS guard demonstrations"
 echo "  base case : test/moving-mesh/receding/N040 (mesh motion), test/pyrolysis/energy_audit (pyrolysis),"
 echo "              test/pyrolysis/ablation/demo_base{,_pyro} (the ablating wall 306)"
 echo "  work dir  : $WORK"
+[ -n "$BIN" ] && echo "  binary    : $BIN ($(md5sum < "$BIN" | cut -c1-8))"
 echo
 
 # $1 = short name, $2 = expected exit code, $3 = expected substring of the
@@ -99,7 +110,7 @@ demo () {
 
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$BASE/INPUT" "$BASE/MESH" "$BASE/input.ini" "$BASE/FUSS.sh" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
 
   # Keep every demo to a couple of steps: the guards all fire at setup or on
@@ -215,7 +226,7 @@ demo_ok () {
   local d="$WORK/$name"
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$BASE/INPUT" "$BASE/MESH" "$BASE/input.ini" "$BASE/FUSS.sh" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   sed -i 's/^iter-threshold = .*/iter-threshold = 3/' "$d/input.ini"
   mkdir -p "$d/OUTPUT" "$d/bin"
   printf '\n%s\n' "$1" >> "$d/input.ini"
@@ -279,7 +290,7 @@ demo_on () {
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$base/INPUT" "$base/MESH" "$base/input.ini" "$base/FUSS.sh" "$d/"
   cp "$base"/*.dat "$d/" 2>/dev/null || true
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
   sed -i 's/^iter-threshold = .*/iter-threshold = 3/' "$d/input.ini"
 
@@ -491,7 +502,7 @@ demo_ok_on () {   # $1 = base, $2 = name: the base must run to completion (exit 
   local base=$1 name=$2 d="$WORK/$2"
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$base/INPUT" "$base/MESH" "$base/input.ini" "$base/FUSS.sh" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
   ( cd "$d" && $SOLVE ) > "$d/run.log" 2>&1
   local rc=$?
@@ -718,7 +729,7 @@ demo_abl_restart () {   # $1 = name, $2 = expected text, $3 = python edit of the
   local name=$1 expect=$2 edit=$3 d="$WORK/$1"
   rm -rf "$d"; mkdir -p "$d"
   cp -r "$BASE_ABL/INPUT" "$BASE_ABL/MESH" "$BASE_ABL/input.ini" "$BASE_ABL/FUSS.sh" "$d/"
-  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$d/FUSS.sh"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
   mkdir -p "$d/OUTPUT" "$d/bin"
   ( cd "$d" && $SOLVE ) > "$d/run1.log" 2>&1
   local rc1=$?
