@@ -17,15 +17,19 @@ bundled ref/ copy of the 2026-10-07 run.
 FUSS samples each depth with two bracketing index-position probes (probes.json),
 linear in x then linear in time onto PATO's 0.1 s grid.
 
-Pass: max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= budget_K (expected.json,
-recorded on the first run as measured + 2 K with --record; provisional 20 K).
+Pass: max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= the T spread of Ablation Test Case 2.1 (plan 17
+P17-D4: one external code here, so the tolerance is the PATO - Amaryllis spread of ATC 2.1, same material and heating,
+computed from test/pyrolysis/ablation/ATC21/ref by tools/abl_tools.spread_atc21).
 
-Usage: verify.py [case_dir] [--record]   Exit 0 on PASS, 1 on FAIL. Python 3.6, no numpy.
+Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets the tolerance to 0.
+Python 3.6, no numpy.
 """
 import json, os, sys
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+import abl_tools  # noqa: E402
+
 DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
-BUDGET_DEFAULT = 20.0
 
 
 def read_series(path):
@@ -81,8 +85,7 @@ def probe_x(pj):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--record"]
-    record = "--record" in sys.argv[1:]
+    args = sys.argv[1:]
     case = os.path.abspath(args[0]) if args else os.path.dirname(os.path.abspath(__file__))
     here = os.path.dirname(os.path.abspath(__file__))
     pj = json.load(open(os.path.join(case, "probes.json")))
@@ -96,9 +99,8 @@ def main():
         print("SKIP: no PATO Ta_plot under %s (set FUSS_PATO_ATC2_OUT to the PATO output/porousMat directory)" % oracle_dir)
         return 0
     pato = read_pato_plot(plot)
-    expected_path = os.path.join(here, "expected.json")
-    expected = json.load(open(expected_path)) if os.path.isfile(expected_path) else {}
-    budget = expected.get("budget_K", BUDGET_DEFAULT)
+    s21 = abl_tools.spread_atc21()[0]["T"]
+    budget = 0.0 if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1" else s21[0]
 
     series = {}
     for d in DEPTHS_MM:
@@ -130,14 +132,7 @@ def main():
             print("FAIL: no FUSS sample inside PATO's window for depth %d mm" % d); return 1
         worst_all = max(worst_all, worst)
         print("  %2d mm: max |dT| = %6.2f K at t = %5.1f s  (%d samples)" % (d, worst, t_worst, n))
-    if record:
-        expected["measured_K"] = worst_all
-        expected["budget_K"] = worst_all + 2.0
-        expected["oracle"] = plot
-        json.dump(expected, open(expected_path, "w"), indent=1, sort_keys=True)
-        budget = worst_all + 2.0
-        print("  recorded %s" % expected_path)
-    print("  max over the seven depths: %.2f K  (budget %.1f K)" % (worst_all, budget))
+    print("  max over the seven depths: %.2f K  (ATC 2.1 T spread %.2f K, at %g s %s)" % (worst_all, budget, s21[1], s21[2]))
     ok = worst_all <= budget
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1

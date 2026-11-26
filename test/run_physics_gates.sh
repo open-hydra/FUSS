@@ -774,7 +774,8 @@ gate_darcy_atc2_chemistry_off () {
   if [ "$rc" -ne 0 ]; then KEYNUM="type2: solver exit $rc  (see $dest/type2/run.log)"; return 1; fi
   darcy_verify "" "$DARCY/ATC2-chemistryOff-type2/verify.py" "$dest/type2" --type1 "$dest/type1"; rc=$?
   if grep -q '^SKIP' "$dest/type2/verify.log"; then KEYNUM="SKIP (no PATO probe files)"; return 0; fi
-  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | awk '{print $7}') K (budget $(grep -F -m1 '(T)   max over' "$dest/type2/verify.log" | sed -E 's/.*budget ([0-9.]+) K.*/\1/'), B_T 22.75)  dp ratio $(grep -F -m1 '        ratio' "$dest/type2/verify.log" | awk '{print $2}') (tol 0.15)  type2-type1 hot max $(grep -F -m1 '(sign) max' "$dest/type2/verify.log" | awk '{print $10}') K"
+  local v="$dest/type2/verify.log"
+  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$v" | awk '{print $7}') K (ATC 2.1 T spread $(grep -F -m1 '(T)   max over' "$v" | sed -E 's/.*T spread ([0-9.]+) K.*/\1/') K, type-1 run $(grep -F -m1 '(acc)' "$v" | sed -E 's/.*maximum ([0-9.]+) K.*/\1/') K)  dp ratio $(grep -F -m1 '        ratio' "$v" | awk '{print $2}') (tol $(grep -F -m1 '        ratio' "$v" | sed -E 's/.*tol ([0-9.]+)\).*/\1/'))  type2-type1 hot max $(grep -F -m1 '(sign) max' "$v" | awk '{print $10}') K"
   return $rc
 }
 

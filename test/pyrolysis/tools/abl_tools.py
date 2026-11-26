@@ -136,6 +136,35 @@ def pato_rows(path):
     return out
 
 
+def spread_atc21(ref=None):
+    """plan 17 P17-D4: the PATO - Amaryllis spread of Ablation Test Case 2.1 per quantity, {q: (max, t, where)}, and PATO's
+    peaks, from the committed test/pyrolysis/ablation/ATC21/ref (the loop of ATC21/verify.py: PATO's 0.1 s grid from
+    0.05 s; T over the 7 depths where Amaryllis is positive). The tolerance the single-code ATC 2 comparisons borrow."""
+    ref = ref or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ablation", "ATC21", "ref")
+    Pp, Ps, Pm = (pato_rows(os.path.join(ref, f)) for f in ("Ta_plot", "Ta_surfacePatch", "mass"))
+    E = pato_rows(os.path.join(ref, "Amaryllis_Energy_TestCase_2.1.txt"))
+    M = pato_rows(os.path.join(ref, "Amaryllis_Mass_TestCase_2.1.txt"))
+    n = min(len(Pp), len(Ps), len(Pm), len(E), len(M))
+    sp = {}
+
+    def upd(k, d, t, where=""):
+        if abs(d) > sp.get(k, (-1.0,))[0]:
+            sp[k] = (abs(d), t, where)
+    for i in range(n):
+        t = Pp[i][0]
+        if t < 0.05:
+            continue
+        for k, d in enumerate((1, 2, 4, 8, 12, 16, 24)):
+            if E[i][2 + k] > 0:
+                upd("T", Pp[i][1 + k] - E[i][2 + k], t, "%d mm" % d)
+        upd("Tw", Ps[i][1] - E[i][1], t)
+        upd("mdot_g", Pm[i][1] - M[i][1], t)
+        upd("v98", Pm[i][3] - M[i][3], t)
+        upd("c02", Pm[i][4] - M[i][4], t)
+    peaks = {"mdot_g": max(r[1] for r in Pm[:n])}
+    return sp, peaks
+
+
 def interp(series, t):
     if not series or t < series[0][0] - 1e-12 or t > series[-1][0] + 1e-12:
         return None
