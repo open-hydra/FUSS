@@ -87,9 +87,8 @@ The test cases carry `FUSS.sh`; its options go before the task:
 !!! note "MPI"
     - Build the MPI executable with the `mpi` preset (`bin/FUSS-mpi`, see [Installation](../getting-started/installation.md)) and run it with `FUSS_EXE=FUSS-mpi ./FUSS.sh -m N solve`; `FUSS_MPIRUN` names the launcher (default: the first `mpirun` on `PATH`).
     - Each rank owns whole blocks, so a case with fewer blocks than ranks leaves ranks idle.
-    - Pyrolysis, the Darcy closure and the ablating wall (306, 307) run on any number of ranks (plan 11): each rank owns whole blocks, and the exchanges across ranks carry their ghost values and their sums.
+    - Pyrolysis, the Darcy closure and the ablating wall (306, 307) run on any number of ranks: each rank owns whole blocks, and the exchanges across ranks carry their ghost values and their sums.
     - Chimera faces (102) and multigrid run on any number of ranks: the donor cells a 102 face reads on another rank travel in their own exchange, each grid level has its own exchange schedule, and the blocks are partitioned once, on the finest level, so a block lives on the same rank at every level.
-    - A moving mesh (`law = prescribed` or `translation`) runs on any number of ranks: each rank moves its own blocks, a block connection between two ranks receives the neighbour's node planes every step for its ghost metric, and rank 0 gathers every block's nodes before it writes the solution (which is also the restart) and the wall output.
     - Every stop ends the run with exit code 1, as in a serial run: an error that every rank finds stops every rank together (each writes a STOP line); one that a single rank finds ends the job through `MPI_ABORT` with code 1.
     - `input.ini` is read by rank 0, which passes its text to every rank, at set-up and at every reading during the run; only rank 0 writes `OUTPUT/runtime-ini-ignored.txt`.
 

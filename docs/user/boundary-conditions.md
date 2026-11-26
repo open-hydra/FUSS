@@ -35,7 +35,7 @@ On a 2-D mesh ($n_k = 1$) faces 5 and 6 must be zero-flux faces (code `0` or `30
 | `303` | `hconv`, `qrad`, `Tref` | Convection plus a prescribed flux $q_\text{rad}$ | `hconv, qrad, Tref`; optionally a fourth value `p_w` [Pa], the gas pressure of the face under the type-2 gas closure ([Input File](input.md#type-2-gas-closure-darcy)), ignored otherwise, > 0 when given |
 | `304` | `eps`, `Tref` | Radiation | `eps, Tref` |
 | `305` | `hconv`, `eps`, `Tref` | Convection and radiation | `hconv, eps, Tref`; optionally a fourth value `p_w` [Pa], as for `303` |
-| `306` | — (written by the case generators, not by ATLAS) | Ablating wall: surface energy balance with B′ tables (plan 08) | `lambda, T_inf, <bprime-file>, <env-file>`: see [Ablating wall](#ablating-wall-306-and-coupled-ablating-wall-307) |
+| `306` | — (written by the case generators, not by ATLAS) | Ablating wall: surface energy balance with B′ tables | `lambda, T_inf, <bprime-file>, <env-file>`: see [Ablating wall](#ablating-wall-306-and-coupled-ablating-wall-307) |
 | `307` | — | Coupled ablating wall: 306's balance, exchange values from hydra | `bs is js ks fs d11 d12 d21 d22 T_inf <bprime-file>` (11 values, no `lambda`) |
 
 Units: W/m² for `qw` and `qrad`, K for `Tw` and `Tref`, W/(m²·K) for `hconv`; `eps` is the emissivity.
@@ -161,11 +161,11 @@ Records from the test cases, as ATLAS writes them:
 
 ### Ablating wall (306) and coupled ablating wall (307)
 
-ATLAS does not write these two codes yet (a cross-plan ask); the case generators under `test/pyrolysis/` write `bc.txt`
+ATLAS does not write these two codes yet; the case generators under `test/pyrolysis/` write `bc.txt`
 directly. Both faces solve the surface energy balance of the material response (thesis eq. 3.49, PATO's
 `BprimeBoundaryConditions`) for the wall temperature, with the char and pyrolysis-gas blowing of an equilibrium or
 finite-rate B′ table. They need `[FUSS-Pyrolysis]` when the chemistry is on, and they set the gas pressure of the face
-under the type-2 closure (open faces). Keys and outputs: [Input File](input.md#ablating-wall-306-307-and-recession).
+under the type-2 closure (open faces). Keys and outputs: [Input File](input.md#ablating-wall-306-307).
 
 **306 line 2**, list-directed: `lambda  T_inf  <bprime-file>  <env-file>`.
 
@@ -200,11 +200,11 @@ provenance: `test/pyrolysis/ablation/tables/`.
 
 **307 line 2**: the 103 connectivity record of the MOSE partner face, then `T_inf <bprime-file>`. hydra writes the
 exchange values `p_w, ρ_e u_e C_H, h_r, q_rad` before every FUSS step (`bc%env_now`); the face runs with `chem = 1` and
-`lambda = 0` (the CFD's coefficient is already blown) on a static mesh. A standalone run reads those values from the
+`lambda = 0` (the CFD's coefficient is already blown). A standalone run reads those values from the
 TEST ONLY `[FUSS-Ablation] coupled-env-file`, a table with the rows `t p_w rhoeUeCH h_r q_rad`, or one such table per
-307 face, each opened by a line `// face b i j k f` (see [Input File](input.md#ablating-wall-306-307-and-recession)).
+307 face, each opened by a line `// face b i j k f` (see [Input File](input.md#ablating-wall-306-307)).
 
-The wall output's `qw` of a 306/307 face (and `bc%qw_last`, which hydra writes as column 7 of a 307 zone) is the conduction flux into the solid, positive when it heats the solid, on every face: before plan 14 it was `k ∇T·n` along the growing index on the full surface energy balance (the opposite sign on faces 1, 3, 5).
+The wall output's `qw` of a 306/307 face (and `bc%qw_last`, which hydra writes as column 7 of a 307 zone) is the conduction flux into the solid, positive when it heats the solid, on every face.
 
 ---
 

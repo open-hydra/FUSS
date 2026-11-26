@@ -36,6 +36,7 @@ irs-beta = 0.5
 | `[FUSS-IO]` | Formats and frequencies of the output | [registry](registry.md#fuss-io) |
 | `[FUSS-Probes]` and one section per probe | Probes | [registry](registry.md#fuss-probes), [Running FUSS](using.md#probes) |
 | `[FUSS-Pyrolysis]` | Pyrolysis of a charring solid (its presence switches the model on) | [registry](registry.md#fuss-pyrolysis), [Pyrolysis](#pyrolysis) |
+| `[FUSS-Ablation]` | Surface energy balance of the ablating walls 306, 307 | [registry](registry.md#fuss-ablation), [Ablating wall](#ablating-wall-306-307) |
 | `[FUSS-Darcy]` | Gas pressure solver of the type-2 gas closure (read only with `gas-closure = type2`) | [registry](registry.md#fuss-darcy), [Type-2 gas closure](#type-2-gas-closure-darcy) |
 
 The [Parameter Registry](registry.md) lists every key with its default and allowed values. It is generated from the source by `bin/DocGen` (`src/app/docgen.f90`): do not edit it by hand. Keys that come in numbered series appear there once as examples: `probe<n>` with its section (`probe-placeholder`), and `level<m>-iter` for two levels.
@@ -83,7 +84,7 @@ An error of the reading is a file that cannot be read, or a value out of its rul
 
 ## Pyrolysis
 
-A section `[FUSS-Pyrolysis]` switches on the pyrolysis model of a charring solid (phase 2 of the porous-pyrolysis programme, plan 06): the solid is a set of phases, each decomposing through Arrhenius reactions, the stored energy `E(T, χ)` is the integrated variable and the pyrolysis gas leaves through one face of the (single) block. Without the section the solver runs the legacy conduction model unchanged, bit for bit.
+A section `[FUSS-Pyrolysis]` switches on the pyrolysis model of a charring solid: the solid is a set of phases, each decomposing through Arrhenius reactions, the stored energy `E(T, χ)` is the integrated variable and the pyrolysis gas leaves through one face of the (single) block. Without the section the solver runs the legacy conduction model unchanged, bit for bit.
 
 ```ini
 [FUSS-Pyrolysis]
@@ -93,9 +94,9 @@ p-gas             = 101325.0     ; type1 only: [Pa] pressure at which the gas ta
 hbar-guard-report = false        ; report the materials with rho_v = rho_c at setup
 ```
 
-Requirements enforced at setup (`error stop 1` with a message): `integration-variables = cons`, `time-accurate = true`, no IRS, one grid level, `law = static` or `law = nodeshift` (the receding mesh of an ablating wall BC 306: every step the pyrolysis state is remapped conservatively onto the moved cells, at most 64 reactions), no chimera (102, 104) or coupled (103) face; under `type1` also one block without block connections (101) or periodic faces (201: its outflow line integral does not cross block faces), an `outflow-direction` and a wall BC (301–307) on the outflow end of the block. Under `type2` blocks may be connected (101): the reaction state, the gas pressure and both conductivities cross the connection, and its gas mass and enthalpy flows are conservative (the two blocks evaluate one face flux).
+Requirements enforced at setup (`error stop 1` with a message): `integration-variables = cons`, `time-accurate = true`, no IRS, one grid level, no chimera (102, 104) or coupled (103) face; under `type1` also one block without block connections (101) or periodic faces (201: its outflow line integral does not cross block faces), an `outflow-direction` and a wall BC (301–307) on the outflow end of the block. Under `type2` blocks may be connected (101): the reaction state, the gas pressure and both conductivities cross the connection, and its gas mass and enthalpy flows are conservative (the two blocks evaluate one face flux).
 
-`type1` is exact only for one-dimensional, quasi-steady gas flow with an impermeable back face. The gas crosses an interior face with the enthalpy at the mean temperature of the two cells and leaves the block at the wall temperature of the outflow face (second order in space; until 2026-10-15 every face took the upstream cell's temperature, first order: ATC1's 100-cell mesh was 7 K too hot at 1 mm, 1 s, now 1.9 K). `type2` solves the gas momentum (Darcy) and the gas storage instead; see [Type-2 gas closure](#type-2-gas-closure-darcy).
+`type1` is exact only for one-dimensional, quasi-steady gas flow with an impermeable back face. The gas crosses an interior face with the enthalpy at the mean temperature of the two cells and leaves the block at the wall temperature of the outflow face (second order in space). `type2` solves the gas momentum (Darcy) and the gas storage instead; see [Type-2 gas closure](#type-2-gas-closure-darcy).
 
 ### Material files
 
@@ -112,11 +113,11 @@ Tecplot layout of the three tables: `TITLE = "FUSS pyrolysis table"`, `VARIABLES
 
 ### Output
 
-The solution file gains the columns `chi_1 … chi_nsub` (reaction advancements, read back on restart; `chi` when the material has one reaction), `rho_s` and `mdot_pg` (gas mass flux through the cell's downstream face, kg m⁻² s⁻¹); `k`, `rho`, `cs` carry the blended solid conductivity, the total density and the blended specific heat, and `h` the stored energy `E` [J/m³]. `OUTPUT/<prefix>energy-budget.txt` records, at every solution write, `t E_tot M_s Q_out Q_gas_out M_gas_out Q_src` (the discrete energy and solid-mass balances close to round-off; `test/pyrolysis/energy_audit/verify.py` checks them). On a receding mesh (`law = nodeshift`) it gains `E_abl M_abl`, the energy and solid mass the receding faces swept out (counted from the start of the run, like `Q_*`), so that `E_tot + E_abl + Q_out − Q_src` and `M_s + M_abl + M_gas_out` stay constant.
+The solution file gains the columns `chi_1 … chi_nsub` (reaction advancements, read back on restart; `chi` when the material has one reaction), `rho_s` and `mdot_pg` (gas mass flux through the cell's downstream face, kg m⁻² s⁻¹); `k`, `rho`, `cs` carry the blended solid conductivity, the total density and the blended specific heat, and `h` the stored energy `E` [J/m³]. `OUTPUT/<prefix>energy-budget.txt` records, at every solution write, `t E_tot M_s Q_out Q_gas_out M_gas_out Q_src` (the discrete energy and solid-mass balances close to round-off; `test/pyrolysis/energy_audit/verify.py` checks them).
 
 ### Type-2 gas closure (Darcy)
 
-`gas-closure = type2` (plan 07) solves the gas pressure `p_pg` of the pyrolysis gas from the gas mass balance with Darcy's law, `∂(ε_g ρ_g)/∂t + ∇·(ρ_g u_g) = π`, `u_g = −(K/(μ ε_g))·∇p` (`ρ_g = p W/(ℜ T)`, `W` and `μ` from `gas.dat`, `K` the blended permeability tensor), once per material step: the conductance `ρ_g K/μ` at the start of the step, the storage coefficient `ε_g W/(ℜT)` extrapolated to its end (limited: never below half its start value) and the gas production to its middle. The pressure update itself is backward Euler, so a transient pressure field is first order in time (exact pressure-diffusion benchmark, `test/pyrolysis/exact/pressure_transient`); `T` and `χ` keep the second order of the 0-D gates. The stored gas mass `ε_g ρ_g` is carried as a state and corrected at the end of the step so that the gas mass balance closes to round-off; when the correction would take a cell's stored gas below half its start value (threshold kinetics), the reactions that ran supply the difference. The stored energy becomes `E = H_s(T, χ) + ε_g (ρ_g h_g − p)`, and the gas enthalpy is advected with the Darcy mass flux. The gas leaves through the **open** faces, where `p` is prescribed, with the enthalpy `h_g(p_w, T_w)` at the wall temperature `T_w` that the face's BC computes (the cell temperature on a face without one, 103); every other face is impermeable.
+`gas-closure = type2` solves the gas pressure `p_pg` of the pyrolysis gas from the gas mass balance with Darcy's law, `∂(ε_g ρ_g)/∂t + ∇·(ρ_g u_g) = π`, `u_g = −(K/(μ ε_g))·∇p` (`ρ_g = p W/(ℜ T)`, `W` and `μ` from `gas.dat`, `K` the blended permeability tensor), once per material step: the conductance `ρ_g K/μ` at the start of the step, the storage coefficient `ε_g W/(ℜT)` extrapolated to its end (limited: never below half its start value) and the gas production to its middle. The pressure update itself is backward Euler, so a transient pressure field is first order in time (exact pressure-diffusion benchmark, `test/pyrolysis/exact/pressure_transient`); `T` and `χ` keep the second order of the 0-D gates. The stored gas mass `ε_g ρ_g` is carried as a state and corrected at the end of the step so that the gas mass balance closes to round-off; when the correction would take a cell's stored gas below half its start value (threshold kinetics), the reactions that ran supply the difference. The stored energy becomes `E = H_s(T, χ) + ε_g (ρ_g h_g − p)`, and the gas enthalpy is advected with the Darcy mass flux. The gas leaves through the **open** faces, where `p` is prescribed, with the enthalpy `h_g(p_w, T_w)` at the wall temperature `T_w` that the face's BC computes (the cell temperature on a face without one, 103); every other face is impermeable.
 
 ```ini
 [FUSS-Pyrolysis]
@@ -143,59 +144,32 @@ All keys and defaults: [Parameter Registry](registry.md#fuss-darcy).
     joined through 101 faces, in a row along their lines or side by side, share one such correction, so a domain cut
     into blocks converges as the uncut one (to round-off). Lines that carry the same data (a one-dimensional case cut
     into identical lines, in one block or several) are therefore solved exactly in one sweep.
-  - A two-dimensional block takes more sweeps (hundreds on the 40 × 20 slab of `test/pyrolysis/ablation/smoothing`).
-  - Before 2026-10-13 the flow across the lines sat whole on the right-hand side, and the sweeps diverged on a
-    two-dimensional block whenever the storage `V/dt` fell below the cross conductance.
+  - A two-dimensional block takes more sweeps (hundreds on a 40 × 20 slab).
   - A block whose open faces lie in several directions, or none, falls back to `pseudo`. `max-iter` sweeps without convergence stop the run (`error stop 3`). `OUTPUT/<prefix>darcy.txt` records per step `iter time block sweeps resid dp_last`.
-- **Quasi-steady.** With no stored gas, the difference between the gas the pressure solve expels (production predicted at the mid-step temperature) and the gas the RK stages release waits as a carry, `(eta_st − eta_prev)·p_pg` (restart columns), and joins the next step's source (never below zero): the gas mass is exact with a one-step lag. Before 2026-10-13 the difference was dropped, and threshold kinetics lost 5–11 % of the gas (Baum & Atreya benchmark, `test/pyrolysis/lit/baum_atreya2007`).
-- **Output.** The solution file gains `p_pg`, the cell gas velocity `u_pg_1 u_pg_2 u_pg_3` [m/s] and the state of the scheme `eta_prev`, `eta_st`, `T_prev` (read back on restart with `p_pg`; a type-2 run restarted from a file without them, such as a type-1 solution, starts the gas at `p-init` and the equation of state with a NOTICE, and its first step has no extrapolation history); `mdot_pg` is the magnitude of the cell's Darcy mass flux `|ρ_g (K/μ)·∇p|` [kg m⁻² s⁻¹] and `u_pg` the interstitial velocity. `energy-budget.txt` gains an eighth column `M_g`, the stored gas mass; on a receding mesh, `E_abl M_abl G_abl` follow it (`G_abl` the stored gas swept out; under `quasi-steady` the swept carry), so that `M_s + M_g + M_gas_out + M_abl + G_abl` stays constant (quasi-steady: without the equation-of-state gas `M_g`). A probe may record `variables = T p_pg`.
+- **Quasi-steady.** With no stored gas, the difference between the gas the pressure solve expels (production predicted at the mid-step temperature) and the gas the RK stages release waits as a carry, `(eta_st − eta_prev)·p_pg` (restart columns), and joins the next step's source (never below zero): the gas mass is exact with a one-step lag.
+- **Output.** The solution file gains `p_pg`, the cell gas velocity `u_pg_1 u_pg_2 u_pg_3` [m/s] and the state of the scheme `eta_prev`, `eta_st`, `T_prev` (read back on restart with `p_pg`; a type-2 run restarted from a file without them, such as a type-1 solution, starts the gas at `p-init` and the equation of state with a NOTICE, and its first step has no extrapolation history); `mdot_pg` is the magnitude of the cell's Darcy mass flux `|ρ_g (K/μ)·∇p|` [kg m⁻² s⁻¹] and `u_pg` the interstitial velocity. `energy-budget.txt` gains an eighth column `M_g`, the stored gas mass. A probe may record `variables = T p_pg`.
 
-## Ablating wall (306, 307) and recession
+## Ablating wall (306, 307)
 
 A face of type 306 solves the surface energy balance of the material response for its wall temperature. The balance
 covers conduction, the convection of the boundary layer blocked by the blowing gas, the advection of the pyrolysis gas and
-of the char, absorbed and emitted radiation, and the B′ table of the surface chemistry (plan 08; thesis eqs. 3.46–3.50,
+of the char, absorbed and emitted radiation, and the B′ table of the surface chemistry (thesis eqs. 3.46–3.50,
 PATO's `BprimeBoundaryConditions`). Type 307 is the same balance on a face coupled to MOSE, with its boundary-layer
 values from hydra. For the `bc.txt` lines, the env table and the B′ table, see
 [Boundary Conditions](boundary-conditions.md#ablating-wall-306-and-coupled-ablating-wall-307).
 
 ```ini
-[FUSS-MeshMotion]
-law = nodeshift                ; the 306 faces recede; static = they blow and consume no char
-
 [FUSS-Ablation]
 seb-tol             = 1.0e-8   ; stop test of the surface energy balance
 seb-max-iter        = 50       ; reached -> error stop 3
-smoothing-width     = 5        ; nodes of the recession smoothing along the surface lines (odd; 1 = off)
-min-thickness       = 0.0      ; [m] a receding line shorter than this stops the run; 0 = 10 x the smallest cell, at most half the line
 bprime-out-of-range = clamp    ; clamp | abort
 ```
 
 All keys: [Parameter Registry](registry.md#fuss-ablation).
 
-- **Static mesh** (`law = static`). The face blows its pyrolysis gas and consumes no char (`B′_c = ṁ_c = ṡ = 0`, the
-  wall enthalpy still from the table), as PATO does on a static mesh.
-- **Recession** (`law = nodeshift`). Each face recedes at `ṡ = ṁ_c/ρ_s`.
-  - Every surface node takes the area-weighted rate of its faces, smoothed along the surface grid lines over
-    `smoothing-width` nodes (thesis Eq. 5.1). The stencil is truncated at a line end and crosses block connections.
-  - Every grid line from the receding face to the opposite face is compressed uniformly: a graded mesh keeps its
-    grading, and the opposite face stays put.
-  - A block recedes from one face id. Its 306 patch must be closed across block connections, and blocks sharing a
-    receding node must give their lines the same length.
-  - The run stops (`error stop 2`) when a line would fall below `min-thickness` ("ablating block consumed"), when a cell
-    would sweep out more than its volume in one step, or when the two sides of a block connection disagree on a node.
-  - A receding run never stops on `res-threshold`: it ends on `time-threshold` or `iter-threshold`.
-- **Pyrolysis on the receding mesh.** Every step the pyrolysis state is remapped conservatively onto the moved cells:
-  - what is remapped: the energy, the reactive solid masses and, under type 2, the stored gas, the gas pressure and the
-    histories of the scheme;
-  - the receding face sweeps out the wall state: the solid at `T_w` (the face's last balance; on the first step of a
-    new run, before any balance, the surface cell's `T`) and, under type 2, `p_w` with the stored gas `eta_st·p_w`,
-    `eta_st` being the surface cell's storage coefficient (equal to `η(T_w, p_w)·p_w` to first order). A receding face
-    without `[FUSS-Pyrolysis]` sweeps the solid at `T_w` too (its remap carries the energy alone; until plan 12 U19 it
-    swept the cell's own state, about 9 % of the wall's rise on `test/pyrolysis/ablation/receding_front`'s Robin twin);
-  - an in-code conservation audit stops a broken remap (`error stop 2`, `[ERROR] remap conservation`);
-  - at most 64 reactions.
-- **Coupled ablating wall (307).** It runs on a static mesh with `lambda = 0`, its values written by hydra before every
+- **Blowing.** The face blows its pyrolysis gas and consumes no char (`B′_c = ṁ_c = 0`, the wall enthalpy still from
+  the table).
+- **Coupled ablating wall (307).** It runs with `lambda = 0`, its values written by hydra before every
   step. A standalone run reads them from the TEST ONLY `coupled-env-file`, evaluated as hydra's are: once per step at
   the step's end time (and once at setup at the start time), never per Runge–Kutta stage. The file holds
   - one table `t p_w rhoeUeCH h_r q_rad` for every 307 face (linear in `t`, clamped; `p_w > 0` on every row), or
@@ -205,40 +179,25 @@ All keys: [Parameter Registry](registry.md#fuss-ablation).
     (no exchange values yet: at setup the face keeps `p-wall`, as under hydra); a step before the block's second row
     stops the run.
 - **Output.**
-  - `wall.tec` carries seven columns in a run with a 306/307 face (two otherwise): `T_w`, the conducted flux `q_w`, the
-    recession rate `ṡ`, `ṁ_pg`, `ṁ_ch`, `B′` and the recession `s_total`.
+  - `wall.tec` carries seven columns in a run with a 306/307 face (two otherwise): `T_w`, the conducted flux `q_w`,
+    `ṡ`, `ṁ_pg`, `ṁ_ch`, `B′` and `s_total` (`ṡ` and `s_total` are zero).
   - `OUTPUT/<prefix>seb.txt` holds every term of each face's last balance, at every solution output.
-  - `OUTPUT/<prefix>bc306-state.dat` holds each face's restart state (recession, wall temperature, recession rate,
-    blowing correction, lagged B′_pg) and the resolved `min-thickness`. It is rewritten at every output, and a restart
-    needs it.
-  - `energy-budget.txt` gains the swept-out columns (see [Pyrolysis](#output)).
+  - `OUTPUT/<prefix>bc306-state.dat` holds each face's restart state (wall temperature, blowing correction,
+    lagged B′_pg). It is rewritten at every output, and a restart needs it.
 - **Refused at setup:**
   - multigrid;
-  - `law = translation` or `prescribed` with a 306 face, or `law = nodeshift` without one;
-  - with a periodic face (201): a receding node on the axis of the pair (its own image), a 306 patch that a periodic
-    seam does not close (the image of a receding node on the other face is no 306 node), or a receding line and its
-    image whose lengths differ by more than $10^{-3}$ of the smallest half cell of the pairs. A receding wall across a
-    pair moves a node and its image by images: they are one surface
-    node, with the faces of both sides, and the smoothing runs on across the seam;
-  - a receding block that owns a coupled face (103, 104, 307), several materials or a volumetric source;
-  - an even `smoothing-width`;
   - a chemistry-on env row without `[FUSS-Pyrolysis]` or without a B′ table;
   - a 307 face without pyrolysis or without a B′ table, or with a `lambda`;
   - `coupled-env-file` without a 307 face; with `// face` blocks, a 307 face without a block, a block that names no 307
     face or a face already named, a block of fewer than two rows, or a row above the first `// face` line.
 - **TEST ONLY keys:**
-  - `sdot-override`: imposes the recession rate;
   - `no-char`: makes `B′_c = ṁ_c = 0`;
   - `coupled-env-file`: 307 standalone (one table, or one block per face);
   - `dump-interface-flux`: writes `OUTPUT/<prefix>interface-flux.txt`, the conduction, gas-mass and gas-enthalpy flows
     through every block-connection face;
-  - `perturb-interface-node`: moves one interface node, to show the interface check;
-  - `[FUSS-MeshMotion] skip-bc-metrics-refresh`.
-- **Verification** (`test/pyrolysis/ablation/`, `test/moving-mesh/conjugate_receding*`):
-  - Ablation Test Cases 2.1, 2.2 and 2.3 against PATO;
+  - `perturb-interface-node`: moves one interface node, to show the interface check.
+- **Verification** (`test/pyrolysis/ablation/`):
+  - Ablation Test Case 2.1 against PATO;
   - the closed-form balance and blowing checks;
-  - the uniform receding slab;
   - the 307/306 identity and the per-face blocks of `coupled-env-file`;
-  - the smoothing demonstration;
-  - the receding two-block cases;
   - the restart cases.
