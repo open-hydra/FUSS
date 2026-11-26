@@ -125,12 +125,18 @@ The tests of `test/input-io/` run scripts on copies of the cases. Each prints on
 
 `test/CMakeLists.txt` registers every gate script below as CTest tests of label `gate`, also
 labelled `verification`, so the pull-request check does not run them. Each test runs in its own
-folder `build/test/runs/gates/<test>` (or under `FUSS_GATE_WORK`: on a build tree on NFS the gates that write at
-every iteration run 10 to 200 times slower and pass their `TIMEOUT`), on the tree's executable
-(`-b $<TARGET_FILE:FUSS>`). Exit code
-77 means that the script skipped a check: a `verify.py` that printed `SKIP` (a reference file
-missing), or a requirement `test/ctest_requires.sh` found missing (Intel MPI, the build's own
-compiler at its version, `CMakePresets.json`). CTest reports such a test *Not Run*, never *Passed*.
+folder `build/test/runs/gates/<test>` (`FUSS_GATE_WORK` names another root), on the tree's
+executable (`-b $<TARGET_FILE:FUSS>`). Exit code 77 means that the script skipped a check: a
+`verify.py` that printed `SKIP` (a reference file missing), or a requirement
+`test/ctest_requires.sh` found missing (Intel MPI, the build's own compiler at its version,
+`CMakePresets.json`). CTest reports such a test *Not Run*, never *Passed*.
+
+A build tree on a network file system needs `-DFUSS_GATE_WORK=<local dir>`. The `TIMEOUT` of each
+gate is at least 5 times its wall with the work folders on a local disk (at least 300 s), and
+several gates write at every iteration: on NFS they run far slower and pass their `TIMEOUT`.
+Measured on 2026-11-26 with the same executable: `heated0d_type2` (in `Gate_Darcy0d`) took 35.4 s
+of solver time with its work folder on NFS and 0.18 s on a local disk, and
+`Gate_DarcyAtc2ChemistryOff` stopped at its 300 s `TIMEOUT` on NFS against 31 s on a local disk.
 
 ```bash
 ctest --test-dir build -N -L gate                     # the gate tests, by name
