@@ -298,6 +298,8 @@ $$
   $\dot{\mathbf m}_g = -\boldsymbol\Gamma\nabla p$.
 - $C_f$ multiplies the normal difference; $E_f$ holds the tangential differences. The line-implicit
   solver puts $C_f$ on the matrix and takes $E_f$ from the current iterate.
+- The second equality takes $\boldsymbol\Gamma_f\hat{\mathbf n}_f$ for $\hat{\mathbf n}_f\cdot\boldsymbol\Gamma_f$: it holds
+  for a symmetric tensor ($\mathbf K$ is checked at set-up, the Klinkenberg $\mathbf B$ is not).
 - $\boldsymbol\Gamma = \rho_g\mathbf K_\text{eff}/\mu$ of each cell is evaluated once per step at the
   start-of-step state; the face metric is always the mean of the two cell metrics, whatever
   `diffusive-metric` says.
@@ -316,8 +318,13 @@ with $M_P$ the cell metric, $s = -1$ on a low-index face and $+1$ on a high one,
 central differences of $P$ along the face. The factor 2 is the half-cell distance, as in $G$ of the
 [wall faces](#walls-301305). The outward mass flux of the face is $\dot m_{pg} = -F_w/A_f$.
 
-**Impermeable face.** No flow. The ghost cells mirror the interior pressure (zero normal gradient);
-they enter only the tangential differences of the neighbouring faces.
+**Impermeable face.** No flow.
+
+**Ghost cells.** The ghost cells of every face but a block connection, open faces included, mirror
+the interior pressure (zero normal gradient): $p_w$ enters the open-face flux, never a ghost. The
+ghosts enter the tangential differences of the neighbouring faces and the central differences of the
+cell outputs $\mathbf u_g$ and $\dot m_{pg} = \lvert\boldsymbol\Gamma\nabla p\rvert$, which therefore do not see
+$p_w$; the mass flux of an open face is its own $-F_w/A_f$.
 
 **Block connection (101).** The interior kernel with $M_f = \tfrac12(M_P + M_N)$, the face tensor
 $\tfrac12(\boldsymbol\Gamma_P + \boldsymbol\Gamma_N)$ of the two cells' own coefficients and the

@@ -100,7 +100,7 @@ Requirements enforced at setup (`error stop 1` with a message): `integration-var
 
 ### Material files
 
-Besides `INPUT/<prefix>properties.dat` (still loaded, not used by the pyrolysis path), every material of `phase.txt` needs four more files in `INPUT/`. Until ATLAS can write them, `test/pyrolysis/tools/make_tacot_tables.py --pato-dir <PATO 3.1 root> --out INPUT` writes them from PATO's TACOT data, and `make_case.py` builds complete cases.
+Besides `INPUT/<prefix>properties.dat` (still loaded: the pyrolysis path takes its property values from the files below, but the temperature range of `properties.dat` still bounds every cell, so it must cover the temperatures of the run), every material of `phase.txt` needs four more files in `INPUT/`. Until ATLAS can write them, `test/pyrolysis/tools/make_tacot_tables.py --pato-dir <PATO 3.1 root> --out INPUT` writes them from PATO's TACOT data, and `make_case.py` builds complete cases.
 
 | file | content |
 |------|---------|

@@ -233,7 +233,7 @@ The source enters every stage as $\Delta t\,\dot q_\text{vol}$ on $h$ (divided b
 
 ## Pyrolysis Materials
 
-With `[FUSS-Pyrolysis]` the properties of a decomposing material come from four other tables in `INPUT/`; `properties.dat` and `phase.txt` are still read (the material names and their order), but the pyrolysis path takes no property from `properties.dat`. The file formats are given in [Input File](../user/input.md#material-files); the model that uses them in [Pyrolysis](pyrolysis.md).
+With `[FUSS-Pyrolysis]` the properties of a decomposing material come from four other tables in `INPUT/`; `properties.dat` and `phase.txt` are still read: the material names and their order, and the temperature range of `properties.dat`, which still bounds every cell (an initial or updated temperature outside $[T_\text{min}, T_\text{max})$ of `properties.dat` stops the run, see [Temperature range](#property-interpolation)). The pyrolysis path takes no property value from it. The file formats are given in [Input File](../user/input.md#material-files); the model that uses them in [Pyrolysis](pyrolysis.md).
 
 | File | Content | Used for |
 |------|---------|----------|
@@ -243,9 +243,9 @@ With `[FUSS-Pyrolysis]` the properties of a decomposing material come from four 
 | `<prefix>gas.dat` | per material and pressure level, rows 1 K apart: `T p M h mu` | $W$, $h_g$, $\mu$ of the pyrolysis gas |
 
 - The solid tables give the **specific** enthalpy $h$ [J/kg] (`properties.dat` gives the volumetric one). The virgin, char and gas enthalpies must share one datum: the heat of decomposition is the difference of their values, and `h[i][j]` of `pyrolysis.dat` is ignored (see [Stored Energy](pyrolysis.md#stored-energy)).
-- The solid tables of a material must cover the same temperatures. The gas zones of a material share one $T$ range and have strictly increasing pressures.
+- The solid tables of a material must cover the same temperatures. The gas zones of a material share one $T$ range and have strictly increasing pressures $p_1 < \dots < p_{N_p}$; a pressure outside $[p_1, p_{N_p}]$ stops the run, so a table with one level holds at that pressure only.
 - Every lookup is linear between the 1 K rows, as `co_Kappa` is; the gas table is also linear in $p$ between its two bracketing levels.
-- The admissible temperatures of a cell are the intersection of the solid and gas ranges, one row in from each end. A temperature or gas state outside them stops the run; nothing is clamped.
+- The admissible temperatures of a cell are the intersection of the solid and gas ranges, one row in from each end, and of the range $[T_\text{min}, T_\text{max})$ of `properties.dat`. A temperature or gas state outside them stops the run; nothing is clamped.
 - `ki`, `kj`, `kk` must be equal: the conductivity is a scalar.
 
 ---

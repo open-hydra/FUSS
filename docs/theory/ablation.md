@@ -2,7 +2,7 @@
 
 The boundary conditions 306 (ablating wall) and 307 (coupled ablating wall) close the surface of a decomposing solid with a **surface energy balance**: the wall temperature $T_w$ is the root of the balance between the heat conducted into the solid and the heat the boundary layer, the blowing gas and the radiation bring to the surface. This page gives the balance as the code evaluates it, the blowing correction, the B′ tables, what 306 and 307 take as input, and the solution of the balance. The `bc.txt` lines and the table files are described in [Boundary Conditions](../user/boundary-conditions.md#ablating-wall-306-and-coupled-ablating-wall-307), the keys in [Input File](../user/input.md#ablating-wall-306-307).
 
-FUSS solves the material on a fixed mesh, where the wall **blows its pyrolysis gas and consumes no char**: $B'_c = \dot m_c = 0$, while the wall enthalpy $h_w$ is still read from the B′ table.
+The wall **blows its pyrolysis gas and consumes no char**: $B'_c = \dot m_c = 0$, while the wall enthalpy $h_w$ is still read from the B′ table.
 
 ---
 
@@ -22,7 +22,7 @@ $$
 
 | Term | Expression | Evaluated at |
 |------|------------|--------------|
-| conduction into the solid | $q_\text{cond} = G\,(T_w - T_c) + C$ | the wall kernel of [Walls](numerics.md#walls-301305), with $k_s$ of the boundary cell |
+| conduction into the solid | $q_\text{cond} = G\,(T_w - T_c) + C$ | the wall kernel of [Walls](numerics.md#walls-301305), with $k_s$ of the boundary cell ($k(T_c)$ of `properties.dat` without `[FUSS-Pyrolysis]`) |
 | convection, blowing-corrected | $\rho_e u_e C_{H0}\,\beta\,(h_r - h_w)$ | $h_w$ from the B′ table at $(p_w, B'_{pg}, T_w)$ |
 | pyrolysis-gas advection | $\dot m_{pg}\,(h_g - h_w)$ | $h_g$ from the gas table at $(p, T_w)$ |
 | char advection | $\dot m_c\,(h_c - h_w)$ | zero: $\dot m_c = 0$ |
@@ -71,7 +71,7 @@ $$
 
 with $\beta = 1$ when $\lambda = 0$, $B' = 0$, $\dot m_{pg} \le 10^{-6}$ kg/(m²·s) or $\rho_e u_e C_{H0} \le 10^{-4}$ kg/(m²·s).
 
-- $\beta$ appears on both sides. At each Newton iterate of $T_w$ it is brought to its fixed point by Picard iteration, $\beta_{k+1} = \beta(B'(\beta_k))$, until $\lvert\beta_{k+1} - \beta_k\rvert \le$ `seb-tol`. An iteration that does not settle within `seb-max-iter` stops the run.
+- $\beta$ appears on both sides. At each Newton iterate of $T_w$ it is brought to its fixed point by Picard iteration, $\beta_{k+1} = \beta(B'(\beta_k))$, until $\lvert\beta_{k+1} - \beta_k\rvert \le$ `seb-tol`. An iteration that does not settle within `seb-max-iter` stops the run. The formula and its exceptions are those of PATO [2]; PATO updates $\beta$ once per call, FUSS iterates it to its fixed point.
 - At the fixed point, with $\zeta = 2\lambda\,\dot m_{pg}/(\rho_e u_e C_{H0})$, the correction is $\beta = \zeta/(e^\zeta - 1)$: setting $x = 2\lambda B'$ gives $\zeta = x\beta = \ln(1 + x)$.
 - $\lambda$ is the `lambda` of the 306 line ($\lambda = 0$ switches the correction off). A 307 face runs at $\lambda = 0$: the coefficient of the coupled solver already includes the blowing.
 - The Picard iteration starts from the last converged $\beta$, which the restart file keeps.
@@ -102,7 +102,7 @@ Each sub-block has its own $T$ rows, so the table need not be rectangular.
 
 A query on a grid value returns the table value. The balance queries $B'_g = \max(B'_{pg}, 0)$, and the fourth axis with $\rho_e u_e C_{H0}\,\beta$.
 
-**Out of range.** A query outside the table is clamped on each axis to the nearest table value, and each face counts its clamped queries per axis (written to `seb.txt`). With `bprime-out-of-range = abort` a clamp of $p$, $B'_g$ or $\rho_e u_e C_M$ stops the run (exit code 1); a clamp of $T$ is counted only.
+**Out of range.** A query outside the table is clamped on each axis to the nearest table value, and each face counts, per axis and once per stage, whether the query of its converged balance was clamped (written to `seb.txt`; the queries of the slope evaluations and of the bracketing iterates are not counted, nor those of the discarded first pass of a new type-2 run). With `bprime-out-of-range = abort` a clamp of $p$, $B'_g$ or $\rho_e u_e C_M$ in that query stops the run (exit code 1); a clamp of $T$ is counted only.
 
 The balance uses $h_w$; the $B'_c$ of the table is not applied.
 
@@ -127,7 +127,7 @@ The two faces solve the same balance. They differ in where its boundary-layer va
 - **306.** The env table holds the rows `t p_w rhoeUeCH0 h_r q_rad chem hconv T_edge`. It is interpolated linearly in $t$ and held at its first and last rows outside its range.
 - **307.** The coupled solver writes $(p_w, \rho_e u_e C_H, h_r, q_\text{rad})$ before every FUSS step. A step without them ($p_w = 0$) stops the run; at set-up the face keeps `p-wall`. A standalone run can read them from the test key `coupled-env-file`. A 307 face needs `[FUSS-Pyrolysis]`.
 - Both are evaluated **once per step**, at the end time $t^{n+1}$, before the pressure solve of the type-2 closure, which takes the face's $p_w$ as its Dirichlet value. Every Runge–Kutta stage of the step uses the same values.
-- Under the type-2 closure the face is open to the gas at $p_w$ whatever `open-bc-types` holds, and $p_w$ must lie inside the gas table. Under type 1 the face must be the exit face of `outflow-direction`.
+- Under the type-2 closure the face is open to the gas at $p_w$ whatever `open-bc-types` holds, and $p_w$ must lie inside the gas table: the set-up checks the env rows of a 306 face; a 307 exchange value outside it stops the run at the step. Under type 1 the face must be the exit face of `outflow-direction`.
 - Neither face runs with multigrid.
 
 ---

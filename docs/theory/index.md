@@ -69,4 +69,4 @@ FUSS advances the transient heat equation in conservative form on structured mul
 | **Pyrolysis** (optional) | Stored energy $E(T, \chi)$, closed-form kinetics, quasi-steady 1-D or Darcy gas flow | [Pyrolysis](pyrolysis.md) |
 | **Ablating wall** (optional) | Surface energy balance with blowing and B′ tables, solved for $T_w$ | [Ablating Wall](ablation.md) |
 
-The single unknown is the **temperature** $T$; each cell also carries a material index and a volumetric heat source. There are no velocity, pressure, or species fields. With pyrolysis each cell also carries the advancement of every decomposition reaction and, with the type-2 gas closure, the gas pressure.
+Without pyrolysis the single unknown is the **temperature** $T$; each cell also carries a material index and a volumetric heat source, and there are no velocity, pressure or species fields. With pyrolysis each cell also carries the advancement of every decomposition reaction and, with the type-2 gas closure, the gas pressure (and, for output, the gas velocity).
