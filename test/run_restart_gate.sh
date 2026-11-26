@@ -71,17 +71,18 @@
 #                                    and the stage-D binaries alike; the plain
 #                                    restart is one more draw (6.6e-12 on
 #                                    stage C, 1.24e-11 on stage D). Its budget
-#                                    is N_half x NEWTON_REL_F = 200 x 1e-13 =
-#                                    2.0e-11 (Lib_Pyrolysis.f90): each step of
-#                                    the restarted leg may stop one Newton
-#                                    tolerance away from the continuous run's
-#                                    iterate, and those offsets add without
-#                                    amplification (argued). Draws on binary
-#                                    b2b68f65 (2026-11-26): the plain restart
-#                                    0 in every field; perturbing T, chi_1,
-#                                    p_pg 1.54e-11, 1.33e-11, 1.29e-11 (chi_2);
-#                                    T_prev, eta_prev 0. It stays 1300 times
-#                                    below a lost history (restarting with
+#                                    is 1e-10, a floor set from measured draws,
+#                                    not a physics budget: the argument "one
+#                                    Newton stop tolerance per restarted step,
+#                                    N_half x NEWTON_REL_F" does not hold. Draws
+#                                    on binary b2b68f65 (2026-11-26), one unit
+#                                    of the 15th digit of T, chi_1, p_pg,
+#                                    T_prev or eta_prev: at N_half 200 (the
+#                                    gate) 0 .. 1.54e-11 (chi_2), inside 2e-11;
+#                                    at N_half 100 up to 9.73e-10 (chi_2, p_pg
+#                                    perturbed) against 1e-11; at N_half 400 at
+#                                    most 9.1e-13. It stays 270 times below a
+#                                    lost history (restarting with
 #                                    T_prev := T: rel|dT| 2.7e-8, chi 1.2e-7;
 #                                    with eta_prev := eta_st: 7.7e-8 and
 #                                    3.4e-7).
@@ -462,10 +463,9 @@ run_case "test/pyrolysis/energy_audit"       100
 run_case "test/pyrolysis/darcy/mass_balance_1d" 200
 # the history fields of the type-2 step (T_prev, eta_prev) under heating and
 # kinetics: 200 steps per half (~0.56 s each; 827 K at the restart, 1236 K at the end, reacting); its own
-# budget N_half x NEWTON_REL_F (header): one Newton stop tolerance per restarted step; one-digit perturbations of the
-# restart file end 0 .. 1.54e-11 apart (header), a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
-NEWTON_REL_F=1.0e-13   # src/lib/physics/Lib_Pyrolysis.f90
-TOL_H0D_T2=$(awk -v n=200 -v f=$NEWTON_REL_F 'BEGIN{printf "%.1e", n * f}')
+# budget 1e-10, a floor set from measured draws (header): one-digit perturbations of the restart file end 0 ..
+# 1.54e-11 apart at this N_half, a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
+TOL_H0D_T2=1.0e-10
 run_case "test/pyrolysis/darcy/heated0d_type2"  200 "$TOL_H0D_T2"
 # the same case through the binary VTK restart (plan 14 S9b): field.vtm must carry chi_* and the four type-2 columns
 # by name (a renamed chi_1 or T_prev is refused since S9b, accepted silently before)
