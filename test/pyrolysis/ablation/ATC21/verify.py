@@ -15,21 +15,20 @@ FUSS samples, PATO's 0.1 s grid t = 0.1 .. 120 s:
                                    is skipped -- linear interpolation across the switch-off at 60 s reads 72 K
                                    of sampling error into a wall that agrees to 0.1 K just before it
   virgin-98 %, char-2 % fronts     the field files (one every 0.1 s), PATO's own rule (abl_tools.fronts)
-Checks (expected.json; DECISION 2026-10-13 P-D4 of plan 08):
-  (T)      max over t and the 7 depths |T_FUSS - T_PATO| <= measured + 2 K
-  (Tw)     max |T_w,FUSS - T_w,PATO| <= measured + 2 K
-  (mdot_g) max |mdot_g,FUSS - mdot_g,PATO| <= measured + 10 % of PATO's peak mdot_g
-  (v98), (c02)  the two fronts: max |depth_FUSS - depth_PATO| <= measured + 10 % of PATO's peak depth
+Checks (plan 17 P17-D2: the tolerance of each quantity is the plain spread of the two reference codes,
+max over PATO's grid |PATO - Amaryllis| of that quantity, computed here from ref/ -- the organisers' Amaryllis 2.1 files
+and the PATO oracle, which $FUSS_PATO_ATC21_OUT may replace):
+  (T)      max over t and the 7 depths |T_FUSS - T_PATO| <= the T spread
+  (Tw)     max |T_w,FUSS - T_w,PATO| <= the T_w spread
+  (mdot_g) max |mdot_g,FUSS - mdot_g,PATO| <= the mdot_g spread
+  (v98), (c02)  the two fronts: max |depth_FUSS - depth_PATO| <= the front's spread
   (static) mdot_ch, sdot and the recession are exactly 0 (no-char, static mesh)
   (seb)    plan 08 section 3.2 on every seb.txt row (abl_tools.seb_closure)
-The 1.5x target of plan 06 section 4.4 (max |FUSS - PATO| <= 1.5 max |PATO - Amaryllis|, Amaryllis 2.1 in ref/) is
-printed per quantity and recorded in the README; it does not gate (P-D4).
 
-Usage: verify.py [case_dir] [--record]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets every budget to 0.
+Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets every tolerance to 0.
 $FUSS_PATO_ATC21_OUT (a PATO output/porousMat directory) replaces the PATO files of ref/ (not the Amaryllis ones).
 Python 3.6, no numpy.
 """
-import datetime
 import glob
 import json
 import os
@@ -41,19 +40,13 @@ import abl_tools as at  # noqa: E402
 
 DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
 RHO_V, RHO_C = 280.0, 220.0          # TACOT virgin and char solid densities (INPUT/pyrolysis.dat)
-T_SLACK = 2.0                        # K, P-D4
-FRAC_SLACK = 0.10                    # of PATO's peak, P-D4
 
 
 def main():
-    argv = sys.argv[1:]
-    record = "--record" in argv
-    args = [a for a in argv if a != "--record"]
+    args = sys.argv[1:]
     case = os.path.abspath(args[0]) if args else HERE
     ref = os.path.join(HERE, "ref")
     pato = os.environ.get("FUSS_PATO_ATC21_OUT") or ref     # a PATO output/porousMat directory overrides ref/
-    exp_path = os.path.join(HERE, "expected.json")
-    expected = json.load(open(exp_path)) if os.path.isfile(exp_path) else {}
     selftest = os.environ.get("FUSS_GATE_SELFTEST", "0") == "1"
 
     # ---- PATO and Amaryllis
@@ -122,28 +115,18 @@ def main():
         upd(res, "c02", None if c02 is None else c02 - Pm[i][4], t)
         upd(spread, "v98", Pm[i][3] - M[i][3], t)
         upd(spread, "c02", Pm[i][4] - M[i][4], t)
-    peaks = {"mdot_g": max(r[1] for r in Pm[:n]), "v98": max(r[3] for r in Pm[:n]), "c02": max(r[4] for r in Pm[:n])}
     units = {"T": "K", "Tw": "K", "mdot_g": "kg/m2/s", "v98": "m", "c02": "m"}
 
     ok = True
     print("ATC 2.1 gate: FUSS BC 306, static mesh, vs PATO (%s), t = 0.1..120 s; %d T_w/mdot_g grid times skipped "
           "(FUSS samples straddle an env breakpoint: %s)" % (pato, len(skipped), " ".join("%g" % t for t in skipped)))
-    measured, budgets = {}, {}
     for q in ("T", "Tw", "mdot_g", "v98", "c02"):
         m, t, where = res[q]
-        measured[q] = {"max": m, "t": t, "where": where}
-        if q in ("T", "Tw"):
-            b = expected.get("budget", {}).get(q, m + T_SLACK)
-        else:
-            b = expected.get("budget", {}).get(q, m + FRAC_SLACK * peaks[q])
-        if selftest:
-            b = 0.0
-        budgets[q] = b
+        b = 0.0 if selftest else spread[q][0]          # P17-D2: the plain PATO - Amaryllis spread of q
         good = m <= b
         ok &= good
-        tgt = 1.5 * spread[q][0]
-        print("  (%-6s) max|FUSS - PATO| %.4g %s at %g s %s  budget %.4g  %s   [1.5x target %.4g: %s]" % (
-            q, m, units[q], t, where, b, "PASS" if good else "FAIL", tgt, "met" if m <= tgt else "NOT met"))
+        print("  (%-6s) max|FUSS - PATO| %.4g %s at %g s %s  spread %.4g (at %g s %s)  %s" % (
+            q, m, units[q], t, where, b, spread[q][1], spread[q][2], "PASS" if good else "FAIL"))
 
     # static: nothing consumed, nothing receded
     worst_static = max(max(abs(r["mdot_ch"]), abs(r["Bch"])) for r in seb)
@@ -159,25 +142,6 @@ def main():
     ok &= good
     for l in lines:
         print("  " + l)
-
-    if record:
-        out = {
-            "measured": measured,
-            "budget": {q: (measured[q]["max"] + T_SLACK if q in ("T", "Tw") else measured[q]["max"] + FRAC_SLACK * peaks[q])
-                       for q in measured},
-            "pato_peaks": peaks,
-            "spread_pato_amaryllis": {q: {"max": spread[q][0], "t": spread[q][1], "where": spread[q][2]} for q in spread},
-            "target_1p5x_met": {q: measured[q]["max"] <= 1.5 * spread[q][0] for q in measured},
-            "skipped_grid_times": skipped,
-            "recorded": datetime.date.today().isoformat(),
-            "note": "budget: T and Tw measured + 2 K, mdot_g and the fronts measured + 10 % of PATO's peak (plan 08 P-D4); "
-                    "the 1.5x target is recorded, not gated; oracle ref/ = PATO 3.1 ATC 2.x with movingMesh no, DIC "
-                    "preconditioners and maxDeltaT 0.0005 (ref/README.md), run 2026-10-13",
-        }
-        with open(exp_path, "w") as fh:
-            json.dump(out, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        print("  recorded %s" % exp_path)
 
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1

@@ -977,7 +977,7 @@ gate_ablation_atc21 () {
   if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
   python3 "$ABL/ATC21/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
   KEYNUM=$(grep -E '^  \((T|Tw|mdot_g|v98|c02) *\)' "$dest/verify.log" \
-             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* budget ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
+             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* spread ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
   return $rc
 }
 
