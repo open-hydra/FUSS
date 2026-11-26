@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_physics_gates.sh
-#        USAGE: ./test/run_physics_gates.sh [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]
+#        USAGE: ./test/run_physics_gates.sh [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a] [-b FUSS_BINARY]
 #  DESCRIPTION: Run the solver on a fresh copy of each physics-claim case and
 #               grade it with that case's own verify.py.
 #
@@ -79,9 +79,13 @@
 #                                        it reverted), the wall output's Tw, qw see
 #                                        the output site (2.44 K). ~5k iterations.
 #
-#               Reserved for future groups -- append here as they land, do NOT
-#               start a second gate script: one physics gate for every group,
-#               not one per phase:
+#               The groups added since -- append a new one here and to CASES, do
+#               NOT start a second gate script: one physics gate for every group,
+#               not one per phase. Each gate_<name> function below says what its
+#               case proves; CASES (-h prints it) holds the 37 names in the order
+#               they run:
+#                 radiation_equilibrium, conjugate_receding, conjugate_receding_t2
+#                             -- see their gate_ functions.
 #                 pyrolysis   -- plan 06 phase 2, six sub-checks: kinetics_isothermal
 #                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
 #                                energy_audit (energy and solid-mass balances 1e-10,
@@ -113,7 +117,23 @@
 #                                Atreya 2007 corrected: front, T, char pressure, gas ledgers
 #                                of both type-2 modes), zhang2010 (three-code slab, BC 305,
 #                                within the codes' spread). ~4 min at -p 1.
-#                 ablation    -- add gate_ablation()   + list it
+#                 ablation_*  -- plan 08 and 12, the ablating walls 306/307, cases under
+#                                test/pyrolysis/ablation/: zero_blowing, seb_closure,
+#                                306_static, atc21, nodeshift_inert, remap_uniform, atc22,
+#                                atc23, coupled307, smoothing, receding_front.
+#                 periodic_*  -- plan 14 S9d Part B, periodic faces (201): periodic_motion,
+#                                periodic_receding, periodic_darcy.
+#
+#               UNDER CTEST (test/CMakeLists.txt, label gate): one test per name,
+#               `-b <the tree's FUSS> -w <build>/test/runs/gates/<name> -c <name>`.
+#               -b (or FUSS_GATE_BIN) names the binary to grade; without it,
+#               bin/FUSS of this tree, as before. A gate whose verify.py printed
+#               a SKIP line (a check it could not run, e.g. ATC2-chemistryOff
+#               without its PATO files) is reported SKIP, not PASS, with those
+#               lines; the script then exits 77 (CTest's SKIP_RETURN_CODE) when
+#               no gate failed. FUSS_GATE_P8_THREADS (default 8) is the thread
+#               count of pyrolysis's cross-thread leg; FUSS_GATE_PRESET names the
+#               preset check_build_config.sh checks (default: its own default).
 #
 #               NOTE ON -a (receding). verify.py's order/decay/pointwise-error
 #               checks all pass on N040/N080 alone (order 0.881 on that pair,
@@ -195,6 +215,8 @@
 #               outside a contended scheduler.
 #===============================================================================
 set -u
+# No __pycache__ in the source tree: the verify.py scripts import modules that sit beside them (same as python3 -B)
+export PYTHONDONTWRITEBYTECODE=1
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NTHREADS=1
@@ -202,6 +224,18 @@ ALL=0
 WORK=""
 ONLY=""
 SELFTEST="${FUSS_GATE_SELFTEST:-0}"
+BIN="${FUSS_GATE_BIN:-}"                    # -b wins; empty = bin/FUSS of this tree
+P8THREADS="${FUSS_GATE_P8_THREADS:-8}"      # threads of pyrolysis's cross-thread leg (energy_audit_p8)
+
+# Every gate, in the order they run; -c picks one
+CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
+       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
+       darcy_atc2_chemistry_off
+       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
+       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
+       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
+       ablation_smoothing ablation_receding_front
+       periodic_motion periodic_receding periodic_darcy)
 
 while test $# -gt 0; do
   case $1 in
@@ -209,16 +243,19 @@ while test $# -gt 0; do
     -w | --work)     WORK=$2;     shift 2 ;;
     -c | --case)     ONLY=$2;     shift 2 ;;
     -a | --all)      ALL=1; shift ;;
+    -b | --binary)   BIN=$2;      shift 2 ;;
     -h | --help)
-      echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]"
-      echo "  -c CASE   run only this case (freestream, conservation, bc303_qrad, bc303_qrad_1d, radiation_equilibrium,"
-      echo "            conjugate_two_layer, receding, residual_convergence, pyrolysis,"
-      echo "            darcy_sealed_nosource, darcy_mass_balance_1d, darcy_sealed_profile,"
-      echo "            darcy_tensor_linear_2d, darcy_0d, darcy_atc2_chemistry_off)"
+      echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a] [-b FUSS_BINARY]"
+      echo "  -c CASE   run only this case, one of the ${#CASES[@]}:"
+      echo "${CASES[*]}" | fold -s -w 96 | sed 's/ *$//; s/^/            /'
       echo "  -a        also run receding's .slow N160/N320 grids"
       echo "  -w WORKDIR  scratch dir for the copied cases (default: a fresh"
       echo "              dir under \$TMPDIR/fuss-physics-gates.\$\$)"
+      echo "  -b FUSS_BINARY  the solver to grade (default: bin/FUSS of this tree; or FUSS_GATE_BIN)"
       echo "  FUSS_GATE_SELFTEST=1  proven-red hook, see the file header"
+      echo "  FUSS_GATE_P8_THREADS=N  threads of pyrolysis's cross-thread leg (default 8)"
+      echo "  FUSS_GATE_PRESET=NAME   the preset check_build_config.sh checks the build against"
+      echo "  exit status: 0 all passed, 1 a gate failed, 77 none failed but one skipped a check"
       exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -230,7 +267,7 @@ mkdir -p "$WORK"
 # Refuse to grade physics against a build that was not configured the way
 # CMakePresets.json says -- same reasoning as run_regression.sh: a
 # mis-configured build (serial, or TecIO-linked) is not loud on its own.
-if ! "$ROOT/test/check_build_config.sh"; then
+if ! "$ROOT/test/check_build_config.sh" ${FUSS_GATE_PRESET:+--preset "$FUSS_GATE_PRESET"}; then
   echo
   echo "refusing to run physics gates against a build that does not match the preset"
   exit 1
@@ -243,21 +280,29 @@ fi
 # Without this, two cases in the SAME run could silently grade two different
 # executables. One snapshot makes "one invocation grades one binary" true by
 # construction, not by luck.
+BINLABEL=bin/FUSS
+if [ -n "$BIN" ]; then BINLABEL=$BIN; else BIN="$ROOT/bin/FUSS"; fi
+if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then
+  echo "no FUSS executable at $BIN" >&2
+  exit 1
+fi
 BINSNAP="$WORK/.bin-snapshot"
 mkdir -p "$BINSNAP"
-cp "$ROOT/bin/FUSS" "$BINSNAP/FUSS"
+cp "$BIN" "$BINSNAP/FUSS"
 BINMD5=$(md5sum "$BINSNAP/FUSS" | cut -d' ' -f1)
 
 fail=0
+skip=0
 KEYNUM=""
 pass_line() { printf '  \033[0;32mPASS\033[0m  %-24s %s\n' "$1" "$2"; }
 fail_line() { printf '  \033[0;31mFAIL\033[0m  %-24s %s\n' "$1" "$2"; fail=$((fail+1)); }
+skip_line() { printf '  \033[0;33mSKIP\033[0m  %-24s %s\n' "$1" "$2"; skip=$((skip+1)); }
 
 echo "FUSS physics gates"
 echo "  root      : $ROOT"
 echo "  threads   : $NTHREADS"
 echo "  work      : $WORK"
-echo "  binary    : $BINMD5  (bin/FUSS, snapshotted once at start)"
+echo "  binary    : $BINMD5  ($BINLABEL, snapshotted once at start)"
 [ "$ALL" -eq 1 ] && echo "  receding  : all four grids (-a)"
 [ "$SELFTEST" = "1" ] && echo "  SELFTEST  : FUSS_GATE_SELFTEST=1 -- tolerances deliberately broken"
 echo
@@ -504,8 +549,8 @@ PYNOKIN
   solve "$dest/energy_audit_nokin" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit no-kinetics: solver exit $rc"; return 1; fi
   stage "$base/energy_audit" "$dest/energy_audit_p8"
-  solve "$dest/energy_audit_p8" 8; rc=$?
-  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p 8: solver exit $rc"; return 1; fi
+  solve "$dest/energy_audit_p8" "$P8THREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p $P8THREADS: solver exit $rc"; return 1; fi
   if ! python3 "$base/energy_audit/verify.py" "$dest/energy_audit" \
          --vnn025 "$dest/energy_audit_vnn0.125" --vnn0125 "$dest/energy_audit_vnn0.0625" \
          --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" > "$dest/energy_audit/verify.log" 2>&1; then
@@ -1241,15 +1286,7 @@ gate_periodic_darcy () {
 }
 
 # ---------------------------------------------------------------------------
-CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
-       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
-       darcy_atc2_chemistry_off
-       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
-       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
-       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
-       ablation_smoothing ablation_receding_front
-       periodic_motion periodic_receding periodic_darcy)
-
+# CASES is defined at the top (-h prints it)
 if [ -n "$ONLY" ]; then
   case " ${CASES[*]} " in
     *" $ONLY "*) CASES=("$ONLY") ;;
@@ -1260,15 +1297,26 @@ fi
 for c in "${CASES[@]}"; do
   KEYNUM=""
   if "gate_$c"; then
-    pass_line "$c" "$KEYNUM"
+    # A verify.py that cannot run a check prints a SKIP line and exits 0 (ATC2-chemistryOff without its PATO files,
+    # a sub-check without its input): such a gate is reported SKIP with those lines, never PASS
+    skips=$(find "$WORK/$c" -name 'verify*.log' -exec grep -hw SKIP {} + 2>/dev/null)
+    if [ -n "$skips" ]; then
+      skip_line "$c" "$KEYNUM"
+      printf '%s\n' "$skips" | sed 's/^ */          /'
+    else
+      pass_line "$c" "$KEYNUM"
+    fi
   else
     fail_line "$c" "$KEYNUM"
   fi
 done
 
 echo
-if [ "$fail" -eq 0 ]; then
+if [ "$fail" -eq 0 ] && [ "$skip" -eq 0 ]; then
   echo "all physics gates passed"
+elif [ "$fail" -eq 0 ]; then
+  echo "$skip physics gate(s) SKIPPED a check (see the SKIP lines above); none failed"
+  exit 77
 else
   echo "$fail physics gate(s) FAILED -- see the per-case verify.log / run.log under $WORK"
   exit 1
