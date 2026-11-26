@@ -8,8 +8,9 @@ codes of the thesis (MATLAB, UEL, UMATHT), extracted from the vector figures (re
 FUSS: exposed and unexposed surface temperatures from wall*.tec (faces 1 and 2), the mid-plane from the two cells around
 it (probes midlo, midhi), the gas mass flux at the exposed face from the first cell's mdot_pg (type 1 outflow, face 1).
 Checks, for t > 20 s:
-  (T)    max |T_FUSS - T_MATLAB| at each of the three planes <= dT_max (the three codes themselves spread 4.75-5.26 K;
-         red before 2026-10-13, when BC 305's wall update dropped h_conv: 7.4 K at the mid-plane)
+  (T)    max |T_FUSS - T_MATLAB| at each of the three planes <= that plane's spread of the codes, max over t > 20 s and
+         UEL, UMATHT of |T_code - T_MATLAB| (plan 17, the lead's reading (c); 4.75 / 5.26 / 5.10 K; red before
+         2026-10-13, when BC 305's wall update dropped h_conv: 7.4 K at the mid-plane)
   (mdot) the FUSS peak gas flux within [mdot_lo, mdot_hi] x the lowest/highest reference peak, its time within dt_peak
 --record writes the measured values into expected.json. FUSS_GATE_SELFTEST=1 zeroes the budgets. Python 3.6, no numpy.
 """
@@ -64,16 +65,16 @@ def main():
     ok = True
     meas = {}
     print("Zhang (2010) decomposing slab: %s against the MATLAB code (UEL, UMATHT for the spread)" % case)
-    dT_max = 0.0 if sel else exp["dT_max"]
     for key in ("exposed", "middle", "unexposed"):
         d = [v - interp(rT["MATLAB_%s_K" % key], t) for t, v in s[key] if t > 20.0 and interp(rT["MATLAB_%s_K" % key], t) is not None]
         spread = max(abs(v - interp(rT["%s_%s_K" % (c, key)], t)) for c in ("UEL", "UMATHT") for t, v in rT["MATLAB_%s_K" % key]
                      if t > 20.0 and rT.get("%s_%s_K" % (c, key)) and interp(rT["%s_%s_K" % (c, key)], t) is not None)
         worst = max(abs(v) for v in d)
+        dT_max = 0.0 if sel else spread
         good = worst <= dT_max
         ok &= good
         meas[key] = {"max": worst, "mean": sum(d) / len(d)}
-        print("  (T) %-9s max|T - T_MATLAB| %.2f K (mean %+.2f K; codes' spread %.2f K; budget %.2f K)  %s"
+        print("  (T) %-9s max|T - T_MATLAB| %.2f K (mean %+.2f K; codes' spread %.2f K = the tolerance %.2f K)  %s"
               % (key, worst, sum(d) / len(d), spread, dT_max, "PASS" if good else "FAIL"))
     pk = max(s["mdot"], key=lambda r: r[1])
     refpk = [max(rM["%s_kg_s_m2" % c], key=lambda r: r[1]) for c in CODES]
