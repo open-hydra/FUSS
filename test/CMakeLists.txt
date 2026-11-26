@@ -3,10 +3,13 @@
 # Tiers are expressed through LABELS, as in MOSE (test/TESTING-PLAN.md of MOSE):
 #   fast          under a minute each (the tier in about a minute at -j4): the selector of the pre-push check, ctest -L fast
 #   validation    comparison with an analytic or reference solution (also the cases of the fast tier that have one)
-#   verification  full forms of verification cases (families of grids, long runs): ConvergenceOrder, MultigridSolution; run on
-#                 request, ctest -L verification
+#   verification  full forms of verification cases (families of grids, long runs): ConvergenceOrder, MultigridSolution; and,
+#                 for now, every gate (below); run on request, ctest -L verification
 #   smoke         cases without a verifier, 300 iterations: the run must end cleanly (FUSS only; MOSE has none)
 #   needs-mpi     registered only with USE_MPI=ON: 2 ranks, or ranks x threads layouts, must give the same output files
+#   gate          the gate scripts of test/ (run_physics_gates.sh one test per gate, the restart, guard, runtime-input and
+#                 build checks; with USE_MPI=ON the MPI gates, label mpi-gate): ctest -L gate. Each also carries
+#                 verification, which keeps them out of the PR tier; a gate that skips a check is reported Not Run (77)
 # Second-level tags, as MOSE's: physics (a model or a boundary condition against its solution), numerics (a property of the
 # discretisation), implementation (inputs, stops, restart, parallel runs), unit (a program that calls a routine).
 #
@@ -204,3 +207,60 @@ if (USE_MPI)
   fuss_add_mpi_script(MPIRestart           input-io/mpi-restart.sh        300 "needs-mpi;implementation")
   fuss_add_mpi_script(MPIDecompositionMap  input-io/mpi-decomposition-map.sh 300 "needs-mpi;implementation")
 endif()
+
+# ===========================================================================
+#  Gate scripts (gate): the scripts of test/ run by hand, under CTest
+#  ctest -L gate (all), ctest -R Gate_Pyrolysis -V (one); every gate also carries verification (outside the PR tier)
+# ===========================================================================
+# Each runs in its own folder runs/gates/<test name>, on this tree's executable ($<TARGET_FILE>); exit code 77 is a skip
+# (a check the script could not run), which ctest reports as Not Run
+set(_GATES "${_WORK}/gates")
+if (USE_MPI)
+  set(_FUSS_PRESET mpi)        # the preset check_build_config.sh compares this tree with
+else()
+  set(_FUSS_PRESET default)
+endif()
+set(FUSS_GATE_THREADS 8 CACHE STRING "Threads of the cross-thread legs of the gates (pyrolysis, determinism): their PROCESSORS")
+
+# fuss_add_gate(NAME TIMEOUT LABELS command...): a gate script, with SKIP_RETURN_CODE 77 and no __pycache__ written
+function(fuss_add_gate NAME TIMEOUT LABELS)
+  fuss_register(${NAME} ${TIMEOUT} "${LABELS}" ${ARGN})
+  set_tests_properties(${NAME} PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+    "PYTHONDONTWRITEBYTECODE=1;FUSS_GATE_PRESET=${_FUSS_PRESET};FUSS_GATE_P8_THREADS=${FUSS_GATE_THREADS};FUSS_GATE_XTHREADS=${FUSS_GATE_THREADS}")
+endfunction()
+
+# Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the wall of the run of 2026-11-26
+# (1 thread, pcprop9), at least 300 s
+set(_PHYSICS_GATES
+  Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
+  RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
+  ConjugateReceding:conjugate_receding:300 ConjugateRecedingT2:conjugate_receding_t2:300 Receding:receding:300
+  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:600
+  DarcySealedNosource:darcy_sealed_nosource:300 DarcyMassBalance1d:darcy_mass_balance_1d:300
+  DarcySealedProfile:darcy_sealed_profile:300 DarcyKlinkenberg:darcy_klinkenberg:300
+  DarcyTensorLinear2d:darcy_tensor_linear_2d:300 Darcy0d:darcy_0d:300 DarcyAtc2ChemistryOff:darcy_atc2_chemistry_off:300
+  BenchPressureTransient:bench_pressure_transient:300 BenchTranspiration:bench_transpiration:300
+  BenchSharpFront:bench_sharp_front:300 BenchBaumAtreya:bench_baum_atreya:300 BenchZhang2010:bench_zhang2010:300
+  AblationZeroBlowing:ablation_zero_blowing:300 AblationSebClosure:ablation_seb_closure:300
+  Ablation306Static:ablation_306_static:400 AblationAtc21:ablation_atc21:300
+  AblationNodeshiftInert:ablation_nodeshift_inert:300 AblationRemapUniform:ablation_remap_uniform:300
+  AblationAtc22:ablation_atc22:500 AblationAtc23:ablation_atc23:1000 AblationCoupled307:ablation_coupled307:300
+  AblationSmoothing:ablation_smoothing:300 AblationRecedingFront:ablation_receding_front:300
+  PeriodicMotion:periodic_motion:300 PeriodicReceding:periodic_receding:300 PeriodicDarcy:periodic_darcy:300)
+# fuss_add_physics_gate(NAME GATE TIMEOUT [options]): Gate_<NAME> runs the gate GATE of run_physics_gates.sh
+function(fuss_add_physics_gate NAME GATE TIMEOUT)
+  fuss_add_gate(Gate_${NAME} ${TIMEOUT} "gate;physics;verification"
+                bash ${CMAKE_CURRENT_SOURCE_DIR}/run_physics_gates.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_${NAME} -c ${GATE} ${ARGN})
+endfunction()
+foreach(_g IN LISTS _PHYSICS_GATES)
+  string(REPLACE ":" ";" _g "${_g}")
+  list(GET _g 0 _name)
+  list(GET _g 1 _gate)
+  list(GET _g 2 _timeout)
+  fuss_add_physics_gate(${_name} ${_gate} ${_timeout})
+endforeach()
+# receding with its .slow grids N160/N320 (-a; 637 s at 1 thread)
+fuss_add_physics_gate(RecedingAll receding 3600 -a)
+# the cross-thread leg of pyrolysis (energy_audit at 1 and FUSS_GATE_THREADS threads, byte for byte)
+set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
