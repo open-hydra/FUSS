@@ -196,9 +196,25 @@ $$
 \alpha_i = \frac{k_{s,i}}{\rho_{s,i}\,c_{p,s,i}} .
 $$
 
+A face between two materials needs no face pass. It takes the two half cells in series, so its term of the energy
+norm of the discrete operator is
+
+$$
+C_f\,(T_L - T_R)^2 = \min_{T_f}\Bigl[D_L\,(T_L - T_f)^2 + D_R\,(T_f - T_R)^2\Bigr] \le D_L\,T_L^2 + D_R\,T_R^2,
+\qquad D = \frac{2k_sA}{h},
+$$
+
+$D$ being the conductance of a half cell. The largest eigenvalue of the operator is therefore at most that of the two
+materials apart, each with a fixed temperature on the interface, and the cell step of each side covers that problem:
+the step is stable up to the nominal `vnn` (0.5 for euler and RK2, 0.628 for RK3) at a material jump as in one
+material. At the nominal value itself the shortest mode is not damped, for one material or two (its amplification
+factor has modulus 1), so a sharp start leaves an oscillation from cell to cell that does not decay: accuracy needs
+a `vnn` below the limit. Within one material the face takes the mean of the two $k_s$, which has no such bound: across
+a front sharp to one cell, a $k_s$ ratio above about 1.2 can exceed the nominal limit.
+
 | Enters $\Delta t$ | Does not enter $\Delta t$ |
 |--------------------|----------------------------|
-| $k_s$, $\rho_s$, $c_{p,s}$ of the cell (current $T$ and $\chi$) | the face conductivities (no face pass) |
+| $k_s$, $\rho_s$, $c_{p,s}$ of the cell (current $T$ and $\chi$) | the face conductivities (no face pass; a face between two materials is bounded above) |
 | the cell metric and the skew factor $f$ | the heat capacity of the stored gas (leaving it out only shortens $\Delta t$) |
 | `vnn` and its ramp | the reaction rates: the kinetics are integrated in closed form |
 | | the gas pressure: it is solved implicitly |

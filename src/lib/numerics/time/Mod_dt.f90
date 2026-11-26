@@ -72,7 +72,12 @@ contains
     enddo ! end of loop over blocks
 
     ! The cells whose face conductivities differ from their own get the face step
-    ! Not under pyrolysis (plan 14 D12): the cell step already uses the k_s cache the fluxes use
+    ! Not under pyrolysis (plan 14 D12): the cell step already uses the k_s cache the fluxes use. A face between two
+    ! materials needs no face step either: it takes the two half cells in series, whose term of the energy norm is
+    ! C (Ta - Tb)^2 = min over Tf of [ Da (Ta - Tf)^2 + Db (Tf - Tb)^2 ] <= Da Ta^2 + Db Tb^2 (D = 2 k_s A / h of
+    ! a half cell), so the spectrum is bounded by the two materials apart, each with a fixed temperature on the
+    ! interface, which the cell step of each side covers up to the nominal vnn (where the top mode is not damped,
+    ! as for one material). Within one material the face takes the mean of the two k_s, which has no such bound.
     if ( .not. obj_pyrolysis%enabled ) call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
 
     ! MPI: global minimum across all ranks

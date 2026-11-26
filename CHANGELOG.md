@@ -104,9 +104,11 @@ Where this branch behaves differently from upstream:
 - An unknown key in a FUSS section of `input.ini` stops the run:
   `[ERROR] unknown option in input.ini: [<section>] <key>`.
 - A block whose cells are all left-handed stops the run, with a message that names the block (upstream accepts it).
-- Under pyrolysis, every face inside a block takes the mean of the two cells' conductivities, also between two
-  materials; a block connection takes the mean for one material and the two half cells in series between two
-  materials (no test case runs this last branch yet).
+- Under pyrolysis a face takes the mean of the two cells' conductivities `k_s` within one material and the two half
+  cells in series between two materials, inside a block and at a block connection alike; the cell step stays, and
+  it is stable up to the nominal `vnn` limits at a material jump. Test `pyrolysis_two_layer`: second order against
+  the exact two-layer solution, stable at the nominal `vnn` limits for conductivity ratios 20 and 100 and cells five
+  times larger on either side, and a block cut at the interface gives the uncut result.
 - A steady run with a 301/302 time table warns at set-up that the table is held at its value at time −1. A 304/305
   wall whose temperature does not converge in 50 Newton steps warns (the first time on each rank; the count is printed
   at the end of the run); as upstream, the last iterate is used and the run goes on.

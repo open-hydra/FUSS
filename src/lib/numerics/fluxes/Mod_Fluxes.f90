@@ -171,8 +171,9 @@ contains
 
     else
 
-    ! Pyrolysis (plan 06 section 3.2): the face conductivity is the mean of
-    ! the two cells' k_s caches instead of co_Kappa at the mean temperature.
+    ! Pyrolysis (plan 06 section 3.2): the face conductivity from the two
+    ! cells' k_s caches instead of the table: their mean within one material,
+    ! the two half cells in series between two (Diffusive_Flux).
     !$omp do collapse (2)
     do k = 1, n(3)
     do j = 1, n(2)
@@ -201,7 +202,7 @@ contains
                             Res(i  ,j,k),      &
                             Res(i+1,j,k),      &
                             1, 2, 3, &
-                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i+1,j,k) ) )
+                            ks1 = k_s(i,j,k), ks2 = k_s(i+1,j,k) )
     enddo; enddo; enddo
 
     !$omp do collapse (2)
@@ -232,7 +233,7 @@ contains
                             Res(i,j  ,k),      &
                             Res(i,j+1,k),      &
                             2, 1, 3, &
-                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j+1,k) ) )
+                            ks1 = k_s(i,j,k), ks2 = k_s(i,j+1,k) )
     enddo; enddo; enddo
 
     !$omp do collapse (2)
@@ -263,7 +264,7 @@ contains
                             Res(i,j,k  ),      &
                             Res(i,j,k+1),      &
                             3, 1, 2, &
-                            kappa_in = 0.5d0 * ( k_s(i,j,k) + k_s(i,j,k+1) ) )
+                            ks1 = k_s(i,j,k), ks2 = k_s(i,j,k+1) )
     enddo; enddo; enddo
 
     endif

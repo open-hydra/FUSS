@@ -135,8 +135,9 @@ the face, projected on $\hat{\mathbf n}_f$).
 - In 1-D, with $k$ constant in each material, a field linear in each layer is exact
   ([Multilayer Slab](../vv/1D-steady-state-multilayer-slab.md)).
 - A side with $k = 0$ makes the face adiabatic.
-- Under pyrolysis the face takes the mean of the two cells' effective conductivities $k_s$, also
-  between two materials (see [Effective Properties](pyrolysis.md#effective-properties)).
+- Under pyrolysis the two cells' effective conductivities $k_s$ replace $k(T)$: their mean between two
+  cells of one material, the two half cells in series between two materials, with the same widths
+  (see [Effective Properties](pyrolysis.md#effective-properties)).
 
 ### Block connections (101) and chimera faces (102)
 

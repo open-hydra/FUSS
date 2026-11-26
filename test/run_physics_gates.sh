@@ -121,6 +121,11 @@
 #                                and heated0d_type2 equal their 301 q = 0 twins byte for byte (wall files
 #                                aside: a 103 face is not in them), their budgets close to 1e-10, the set-up
 #                                NOTICE, the refusals of 102, 104 and of a type-2 domain without exit. ~10 s.
+#                 pyrolysis_two_layer -- a face between two materials inside a block: the two-layer
+#                                slab (test/pyrolysis/two_layer) second order against the exact solution,
+#                                stable at the nominal vnn of RK3/RK2/euler and second order at 0.9 x it
+#                                on seven meshes (k ratio 20/100, cells 5 x larger on either side, 2-D),
+#                                one block = the block cut at the interface (type 2). ~1 min at -p 1.
 #                 ablation_*  -- plan 08 and 12, the ablating walls 306/307, cases under
 #                                test/pyrolysis/ablation/: zero_blowing, seb_closure,
 #                                306_static, atc21, nodeshift_inert, remap_uniform, atc22,
@@ -203,6 +208,8 @@
 #                 - pyrolysis_103: the twins are compared with their wall
 #                   files, which differ by construction (a 103 face is not in
 #                   them): "type 1 twins: 61 identical file(s), 59 problem(s)".
+#                 - pyrolysis_two_layer: the cut is compared with tolerance 0,
+#                   below its round-off (6.4e-12 K, 2.1e-9 Pa on 2026-11-26).
 #               Measured green/red runs and the runtime are recorded at the
 #               bottom of this header once both were executed (2026-09-15).
 #
@@ -236,7 +243,7 @@ BIN="${FUSS_GATE_BIN:-}"                    # -b wins; empty = bin/FUSS of this 
 P8THREADS="${FUSS_GATE_P8_THREADS:-8}"      # threads of pyrolysis's cross-thread leg (energy_audit_p8)
 
 # Every gate, in the order they run; -c picks one
-CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis pyrolysis_103
+CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis pyrolysis_103 pyrolysis_two_layer
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
@@ -1406,6 +1413,117 @@ PY
     && grep -q 'ERROR\] Darcy: no face is open to the gas while the pyrolysis gas is produced' "$dest/rsealed/run.log" \
     || { KEYNUM="a refusal fired without its message (see $dest/r*/run.log)"; return 1; }
   KEYNUM="103 = 301 q=0 twins: type 1 $cmp1; type 2 $cmp2; budgets (energy/mass) ${bal% ok} (<= 1e-10); 102, 104, sealed 103 refused"
+}
+
+# A face between two materials inside a block under pyrolysis: the slab of test/pyrolysis/two_layer (two materials in
+# one block, no kinetics, constant properties; tools/make_two_layer.py writes it, the committed N020 deck is first
+# checked against a fresh generation), exact solution tools/two_layer_exact.py. The time step is the plain cell step:
+# the series face is bounded by the two materials apart (docs/theory/time-integration.md).
+# (a) k ratio 20, N = 20, 40, 80 at RK3 vnn 0.05: the error falls at second order, band [1.8, 2.2] (verify.py
+#     --ladder: the band is the scheme's order, not a measured value); the mean of the two k_s at the jump (the scheme
+#     before 2026-11-26) falls at first order (27.1 / 13.6 / 6.83 K).
+# (b) seven configurations -- k ratio 20 and 100 on equal cells, cells 5 x larger in HIGH and in LOW for both ratios,
+#     and k ratio 100 on 2-D cells of aspect ratio 2 (dy = 2 dx, 4 rows) -- at the nominal limits RK3 0.628, RK2 0.5,
+#     euler 0.5, outputs every second: each run reaches its end and its error falls from the first output to the last
+#     (verify.py --decay: at the limit the shortest mode is not damped, as for one material, so the start-up
+#     oscillation decays only slowly; an unstable mode would grow). With the mean 18 of the 21 runs stop on an energy
+#     outside the table; the three of k 20 with LOW cells 5 x larger run on, 35 K off and first order.
+# (c) the same seven at 0.9 x the limits (RK3 0.5652, RK2 0.45, euler 0.45), N and 2N cells (the 2-D case refined in
+#     both directions): the error falls at second order, band [1.8, 2.2] (at a fixed vnn dt ~ h^2, so every scheme's
+#     time error is O(h^2) or smaller).
+# (d) block independence, type 2 (type 1 takes one block): the N = 40 slab and its cut at the interface into two blocks
+#     (test/tools/split_blocks.py; the jump becomes a 101 face) take the same steps and agree on T within N_steps
+#     ulp(TW) and on p_pg within N_steps ulp(p_w): both pressure solves are direct (one Thomas sweep along the line,
+#     which the block without an open face continues), so the two runs differ by the summation order of the interface
+#     cells' residuals and of the connection terms, at most an ulp a step, not amplified by the contractive update (a
+#     bound derived, not measured; with the mean inside the block and the series across the cut they differed by
+#     13.6 K).
+two_layer_cfg () {  # two_layer_cfg <configuration> <refinement m>: make_two_layer.py arguments
+  local m=$2
+  case $1 in
+    k20u)    echo "--ncells $((40*m))" ;;
+    k100u)   echo "--ncells $((40*m)) --k-ratio 100" ;;
+    k20h5)   echo "--cells-high $((8*m)) --cells-low $((40*m))" ;;
+    k20h02)  echo "--cells-high $((40*m)) --cells-low $((8*m))" ;;
+    k100h5)  echo "--cells-high $((8*m)) --cells-low $((40*m)) --k-ratio 100" ;;
+    k100h02) echo "--cells-high $((40*m)) --cells-low $((8*m)) --k-ratio 100" ;;
+    k100d2)  echo "--ncells $((40*m)) --k-ratio 100 --ny $((4*m)) --dy $(python3 -c "print(5e-4 / $m)")" ;;
+  esac
+}
+gate_pyrolysis_two_layer () {
+  local dest="$WORK/pyrolysis_two_layer" g="$ROOT/test/pyrolysis/tools/make_two_layer.py" v="$ROOT/test/pyrolysis/two_layer"
+  local rc c n f k1 k2 k3 nst tolT tolp sv s vn m o lo hi nd worst
+  local CFGS="k20u k100u k20h5 k20h02 k100h5 k100h02 k100d2"
+  rm -rf "$dest"; mkdir -p "$dest"
+  python3 "$g" "$dest/fresh_N020" --ncells 20 > /dev/null || { KEYNUM="make_two_layer.py failed"; return 1; }
+  for f in INPUT MESH input.ini case.json; do
+    diff -r "$v/N020/$f" "$dest/fresh_N020/$f" > /dev/null || { KEYNUM="test/pyrolysis/two_layer/N020/$f differs from make_two_layer.py's"; return 1; }
+  done
+  # (a)
+  for n in 40 80; do
+    python3 "$g" "$dest/gen_N0$n" --ncells $n > /dev/null || { KEYNUM="make_two_layer.py N = $n failed"; return 1; }
+  done
+  python3 "$g" "$dest/gen_t2" --ncells 40 --type2 > /dev/null &&
+  python3 "$ROOT/test/tools/split_blocks.py" "$dest/gen_t2" 2 1 "$dest/gen_t2cut" > /dev/null 2>&1 &&
+  cp "$dest/gen_t2/case.json" "$dest/gen_t2cut/" || { KEYNUM="generating the decks failed"; return 1; }
+  stage "$v/N020" "$dest/N020"
+  for c in N040 N080 t2 t2cut; do stage "$dest/gen_$c" "$dest/$c"; done
+  for c in N020 N040 N080 t2 t2cut; do
+    solve "$dest/$c" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$c: solver exit $rc  (see $dest/$c/run.log)"; return 1; }
+  done
+  python3 "$v/verify.py" --ladder "$dest/N020" "$dest/N040" "$dest/N080" > "$dest/ladder.log" 2>&1; rc=$?
+  k1=$(grep -E '^  order' "$dest/ladder.log" | awk '{print $5}' | paste -sd/ -)
+  k1="(a) orders $k1 (band [1.8, 2.2]), errors $(grep -E '^  N =' "$dest/ladder.log" | awk '{print $13}' | paste -sd/ -) K"
+  [ "$rc" -eq 0 ] || { KEYNUM="ladder: $k1 (see $dest/ladder.log)"; return 1; }
+  # (b) nominal limits: stable (the error decays), 7 configurations x 3 schemes
+  nd=0
+  for c in $CFGS; do
+    for sv in RK3:0.628 RK2:0.5 euler:0.5; do
+      s=${sv%%:*}; vn=${sv##*:}; n="nom_${c}_$s"
+      python3 "$g" "$dest/gen_$n" $(two_layer_cfg $c 1) --vnn $vn --time-scheme $s --sol-dtime 1.0 > /dev/null \
+        || { KEYNUM="$k1; generating $n failed"; return 1; }
+      stage "$dest/gen_$n" "$dest/$n"
+      solve "$dest/$n" "$NTHREADS"; rc=$?
+      [ "$rc" -eq 0 ] || { KEYNUM="$k1; (b) $n: solver exit $rc  (see $dest/$n/run.log)"; return 1; }
+      python3 "$v/verify.py" --decay "$dest/$n" > "$dest/$n.log" 2>&1 \
+        || { KEYNUM="$k1; (b) $(tail -1 "$dest/$n.log" | sed 's/^ *//')"; return 1; }
+      nd=$((nd+1))
+    done
+  done
+  k2="(b) $nd runs at the nominal limits stable, errors at 8 s $(grep -h 'decays' "$dest"/nom_*.log | sed -E 's/.*-> ([0-9.e+-]+) K.*/\1/' | sort -g | sed -n '1p;$p' | paste -sd- -) K"
+  # (c) 0.9 x the limits: second order, 7 configurations x 3 schemes, N and 2N
+  lo=9; hi=0
+  for c in $CFGS; do
+    for sv in RK3:0.5652 RK2:0.45 euler:0.45; do
+      s=${sv%%:*}; vn=${sv##*:}
+      for m in 1 2; do
+        n="sub_${c}_${s}_m$m"
+        python3 "$g" "$dest/gen_$n" $(two_layer_cfg $c $m) --vnn $vn --time-scheme $s > /dev/null \
+          || { KEYNUM="$k1; $k2; generating $n failed"; return 1; }
+        stage "$dest/gen_$n" "$dest/$n"
+        solve "$dest/$n" "$NTHREADS"; rc=$?
+        [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $n: solver exit $rc  (see $dest/$n/run.log)"; return 1; }
+      done
+      n="sub_${c}_$s"
+      python3 "$v/verify.py" --ladder "$dest/${n}_m1" "$dest/${n}_m2" > "$dest/$n.log" 2>&1; rc=$?
+      o=$(grep -E '^  order' "$dest/$n.log" | awk '{print $5}')
+      [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $c $s vnn $vn: order $o (band [1.8, 2.2]) (see $dest/$n.log)"; return 1; }
+      lo=$(python3 -c "print(min($lo, $o))"); hi=$(python3 -c "print(max($hi, $o))")
+    done
+  done
+  k2="$k2; (c) 21 ladders at 0.9 x the limits, orders $lo-$hi"
+  # (d)
+  nst=$(grep -c 'Iter =' "$dest/t2/run.log")
+  [ "$nst" -eq "$(grep -c 'Iter =' "$dest/t2cut/run.log")" ] || { KEYNUM="$k1; $k2; the cut slab took another number of steps"; return 1; }
+  # ulp(1000 K) = 2^-43, ulp(101325 Pa) = 2^-36 (python 3.6 has no math.ulp)
+  tolT=$(python3 -c "print('%.3e' % ($nst * 2.0**-43))"); tolp=$(python3 -c "print('%.3e' % ($nst * 2.0**-36))")
+  [ "$SELFTEST" = "1" ] && { tolT=0; tolp=0; }
+  python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolT" --vars T > "$dest/cut.log" 2>&1; rc=$?
+  python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolp" --vars p_pg >> "$dest/cut.log" 2>&1 || rc=1
+  k3=$(sed 's/^compare_cut: [0-9]* field files; //; s/ *ok$//' "$dest/cut.log" | paste -sd';' -)
+  [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (d) cut vs uncut: $k3"; return 1; }
+  KEYNUM="$k1; $k2; (d) cut = uncut ($nst steps): $k3"
 }
 
 # ---------------------------------------------------------------------------

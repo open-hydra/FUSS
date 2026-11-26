@@ -144,11 +144,10 @@ The surface emissivity and absorptivity of an [ablating wall](ablation.md) blend
 
 | Face | Conductivity |
 |------|--------------|
-| interior | $\tfrac12\bigl(k_{s,L} + k_{s,R}\bigr)$, also between two materials |
-| block connection (101) | $\tfrac12(k_{s,P} + k_{s,N})$ for one material; the two half cells in series for two |
+| interior, block connection (101) | $\tfrac12\bigl(k_{s,L} + k_{s,R}\bigr)$ for one material; for two, the two half cells in series, $\dfrac{h_L + h_R}{h_L/k_{s,L} + h_R/k_{s,R}}$ |
 | wall | $k_s$ of the cell |
 
-Inside a block a material change therefore takes the arithmetic mean of the two conductivities, not the series value.
+The choice follows the material of the two cells, not the values of $k_s$: within one material the mean holds across a decomposition front, where $k_s$ changes from the virgin to the char value; between two materials the series value is that of two layers in contact, so a block cut at a material interface gives the uncut result. $h_L$, $h_R$ are the widths of the two cells normal to the face, as in [Face Conductivity](numerics.md#face-conductivity).
 
 ### Gas
 

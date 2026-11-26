@@ -1,0 +1,22 @@
+// make_two_layer.py: two materials, no reaction (nPyroReac 0), rho_s = sum eps_I rho_I
+// (two phases of eps_I 0.1 each, eps_g 0.8, as the --isothermal TACOT tables)
+material HIGH
+nSolidPhases 2
+rhoI[1] 14000.0
+epsI[1] 0.1
+nPyroReac[1] 0
+rhoI[2] 14000.0
+epsI[2] 0.1
+nPyroReac[2] 0
+eps_g_v 0.8
+eps_g_c 0.8
+material LOW
+nSolidPhases 2
+rhoI[1] 1400.0
+epsI[1] 0.1
+nPyroReac[1] 0
+rhoI[2] 1400.0
+epsI[2] 0.1
+nPyroReac[2] 0
+eps_g_v 0.8
+eps_g_c 0.8
