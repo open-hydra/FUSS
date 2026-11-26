@@ -46,18 +46,22 @@ Averages over $30\le t\le300$ s:
 | gas-mass ledger $\lvert\text{out}+\text{stored}-\text{stored}(0)-\text{lost}\rvert/\text{lost}$ | $-1.10\times10^{-14}$ | $+1.05\times10^{-14}$ |
 | $\langle p^2-p_s^2\rangle$ at 1.1 mm, relative to exact | — | $-6.63\,\%$ |
 
-Front-error order on N100/N200: 1.03. The quasi-steady run (`qs_N100`, $c_g=0$, no storage) gives a
-gas-mass ledger of $-8.49\times10^{-5}$: the quasi-steady closure carries the gas released in one step
-beyond its lagged prediction, so this ledger is not an identity (unlike the full run's, above), only a
-one-step bound.
+Orders on N100/N200: front error 1.028, $L_2$ temperature error 0.864. The quasi-steady run (`qs_N100`,
+$c_g=0$, no storage) gives a gas-mass ledger of $-8.49\times10^{-5}$: the quasi-steady closure carries the
+gas released in one step beyond its lagged prediction, so this ledger is not an identity (unlike the
+full run's, above); its bound is the run's own one-step share of the solid lost, $1.515\times10^{-3}$
+(3432 steps over 31 budget rows). The char pressure at the 1 mm cell is printed, not gated: that cell
+sits at 1.0 mm on N100 and 1.1 mm on N200, so the two values are not errors at one point.
 
 ### Pass criteria
 
-- Front error on the finest grid (N200) $\le8.5\,\%$, and its order on the finest pair in $[0.8,1.3]$.
-- $L_2$ temperature error on the finest grid $\le17.0$ K.
-- $\langle p^2-p_s^2\rangle$ at the 1.1 mm probe within $9\,\%$ of the exact quasi-steady char pressure.
+- Front error and $L_2$ temperature error each fall from N100 to N200 with an observed order in
+  $[0.8, 1.2]$ (expected $p=1$: a cell-by-cell front is first order by design, and the temperature error
+  follows the front; the band is $0.8p$-$1.2p$). No stored FUSS value enters.
 - Every full run's gas-mass ledger $\le10^{-10}$ (round-off: the discrete update's own identity).
-- The quasi-steady run's ledger $\le10^{-3}$ (one step of carried gas, not an identity).
+- The quasi-steady run's ledger $\le$ its one-step share: (the largest solid loss between two budget
+  rows) / (the steps per row, taken uniform) / (the total solid lost), from the run's own budget file and
+  step count (one step of carried gas, not an identity).
 
 ---
 
@@ -103,7 +107,9 @@ $4.582\times10^{-3}$ at 900 s (MATLAB's peak is a plateau at $4.6\times10^{-3}$ 
 
 ### Pass criteria
 
-- For $t>20$ s, max $\lvert T_{\rm FUSS}-T_{\rm MATLAB}\rvert$ at each of the three planes $\le4.5$ K
-  (the three codes themselves spread 4.75-5.26 K, so this keeps FUSS inside that spread).
+- For $t>20$ s, max $\lvert T_{\rm FUSS}-T_{\rm MATLAB}\rvert$ at each plane $\le$ that plane's spread of the
+  three codes, max over $t>20$ s of $\lvert T_{\rm UEL}-T_{\rm MATLAB}\rvert$ and
+  $\lvert T_{\rm UMATHT}-T_{\rm MATLAB}\rvert$, computed from the digitized curves each time the check runs
+  (4.75, 5.26, 5.10 K).
 - The FUSS peak gas mass flux lies within $[0.95,1.05]\times$ the lowest/highest of the three codes'
   own peaks, and its time within 30 s of their mean peak time.

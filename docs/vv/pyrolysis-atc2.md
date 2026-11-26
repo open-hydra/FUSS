@@ -35,6 +35,11 @@ A control run with the shipped (non-zero) emissivity gave a surface temperature 
 against 2332 K with the edit (2190 K at 1 mm), confirming the zero-emissivity edit took; PATO ran
 12184 steps in 40 s wall time.
 
+**Tolerance.** Only one external code solves this variant, so the temperature tolerance is borrowed from
+[Ablation Test Case 2.1](ablating-wall.md#ablation-test-case-21-against-pato) (same material, same heating):
+the largest $\lvert T_{\rm PATO}-T_{\rm Amaryllis}\rvert$ of that case over its seven depths, computed by the
+check from the committed 2.1 reference files each time it runs: 25.35 K (1 mm, 0.3 s).
+
 ## Results
 
 ### Type 1
@@ -42,17 +47,16 @@ against 2332 K with the edit (2190 K at 1 mm), confirming the zero-emissivity ed
 | Quantity | Value |
 |---|---|
 | max over the seven depths and $t=0.1$–60 s of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ | 14.82 K, at 1 mm / 1.1 s |
-| regression budget (committed, measured + 2 K) | 24.7 K |
+| tolerance: the ATC 2.1 temperature spread | 25.35 K |
 
 ### Type 2 (Darcy)
 
 | Check | Result |
 |---|---|
-| (T) max $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths (the open face evaluates the gas enthalpy leaving the domain at the wall temperature) | 10.51 K, at 1 mm / 0.9 s |
-| regression budget (committed, measured + 2 K) | 12.52 K |
-| (acc) same maximum vs. the gate's committed acceptance constant $B_T=22.75$ K (the type-1 run's own deviation from PATO, at 1 mm / 2.6 s) | $10.51 < 22.75$: type 2 does not make the type-1 answer worse |
-| (dir) $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ at the committed type-1 peak point (1 mm, 2.6 s) | 7.48 K, below the committed type-1 value there (22.75 K) |
-| (p) max $\lvert\Delta p_{\rm FUSS}-\Delta p_{\rm PATO}\rvert / \max\Delta p_{\rm PATO}$ | 0.55 % (tolerance 15 %); FUSS peak $\Delta p = 2050.4$ Pa, PATO peak $2049.0$ Pa |
+| (T) max $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths (the open face evaluates the gas enthalpy leaving the domain at the wall temperature) | 10.51 K, at 1 mm / 0.9 s (tolerance: the ATC 2.1 temperature spread, 25.35 K) |
+| (acc) same maximum vs. the type-1 run's own maximum, from the type-1 run made in the same check | $10.51\le14.82$ K (type 1 at 1 mm / 1.1 s): type 2 does not make the type-1 answer worse |
+| (dir) $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ at the point of that type-1 maximum (1 mm, 1.1 s) | 10.38 K, below the type-1 value there (14.82 K) |
+| (p) max $\lvert\Delta p_{\rm FUSS}-\Delta p_{\rm PATO}\rvert / \max\Delta p_{\rm PATO}$ | 0.5 % (11.2 Pa at 24 mm, 0.7 s; tolerance 19.66 %); FUSS peak $\Delta p = 2050.4$ Pa, PATO peak $2049.0$ Pa |
 | (sign) $T_{\rm type2}-T_{\rm type1}$ wherever $T_{\rm PATO}\ge700$ K | from $-6.54$ K (4 mm) to $-3.12$ K (1 mm): type 2 runs cooler than type 1 at every hot probe, as the exact 0-D gas-storage shift predicts (table below) |
 
 Type-2 minus type-1 shift at every depth, over the samples where $T_{\rm PATO}\ge700$ K (K, min .. max):
@@ -67,10 +71,13 @@ $0.05$ K slack.
 ## Pass criteria
 
 - Type 1: $\max\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths and $t=0.1$–60 s $\le$ the
-  regression budget recorded in `expected.json` (the measured maximum plus 2 K).
-- Type 2, all of: (T) the same maximum $\le$ its own regression budget; (acc) the same maximum $\le
-  B_T$ (the type-1 acceptance, 22.75 K: removing the type-1 approximation must not make the answer
-  worse); (dir) at the type-1 run's peak point the type-2 deviation is strictly smaller; (p) the
-  pressure-rise error $\le15\%$ of PATO's peak $\Delta p$; (sign) $T_{\rm type2}-T_{\rm type1}\le0.05$ K
+  ATC 2.1 temperature spread (computed from that case's reference files; no stored FUSS value enters).
+- Type 2, all of: (T) the same maximum $\le$ the ATC 2.1 temperature spread; (acc) the same maximum $\le$
+  the type-1 run's own maximum, from the type-1 run made in the same check (removing the type-1
+  approximation must not make the answer worse); (dir) at that type-1 maximum's point the type-2
+  deviation is strictly smaller; (p) the pressure-rise error $\le$ the sum of the relative temperature,
+  viscosity and molar-mass sensitivities of $\Delta p$ at the ATC 2.1 temperature spread (0.42 %/K at
+  850 K from the TACOT data, 10.65 %) and ATC 2.1's $\dot m_g$ spread over PATO's $\dot m_g$ peak (9.02 %):
+  19.66 % of PATO's peak $\Delta p$; (sign) $T_{\rm type2}-T_{\rm type1}\le0.05$ K
   (the slack of the $-\epsilon\,\mathrm dp/(\rho c)$ gas pressure-work term) wherever $T_{\rm PATO}\ge700$ K,
   i.e. type 2 is never hotter than type 1 at a hot probe beyond that round-off-sized slack.

@@ -27,21 +27,25 @@ The type-2 twin is `test/pyrolysis/darcy/adiabatic0d_type2/` (both `301` faces o
 
 ## Check
 
-Over every `OUTPUT/field<i>.tec`:
+`verify.py` takes a ladder of runs of the case, coarsest first: `T1000` at `vnn = 0.25` and two copies
+at `vnn = 0.125` and `0.0625` (the gate stages them). Over every `OUTPUT/field<i>.tec` of each run
+(the oracle integrated once on the union of the runs' field times, `tools/ode0d.check_ladder`):
 
-- `max |T - T_or1| <= TOL_T` (0.10 K; measured 0.051 K at `vnn = 0.5`, now run at `0.25`);
-- `max |chi_r - chi_or1| <= TOL_CHI` (2e-3);
-- spatial non-uniformity of `T` and `chi` `<= TOL_UNIF` (1e-6).
+- `max |T - T_or1|` and `max |chi_r - chi_or1|` fall on every rung and their order on the finest
+  pair lies in [1.6, 2.4] (`tools/conv_rule.py`, p = 2): 0.0510, 0.0137, 0.00347 K, order 1.981;
+  chi 1.22e-3, 3.43e-4, 8.97e-5, order 1.934;
+- the spatial non-uniformity of each run below its round-off bound, `N_steps x 3 x eps x max T` for
+  `T` (6.3e-11 K at 96 steps) and `N_steps x 3 x eps` for `chi`.
 
-Reported, not gated: the exact type-2 (gas storage) minus type-1 difference, and the FUSS error at
-the last file.
+Reported, not gated: the exact type-2 (gas storage) minus type-1 difference (0.0696 K).
 
 ## Run
 
 ```bash
 cd test/pyrolysis/adiabatic0d/T1000 && ./FUSS.sh solve
-cd .. && python3 verify.py T1000
+# two copies with vnn = 0.125 and 0.0625 in input.ini, solved likewise, then
+cd .. && python3 verify.py T1000 <copy at 0.125> <copy at 0.0625>
 ```
 
-Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`energy_audit`, `heated0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`; not in CTest).
+Physics gate: `test/run_physics_gates.sh -c pyrolysis` (CTest `Gate_Pyrolysis`; together with
+`kinetics_isothermal`, `energy_audit`, `heated0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`).

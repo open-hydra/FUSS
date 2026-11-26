@@ -19,11 +19,13 @@ in-tree); `tables/` holds the `tools/make_tacot_tables.py --isothermal` set they
 
 ## Check
 
-`verify_exact.py <kind> <case> [<case> ...] [--record]` (`kind`: `pressure_transient`, `transpiration`
-or `sharp_front`) runs the mesh ladder, compares each grid with the exact solution of
-`darcy_exact.py`, and checks the finest-grid error and the observed order on the finest pair against
-the budgets of `<kind>/expected.json` (beside this script). `FUSS_GATE_SELFTEST=1` sets every budget
-to 0 and the order windows to empty.
+`verify_exact.py <kind> <case> [<case> ...]` (`kind`: `pressure_transient`, `transpiration` or
+`sharp_front`) runs the mesh ladder (coarsest first), compares each grid with the exact solution of
+`darcy_exact.py`, and passes by the convergence rule of `tools/conv_rule.py`: each error falls on
+every grid and its observed order on the finest pair lies in [0.8 p, 1.2 p], p from
+`<kind>/expected.json` (the expected orders only: pressure 2; transpiration T and mass flux 2; sharp
+front, front and L2 T, 1). Today: 2.079; 2.003 and 1.978; 1.037 and 0.966. `FUSS_GATE_SELFTEST=1`
+empties the order windows.
 
 Only the coarsest grid of each kind ships in-tree (`pressure_transient/N020`, `transpiration/N020`,
 `sharp_front/N050`); the finer grids of a ladder are written by the gate script at run time with

@@ -25,17 +25,21 @@ holds the shared writer.
 
 ## Check
 
-`verify.py <full-case> [<full-case> ...] [--qs <qs-case>] [--record]` compares each full-mode run
+`verify.py <full-case> [<full-case> ...] [--qs <qs-case>]` compares each full-mode run
 against the Rankine-Hugoniot similarity solution of `tools/darcy_exact.py` (corrected front
 condition), averaged over `30 <= t <= t_end`:
 
-- the mass-based front error on the finest grid, and its order on the finest pair;
-- the `L2` temperature error (char + preheat);
-- `<p^2 - p_s^2>` at the probe nearest 1 mm, against the exact quasi-steady char pressure;
-- every full run's gas-mass ledger (an identity, round-off);
-- the quasi-steady run's ledger (a one-step bound, not an identity).
+- the mass-based front error and the `L2` temperature error (char + preheat) by the convergence rule
+  of `tools/conv_rule.py`: each falls from N100 to N200 with an order in [0.8, 1.2] (p = 1; today 1.028
+  and 0.864);
+- `<p^2 - p_s^2>` at the probe nearest 1 mm, against the exact quasi-steady char pressure: printed,
+  not gated (that cell sits at 1.0 mm on N100 and 1.1 mm on N200);
+- every full run's gas-mass ledger (an identity, round-off: `ledger_full` 1e-10 of `expected.json`);
+- the quasi-steady run's ledger against its one-step share of the solid lost, from its own budget file
+  and step count (1.515e-3; ledger -8.49e-5).
 
-Budgets are in `expected.json` beside `verify.py`; `FUSS_GATE_SELFTEST=1` zeroes them.
+`expected.json` holds the expected orders and the round-off floor only; `FUSS_GATE_SELFTEST=1` empties
+the order windows and zeroes the ledger bounds.
 
 ## Run
 

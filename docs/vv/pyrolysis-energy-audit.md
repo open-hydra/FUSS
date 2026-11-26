@@ -31,7 +31,8 @@ discrete update, not approximations.
 
 None external: checks (i)-(iii) are identities of FUSS's own update (the balance must close to
 round-off and the field file must reproduce the budget's own state sum); check (iv) is a `vnn`
-refinement of FUSS against itself.
+refinement of FUSS against itself, judged by its observed order (the scheme is first order in $\mathrm dt$
+here), not by a stored value.
 
 ### Results
 
@@ -40,21 +41,20 @@ refinement of FUSS against itself.
 | (i) energy balance | $\lvert E(t)-E(0)+Q_{\rm out}-Q_{\rm src}\rvert / \max(\lvert E(0)\rvert,\lvert Q_{\rm out}\rvert)$ | $\le 10^{-10}$ |
 | (ii) solid-mass balance | $\lvert M_s(t)-M_s(0)+M_{\rm gas,out}\rvert / M_s(0)$ | $\le 10^{-10}$ |
 | (iii) independent state sum | $E_{\rm tot}$, $M_s$ recomputed from `field.tec` (T, $\chi_*$), the input tables and the node-coordinate cell volumes, vs. the solver's own columns | $\le 10^{-10}$ relative |
-| (iv) time-discretisation bound | the three-`vnn` (0.25/0.125/0.0625) probe-series refinement, interpolated onto $t=2.0,2.1,\dots,10.0$ s: order ratio $\ge 1.6$, and $\max\lvert T_{0.25}-T_{0.0625}\rvert$ | $1.000$ K, order ratio $2.240$ (budget $2.0000533$ K, i.e. the committed measured value plus 1 K) |
+| (iv) time-discretisation order | the three-`vnn` (0.25/0.125/0.0625) probe-series refinement, interpolated onto $t=2.0,2.1,\dots,10.0$ s: ratio $r=\max\lvert T_{0.25}-T_{0.125}\rvert/\max\lvert T_{0.125}-T_{0.0625}\rvert$ and the observed order $\log_2 r$ | $0.9484$ K / $0.4234$ K, $r=2.240$, order $1.163$ ($\max\lvert T_{0.25}-T_{0.0625}\rvert=1.000$ K, printed) |
 | (v) zero-kinetics self-consistency | a `--nokin` rerun: every $\chi_r$ and $\dot m_{pg}$ exactly 0, $\rho_s=\rho_v$ to $10^{-14}$ relative, $Q_{\rm gas,out}=M_{\rm gas,out}=0$ exactly | exact |
 | (vi) cross-thread determinism | `field.tec` and `energy-budget.txt`, 1 vs. 8 OpenMP threads | byte-identical |
 
 The 1 s ramp (rather than a shorter one) was chosen because the staircase sampling of a 0.1 s ramp
 aliased under mesh/`vnn` refinement and the probe differences *grew* with refinement (3.3, 4.9, 1.9 K);
 with the 1 s ramp the coarsest `vnn` resolves it (coarsest $\mathrm dt\approx0.17$ s) and the ratio test
-of check (iv) passes.
+of check (iv) measures an order.
 
 ### Pass criteria
 
 (i), (ii), (v): the stated tolerances above, all at $10^{-10}$ or exact. (iii): $10^{-10}$ relative.
-(iv): order ratio $\ge1.6$ *and* $\max\lvert T_{0.25}-T_{0.0625}\rvert\le$ the budget recorded in
-`expected.json` (the measured value plus 1 K; a sub-check whose companion directories are not given is
-skipped, not failed). (vi): byte-identical files.
+(iv): the observed order $\log_2 r$ in $[0.8, 1.2]$ (expected $p=1$, the band $0.8p$-$1.2p$; a sub-check
+whose companion directories are not given is skipped, not failed). (vi): byte-identical files.
 
 ---
 

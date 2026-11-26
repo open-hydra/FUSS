@@ -57,7 +57,7 @@ FUSS's own mesh error, from N100 to N400 (same grading, 0.02 s sampling):
 `ref/pato-dt0.005/` and `ref/pato-dt0.00025-tight/` keep the other two PATO runs. The table can be recomputed from the
 committed files.
 
-## The gate (`verify.py`, `expected.json`; plan 08 P-D4)
+## The gate (`verify.py`; plan 17)
 
 FUSS is sampled on PATO's 0.1 s grid:
 - T at the 7 depths from the bracketing index probes (probes.json; written at multiples of 0.1 s);
@@ -67,21 +67,26 @@ FUSS is sampled on PATO's 0.1 s grid:
   interpolation still errs by up to about 4 K;
 - the virgin-98 % and char-2 % fronts from the field files, by PATO's rule (`massIOModel.C`).
 
-Against the 0.5 ms oracle, measured 2026-10-13:
+Each quantity's tolerance is the plain spread max_t |PATO − Amaryllis| of that quantity, computed by the verify from `ref/`
+each time it runs (no stored FUSS value). Against the 0.5 ms oracle, binary b2b68f65, 2026-11-26:
 
-| quantity | max \|FUSS − PATO\| | at | budget (measured + 2 K, or + 10 % of PATO's peak) | 1.5× target (spread PATO − Amaryllis) |
-|---|---|---|---|---|
-| T, 7 depths | 0.87 K | 60.6 s, 1 mm | 2.87 K | 38.0 K: met |
-| T_w | 1.37 K | 60.5 s | 3.37 K | 148 K: met |
-| ṁ_g | 2.3e-4 kg/m²/s (0.9 % of the peak) | 0.2 s | 2.83e-3 | 3.5e-3: met |
-| virgin-98 % front | 11.5 µm | 0.5 s | 2.09 mm | 0.17 mm: met |
-| char-2 % front | 3.5 µm | 0.2 s | 0.25 mm | 0.096 mm: met |
+| quantity | max \|FUSS − PATO\| | at | tolerance: max \|PATO − Amaryllis\| |
+|---|---|---|---|
+| T, 7 depths | 0.880 K | 60.6 s, 1 mm | 25.35 K (0.3 s, 1 mm) |
+| T_w | 1.391 K | 60.5 s | 98.96 K (0.1 s) |
+| ṁ_g | 2.30e-4 kg/m²/s (0.9 % of the peak) | 0.2 s | 2.343e-3 (0.2 s) |
+| virgin-98 % front | 11.5 µm | 0.5 s | 0.113 mm (117.8 s) |
+| char-2 % front | 3.5 µm | 0.2 s | 63.7 µm (0.2 s) |
+
+The ATC 2.1 T spread is also the borrowed T tolerance of `../../ATC2-chemistryOff` and `../../darcy/ATC2-chemistryOff-type2`
+(`tools/abl_tools.spread_atc21`), which only PATO solved.
 
 The verify also checks:
 - (static) ṁ_ch, B′_ch, the recession and its rate are exactly 0;
 - (seb) §3.2 on all 2368 rows: |F|/max term ≤ 9.9e-9, |β − ζ/(e^ζ − 1)| ≤ 7e-15, B′_pg and ṁ_ch identities exact.
 
-The Amaryllis 2.1 files are the ATC organisers' reference (`ref/`); the 1.5× targets are recorded and do not gate.
+The Amaryllis 2.1 files are the ATC organisers' reference (`ref/`); with PATO they set the tolerance, so a red must be
+planted in FUSS's output.
 
 Run with:
 
@@ -89,5 +94,5 @@ Run with:
 ./FUSS.sh -p 1 solve && python3 verify.py
 ```
 
-or with `run_physics_gates.sh -c ablation_atc21`. `FUSS_GATE_SELFTEST=1` sets the budgets to 0 and makes the gate fail.
+or with `run_physics_gates.sh -c ablation_atc21`. `FUSS_GATE_SELFTEST=1` sets the tolerances to 0 and makes the gate fail.
 `FUSS_PATO_ATC21_OUT=<PATO output/porousMat>` compares against another PATO run.

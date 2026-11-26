@@ -162,10 +162,11 @@ $$
 $$
 
 Each run is sampled at $t=0.5\,L^2/D\approx875$ s. **Results**: max $\lvert p-p_{\rm exact}\rvert/\Delta p$
-on N020/N040/N080: $6.78\times10^{-4}$, $1.68\times10^{-4}$, $3.97\times10^{-5}$; observed order on
-N040/N080: 2.08 (the line solve is second order in space; the backward-Euler step is first order in
+on N020/N040/N080: $6.7825\times10^{-4}$, $1.6751\times10^{-4}$, $3.9652\times10^{-5}$; observed order on
+N040/N080: 2.079 (the line solve is second order in space; the backward-Euler step is first order in
 time, and $\mathrm dt\sim\mathrm dx^2$ at fixed `vnn`, so the time error appears as second order here).
-**Pass**: finest-grid error $\le5\times10^{-5}$, order on the finest pair $\ge1.8$.
+**Pass**: the error falls on every grid and its order on the finest pair lies in $[1.6, 2.4]$
+($0.8p$ to $1.2p$ for the expected $p=2$).
 
 ### Steady transpiration through a porous slab
 
@@ -183,9 +184,11 @@ $$
 solved to $10^{-15}$ (here $\mathrm{Pe}=3.952$, $\dot m=0.031616$ kg/(m²s)). The open face evaluates
 the gas enthalpy leaving the domain at the wall temperature, not the cell temperature.
 **Results**: steady max
-$\lvert T-T_{\rm exact}\rvert$ on N020/N040/N080: 2.732, 0.680, 0.170 K; observed order on N040/N080:
-2.00; mass-flux error on N080: $4.1\times10^{-4}$ relative. **Pass**:
-finest-grid T error $\le0.21$ K, order $\ge1.8$, mass-flux error $\le5\times10^{-4}$.
+$\lvert T-T_{\rm exact}\rvert$ on N020/N040/N080: 2.732, 0.680, 0.170 K, observed order on N040/N080
+2.003; relative mass-flux error $6.31\times10^{-3}$, $1.62\times10^{-3}$, $4.10\times10^{-4}$, order 1.978.
+**Pass**: for both errors, the error falls on every grid and its order on the finest pair lies in
+$[1.6, 2.4]$ (expected $p=2$: the temperature by the transpiration profile's own convergence, the mass
+flux as the Darcy flux of the same second-order line solve).
 
 ### Decomposition front with transpiration through the char
 
@@ -197,6 +200,7 @@ temperature fields and the front's own transcendental equation are the Neumann-t
 solution of `test/pyrolysis/tools/darcy_exact.py` (problem 3; derived from the char and virgin heat
 equations with the gas produced at the front advecting through the char, and a Rankine-Hugoniot front
 condition). **Results** (time-averaged over $t\ge5$ s on N050/N100/N200): $L_2$ temperature error
-2.292, 1.161, 0.594 K; mass-based front error 3.95 %, 1.97 %, 0.96 %; front-error order on N100/N200:
-1.04 (a cell-by-cell front is first order by design). **Pass**: finest-grid $L_2$ error $\le0.7$ K,
-finest-grid front error $\le1.2\%$, front order on the finest pair in $[0.7,1.4]$.
+2.292, 1.161, 0.594 K, order on N100/N200 0.966; mass-based front error 3.95 %, 1.97 %, 0.96 %, order
+1.037. **Pass**: for both errors, the error falls on every grid and its order on the finest pair lies in
+$[0.8, 1.2]$ (expected $p=1$: a cell-by-cell front is first order by design, and the temperature error
+follows the front).

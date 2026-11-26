@@ -57,9 +57,7 @@ $$
 $$
 
 **`adiabatic0d`, `heated0d`** (adiabatic or uniformly heated, both closures): the uniform state obeys
-the ODE system of `test/pyrolysis/tools/ode0d.py` (classical RK4, pure Python; `adiabatic0d` and its
-type-2 twin integrate at step $2\times10^{-4}$ s, `heated0d` and its type-2 twin at $10^{-4}$ s), built
-from the case's own tables:
+the ODE system of `test/pyrolysis/tools/ode0d.py`, built from the case's own tables:
 
 $$
 \chi_r' = \kappa_r(T)(1-\chi_r)^{m_r}, \qquad
@@ -73,6 +71,13 @@ $(E_{1,T}+\epsilon\rho_g c_{pg})\,\mathrm dT/\mathrm dt = \dot q - \pi_{\rm tot}
 $\rho_g = pW/(RT)$; FUSS's own type-1 scheme is what the solver integrates, and the type-1/type-2
 difference is itself an exact, printed quantity.
 
+The right-hand side jumps at every integer kelvin (the slopes of the 1 K tables) and at each reaction
+threshold, so the oracle integrates with classical RK4 steps (at most $2\times10^{-4}$ s for `adiabatic0d`
+and its twin, $10^{-4}$ s for `heated0d` and its twin) that each stay on one table segment and one on/off
+state of every reaction: a step that would leave either is shortened to end on it. Halving the step
+changes the oracle by at most $5.1\times10^{-11}$ K (adiabatic) and $1.7\times10^{-9}$ K (heated), five or
+more orders below FUSS's own error.
+
 ## Results
 
 Measured maxima over every field-output time, from each case's `verify.py`:
@@ -81,18 +86,34 @@ Measured maxima over every field-output time, from each case's `verify.py`:
 |---|---:|---:|---:|
 | `kinetics_isothermal` (T0700/T0900/T1200) | $\le 10^{-8}$ | $\le 10^{-7}$ | $\lvert\dot m_{pg}(s)-s\,\dot m_{pg}(1)\rvert/(s\,\dot m_{pg}(1))\le10^{-12}$ |
 
-| Case | max $\lvert T-T_{\rm oracle}\rvert$ [K] | max $\lvert\chi-\chi_{\rm oracle}\rvert$ | non-uniformity [K] |
-|---|---:|---:|---:|
-| `adiabatic0d/T1000` (type 1) | 0.0510 at the case's vnn 0.25 | $1.22\times10^{-3}$ | $1.0\times10^{-12}$ |
-| `heated0d` (type 1) | 0.0020 at the case's vnn 0.003125 | $6.67\times10^{-7}$ | $0$ |
-| `darcy/adiabatic0d_type2` (type 2) | 0.0166 | $9.19\times10^{-4}$ | $1.8\times10^{-7}$ |
-| `darcy/heated0d_type2` (type 2) | 0.0011 | $1.04\times10^{-5}$ | $6.7\times10^{-7}$ |
+Each type-1 case runs on the ladder `vnn`, `vnn`/2, `vnn`/4 (0.25, 0.125, 0.0625 for `adiabatic0d/T1000`;
+0.003125, 0.0015625, 0.00078125 for `heated0d`), against the oracle at every field-output time:
 
-Both quantities refine at second order in $\mathrm dt$ (the RK3 stages freeze the kinetics/energy
-split within a stage; halving `vnn` roughly quarters the error): `adiabatic0d/T1000`'s own `verify.py`
-documents 0.0510 K at `vnn = 0.25` (the case above), 0.014 K at 0.125, 0.0022 K at 0.05, 0.0005 K at
-0.025; `heated0d`'s documents 15.8 K at `vnn = 0.25`, 3.8 K at 0.125, 0.59 K at 0.05, 0.14 K at 0.025,
-0.034 K at 0.0125, 0.008 K at 0.00625 (the case above runs at 0.003125, one refinement further).
+| Case | max $\lvert T-T_{\rm or1}\rvert$ [K] | order | max $\lvert\chi-\chi_{\rm or1}\rvert$ | order |
+|---|---|---:|---|---:|
+| `adiabatic0d/T1000` | $5.0981\times10^{-2}$, $1.3719\times10^{-2}$, $3.4745\times10^{-3}$ | 1.981 | $1.216\times10^{-3}$, $3.427\times10^{-4}$, $8.969\times10^{-5}$ | 1.934 |
+| `heated0d` | $2.1361\times10^{-3}$, $5.2196\times10^{-4}$, $1.3087\times10^{-4}$ | 1.996 | $5.838\times10^{-7}$, $1.321\times10^{-7}$, $3.320\times10^{-8}$ | 1.993 |
+
+(order: on the finest pair.) Both refine at second order in $\mathrm dt$, the RK3 stages freezing the
+kinetics/energy split within a stage. The spatial non-uniformity stays at round-off: at most
+$2.4\times10^{-12}$ K (`adiabatic0d`) and exactly 0 (`heated0d`).
+
+The type-2 twins run on the same ladders against the type-2 oracle:
+
+| Case | max $\lvert T-T_{\rm or2}\rvert$ [K] | order | max $\lvert\chi-\chi_{\rm or2}\rvert$ | order |
+|---|---|---:|---|---:|
+| `darcy/adiabatic0d_type2` | $1.6575\times10^{-2}$, $1.9851\times10^{-2}$, $8.5622\times10^{-3}$ | 1.213 | $9.195\times10^{-4}$, $1.924\times10^{-4}$, $4.351\times10^{-5}$ | 2.144 |
+| `darcy/heated0d_type2` | $7.4875\times10^{-4}$, $1.9209\times10^{-4}$, $3.9729\times10^{-5}$ | 2.273 | $9.281\times10^{-6}$, $2.386\times10^{-6}$, $5.750\times10^{-7}$ | 2.053 |
+
+The adiabatic type-2 temperature error does not fall from the first to the second rung, so that case does
+not meet the monotone-fall criterion below. Two further halvings (`vnn` 0.03125, 0.015625) continue the
+sequence with $2.4896\times10^{-3}$ and $6.1842\times10^{-4}$ K, pairwise orders $-0.26$, 1.21, 1.78, 2.01: the
+temperature error approaches second order only from `vnn` = 0.0625 down. On the same five rungs $\chi$ converges
+at 2.26, 2.14, 1.93, 1.97, and the heated twin at 1.96, 2.27, 1.91, 2.03 ($T$) and 1.96, 2.05, 1.98, 1.99
+($\chi$). The spatial non-uniformity stays below $1.9\times10^{-7}$ K (adiabatic) and $6.8\times10^{-7}$ K
+(heated). With $K=10^{-7}$ m² the pressure excursion stays below 0.04 Pa (adiabatic) and 0.26 Pa (heated), so
+these cases do not resolve the order of the pressure step.
+
 Reported but not gated: the exact type-2 minus type-1 shift (adiabatic: $0.0696$ K; heated: $-3.914$ K
 at the end) is what each type-2 run must reproduce, and (for `heated0d`, when PATO's own TACOT tables
 are present) the shift from using PATO's table enthalpy instead of the case's own ($-0.150$ K).
@@ -102,10 +123,15 @@ are present) the shift from using PATO's table enthalpy instead of the case's ow
 - `kinetics_isothermal`: max $\lvert\chi_r-\chi_{\rm exact}\rvert\le10^{-8}$; max $\lvert T-T_0\rvert\le10^{-7}$ K;
   $\rho_s$ recomputed from $\chi$ agrees with the solved $\rho_s$ to $10^{-10}$ relative; the type-1 line
   integral $\dot m_{pg}(s)=s\,\dot m_{pg}(1)$ holds to $10^{-12}$ relative at every cell along the line.
-- `adiabatic0d/T1000`: max $\lvert T-T_{\rm or1}\rvert\le0.10$ K, max $\lvert\chi-\chi_{\rm or1}\rvert\le2\times10^{-3}$,
-  spatial non-uniformity $\le10^{-6}$ K (type 2: non-uniformity $\le10^{-5}$ K, since the gas storage
-  $-\epsilon p$ in $E$ follows the sub-pascal pressure excursion).
-- `heated0d`: max $\lvert T-T_{\rm or1}\rvert\le0.02$ K, max $\lvert\chi-\chi_{\rm or1}\rvert\le10^{-5}$,
-  non-uniformity $\le10^{-6}$ K (type 2: $\chi$ tolerance $2\times10^{-5}$, non-uniformity $\le10^{-5}$ K).
+- `adiabatic0d/T1000`, `heated0d` (type 1), on the ladder `vnn`, `vnn`/2, `vnn`/4: max
+  $\lvert T-T_{\rm or1}\rvert$ and max $\lvert\chi-\chi_{\rm or1}\rvert$ each fall on every rung and their observed
+  order on the finest pair lies in $[1.6, 2.4]$ (expected $p=2$, the band $0.8p$-$1.2p$); no stored FUSS
+  value enters. The spatial non-uniformity of each run stays below its own round-off bound,
+  $N_{\rm steps}\times3\times\varepsilon\times\max T$ for $T$ and $N_{\rm steps}\times3\times\varepsilon$ for $\chi$
+  ($\varepsilon=2^{-52}$; one rounding per RK3 stage per step).
 - The type-2 cases reuse the type-1 `verify.py` (it detects `gas-closure` from `input.ini` and switches
-  to the type-2 oracle and tolerances above).
+  to the type-2 oracle) on the same ladder: both errors must fall on every rung; their observed order on
+  the finest pair is printed, not gated (no expected order is stated for the type-2 step: the pressure
+  step is first order in time, the kinetics/energy split second order). The non-uniformity bound is
+  $10^{-5}$ K, a floor set from measured draws rather than a physics budget (the gas storage
+  $-\epsilon p$ in $E$ makes $T$ follow the sub-pascal pressure excursion).

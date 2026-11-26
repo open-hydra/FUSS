@@ -90,24 +90,25 @@ skipped once — interpolating across the 60 s switch-off reads 72 K of sampling
 otherwise agrees to 0.1 K just before it); the
 virgin-98 %/char-2 % front depths from the field files, by PATO's own rule.
 
-**Results** (averaged/maximised over $t=0.1$-120 s against PATO, and separately against the Amaryllis
-organiser reference for the 1.5× check):
+**Tolerance.** The two reference codes themselves: for each quantity, the largest
+$\lvert\text{PATO}-\text{Amaryllis}\rvert$ over PATO's 0.1 s grid, computed by the check from the committed
+organiser (Amaryllis 2.1) and PATO files each time it runs.
 
-| Quantity | max $\lvert\text{FUSS}-\text{PATO}\rvert$ | regression budget (measured + slack) | max $\lvert\text{PATO}-\text{Amaryllis}\rvert$ | $1.5\times$ target met |
-|---|---:|---:|---:|---|
-| $T$ (7 depths) | 0.880 K | 2.869 K (+2 K) | 25.35 K | yes |
-| $T_w$ | 1.391 K | 3.370 K (+2 K) | 98.96 K | yes |
-| $\dot m_g$ | $2.30\times10^{-4}$ kg/(m²s) | $2.83\times10^{-3}$ (+10 % of PATO's peak $2.60\times10^{-2}$) | $2.34\times10^{-3}$ | yes |
-| virgin-98 % front | $1.15\times10^{-5}$ m | $2.09\times10^{-3}$ m (+10 % of PATO's peak $2.08\times10^{-2}$ m) | $1.13\times10^{-4}$ m | yes |
-| char-2 % front | $3.54\times10^{-6}$ m | $2.51\times10^{-4}$ m (+10 % of PATO's peak $2.48\times10^{-3}$ m) | $6.37\times10^{-5}$ m | yes |
+**Results** (maximised over $t=0.1$-120 s):
+
+| Quantity | max $\lvert\text{FUSS}-\text{PATO}\rvert$ | max $\lvert\text{PATO}-\text{Amaryllis}\rvert$ (the tolerance) |
+|---|---:|---:|
+| $T$ (7 depths) | 0.8804 K (1 mm, 60.6 s) | 25.35 K (1 mm, 0.3 s) |
+| $T_w$ | 1.391 K (60.5 s) | 98.96 K (0.1 s) |
+| $\dot m_g$ | $2.304\times10^{-4}$ kg/(m²s) | $2.343\times10^{-3}$ kg/(m²s) |
+| virgin-98 % front | $1.146\times10^{-5}$ m | $1.13\times10^{-4}$ m |
+| char-2 % front | $3.538\times10^{-6}$ m | $6.37\times10^{-5}$ m |
 
 Also exactly 0 (no-char): $\dot m_{ch}$. The SEB closure checks of
 `seb_closure` above hold on every row.
 
-**Pass criteria.** Each of the five quantities $\le$ its regression budget (the measured maximum,
-recorded once, plus 2 K for $T$/$T_w$ or 10 % of PATO's own peak for $\dot m_g$ and the two fronts);
-$\dot m_{ch}=0$ exactly; the SEB closure on every row. The $1.5\times$ target
-(FUSS within $1.5\times$ PATO's own deviation from Amaryllis) is printed and recorded, not gated.
+**Pass criteria.** Each of the five quantities within the plain PATO-Amaryllis spread of that quantity
+(no stored FUSS value enters); $\dot m_{ch}=0$ exactly; the SEB closure on every row.
 
 ---
 

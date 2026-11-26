@@ -29,23 +29,29 @@ The type-2 twin is `test/pyrolysis/darcy/heated0d_type2/` (both `301` faces open
 
 ## Check
 
-Over every `OUTPUT/field<i>.tec`:
+`verify.py` takes a ladder of runs of the case, coarsest first: the case at `vnn = 0.003125` and two
+copies at `0.0015625` and `0.00078125` (the gate stages them). Over every `OUTPUT/field<i>.tec` of
+each run (`tools/ode0d.check_ladder`; the oracle's RK4 steps stay on one 1 K table segment each, so it
+converges to 1.7e-9 K):
 
-- `max |T - T_or1| <= TOL_T` (0.02 K; second order in `dt`);
-- `max |chi_r - chi_or1| <= TOL_CHI` (1e-5);
-- spatial non-uniformity `<= TOL_UNIF` (1e-6).
+- `max |T - T_or1|` and `max |chi_r - chi_or1|` fall on every rung and their order on the finest
+  pair lies in [1.6, 2.4] (p = 2): 2.14e-3, 5.22e-4, 1.31e-4 K, order 1.996; chi 5.84e-7, 1.32e-7,
+  3.32e-8, order 1.993;
+- the spatial non-uniformity of each run below its round-off bound (`N_steps x 3 x eps x max T`;
+  measured 0).
 
-Reported, not gated: the exact type-2 minus type-1 difference, and the type-1 run with PATO's table
-`hbar` instead of the case's own.
+Reported, not gated: the exact type-2 minus type-1 difference (-3.914 K), and the type-1 run with
+PATO's table `hbar` instead of the case's own (-0.150 K).
 
 ## Run
 
 ```bash
 cd test/pyrolysis/heated0d
-./FUSS.sh solve && python3 verify.py
+./FUSS.sh solve       # and two copies at vnn/2, vnn/4
+python3 verify.py . <copy at vnn/2> <copy at vnn/4>
 ```
 
-Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`energy_audit`, `adiabatic0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`; not in CTest). Also a
+Physics gate: `test/run_physics_gates.sh -c pyrolysis` (CTest `Gate_Pyrolysis`; together with
+`kinetics_isothermal`, `energy_audit`, `adiabatic0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`). Also a
 leg of `test/run_restart_gate.sh` (the type-2 twin, `darcy/heated0d_type2`, run twice: once as
 Tecplot ASCII, once as `vtk raw`).

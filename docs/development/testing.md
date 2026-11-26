@@ -38,8 +38,8 @@ folder.
 | `input-io` | Input errors, runtime input, restart, decomposition maps | scripts |
 | `unit/*` | Cell volume, rounding order, table reader | unit programs |
 | `pyrolysis/kinetics_isothermal`, `adiabatic0d`, `heated0d`, `conduction` | Pyrolysis of a charring solid on a static mesh: the closed-form kinetics propagator, the 0-D decomposition ODE (adiabatic and volumetrically heated), pure conduction on the graded mesh with the kinetics stripped | `verify.py` |
-| `pyrolysis/energy_audit` | Discrete energy and solid-mass balances of the pyrolysis update, closed to round-off; the independent state sum and a vnn refinement | `verify.py`, `expected.json` |
-| `pyrolysis/ATC1`, `ATC2-chemistryOff` | Ablation Test Cases 1 and 2 (chemistry off) on the TACOT tables, against FIAT and a local PATO run | `verify.py`, `expected.json` |
+| `pyrolysis/energy_audit` | Discrete energy and solid-mass balances of the pyrolysis update, closed to round-off; the independent state sum and a vnn refinement | `verify.py` |
+| `pyrolysis/ATC1`, `ATC2-chemistryOff` | Ablation Test Cases 1 and 2 (chemistry off) on the TACOT tables, against local PATO runs | `verify.py`, `ref/` |
 | `pyrolysis/darcy` | The type-2 (Darcy) gas closure: sealed and open slabs, the analytic steady pressure profile (with and without Klinkenberg), an orthotropic permeability tensor, and the 0-D / ATC2 cases rerun under type 2 | `verify.py` per case |
 | `pyrolysis/exact` | Exact-solution benchmarks of the type-2 closure: transient pressure diffusion, steady transpiration, a sharp charring front | `verify_exact.py` |
 | `pyrolysis/lit` | Literature benchmarks: Baum & Atreya (2007) charring front with Darcy flow, Zhang (2010) three-code decomposing slab | `verify.py` |
@@ -289,11 +289,28 @@ by rewriting `iter-threshold` and every `level<m>-iter` of the copy.
 A case graded by `run_physics_gates.sh` (a `Gate_` test under CTest) follows the same `verify.py` contract (read
 `OUTPUT/`, compare with the reference, print `Result: PASS` or `FAIL`, exit 1 on failure), plus:
 
-- a sibling `expected.json` holds the measured values the gate checks against (never the tolerance
-  itself, which stays in `verify.py`); `verify.py ... --record` writes the measured values into it;
+- no tolerance is a FUSS result of an earlier run plus a margin. A result checked against an exact
+  solution passes by the convergence rule (`test/pyrolysis/tools/conv_rule.py`): on a ladder of runs,
+  coarsest first, the error falls on every rung and its observed order on the finest pair lies in
+  $[0.8p, 1.2p]$ for the scheme's expected order $p$. A result checked against other codes passes within
+  their own disagreement, computed by `verify.py` from the committed reference files each time it runs:
+  the PATO-Amaryllis spread per quantity (ATC 2.1, 2.2, 2.3; borrowed from ATC 2.1 where only PATO
+  solved the variant), the PATO-FIAT spread (ATC1), the three codes' spread (Zhang 2010). A
+  reference-derived tolerance is proven red through FUSS's output, never through the reference: the
+  tolerance moves with the reference files it is computed from;
+- an `expected.json` beside a verify holds only what the rule needs from outside the run (the expected
+  orders, a round-off floor), never a measured FUSS value; there is no `--record`;
+- an identity between two FUSS runs (restart, threads, blocks, a mirror) takes a bound from an argument
+  where one exists (the run's own round-off, $N_{\rm steps}\times N_{\rm cells}\times\varepsilon$ for a
+  budget sum; the Newton stop tolerance per step for the type-2 restart; the surface-balance tolerance
+  for the mirrored 307 faces). Where none exists the bound is a floor set from measured draws, and the
+  code says so: the type-2 0-D non-uniformity ($10^{-5}$ K), the restart $B'_{pg}$ under type 2
+  ($10^{-9}$), the two-block smoothing seam ($10^{-10}$ m, $10^{-7}$ of $T$) and the periodic Darcy
+  sector ($10^{-10}$);
 - the gate's own `FUSS_GATE_SELFTEST=1` is a proven-red hook, not a correctness check: it runs the
   case with its tolerance deliberately broken (a sedded copy of `verify.py`, or an input key edited
   in a work copy) and requires the run to FAIL, so that a gate nobody has ever seen fail is not
   mistaken for one that works. `verify.py` scripts that take the variable honour
-  `FUSS_GATE_SELFTEST=1` by zeroing their own budgets (and emptying any order window) rather than
-  reading it from `run_physics_gates.sh`.
+  `FUSS_GATE_SELFTEST=1` by zeroing their own tolerances (and emptying any order window) rather than
+  reading it from `run_physics_gates.sh`; `energy_audit`, `ATC1` and `ATC2-chemistryOff` have such a
+  hook too.

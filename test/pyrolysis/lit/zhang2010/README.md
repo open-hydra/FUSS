@@ -26,12 +26,15 @@ and the mid-plane probes, and the exposed-face gas mass flux from the first cell
 compares with the three codes of the thesis, digitized from the vector figures
 (`ref/zhang_fig2_2_T.csv`, `ref/zhang_fig2_3_mloss.csv`; provenance in `ref/README.md`):
 
-- for `t > 20` s, `max |T_FUSS - T_MATLAB|` at each of the three planes against a budget inside the
-  three codes' own 4.75-5.26 K spread;
+- for `t > 20` s, `max |T_FUSS - T_MATLAB|` at each of the three planes against that plane's spread of
+  the three codes, computed from the digitized curves (4.75, 5.26, 5.10 K; FUSS 3.29, 2.51, 2.08 K);
 - the FUSS peak gas mass flux within the three codes' own peak range, and its time within the budget
   of their mean peak time.
 
-Budgets are in `expected.json` beside `verify.py`; `FUSS_GATE_SELFTEST=1` zeroes them.
+The gas-flux window factors (0.95, 1.05) and the 30 s time window are in `expected.json`; they are not
+taken from the reference, and the reference's own peak range ([4.4893e-3, 4.5984e-3]) is not met: the
+FUSS peak, 4.369e-3, is mesh-converged (N050 and N100 agree to 1e-7) and 2.7 % below the lowest code
+(an open finding of plan 17). `FUSS_GATE_SELFTEST=1` zeroes every tolerance.
 
 ## Run
 

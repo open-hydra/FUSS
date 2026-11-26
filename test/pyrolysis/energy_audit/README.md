@@ -27,15 +27,16 @@ scheme's own Runge–Kutta weights, so the balances below are identities of the 
 
 ## Check
 
-`verify.py` checks, against `expected.json`:
+`verify.py` checks (no stored FUSS value):
 
 - **energy**: `|E_tot(t) - E_tot(0) + Q_out - Q_src| <= 1e-10 max(|E_tot(0)|, |Q_out|)`;
 - **solid mass**: `|M_s(t) - M_s(0) + M_gas_out| <= 1e-10 M_s(0)`;
 - **independent state sum**: `E_tot(t)` and `M_s(t)` recomputed from `OUTPUT/field.tec` (`T`, `chi_*`),
   the `INPUT/` tables and cell volumes from the node coordinates, agree with the solver's own columns
   to `1e-10` relative;
-- **time-discretisation error**: probe series from two `vnn` refinements, interpolated onto a common
-  time grid, bound the splitting error;
+- **time-discretisation order**: probe series from two `vnn` refinements, interpolated onto a common
+  time grid: the ratio of the successive differences gives the observed order, which must lie in
+  [0.8, 1.2] (first order in `dt`; measured 1.163); `FUSS_GATE_SELFTEST=1` empties that window;
 - the no-kinetics variant and a 1-vs-8-thread run are additional legs the gate script runs through
   the same `verify.py` (`--vnn025`, `--vnn0125`, `--nokin`, `--p8`).
 
