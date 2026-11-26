@@ -233,12 +233,12 @@ endfunction()
 
 # Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the walls of 2026-11-26 (pcprop9,
 # 1 thread, work folders on a local disk: plan 16's hand runs and this registration's first ctest run; ATC 2.2 and 2.3 on 200
-# cells: 577 s and 1288 s solver walls), at least 300 s
+# cells: 577 s and 1288 s solver walls; pyrolysis with its 0-D ladder rungs: 64 s), at least 300 s
 set(_PHYSICS_GATES
   Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
   RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
   ConjugateReceding:conjugate_receding:300 ConjugateRecedingT2:conjugate_receding_t2:300 Receding:receding:300
-  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:300
+  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:400
   DarcySealedNosource:darcy_sealed_nosource:300 DarcyMassBalance1d:darcy_mass_balance_1d:300
   DarcySealedProfile:darcy_sealed_profile:300 DarcyKlinkenberg:darcy_klinkenberg:300
   DarcyTensorLinear2d:darcy_tensor_linear_2d:300 Darcy0d:darcy_0d:300 DarcyAtc2ChemistryOff:darcy_atc2_chemistry_off:300
