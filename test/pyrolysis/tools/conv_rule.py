@@ -28,3 +28,14 @@ def check(label, errors, refine, p, fmt="%.4e"):
     text = "%s %s; falls on every rung %s; order on the finest pair %.3f in [%g, %g]" % (
         label, " -> ".join(fmt % e for e in errors), falls, o, lo, hi)
     return ok, text
+
+
+def check_falls(label, errors, refine, fmt="%.4e"):
+    """(ok, text) for a quantity whose scheme order is not stated: the error must fall on every rung; the observed order
+    on the finest pair is printed, not gated. FUSS_GATE_SELFTEST=1 makes it fail."""
+    falls = all(errors[i] > errors[i + 1] for i in range(len(errors) - 1))
+    o = order(errors[-2], errors[-1], refine[-2], refine[-1])
+    ok = falls and not selftest()
+    text = "%s %s; falls on every rung %s; observed order on the finest pair %.3f (printed, not gated)" % (
+        label, " -> ".join(fmt % e for e in errors), falls, o)
+    return ok, text

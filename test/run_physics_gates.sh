@@ -562,8 +562,26 @@ PYNOKIN
   # 4.6-4.8 exact-solution gates of the verification record 2026-10-08: adiabatic 0-D decomposition and
   # heated 0-D decomposition against the exact type-1 ODE (tools/ode0d.py), pure conduction on the ATC1 mesh
   # against the exact slab series (tools/slab_series.py)
-  local sub src
-  for sub in adiabatic0d/T1000 heated0d conduction/graded100; do
+  # the two 0-D cases on the ladder vnn, vnn/2, vnn/4 of the case's own vnn (plan 17 P17-D1, the convergence rule)
+  local sub src name v lad d
+  for sub in adiabatic0d/T1000 heated0d; do
+    src="$base/$sub"; name=$(echo "$sub" | tr / _)
+    stage "$src" "$dest/$name"
+    lad=("$dest/$name")
+    for v in $(awk -F'= ' '/^vnn = /{printf "%.10g %.10g", $2 / 2, $2 / 4}' "$dest/$name/input.ini"); do
+      stage "$src" "$dest/${name}_vnn$v"
+      sed -i "s/^vnn = .*/vnn = $v/" "$dest/${name}_vnn$v/input.ini"
+      lad+=("$dest/${name}_vnn$v")
+    done
+    for d in "${lad[@]}"; do
+      solve "$d" "$NTHREADS"; rc=$?
+      if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $d/run.log)"; return 1; fi
+    done
+    if ! python3 "$base/${sub%%/*}/verify.py" "${lad[@]}" > "$dest/$name/verify.log" 2>&1; then
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$name/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  for sub in conduction/graded100; do
     src="$base/$sub"; stage "$src" "$dest/$(echo "$sub" | tr / _)"
     solve "$dest/$(echo "$sub" | tr / _)" "$NTHREADS"; rc=$?
     if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$(echo "$sub" | tr / _)/run.log)"; return 1; fi
@@ -572,8 +590,8 @@ PYNOKIN
     fi
   done
   local ad0 ht0 cnd
-  ad0=$(grep -F -m1 'max |T - T_or1|' "$dest/adiabatic0d_T1000/verify.log" | awk '{print $6}')
-  ht0=$(grep -F -m1 'max |T - T_or1|' "$dest/heated0d/verify.log" | awk '{print $6}')
+  ad0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/adiabatic0d_T1000/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
+  ht0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/heated0d/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
   cnd=$(grep -F -m1 'max |T - exact|, all' "$dest/conduction_graded100/verify.log" | awk -F'= ' '{print $2}' | awk '{print $1}')
 
   # 4.4 ATC1 against FIAT (bundled)
@@ -598,7 +616,7 @@ PYNOKIN
   local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
   grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
 
-  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic ${ad0:-?} K  0-D heated ${ht0:-?} K  conduction ${cnd:-?} K  ATC1 move vs f* ${atc1:-?} K (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction ${cnd:-?} K  ATC1 move vs f* ${atc1:-?} K (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
   return 0
 }
 
@@ -745,19 +763,28 @@ PYCTRL
 
 # 4.1 (d) the two 0-D decompositions under type 2 against the exact type-2 ODE
 gate_darcy_0d () {
-  local dest="$WORK/darcy_0d" rc sub ad ht
+  local dest="$WORK/darcy_0d" rc sub ad ht v lad d
   rm -rf "$dest"; mkdir -p "$dest"
+  # each case on the ladder vnn, vnn/2, vnn/4 of its own vnn (plan 17 P17-D1; the type-2 order is printed, not gated)
   for sub in adiabatic0d_type2 heated0d_type2; do
     stage "$DARCY/$sub" "$dest/$sub"
-    solve "$dest/$sub" "$NTHREADS"; rc=$?
-    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$sub/run.log)"; return 1; fi
-    if ! darcy_verify "" "$DARCY/$sub/verify.py" "$dest/$sub"; then
+    lad=("$dest/$sub")
+    for v in $(awk -F'= ' '/^vnn = /{printf "%.10g %.10g", $2 / 2, $2 / 4}' "$dest/$sub/input.ini"); do
+      stage "$DARCY/$sub" "$dest/${sub}_vnn$v"
+      sed -i "s/^vnn = .*/vnn = $v/" "$dest/${sub}_vnn$v/input.ini"
+      lad+=("$dest/${sub}_vnn$v")
+    done
+    for d in "${lad[@]}"; do
+      solve "$d" "$NTHREADS"; rc=$?
+      if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $d/run.log)"; return 1; fi
+    done
+    if ! darcy_verify "" "$DARCY/$sub/verify.py" "${lad[@]}"; then
       KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$sub/verify.log" | sed 's/^ *//')"; return 1
     fi
   done
-  ad=$(grep -F -m1 'max |T - T_or2|' "$dest/adiabatic0d_type2/verify.log" | awk '{print $6}')
-  ht=$(grep -F -m1 'max |T - T_or2|' "$dest/heated0d_type2/verify.log" | awk '{print $6}')
-  KEYNUM="0-D adiabatic ${ad:-?} K (tol 0.1)  0-D heated ${ht:-?} K (tol 0.02) vs the exact type-2 ODE"
+  ad=$(grep -F 'order on the finest pair' "$dest/adiabatic0d_type2/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  ht=$(grep -F 'order on the finest pair' "$dest/heated0d_type2/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  KEYNUM="vs the exact type-2 ODE on vnn, vnn/2, vnn/4: errors fall; observed order T/chi: 0-D adiabatic ${ad:-?}, 0-D heated ${ht:-?} (printed, not gated)"
   return 0
 }
 

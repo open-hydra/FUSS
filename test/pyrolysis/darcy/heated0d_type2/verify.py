@@ -3,5 +3,5 @@
 detects the closure from input.ini and compares against the type2 variant of tools/ode0d.py)."""
 import os, subprocess, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
-case = sys.argv[1] if len(sys.argv) > 1 else HERE
-sys.exit(subprocess.call([sys.executable, os.path.join(HERE, "..", "..", "heated0d", "verify.py"), case]))
+cases = sys.argv[1:] or [HERE]
+sys.exit(subprocess.call([sys.executable, os.path.join(HERE, "..", "..", "heated0d", "verify.py")] + cases))
