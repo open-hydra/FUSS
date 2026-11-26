@@ -23,6 +23,21 @@ run commands of each case are in the `README.md` of its test folder.
 | [Multigrid Cycles (FAS)](fas-cycles.md) | 2D, 3D | Steady | FAS V / W cycles and IRS on a two-material plate, a four-layer liner, overlapping chimera blocks and anisotropic cells | Iterations and wall time to convergence, field equal to the single-grid one | Internal study |
 | [Parallel Scaling](parallel-scaling.md) | 2D | Steady | OpenMP and MPI × OpenMP | Wall-clock time vs. cores | Internal study |
 
+### Pyrolysis and ablation
+
+Pyrolysing porous materials (gas closures type 1 and type 2/Darcy) and ablating walls (BC 306/307).
+
+| Test | Dim | Regime | Physics | Verification | Ref |
+|---|---|---|---|---|---|
+| [Pyrolysis Kinetics and 0-D Decomposition](pyrolysis-kinetics-0d.md) | 1D | Transient | Reaction-advancement kinetics, type-1/type-2 energy splitting | Closed-form propagator; exact 0-D ODE (`tools/ode0d.py`) | Internal |
+| [Energy and Mass Audit, and Pure Conduction](pyrolysis-energy-audit.md) | 1D | Transient | Discrete energy/solid-mass identities; conduction on the ATC1 mesh | Solver's own accumulators + independent state sum; exact slab series | Internal |
+| [Ablation Test Case 1](pyrolysis-atc1.md) | 1D | Transient | Conduction + kinetics + type-1 gas-enthalpy advection | Richardson extrapolation of FUSS itself (100/200/400 cells); FIAT/PATO 3.1, informational | ATC1 spec; PATO 3.1 |
+| [Ablation Test Case 2, Chemistry Off](pyrolysis-atc2.md) | 1D | Transient | Conduction + pyrolysis, type-1 and type-2 (Darcy) closures | Local PATO 3.1 run, same closed-form Robin wall | PATO 3.1 |
+| [Type-2 (Darcy) Gas Closure: Exact and Analytic Benchmarks](darcy-exact.md) | 1D/2D | Steady, transient | Darcy gas pressure: sealed/open/periodic faces, isotropic and tensor permeability, single- and multi-block | Exact and analytic closed forms; multi-block/MPI identity | Internal; Wu, Pruess & Persoff (1998) |
+| [Literature Benchmarks of the Pyrolysis and Ablation Models](pyrolysis-literature.md) | 1D | Transient | Charring front with Darcy flow; decomposing slab | Closed-form similarity solution; three independent FE codes (digitized reference) | Baum & Atreya, PCI 31 (2007); Zhang, PhD thesis, Virginia Tech (2010) |
+| [Ablating Wall (BC 306/307)](ablating-wall.md) | 1D | Transient | Surface energy balance, blowing correction, char/gas production; coupled (307) vs. standalone (306) | SEB closure identities; limiting cases; local PATO 3.1 run; 307≡306 equivalence | PATO 3.1 |
+| [Parallel Identity](parallel-identity.md) | — | — | MPI/OpenMP bit identity; pyrolysis and Darcy halo exchanges across ranks | Byte-identical output, any rank/thread layout; N ranks vs. 1 rank | Internal |
+
 ## Running the tests
 
 Each verification case has a `verify.py`. It reads the run's `OUTPUT/`, prints the comparison,
