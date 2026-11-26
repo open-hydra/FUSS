@@ -2,7 +2,7 @@
 """
 verify.py -- gate of the Zhang (2010) three-code decomposing slab (make_zhang2010.py case), 2026-10-13.
 
-Usage: verify.py <case> [--record]
+Usage: verify.py <case>
 Reference: ref/zhang_fig2_2_T.csv (temperatures, K) and ref/zhang_fig2_3_mloss.csv (gas mass flux, kg/m2/s) of the three
 codes of the thesis (MATLAB, UEL, UMATHT), extracted from the vector figures (ref/README.md: 0.16 K, 1.7e-6 kg/m2/s).
 FUSS: exposed and unexposed surface temperatures from wall*.tec (faces 1 and 2), the mid-plane from the two cells around
@@ -12,7 +12,8 @@ Checks, for t > 20 s:
          UEL, UMATHT of |T_code - T_MATLAB| (plan 17, the lead's reading (c); 4.75 / 5.26 / 5.10 K; red before
          2026-10-13, when BC 305's wall update dropped h_conv: 7.4 K at the mid-plane)
   (mdot) the FUSS peak gas flux within [mdot_lo, mdot_hi] x the lowest/highest reference peak, its time within dt_peak
---record writes the measured values into expected.json. FUSS_GATE_SELFTEST=1 zeroes the budgets. Python 3.6, no numpy.
+expected.json holds the mdot window only (mdot_lo, mdot_hi, dt_peak: not taken from the reference, plan 17's B12 open);
+no FUSS value is stored. FUSS_GATE_SELFTEST=1 zeroes every tolerance. Python 3.6, no numpy.
 """
 import csv
 import glob
@@ -63,7 +64,6 @@ def main():
     rT, rM = read_ref("zhang_fig2_2_T.csv"), read_ref("zhang_fig2_3_mloss.csv")
     s = fuss_series(case)
     ok = True
-    meas = {}
     print("Zhang (2010) decomposing slab: %s against the MATLAB code (UEL, UMATHT for the spread)" % case)
     for key in ("exposed", "middle", "unexposed"):
         d = [v - interp(rT["MATLAB_%s_K" % key], t) for t, v in s[key] if t > 20.0 and interp(rT["MATLAB_%s_K" % key], t) is not None]
@@ -73,7 +73,6 @@ def main():
         dT_max = 0.0 if sel else spread
         good = worst <= dT_max
         ok &= good
-        meas[key] = {"max": worst, "mean": sum(d) / len(d)}
         print("  (T) %-9s max|T - T_MATLAB| %.2f K (mean %+.2f K; codes' spread %.2f K = the tolerance %.2f K)  %s"
               % (key, worst, sum(d) / len(d), spread, dT_max, "PASS" if good else "FAIL"))
     pk = max(s["mdot"], key=lambda r: r[1])
@@ -84,16 +83,9 @@ def main():
     dt_ok = (-1.0 if sel else exp["dt_peak"])
     good = lo <= pk[1] <= hi and abs(pk[0] - tmid) <= dt_ok
     ok &= good
-    meas["mdot_peak"] = pk
     print("  (mdot) FUSS peak %.4e kg/m2/s at %.0f s; the codes %s; window [%.4e, %.4e], time within %g s of %.0f s  %s"
           % (pk[1], pk[0], ", ".join("%s %.4e at %.0f s" % (c, r[1], r[0]) for c, r in zip(CODES, refpk)), lo, hi, dt_ok, tmid,
              "PASS" if good else "FAIL"))
-    if "--record" in sys.argv:
-        exp["measured"] = meas
-        with open(path, "w") as fh:
-            json.dump(exp, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        print("  recorded the measured values in %s" % path)
     print("zhang2010: %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
