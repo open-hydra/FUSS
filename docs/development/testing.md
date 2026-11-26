@@ -134,7 +134,7 @@ executable (`-b $<TARGET_FILE:FUSS>`). Exit code 77 means that the script skippe
 A build tree on a network file system needs `-DFUSS_GATE_WORK=<local dir>`. The `TIMEOUT` of each
 gate is at least 5 times its wall with the work folders on a local disk (at least 300 s), and
 several gates write at every iteration: on NFS they run far slower and pass their `TIMEOUT`.
-Measured on 2026-11-26 with the same executable: `heated0d_type2` (in `Gate_Darcy0d`) took 35.4 s
+Measured with the same executable: `heated0d_type2` (in `Gate_Darcy0d`) took 35.4 s
 of solver time with its work folder on NFS and 0.18 s on a local disk, and
 `Gate_DarcyAtc2ChemistryOff` stopped at its 300 s `TIMEOUT` on NFS against 31 s on a local disk.
 
