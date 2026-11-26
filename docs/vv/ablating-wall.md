@@ -16,7 +16,7 @@ Setup and run: `test/pyrolysis/ablation/README.md` (`seb_closure`, `zero_blowing
 
 ## Surface energy balance: closure and its fixed point
 
-`ablation/seb_closure`: the ATC 2.1 setup (static mesh, no-char, blowing parameter $\lambda=0.5$),
+`ablation/seb_closure`: the ATC 2.1 setup (no-char, blowing parameter $\lambda=0.5$),
 with the heating switched off at 1 s instead of 60 s, run to 2 s, so that `OUTPUT/seb.txt` (one row
 per 306 face at every solution write) covers three regimes: chemistry on with the $\dot\rho_e u_e C_{H0}$
 ramp (0-1 s), PATO's $0<{\rm chemistryOn}<1$ ramp-off window (1-1.1 s), and chemistry off with
@@ -33,11 +33,11 @@ $$
 with $B'_{pg}=\dot m_{pg}/(\dot\rho_e u_e C_{H0}\,\beta)$ and $\dot m_{ch}=B'_{ch}\,\dot\rho_e u_e C_{H0}\,\beta$
 consistent to round-off.
 
-**Results.** On every row: $\lvert F\rvert/\max_k\lvert\text{term}_k\rvert\le10\times$ the Newton
-`seb-tol` (chemistry on only, where $\beta\neq1$); $\lvert\beta-\zeta/(e^\zeta-1)\rvert\le10\times$
-`seb-tol`; $B'_{pg}$, $\dot m_{ch}$ consistent to $10^{-14}$ relative; every chemistry-off/ramp row has
-zero convective and gas-advective terms (PATO's chemistryOn == 0 balance); all three regimes
-contribute at least one row.
+**Results.** On every row (all 40): $\lvert F\rvert/\max_k\lvert\text{term}_k\rvert\le10\times$ the
+Newton `seb-tol`; on the 18 chemistry-on rows where $\beta\neq1$:
+$\lvert\beta-\zeta/(e^\zeta-1)\rvert\le10\times$ `seb-tol`, and $B'_{pg}$, $\dot m_{ch}$ consistent to
+$10^{-14}$ relative; every chemistry-off/ramp row has zero convective and gas-advective terms (PATO's
+chemistryOn == 0 balance); all three regimes contribute at least one row (18 on, 2 ramp, 20 off).
 
 ---
 
@@ -65,7 +65,7 @@ interpolation of two equal rows returns the row value exactly).
 | Case | Closure | Compared against | Files identical |
 |---|---|---|---|
 | `atc2off_306_static` | type 1 | `ATC2-chemistryOff` | 23 of 23 (every `OUTPUT/` file except the wall files) |
-| `atc2off_306_static_t2` | type 2 | `darcy/ATC2-chemistryOff-type2` | 24 of 24, `darcy.txt` included; also checks that the 306 face hands the Darcy path the same `bc%Tw_face` (open-face gas enthalpy) and `bc%pw` as the 303 run |
+| `atc2off_306_static_t2` | type 2 | `darcy/ATC2-chemistryOff-type2` | 24 of 24, `darcy.txt` included; the identical `darcy.txt` and field files show that the 306 face hands the Darcy path the same open-face gas enthalpy and wall pressure as the 303 run |
 
 **Pass criteria.** Every compared file byte-identical (a red control that perturbs the 306 copy's
 `hconv` by $10^{-9}$ relative must fail this check).
@@ -85,8 +85,9 @@ preconditioners set to DIC (the shipped DILU aborts on the symmetric matrices of
 time-discretisation error reaches about 24 K at the wall just after the 60 s switch-off). FUSS samples
 PATO's 0.1 s grid: $T$ at the seven probe depths (two bracketing index probes, linear in $x$ then in
 $t$); $T_w$ and $\dot m_g$ from `seb.txt` (linear in $t$; a grid time whose two FUSS samples straddle a
-breakpoint of the env table, $t=0.1,60,60.1$ s, is skipped — interpolating across the 60 s switch-off
-reads 72 K of sampling error into a wall that otherwise agrees to 0.1 K just before it); the
+breakpoint of the env table — 0.1, 60 or 60.1 s; in these runs the 60 and 60.1 s breakpoints are each
+skipped once — interpolating across the 60 s switch-off reads 72 K of sampling error into a wall that
+otherwise agrees to 0.1 K just before it); the
 virgin-98 %/char-2 % front depths from the field files, by PATO's own rule.
 
 **Results** (averaged/maximised over $t=0.1$-120 s against PATO, and separately against the Amaryllis
@@ -94,9 +95,9 @@ organiser reference for the 1.5× check):
 
 | Quantity | max $\lvert\text{FUSS}-\text{PATO}\rvert$ | regression budget (measured + slack) | max $\lvert\text{PATO}-\text{Amaryllis}\rvert$ | $1.5\times$ target met |
 |---|---:|---:|---:|---|
-| $T$ (7 depths) | 0.869 K | 2.869 K (+2 K) | 25.35 K | yes |
-| $T_w$ | 1.370 K | 3.370 K (+2 K) | 98.96 K | yes |
-| $\dot m_g$ | $2.29\times10^{-4}$ kg/(m²s) | $2.83\times10^{-3}$ (+10 % of PATO's peak $2.60\times10^{-2}$) | $2.34\times10^{-3}$ | yes |
+| $T$ (7 depths) | 0.880 K | 2.869 K (+2 K) | 25.35 K | yes |
+| $T_w$ | 1.391 K | 3.370 K (+2 K) | 98.96 K | yes |
+| $\dot m_g$ | $2.30\times10^{-4}$ kg/(m²s) | $2.83\times10^{-3}$ (+10 % of PATO's peak $2.60\times10^{-2}$) | $2.34\times10^{-3}$ | yes |
 | virgin-98 % front | $1.15\times10^{-5}$ m | $2.09\times10^{-3}$ m (+10 % of PATO's peak $2.08\times10^{-2}$ m) | $1.13\times10^{-4}$ m | yes |
 | char-2 % front | $3.54\times10^{-6}$ m | $2.51\times10^{-4}$ m (+10 % of PATO's peak $2.48\times10^{-3}$ m) | $6.37\times10^{-5}$ m | yes |
 
@@ -122,13 +123,16 @@ graded cells, shortened to 1 s) solved through two input paths for face 2:
 - `run306/`: face 2 typed 306 with $\lambda=0$ and an env table (`env306.dat`) carrying the same
   values with `chem = 1`, `hconv = 0`, `T_edge = 300`.
 
-Both runs share one `input.ini`, mesh, table set, probe list and output cadence (the 306 face consumes no char), and differ only in the face-2 records
+Both runs share one `input.ini` (`run307`'s carries one extra line, the `coupled-env-file` key), mesh,
+table set, probe list and output cadence (the 306 face consumes no char), and differ only in the
+face-2 records
 and the env/coupled-env-file values — ATC 2.1's own heating values, $p_w=101325$ Pa,
 $\dot\rho_e u_e C_H=0.3$, $h_r=1.5\times10^6$ J/kg, $q_{\rm rad}=0$, held constant to 60 s.
 
 **Results.** Every file of `OUTPUT/` compared (field files, `seb.txt`, wall files,
-`bc306-state.dat`): run307 and run306 are byte-identical. A red control (`FUSS_GATE_SELFTEST=1`,
-which perturbs `env307.dat`'s $h_r$ by about $10^{-6}$ relative) is applied by the gate and must fail.
+`bc306-state.dat`): run307 and run306 are byte-identical, 28 of 28 files. A red control (`FUSS_GATE_SELFTEST=1`,
+which perturbs `env307.dat`'s $h_r$ from $1.5\times10^6$ to $1.5000001\times10^6$ J/kg, about
+$7\times10^{-8}$ relative) is applied by the gate and must fail.
 
 **Multi-block.** `coupled307/run307_4blk`: the same `run307` cut into 4×1 blocks along $x$, the two
 307 faces both on block 4; `test/run_mpi_gate.sh` runs it at 4 MPI ranks against 1 and finds every

@@ -20,9 +20,9 @@ storage in the quasi-steady mode; with storage, $\epsilon_c=0.76$, in the full m
 closure, $K_c=10^{-15}$ m² (the virgin is effectively impermeable, $K_v=10^{-20}$ m²), a 0.04 m slab,
 BC 302 at the surface, BC 301 (sealed) at the back. Two gas-heat-capacity choices: $c_g=1475$
 J/(kg·K) (`--cg 1475`, which makes the decomposition heat $Q=497302.6$ J/kg independent of $T$ and
-puts the gas-enthalpy advection through the char into the exact solution) and $c_g=0$ (the paper's own
-case, `full_N100`/`full_N200` with reactions on; `qs_N100` is the quasi-steady, no-storage mode, the
-paper's $\beta=0$).
+puts the gas-enthalpy advection through the char into the exact solution; the full-storage cases
+`full_N100`/`full_N200` run at this value) and $c_g=0$ (the paper's own case; `qs_N100` is the
+quasi-steady, no-storage mode, the paper's $\beta=0$, and runs at $c_g=0$).
 
 ### Reference
 
@@ -43,8 +43,8 @@ Averages over $30\le t\le300$ s:
 |---|---:|---:|
 | front error (mass-based) | 15.01 % | 7.36 % |
 | $L_2$ temperature error (char + preheat, $x\le3X$) | 27.48 K | 15.09 K |
-| gas-mass ledger $\lvert\text{out}+\text{stored}-\text{stored}(0)-\text{lost}\rvert/\text{lost}$ | $-1.08\times10^{-14}$ | $+1.04\times10^{-14}$ |
-| $\langle p^2-p_s^2\rangle$ at 1 mm, relative to exact | — | $-6.63\,\%$ |
+| gas-mass ledger $\lvert\text{out}+\text{stored}-\text{stored}(0)-\text{lost}\rvert/\text{lost}$ | $-1.10\times10^{-14}$ | $+1.05\times10^{-14}$ |
+| $\langle p^2-p_s^2\rangle$ at 1.1 mm, relative to exact | — | $-6.63\,\%$ |
 
 Front-error order on N100/N200: 1.03. The quasi-steady run (`qs_N100`, $c_g=0$, no storage) gives a
 gas-mass ledger of $-8.49\times10^{-5}$: the quasi-steady closure carries the gas released in one step
@@ -55,7 +55,7 @@ one-step bound.
 
 - Front error on the finest grid (N200) $\le8.5\,\%$, and its order on the finest pair in $[0.8,1.3]$.
 - $L_2$ temperature error on the finest grid $\le17.0$ K.
-- $\langle p^2-p_s^2\rangle$ at the 1 mm probe within $9\,\%$ of the exact quasi-steady char pressure.
+- $\langle p^2-p_s^2\rangle$ at the 1.1 mm probe within $9\,\%$ of the exact quasi-steady char pressure.
 - Every full run's gas-mass ledger $\le10^{-10}$ (round-off: the discrete update's own identity).
 - The quasi-steady run's ledger $\le10^{-3}$ (one step of carried gas, not an identity).
 
@@ -92,13 +92,14 @@ For $t>20$ s:
 
 | Surface | max $\lvert T_{\rm FUSS}-T_{\rm MATLAB}\rvert$ | mean | the three codes' own spread |
 |---|---:|---:|---:|
-| exposed | 3.29 K | $-2.66$ K | 4.75-5.26 K |
-| mid-plane | 2.42 K | $-0.44$ K | 4.75-5.26 K |
-| unexposed | 2.68 K | $+0.48$ K | 4.75-5.26 K |
+| exposed | 3.29 K | $-2.81$ K | 4.75 K |
+| mid-plane | 2.51 K | $-0.67$ K | 5.26 K |
+| unexposed | 2.08 K | $+0.28$ K | 5.10 K |
 
-Peak exposed-face gas mass flux: FUSS $4.385\times10^{-3}$ kg/(m²s) at 904 s, against the three codes'
-own peaks of $4.49$-$4.60\times10^{-3}$ kg/(m²s) at 888-918 s (MATLAB's peak is a plateau at
-$4.6\times10^{-3}$ from 880.5 to 909.7 s).
+Peak exposed-face gas mass flux: FUSS $4.369\times10^{-3}$ kg/(m²s) at 904 s, against the three codes'
+own peaks of MATLAB $4.598\times10^{-3}$ at 890 s, UEL $4.489\times10^{-3}$ at 910 s, UMATHT
+$4.582\times10^{-3}$ at 900 s (MATLAB's peak is a plateau at $4.6\times10^{-3}$ from 880.5 to
+909.7 s).
 
 ### Pass criteria
 

@@ -41,10 +41,11 @@ solid); `adiabatic0d`, `heated0d` and their type-2 twins use the full TACOT prop
 | `darcy/adiabatic0d_type2` | both BC 301, open at `p-wall` ($K=10^{-7}$ m²) | 1000 K | none | `ode0d.py`, type-2 variant |
 | `darcy/heated0d_type2` | both BC 301, open at `p-wall` ($K=10^{-7}$ m²) | 300 K | $\dot q=3.75\times10^{8}$ W/m³ | `ode0d.py`, type-2 variant |
 
-Every case is a 4-cell, 1 mm slab, `vnn = 0.25`, RK3, `integration-variables = cons`. With a spatially
-uniform state and (for `kinetics_isothermal`) a spatially uniform $T$ held exactly by the BC 302
-faces, every cell follows the same 0-D trajectory, so the spatial discretisation drops out of the
-comparison.
+Every case is a 4-cell, 1 mm slab, RK3, `integration-variables = cons` (`vnn = 0.25` for
+`kinetics_isothermal`, `adiabatic0d` and `darcy/adiabatic0d_type2`; `heated0d` and
+`darcy/heated0d_type2` run at `vnn = 0.003125`). With a spatially uniform state and (for
+`kinetics_isothermal`) a spatially uniform $T$ held exactly by the BC 302 faces, every cell follows
+the same 0-D trajectory, so the spatial discretisation drops out of the comparison.
 
 **`kinetics_isothermal`** (both faces held at $T_0$): with $h$, $h_{pg}$ and $c_p$ all linear and equal
 in $T$ (the `--isothermal` tables), $T$ stays at $T_0$ exactly and each reaction follows the closed
@@ -56,8 +57,9 @@ $$
 $$
 
 **`adiabatic0d`, `heated0d`** (adiabatic or uniformly heated, both closures): the uniform state obeys
-the ODE system of `test/pyrolysis/tools/ode0d.py` (classical RK4, step $2\times10^{-4}$ s, pure
-Python), built from the case's own tables:
+the ODE system of `test/pyrolysis/tools/ode0d.py` (classical RK4, pure Python; `adiabatic0d` and its
+type-2 twin integrate at step $2\times10^{-4}$ s, `heated0d` and its type-2 twin at $10^{-4}$ s), built
+from the case's own tables:
 
 $$
 \chi_r' = \kappa_r(T)(1-\chi_r)^{m_r}, \qquad
@@ -77,20 +79,23 @@ Measured maxima over every field-output time, from each case's `verify.py`:
 
 | Case | max $\lvert\chi-\chi_{\rm exact}\rvert$ | max $\lvert T-T_0\rvert$ [K] | line-integral error (type 1) |
 |---|---:|---:|---:|
-| `kinetics_isothermal` (T0700/T0900/T1200) | $\le 10^{-8}$ | $\le 10^{-7}$ | $\lvert\dot m_{pg}(s)-s\,\dot m_{pg}(1)\rvert/(\dot m_{pg}(1))\le10^{-12}$ |
+| `kinetics_isothermal` (T0700/T0900/T1200) | $\le 10^{-8}$ | $\le 10^{-7}$ | $\lvert\dot m_{pg}(s)-s\,\dot m_{pg}(1)\rvert/(s\,\dot m_{pg}(1))\le10^{-12}$ |
 
 | Case | max $\lvert T-T_{\rm oracle}\rvert$ [K] | max $\lvert\chi-\chi_{\rm oracle}\rvert$ | non-uniformity [K] |
 |---|---:|---:|---:|
-| `adiabatic0d/T1000` (type 1) | 0.051 at vnn 0.5, 0.014 at 0.25, 0.0022 at 0.1, 0.0005 at 0.05 | $1.22\times10^{-3}$ | $2\times10^{-8}$ |
-| `heated0d` (type 1) | 0.0016 at the case's vnn 0.003125 (15.8 at vnn 0.5, 3.8 at 0.25, 0.59 at 0.1, 0.14 at 0.05, 0.034 at 0.025, 0.008 at 0.0125) | $1\times10^{-6}$ | $1\times10^{-11}$ |
-| `darcy/adiabatic0d_type2` (type 2) | 0.017 | — | $1\times10^{-7}$ |
-| `darcy/heated0d_type2` (type 2) | 0.0011 | $1.04\times10^{-5}$ at this step, $2.07\times10^{-6}$ at half of it (second order) | $6.5\times10^{-7}$ |
+| `adiabatic0d/T1000` (type 1) | 0.0510 at the case's vnn 0.25 | $1.22\times10^{-3}$ | $1.0\times10^{-12}$ |
+| `heated0d` (type 1) | 0.0020 at the case's vnn 0.003125 | $6.67\times10^{-7}$ | $0$ |
+| `darcy/adiabatic0d_type2` (type 2) | 0.0166 | $9.19\times10^{-4}$ | $1.8\times10^{-7}$ |
+| `darcy/heated0d_type2` (type 2) | 0.0011 | $1.04\times10^{-5}$ | $6.7\times10^{-7}$ |
 
 Both quantities refine at second order in $\mathrm dt$ (the RK3 stages freeze the kinetics/energy
-split within a stage; halving `vnn` roughly quarters the error). Reported but not gated: the exact
-type-2 minus type-1 shift (adiabatic: $+0.070$ K; heated: $-3.9$ K at the end) is what each type-2 run
-must reproduce, and (for `heated0d`, when PATO's own TACOT tables are present) the shift from using
-PATO's table enthalpy instead of the case's own ($-0.15$ K).
+split within a stage; halving `vnn` roughly quarters the error): `adiabatic0d/T1000`'s own `verify.py`
+documents 0.0510 K at `vnn = 0.25` (the case above), 0.014 K at 0.125, 0.0022 K at 0.05, 0.0005 K at
+0.025; `heated0d`'s documents 15.8 K at `vnn = 0.25`, 3.8 K at 0.125, 0.59 K at 0.05, 0.14 K at 0.025,
+0.034 K at 0.0125, 0.008 K at 0.00625 (the case above runs at 0.003125, one refinement further).
+Reported but not gated: the exact type-2 minus type-1 shift (adiabatic: $0.0696$ K; heated: $-3.914$ K
+at the end) is what each type-2 run must reproduce, and (for `heated0d`, when PATO's own TACOT tables
+are present) the shift from using PATO's table enthalpy instead of the case's own ($-0.150$ K).
 
 ## Pass criteria
 

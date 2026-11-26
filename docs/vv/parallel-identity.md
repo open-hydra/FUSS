@@ -69,9 +69,10 @@ a fixed mesh (no mesh motion):
 (The gate's other pyrolysis/ablation entries are out of scope for this page.)
 
 **Pass criteria.** Every `OUTPUT/` file of each case above is byte-identical between the listed rank
-count and 1 rank, under the wall-file and residual-history rules stated above. The per-case
-`README.md` files quote the specific byte-for-byte file counts and, where measured independently of
-an exact match, the relative difference against a single-block/single-rank run of the same binary
-(for example `darcy/mass_balance_1d_2x`: $T$ relative $10^{-14}$, $p_{pg}$ relative $7.8\times10^{-14}$
-against its own four-line, single-block source — a cross-check of the case construction, not of the
-rank count).
+count and 1 rank, under the wall-file and residual-history rules stated above. Two of the per-case
+`README.md` files also quote the byte-for-byte file count (`coupled307/run307_4blk`: 27;
+`full_N100_20blk`: 30 fields, 30 walls, the probes, `energy-budget.txt`, `darcy.txt`). Where a case's
+`README.md` separately reports the relative difference of its own split construction against an
+unsplit, single-rank run of the same binary (a cross-check of the split, not of the rank count), the
+example is `darcy/mass_balance_1d_2x`: $T$ relative $10^{-14}$, $p_{pg}$ relative $7.8\times10^{-14}$
+against its own four-line, single-block source.

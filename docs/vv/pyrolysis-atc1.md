@@ -50,21 +50,23 @@ error $f_{100}-f_\star$, and the observed order $p$, at the five times FIAT repo
 | 2 mm | — | $1019.720$, $-0.440$, $p=3.49$ | $1170.718$, $-0.193$, $p=3.2$ | $1344.064$, $-0.052$ | $1421.196$, $-0.018$ |
 | 4 mm | $314.393$, $0.255$, $p=2.17$ | $631.763$, $-0.243$, $p=1.79$ | $831.355$, $-0.103$, $p=1.69$ | $1099.606$, $-0.018$, $p=3.0$ | $1230.052$, $0.024$, $p=2.25$ |
 | 8 mm | $298.002$, $0.000$ | $333.455$, $0.152$, $p=2.6$ | $445.483$, $0.071$, $p=4.5$ | $749.621$, $0.003$ | $920.091$, $0.093$, $p=2.86$ |
-| 16 mm | — | — | $300.938$, $0.051$, $p=1.89$ | $388.427$, $0.119$, $p=1.73$ | $555.785$, $0.038$, $p=1.42$ |
+| 16 mm | — | $298.026$, $0.003$ | $300.938$, $0.051$, $p=1.89$ | $388.427$, $0.119$, $p=1.73$ | $555.785$, $0.038$, $p=1.42$ |
 | 50 mm | — | — | — | $298.0$, $0.0$ | $298.305$, $0.012$, $p=2.17$ |
 
-Over the full 46-point window the largest 100-cell discretisation error is 1.868 K, at (1 mm, 1 s); the
-observed order runs 1.0-1.6 at 1 mm, 2-3.8 at 2 mm, 1.5-2.8 at 4-16 mm (behind the pyrolysis front the
-donor-cell gas-enthalpy flux gives 0.7-1.0; ahead of it, pure conduction gives 1.6-2.3 to beyond
-second order). $f_\star$ moved by only 0.007 K at (1 mm, 1 s) under a refinement of the scheme that
-reaches it (the 302-ramp timing and the type-1 gas-enthalpy evaluation point): $f_\star$ is a property
-of the model, not of the scheme.
+Over the full 46-point window the largest 100-cell discretisation error is 1.868 K, at (1 mm, 1 s);
+the per-point order $p$ (shown above where defined) ranges from $-0.58$ to $6.46$ across the window —
+a locally fitted exponent at each (depth, $t$), not evidence of one asymptotic rate. $f_\star$ moved by
+only 0.007 K at (1 mm, 1 s) under a refinement of the scheme that reaches it (the 302-ramp timing and
+the type-1 gas-enthalpy evaluation point): $f_\star$ is a property of the model, not of the scheme.
 
-Reported, not gated: an older metric against FIAT directly (max $\lvert T_{\rm FUSS}-T_{\rm FIAT}\rvert$
-over the same window reaches 24.68 K; FIAT runs 4-17 K cooler than the converged FUSS model during
-each front passage, within $-0.1$ to $+0.7$ K at 1 mm after 20 s); the pyrolysis front
-depths ($\rho_s$ 98 %/2 % thresholds between $\rho_c=220$ and $\rho_v=280$ kg/m³) and the surface
-$\dot m_{pg}$ at the last field write.
+On the current build the gate's largest move is 0.443 K, at (16 mm, 60 s), well inside the 1.0 K band.
+
+Reported, not gated: the metric against FIAT directly, max $\lvert T_{\rm FUSS}-T_{\rm FIAT}\rvert$
+over the six probes and the full window, is 16.03 K (at 2 mm, 4 s); FIAT runs 4-17 K cooler than the
+converged FUSS model during each front passage, within $-0.1$ to $+0.7$ K at 1 mm after 20 s; the
+pyrolysis front depths ($\rho_s$ 98 %/2 % thresholds between $\rho_c=220$ and $\rho_v=280$ kg/m³,
+15.21 mm and 2.91 mm below the surface at the last field write) and the surface $\dot m_{pg}$ there,
+$5.387\times10^{-3}$ kg/(m²s).
 
 ## Pass criteria
 

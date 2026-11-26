@@ -40,7 +40,7 @@ refinement of FUSS against itself.
 | (i) energy balance | $\lvert E(t)-E(0)+Q_{\rm out}-Q_{\rm src}\rvert / \max(\lvert E(0)\rvert,\lvert Q_{\rm out}\rvert)$ | $\le 10^{-10}$ |
 | (ii) solid-mass balance | $\lvert M_s(t)-M_s(0)+M_{\rm gas,out}\rvert / M_s(0)$ | $\le 10^{-10}$ |
 | (iii) independent state sum | $E_{\rm tot}$, $M_s$ recomputed from `field.tec` (T, $\chi_*$), the input tables and the node-coordinate cell volumes, vs. the solver's own columns | $\le 10^{-10}$ relative |
-| (iv) time-discretisation bound | the three-`vnn` (0.5/0.25/0.125) probe-series refinement, interpolated onto $t=2.0,2.1,\dots,10.0$ s: order ratio $\ge 1.6$, and $\max\lvert T_{0.5}-T_{0.125}\rvert$ | $1.0000533$ K (budget $2.0000533$ K, i.e. measured + 1 K) |
+| (iv) time-discretisation bound | the three-`vnn` (0.25/0.125/0.0625) probe-series refinement, interpolated onto $t=2.0,2.1,\dots,10.0$ s: order ratio $\ge 1.6$, and $\max\lvert T_{0.25}-T_{0.0625}\rvert$ | $1.000$ K, order ratio $2.240$ (budget $2.0000533$ K, i.e. the committed measured value plus 1 K) |
 | (v) zero-kinetics self-consistency | a `--nokin` rerun: every $\chi_r$ and $\dot m_{pg}$ exactly 0, $\rho_s=\rho_v$ to $10^{-14}$ relative, $Q_{\rm gas,out}=M_{\rm gas,out}=0$ exactly | exact |
 | (vi) cross-thread determinism | `field.tec` and `energy-budget.txt`, 1 vs. 8 OpenMP threads | byte-identical |
 
@@ -52,7 +52,7 @@ of check (iv) passes.
 ### Pass criteria
 
 (i), (ii), (v): the stated tolerances above, all at $10^{-10}$ or exact. (iii): $10^{-10}$ relative.
-(iv): order ratio $\ge1.6$ *and* $\max\lvert T_{0.5}-T_{0.125}\rvert\le$ the budget recorded in
+(iv): order ratio $\ge1.6$ *and* $\max\lvert T_{0.25}-T_{0.0625}\rvert\le$ the budget recorded in
 `expected.json` (the measured value plus 1 K; a sub-check whose companion directories are not given is
 skipped, not failed). (vi): byte-identical files.
 
@@ -67,7 +67,7 @@ constant-property tables ($c_p = 1000$ J/(kg·K), $k = 0.4$ W/(m·K), $\rho_v = 
 $\alpha = k/(\rho c_p) = 1.4286\times10^{-6}$ m²/s) and every pyrolysis reaction stripped
 (`nPyroReac = 0` throughout). Face 2 is stepped to 1644 K at $t=0$ through a BC 302 time file
 (`0 1644 / 60 1644`); face 1 is adiabatic (BC 301); $T(0) = 298$ K; 60 s. Ten index-position probes
-bracket, in pairs, the FIAT thermocouple depths of ATC1 (1, 2, 4, 8, 16 mm), plus a back-face probe.
+sit in pairs near the FIAT thermocouple depths of ATC1 (1, 2, 4, 8, 16 mm), plus a back-face probe.
 
 ### Reference
 
@@ -81,18 +81,18 @@ T(d, t) = T_w + (T_0-T_w)\sum_{n\ge0}\frac{2(-1)^n}{\lambda_n}\cos\!\Bigl(\frac{
 $$
 
 evaluated with 4000 terms (exact to round-off for $\alpha t/L^2\ge10^{-7}$; checked against the
-semi-infinite erf solution to $3\times10^{-12}$ K at $t=0.5$ s, 1 mm). `verify.py` compares FUSS's cell
-value at each probe's exact depth (linear interpolation between the bracketing pair, then in time)
-against this series at the same depth and time, for $t\in\{0.5,1,2,4,8,16,30\}$ s.
+semi-infinite erf solution to $3\times10^{-12}$ K at $t=0.5$ s, 1 mm). `verify.py` compares each
+probe's own cell value against this series evaluated at that cell's centre, with no interpolation in
+depth or time, for $t\in\{0.5,1,2,4,8,16,30\}$ s.
 
 ### Results
 
 | Quantity | Measured |
 |---|---|
-| max $\lvert T-T_{\rm exact}\rvert$ at 1 mm, $t=0.5$ s | 1.10 K |
-| at 1 mm, $t=1$ s | 0.50 K |
-| at 2 mm, $t=1$ s | 0.49 K |
-| at $\ge4$ mm, every time | $<0.14$ K |
+| max $\lvert T-T_{\rm exact}\rvert$ at 1 mm, $t=0.5$ s | 1.139 K |
+| at 1 mm, $t=1$ s | 0.533 K |
+| at 2 mm, $t=1$ s | 0.526 K |
+| at $\ge4$ mm, every time | $\le0.173$ K |
 | max over every probe and time (gated) | $\le1.3$ K |
 
 The uniform-mesh (not graded) companions of the same resolution step show second-order convergence:

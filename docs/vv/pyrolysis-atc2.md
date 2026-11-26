@@ -33,7 +33,7 @@ closed-form surface energy balance $h_{\rm conv}(T_{\rm edge}-T_w)$, with no re-
 
 A control run with the shipped (non-zero) emissivity gave a surface temperature of 1563 K at 60 s,
 against 2332 K with the edit (2190 K at 1 mm), confirming the zero-emissivity edit took; PATO ran
-12184 steps in 40 s wall time, with `no-char`.
+12184 steps in 40 s wall time.
 
 ## Results
 
@@ -41,25 +41,28 @@ against 2332 K with the edit (2190 K at 1 mm), confirming the zero-emissivity ed
 
 | Quantity | Value |
 |---|---|
-| max over the seven depths and $t=0.1$–60 s of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ | 22.75 K |
-| regression budget (measured + 2 K) | 24.75 K |
+| max over the seven depths and $t=0.1$–60 s of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ | 14.82 K, at 1 mm / 1.1 s |
+| regression budget (committed, measured + 2 K) | 24.7 K |
 
 ### Type 2 (Darcy)
 
 | Check | Result |
 |---|---|
-| (T) max $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths (the open face evaluates the gas enthalpy leaving the domain at the wall temperature) | 10.52 K |
-| regression budget (measured + 2 K) | 12.52 K |
-| (acc) same maximum vs. the type-1 acceptance $B_T=22.75$ K (the measured type-1 maximum, at 1 mm / 2.6 s) | $10.52 < 22.75$: type 2 does not make the type-1 answer worse |
-| (dir) $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ at the type-1 peak point (1 mm, 2.6 s) | 7.48 K, below the type-1 value there (22.75 K) |
-| (p) max $\lvert\Delta p_{\rm FUSS}-\Delta p_{\rm PATO}\rvert / \max\Delta p_{\rm PATO}$ | 0.55 % (tolerance 15 %); FUSS peak $\Delta p = 2049.6$ Pa, PATO peak $2048.0$ Pa |
-| (sign) $T_{\rm type2}-T_{\rm type1}$ wherever $T_{\rm PATO}\ge700$ K | from $-15.8$ K (1 mm) to $-10.1$ K (8 mm): type 2 runs cooler than type 1 at every hot probe, as the exact 0-D gas-storage shift predicts (table below) |
+| (T) max $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths (the open face evaluates the gas enthalpy leaving the domain at the wall temperature) | 10.51 K, at 1 mm / 0.9 s |
+| regression budget (committed, measured + 2 K) | 12.52 K |
+| (acc) same maximum vs. the gate's committed acceptance constant $B_T=22.75$ K (the type-1 run's own deviation from PATO, at 1 mm / 2.6 s) | $10.51 < 22.75$: type 2 does not make the type-1 answer worse |
+| (dir) $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ at the committed type-1 peak point (1 mm, 2.6 s) | 7.48 K, below the committed type-1 value there (22.75 K) |
+| (p) max $\lvert\Delta p_{\rm FUSS}-\Delta p_{\rm PATO}\rvert / \max\Delta p_{\rm PATO}$ | 0.55 % (tolerance 15 %); FUSS peak $\Delta p = 2050.4$ Pa, PATO peak $2049.0$ Pa |
+| (sign) $T_{\rm type2}-T_{\rm type1}$ wherever $T_{\rm PATO}\ge700$ K | from $-6.54$ K (4 mm) to $-3.12$ K (1 mm): type 2 runs cooler than type 1 at every hot probe, as the exact 0-D gas-storage shift predicts (table below) |
 
 Type-2 minus type-1 shift at every depth, over the samples where $T_{\rm PATO}\ge700$ K (K, min .. max):
 
 | Depth | 1 mm | 2 mm | 4 mm | 8 mm | 12 mm |
 |---|---|---|---|---|---|
-| $T_{\rm type2}-T_{\rm type1}$ | $-15.81$ .. $-2.44$ | $-13.92$ .. $-3.37$ | $-12.09$ .. $-6.03$ | $-10.91$ .. $-10.15$ | $-10.39$ .. $-9.88$ |
+| $T_{\rm type2}-T_{\rm type1}$ | $-5.24$ .. $-3.12$ | $-5.90$ .. $-4.17$ | $-6.54$ .. $-4.32$ | $-6.36$ .. $-4.55$ | $-5.00$ .. $-4.60$ |
+
+The largest (least negative) value over every hot sample is $-3.115$ K, at 1 mm: still below the
+$0.05$ K slack.
 
 ## Pass criteria
 

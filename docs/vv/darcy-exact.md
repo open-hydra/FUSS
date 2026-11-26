@@ -32,8 +32,8 @@ mandatory sweep; max $\lvert T-T_0\rvert\le10^{-9}$ K (no gas work since $p$ is 
 `qrad = 0`, `Tref = 1000` K, so $p_w=101325$ Pa), a constant gas production `pi-source = 0.1`
 kg/(m³·s), $K=10^{-11}$ m², constant synthetic gas, isothermal solid tables, $T_0=1000$ K. At steady
 state mass conservation gives $\dot m(x) = \pi x$ at every face regardless of $T(x)$. Two variants:
-`b1` (quasi-steady: Picard iteration on the lagged $\Gamma$, the committed, "sedded" case) and `b2`
-(2 s time-accurate; the gas relaxation time $L^2/D_p\approx0.09$ s).
+`b2` (the committed case, 2 s time-accurate; the gas relaxation time $L^2/D_p\approx0.09$ s) and `b1`
+(the gate's staged copy, `quasi-steady = true`: Picard iteration on the lagged $\Gamma$).
 
 **Reference.** The face fluxes are rebuilt directly from `OUTPUT/field.tec` with the solver's own
 discrete closure: cell $\Gamma_c = p_c WK/(RT_c\mu)$, face $\Gamma_f=(\Gamma_L+\Gamma_R)/2$, flux
@@ -47,9 +47,9 @@ tolerance; the energy identity $\lvert E(t)-E(0)+Q_{\rm out}-Q_{\rm src}\rvert\l
 holds at every row; `darcy.txt` shows every step converged within the solver's own `tol` and exactly 1
 sweep per step (a 1-D tridiagonal solve).
 
-**Multi-block.** `darcy/mass_balance_1d_2x`: the same line, four copies side by side (1×4 cells
-instead of 1 line), cut into 1×2 blocks forming one line-implicit correction group. Measured (against
-the four-line, single-block source): $T$ relative $1.0\times10^{-14}$, $p_{pg}$ relative
+**Multi-block.** `darcy/mass_balance_1d_2x`: four identical copies of the line side by side along $j$
+(instead of two), cut into 1×2 blocks of 100×2 cells each, forming one line-implicit correction group.
+Measured (against the four-line, single-block source): $T$ relative $1.0\times10^{-14}$, $p_{pg}$ relative
 $7.8\times10^{-14}$; the sweep counts over the first steps match the single-block run exactly
 (5, 4, 4, 4, 3). `test/run_mpi_gate.sh` runs it at 2 MPI ranks against 1: every output byte-identical.
 
@@ -119,7 +119,7 @@ changing the converged field). `test/run_mpi_gate.sh` runs it at 4 ranks against
 
 ---
 
-## Periodic faces (BC 201) under the Darcy closure, static mesh
+## Periodic faces (BC 201) under the Darcy closure
 
 `darcy/periodic_static`, `darcy/periodic_static1`: one sector of a six-sector helical annular wall
 about the $x$-axis (6×6×4 cells per sector), with `gas-closure = type2` on a **static** mesh and $K$
@@ -162,7 +162,7 @@ $$
 $$
 
 Each run is sampled at $t=0.5\,L^2/D\approx875$ s. **Results**: max $\lvert p-p_{\rm exact}\rvert/\Delta p$
-on N020/N040/N080: $6.78\times10^{-4}$, $1.68\times10^{-4}$, $3.96\times10^{-5}$; observed order on
+on N020/N040/N080: $6.78\times10^{-4}$, $1.68\times10^{-4}$, $3.97\times10^{-5}$; observed order on
 N040/N080: 2.08 (the line solve is second order in space; the backward-Euler step is first order in
 time, and $\mathrm dt\sim\mathrm dx^2$ at fixed `vnn`, so the time error appears as second order here).
 **Pass**: finest-grid error $\le5\times10^{-5}$, order on the finest pair $\ge1.8$.
