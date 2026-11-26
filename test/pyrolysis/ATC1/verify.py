@@ -133,6 +133,37 @@ def probe_x(pj):
     return out
 
 
+def sampling_term(case, pj, px):
+    """(max |e_s|, depth mm, t, alpha): e_s = (1 - w) ex(x_lo) + w ex(x_hi) - ex(x_d), the error that linear interpolation
+    between the two bracketing cell centres adds to an exact profile ex, on FIAT's grid t = 1..60 s (the back face: the
+    first cell centre against x = 0). PATO exists only at its probes, so FUSS must be interpolated to them; ex is the
+    step-heated slab of tools/slab_series.py with the case's virgin cp and k at T0 = 298 K and rho_v = 280 (an estimate
+    of that term's size, not of ATC1's profile)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
+    from slab_series import exact
+    rows = [[float(v) for v in l.split()] for l in open(os.path.join(case, "INPUT", "virgin.dat"))
+            if l.strip() and l.split()[0][0] in "0123456789"]
+    T0, L = 298.0, pj["L"]
+    i = max(k for k in range(len(rows) - 1) if rows[k][0] <= T0)
+    f = (T0 - rows[i][0]) / (rows[i + 1][0] - rows[i][0])
+    cp, kk = ((1 - f) * rows[i][c] + f * rows[i + 1][c] for c in (1, 3))
+    alpha = kk / (280.0 * cp)
+    ex = lambda d, t: exact(d, t, alpha, L, 1644.0, T0)
+    worst = (0.0, None, None)
+    for t in range(1, 61):
+        for d in DEPTHS_MM:
+            lo, hi = pj["pairs"][str(d)]
+            w = ((L - d * 1.0e-3) - px[lo]) / (px[hi] - px[lo])
+            e = (1.0 - w) * ex(L - px[lo], t) + w * ex(L - px[hi], t) - ex(d * 1.0e-3, t)
+            if abs(e) > worst[0]:
+                worst = (abs(e), d, t)
+        x1 = min(px.values())
+        e = ex(L - x1, t) - ex(L, t)
+        if abs(e) > worst[0]:
+            worst = (abs(e), 50, t)
+    return worst + (alpha,)
+
+
 def main():
     case = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
     here = os.path.dirname(os.path.abspath(__file__))
@@ -184,6 +215,10 @@ def main():
     print("ATC1 gate: max over the six probes and FIAT's 1 s grid of |T_FUSS - T_PATO| = %.2f K at %s mm, %g s; "
           "tolerance = the PATO-FIAT spread %.2f K (at %s mm, %g s; PATO %s)  %s"
           % (worst[0], worst[1], worst[2], tol, spread[1], spread[2], pato_dir, "PASS" if ok else "FAIL"))
+    samp = sampling_term(case, pj, px)
+    print("  (not gated) sampling term of FUSS's depth interpolation on these probes, estimated on the exact constant-property"
+          " step-heated slab (alpha %.4e m2/s, the virgin table at T0): max %.2f K at %s mm, %g s, against the tolerance"
+          " %.2f K" % (samp[3], samp[0], samp[1], samp[2], spread[0]))
 
     # informational: the former metric against FIAT
     worst_all = 0.0
