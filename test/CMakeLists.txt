@@ -237,7 +237,7 @@ set(_PHYSICS_GATES
   Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
   RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
   ConjugateReceding:conjugate_receding:300 ConjugateRecedingT2:conjugate_receding_t2:300 Receding:receding:300
-  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:600
+  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:300
   DarcySealedNosource:darcy_sealed_nosource:300 DarcyMassBalance1d:darcy_mass_balance_1d:300
   DarcySealedProfile:darcy_sealed_profile:300 DarcyKlinkenberg:darcy_klinkenberg:300
   DarcyTensorLinear2d:darcy_tensor_linear_2d:300 Darcy0d:darcy_0d:300 DarcyAtc2ChemistryOff:darcy_atc2_chemistry_off:300
@@ -267,9 +267,10 @@ fuss_add_physics_gate(RecedingAll receding 3600 -a)
 # the cross-thread leg of pyrolysis (energy_audit at 1 and FUSS_GATE_THREADS threads, byte for byte)
 set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
 
-# The other gate scripts, 1 thread; TIMEOUT as above (walls of 2026-11-26: restart 27 s, guard demos 16 s, runtime input
-# 4 s with 6 runs bounded at 300 s each, determinism 21 s; MPI: guard demos 67 s on pcprop9, 241 s on sprop2 on 2026-10-24;
-# the other MPI forms not measured). ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
+# The other gate scripts, 1 thread; TIMEOUT as above (local-disk walls of 2026-11-26: restart 27 s, guard demos 16 s,
+# determinism 21 s, MPI guard demos 67 s). The runtime-input gates take 6 x their per-run bound (300 s, 900 s on N > 1
+# ranks) plus a margin, so that the script reports a hung run itself; Gate_MPI and Gate_RestartMPI are not measured.
+# ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
 # MPI gates, the build's own compiler (its version: gfortran reads only its own .mod files), CMakePresets.json
 set(_REQ bash ${CMAKE_CURRENT_SOURCE_DIR}/ctest_requires.sh)
 set(_FC "fc=${CMAKE_Fortran_COMPILER}")
@@ -323,7 +324,7 @@ if (USE_MPI)
   fuss_add_gate(Gate_RestartMPI 1800 "gate;mpi-gate;verification"
                 ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}>
                 -w ${_GATES}/Gate_RestartMPI -m 4 -c test/moving-mesh/receding_4blk:200)
-  fuss_add_gate(Gate_GuardDemosMPI 1800 "gate;mpi-gate;verification"
+  fuss_add_gate(Gate_GuardDemosMPI 400 "gate;mpi-gate;verification"
                 ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}>
                 -w ${_GATES}/Gate_GuardDemosMPI -m 2)
   fuss_add_gate(Gate_RuntimeIniMPI 6000 "gate;mpi-gate;verification"
