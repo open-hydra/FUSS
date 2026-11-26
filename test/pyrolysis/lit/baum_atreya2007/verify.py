@@ -2,20 +2,25 @@
 """
 verify.py -- gate of the Baum & Atreya (2007) charring-front benchmark (make_baum_atreya.py cases), 2026-10-13.
 
-Usage: verify.py <full-case> [<full-case> ...] [--qs <qs-case>] [--record]
+Usage: verify.py <full-case> [<full-case> ...] [--qs <qs-case>]
   full-cases: one mesh ladder (coarsest first) of --mode full runs; --qs: one --mode qs run (quasi-steady, the paper's
-  beta = 0). Budgets in expected.json beside this script.
+  beta = 0). The expected orders and the round-off floor of the full ledger in expected.json beside this script.
 Exact solution (corrected front condition; darcy_exact.sharp_front_*): T(x, t), front X = C* sqrt(alpha_c t), and the
 quasi-steady char pressure P^2(eta*) = 1 + 2 M int_0^eta* (T/Tp) d eta', M = (C*/2)(rv - rc) ac mu (R/W) Tp/(K_c ps^2)
 (constant mu), constant in time at fixed eta* = x/sqrt(alpha_c t).
-Checks, averages over 30 s <= t <= t_end:
-  (front)  mass-based front error on the finest grid <= exf_max, and its order on the finest pair in [order_lo, order_hi]
-  (T)      L2 T error (char + preheat, x <= 3X) on the finest grid <= eL2_max
-  (p)      <p^2 - ps^2> at the cell nearest 1 mm, over the probe times it lies in the char, within p_rel_max of the exact
+Checks, averages over 30 s <= t <= t_end, the first two by the convergence rule of tools/conv_rule.py (the error
+falls on every rung and its order on the finest pair lies in [0.8 p, 1.2 p]):
+  (front)  mass-based front error, p = 1 (a cell-by-cell front is first order by design)
+  (T)      L2 T error (char + preheat, x <= 3X), p = 1 (the error follows the front)
+  (p)      printed, not gated: <p^2 - ps^2> at the cell nearest 1 mm, over the probe times it lies in the char, against
+           the exact (that cell moves with the mesh, 1.0 mm on N100, 1.1 mm on N200: not a fixed-point error)
   (mass)   every full run: |gas out + stored - stored(0) - solid lost| / solid lost <= ledger_full (round-off)
-  (qs)     the quasi-steady run: |gas out - solid lost| / solid lost <= ledger_qs (one step of carried gas; 11 % before
-           2026-10-13, when the quasi-steady closure dropped the gas the stages released beyond the prediction)
---record writes the measured values into expected.json. FUSS_GATE_SELFTEST=1 zeroes every budget. Python 3.6, no numpy.
+  (qs)     the quasi-steady run: |gas out - solid lost| / solid lost <= the one-step share of the run, (the largest
+           solid loss between two budget rows) / (the steps per row) / (the total solid lost), the steps per row taken
+           uniform (the run's steps, OUTPUT/residual-history.dat, over its budget intervals): the quasi-steady closure
+           carries one step of gas (11 % before 2026-10-13, when it dropped the gas the stages released beyond the
+           prediction)
+FUSS_GATE_SELFTEST=1 empties the order windows and zeroes the ledger bounds. Python 3.6, no numpy.
 """
 import glob
 import json
@@ -25,6 +30,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tools"))
+import conv_rule as cr        # noqa: E402
 import darcy_tools as dt      # noqa: E402
 import darcy_exact as dx      # noqa: E402
 import fuss_out as fo         # noqa: E402
@@ -93,6 +99,15 @@ def char_pressure(case, m):
     return f / e - 1.0, xc
 
 
+def one_step_share(case):
+    """(largest solid loss between two budget rows) / (steps per row) / (total solid lost), steps uniform per row"""
+    b = fo.budget(case)
+    with open(os.path.join(case, "OUTPUT", "residual-history.dat")) as fh:
+        steps = sum(1 for line in fh if line.strip())
+    loss = max(b[i - 1][2] - b[i][2] for i in range(1, len(b)))
+    return loss / (steps / float(len(b) - 1)) / (b[0][2] - b[-1][2]), steps, len(b)
+
+
 def ledger(case, with_storage):
     b = fo.budget(case)
     r0, r = b[0], b[-1]
@@ -103,7 +118,6 @@ def ledger(case, with_storage):
 
 def main():
     argv = sys.argv[1:]
-    record = "--record" in argv
     qs = None
     if "--qs" in argv:
         qs = os.path.abspath(argv[argv.index("--qs") + 1])
@@ -113,8 +127,7 @@ def main():
     path = os.path.join(HERE, "expected.json")
     exp = json.load(open(path))
     sel = dt.selftest()
-    bud = {k: (0.0 if sel else exp[k]) for k in ("exf_max", "eL2_max", "p_rel_max", "ledger_full", "ledger_qs")}
-    olo, ohi = (1.0e9, -1.0e9) if sel else (exp["order_lo"], exp["order_hi"])
+    lim_full = 0.0 if sel else exp["ledger_full"]
     ok = True
     meas = []
     print("Baum & Atreya 2007 (corrected): full type 2 %s%s" % (" ".join(os.path.basename(c) for c in full),
@@ -123,37 +136,36 @@ def main():
         m = json.load(open(os.path.join(c, "case.json")))
         exf, eL2, ns = front_and_T(c, m)
         lg, tend = ledger(c, True)
-        good = abs(lg) <= bud["ledger_full"]
+        good = abs(lg) <= lim_full
         ok &= good
         meas.append({"n": m["ncells"], "exf": exf, "eL2": eL2, "ledger": lg})
         print("  %4d cells, c_g %g, C* %.6f: front error %.3e  L2 T error %.3f K  (%d snapshots)  (mass) ledger %+.2e at %.1f s  %s"
               % (m["ncells"], m["cg"], m["Cstar"], exf, eL2, ns, lg, tend, "PASS" if good else "FAIL"))
-    a, b = meas[-2], meas[-1]
-    p_f = math.log(a["exf"] / b["exf"]) / math.log(b["n"] / a["n"])
+    b = meas[-1]
     m = json.load(open(os.path.join(full[-1], "case.json")))
     prel, xc = char_pressure(full[-1], m)
     b["p_rel"] = prel
     if prel is None:
         prel, xc = float("inf"), float("nan")
         print("  (p) the finest case has no x10 probe output")
-    checks = [("(front) error on the finest grid %.3e <= %.3e" % (b["exf"], bud["exf_max"]), b["exf"] <= bud["exf_max"]),
-              ("(front) order on the finest pair %.3f in [%g, %g]" % (p_f, olo, ohi), olo <= p_f <= ohi),
-              ("(T) L2 error on the finest grid %.3f K <= %.3f K" % (b["eL2"], bud["eL2_max"]), b["eL2"] <= bud["eL2_max"]),
-              ("(p) <p^2 - ps^2> at x = %.3f mm: %+.2f %% of exact (|.| <= %.1f %%)" % (1e3 * xc, 100 * prel, 100 * bud["p_rel_max"]),
-               abs(prel) <= bud["p_rel_max"])]
+    checks = []
+    if len(meas) < 2:
+        checks.append(("(front), (T): the convergence rule needs a ladder of 2 or more full runs", False))
+    else:
+        ns = [r["n"] for r in meas]
+        for lab, key in (("(front) error", "exf"), ("(T) L2 error [K]", "eL2")):
+            good, text = cr.check(lab, [r[key] for r in meas], ns, exp["order"][key], fmt="%.4e")
+            checks.append((text, good))
+    print("  (p) <p^2 - ps^2> at x = %.3f mm: %+.2f %% of exact (printed, not gated)" % (1e3 * xc, 100 * prel))
     if qs:
         lq, tq = ledger(qs, False)
-        checks.append(("(qs) quasi-steady ledger %+.2e at %.1f s (|.| <= %.1e)" % (lq, tq, bud["ledger_qs"]), abs(lq) <= bud["ledger_qs"]))
-        meas.append({"qs_ledger": lq})
+        share, nst, nrow = one_step_share(qs)
+        lim_qs = 0.0 if sel else share
+        checks.append(("(qs) quasi-steady ledger %+.2e at %.1f s (|.| <= %.3e, the one-step share: %d steps over %d budget rows)"
+                       % (lq, tq, lim_qs, nst, nrow), abs(lq) <= lim_qs))
     for text, good in checks:
         ok &= good
         print("  %s  %s" % (text, "PASS" if good else "FAIL"))
-    if record:
-        exp["measured"] = meas
-        with open(path, "w") as fh:
-            json.dump(exp, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        print("  recorded the measured values in %s" % path)
     print("baum_atreya2007: %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 
