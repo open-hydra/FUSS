@@ -664,6 +664,7 @@ def main():
     ap.add_argument("--sol-dtime", type=float, default=None, help="override the kind's sol-dtime [s]")
     ap.add_argument("--fuss-sh", default=DONOR_FUSS_SH, help="FUSS.sh to copy (default test/moving-mesh/freestream/FUSS.sh)")
     ap.add_argument("--depth", type=int, default=None, help="MASTERDIR depth below the repo root")
+    ap.add_argument("--masterdir", default=None, help="absolute MASTERDIR for FUSS.sh (a case outside the tree: the gates)")
     ap.add_argument("--type2", action="store_true",
                     help="plan 07: gas-closure = type2 with a [FUSS-Darcy] block (p-init = p-wall = 101325; the 301 faces of"
                          " adiabatic0d and the 302 faces of atc1/conduction/energy_audit/isothermal opened, atc2off's 303 by"
@@ -871,6 +872,11 @@ def main():
 
     depth, how = case_depth(case, kind, T0, args.depth)
     masterdir = write_fuss_sh(os.path.join(case, "FUSS.sh"), args.fuss_sh, depth)
+    if args.masterdir:              # as make_exact_case.py --masterdir: the one MASTERDIR line replaced by the absolute path
+        sh = open(os.path.join(case, "FUSS.sh")).read().split("\n")
+        with open(os.path.join(case, "FUSS.sh"), "w") as fh:
+            fh.write("\n".join("MASTERDIR=%s" % args.masterdir if s.startswith("MASTERDIR=") else s for s in sh))
+        masterdir, how = "MASTERDIR=%s" % args.masterdir, "--masterdir"
 
     # summary
     dxs = [xs[i + 1] - xs[i] for i in range(nx)]
