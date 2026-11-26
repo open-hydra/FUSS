@@ -22,29 +22,25 @@ t = 0.1 .. 120 s, from its own outputs:
   every quantity, as on ATC 2.1: across the switch-off at 60 s the samples are 0.1 s apart while the wall cools by
   140 K, so linear interpolation reads 56 K of sampling error into T at 12 mm (0.13 mm under the surface) on 2.2.
 
-Checks (expected.json; DECISION 2026-10-13 P-D4 of plan 08):
-  (T), (Tw)                      max |FUSS - PATO| <= measured + 2 K
-  (mdot_g) (mdot_c) (s) (v98) (c02)   max |FUSS - PATO| <= measured + 10 % of PATO's peak of the quantity
+Checks (plan 17 P17-D2/D3: the tolerance of each quantity is the plain spread of the two reference codes, max over
+PATO's grid |PATO - Amaryllis| of it, computed here from ref/):
+  (T), (Tw), (mdot_g) (mdot_c) (s) (v98) (c02)   max |FUSS - PATO| <= the quantity's spread
   (seb)    plan 08 section 3.2 on every seb.txt row (abl_tools.seb_closure)
   (bal-m)  the type-2 mass M_s + M_g + M_gas_out + M_abl + G_abl of energy-budget.txt constant to 1e-12 of itself
-  (bal-e)  E_tot + E_abl + Q_out - Q_src constant to 5e-10 of max(|E_tot(0)|, max |Q_out|): the remap's swept energy
-           E_abl closes the budget of a receding wall. The drift is per-step round-off, not a time-step error: 5.6e-11
-           (2.2) and 4.1e-11 (2.3) at 120 s, growing as t^0.5, and over the first 10 s of 2.2 it grows as the step
-           shrinks (1.4e-11, 2.0e-11, 3.1e-11 at vnn 0.5, 0.25, 0.125 before plan 14 S7, X/2 now); an O(dt) mismatch
-           would shrink. A swept
-           energy missing or valued inconsistently with the remap shows at 1e-3 and above.
+  (bal-e)  E_tot + E_abl + Q_out - Q_src constant to N_steps x N_cells x eps of max(|E_tot(0)|, max |Q_out|), the
+           run's own round-off (one rounding per cell term of the budget sum per step, RK stages not counted; N_steps
+           = the lines of OUTPUT/residual-history.dat, N_cells from the mesh): the remap's swept energy E_abl closes the
+           budget of a receding wall. The drift is per-step round-off, not a time-step error: it grows as t^0.5 and,
+           over the first 10 s of 2.2, as the step shrinks (1.4e-11, 2.0e-11, 3.1e-11 at vnn 0.5, 0.25, 0.125 before
+           plan 14 S7, X/2 now); an O(dt) mismatch would shrink. A swept energy missing or valued inconsistently with
+           the remap shows at 1e-3 and above.
   (R2)     printed, not gated: e_front = max_t |x_98,FUSS - x_98,PATO| against the FUSS cell width at the front then;
            plan 08 decision 4 adds a limited (MUSCL) reconstruction iff e_front > dx_local.
-The 1.5x target of plan 06 section 4.4 (max |FUSS - PATO| <= 1.5 max |PATO - Amaryllis|) is printed per quantity and
-recorded in the case README; it does not gate (P-D4).
-
-FUSS_GATE_SELFTEST=1 sets every budget to 0. $FUSS_PATO_ATC2X_OUT (a PATO output/porousMat directory) replaces the
+FUSS_GATE_SELFTEST=1 sets every tolerance to 0. $FUSS_PATO_ATC2X_OUT (a PATO output/porousMat directory) replaces the
 PATO files of ref/ (not the Amaryllis ones). Python 3.6, no numpy.
 """
 import bisect
-import datetime
 import glob
-import json
 import os
 import re
 import sys
@@ -54,12 +50,21 @@ import abl_tools as at
 DEPTHS_MM = [1, 2, 4, 8, 12, 16, 24]
 L0 = 0.05                            # m, the slab (make_case.py ATC_L)
 RHO_V, RHO_C = 280.0, 220.0          # TACOT virgin and char solid densities (INPUT/pyrolysis.dat)
-T_SLACK = 2.0                        # K, P-D4
-FRAC_SLACK = 0.10                    # of PATO's peak, P-D4
-BAL_M, BAL_E = 1.0e-12, 5.0e-10
+BAL_M = 1.0e-12
+EPS_MACHINE = 2.0 ** -52
 T_GONE = 1.0                         # K: a probe value below this is a consumed point (PATO 0, Amaryllis 0 or 0.0119)
 QUANTS = ("T", "Tw", "mdot_g", "mdot_c", "s", "v98", "c02")
 UNITS = {"T": "K", "Tw": "K", "mdot_g": "kg/m2/s", "mdot_c": "kg/m2/s", "s": "m", "v98": "m", "c02": "m"}
+
+
+def run_size(case):
+    """(N_steps, N_cells): the lines of OUTPUT/residual-history.dat (one per step) and the cells of MESH/mesh.tec"""
+    with open(os.path.join(case, "OUTPUT", "residual-history.dat")) as fh:
+        steps = sum(1 for line in fh if line.strip())
+    with open(os.path.join(case, "MESH", "mesh.tec")) as fh:
+        fh.readline()
+        I, J, K = (int(v) for v in re.search(r"I=\s*(\d+),\s*J=\s*(\d+),\s*K=\s*(\d+)", fh.readline()).groups())
+    return steps, (I - 1) * (J - 1) * max(K - 1, 1)
 
 
 def read_field(path):
@@ -106,13 +111,9 @@ def dx_at(x, xp):
 
 
 def run(here, label, amaryllis_tag, argv):
-    record = "--record" in argv
-    args = [a for a in argv if a != "--record"]
-    case = os.path.abspath(args[0]) if args else here
+    case = os.path.abspath(argv[0]) if argv else here
     ref = os.path.join(here, "ref")
     pato = os.environ.get("FUSS_PATO_ATC2X_OUT") or ref
-    exp_path = os.path.join(here, "expected.json")
-    expected = json.load(open(exp_path)) if os.path.isfile(exp_path) else {}
     selftest = os.environ.get("FUSS_GATE_SELFTEST", "0") == "1"
 
     # ---- PATO and Amaryllis
@@ -191,29 +192,18 @@ def run(here, label, amaryllis_tag, argv):
         for q, ser, col in (("s", fs, 5), ("v98", fv, 3), ("c02", fc, 4)):
             v = at.interp(ser, t)
             upd(res, q, None if v is None else v - Pm[i][col], t)
-    peaks = {q: max(abs(r[col]) for r in Pm[:n]) for q, col in
-             (("mdot_g", 1), ("mdot_c", 2), ("v98", 3), ("c02", 4), ("s", 5))}
 
     ok = True
     print("ATC %s gate: FUSS BC 306, receding mesh (nodeshift), vs PATO (%s), t = 0.1..120 s; %d grid times "
           "skipped (FUSS samples straddle an env breakpoint: %s)" % (label, pato, len(skipped),
                                                                     " ".join("%g" % t for t in skipped)))
-    measured, budgets = {}, {}
     for q in QUANTS:
         m, t, where = res[q]
-        measured[q] = {"max": m, "t": t, "where": where}
-        if q in ("T", "Tw"):
-            b = expected.get("budget", {}).get(q, m + T_SLACK)
-        else:
-            b = expected.get("budget", {}).get(q, m + FRAC_SLACK * peaks[q])
-        if selftest:
-            b = 0.0
-        budgets[q] = b
+        b = 0.0 if selftest else spread[q][0]          # P17-D2: the plain PATO - Amaryllis spread of q
         good = m <= b
         ok &= good
-        tgt = 1.5 * spread[q][0]
-        print("  (%-6s) max|FUSS - PATO| %.4g %s at %g s %s  budget %.4g  %s   [1.5x target %.4g: %s]" % (
-            q, m, UNITS[q], t, where, b, "PASS" if good else "FAIL", tgt, "met" if m <= tgt else "NOT met"))
+        print("  (%-6s) max|FUSS - PATO| %.4g %s at %g s %s  spread %.4g (at %g s %s)  %s" % (
+            q, m, UNITS[q], t, where, b, spread[q][1], spread[q][2], "PASS" if good else "FAIL"))
 
     # R2 (decision 4): the front error against the local cell size
     e_front, t_e, _ = res["v98"]
@@ -230,41 +220,20 @@ def run(here, label, amaryllis_tag, argv):
     en = [r[1] + r[8] + r[3] - r[6] for r in B]
     scale = max(abs(B[0][1]), max(abs(r[3]) for r in B))
     de = max(abs(v - en[0]) for v in en) / scale
-    lim_m, lim_e = (0.0, 0.0) if selftest else (BAL_M, BAL_E)
+    n_st, n_c = run_size(case)
+    lim_m, lim_e = (0.0, 0.0) if selftest else (BAL_M, n_st * n_c * EPS_MACHINE)
     good_m, good_e = dm <= lim_m, de <= lim_e
     ok &= good_m and good_e
     print("  (bal-m)  M_s + M_g + M_gas_out + M_abl + G_abl drift %.3e of the total (<= %.0e, %d rows)  %s"
           % (dm, lim_m, len(B), "PASS" if good_m else "FAIL"))
-    print("  (bal-e)  E_tot + E_abl + Q_out - Q_src drift %.3e of max(|E0|, |Q_out|) (<= %.0e)  %s"
-          % (de, lim_e, "PASS" if good_e else "FAIL"))
+    print("  (bal-e)  E_tot + E_abl + Q_out - Q_src drift %.3e of max(|E0|, |Q_out|) (<= %.3e = %d steps x %d cells x eps)  %s"
+          % (de, lim_e, n_st, n_c, "PASS" if good_e else "FAIL"))
 
     tol = 0.0 if selftest else 1.0e-8
     good, lines, worst = at.seb_closure(case, tol if tol > 0 else 1e-30)
     ok &= good
     for l in lines:
         print("  " + l)
-
-    if record:
-        out = {
-            "measured": measured,
-            "budget": {q: (measured[q]["max"] + T_SLACK if q in ("T", "Tw") else measured[q]["max"] + FRAC_SLACK * peaks[q])
-                       for q in measured},
-            "pato_peaks": peaks,
-            "spread_pato_amaryllis": {q: {"max": spread[q][0], "t": spread[q][1], "where": spread[q][2]} for q in spread},
-            "target_1p5x_met": {q: measured[q]["max"] <= 1.5 * spread[q][0] for q in measured},
-            "skipped_grid_times": skipped,
-            "r2": {"e_front": e_front, "t": t_e, "dx_local": dx_e, "front_dx_min": min(dxs), "front_dx_max": max(dxs),
-                   "decision": r2},
-            "balances": {"mass": dm, "energy": de},
-            "recorded": datetime.date.today().isoformat(),
-            "note": "budget: T and Tw measured + 2 K, mdot_g, mdot_c, s and the fronts measured + 10 % of PATO's peak "
-                    "(plan 08 P-D4); the 1.5x target is recorded, not gated; oracle ref/ = PATO 3.1 ATC 2.x (movingMesh "
-                    "yes) at maxDeltaT 0.0005 (ref/README.md)",
-        }
-        with open(exp_path, "w") as fh:
-            json.dump(out, fh, indent=1, sort_keys=True)
-            fh.write("\n")
-        print("  recorded %s" % exp_path)
 
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1

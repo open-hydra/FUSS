@@ -232,7 +232,8 @@ function(fuss_add_gate NAME TIMEOUT LABELS)
 endfunction()
 
 # Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the walls of 2026-11-26 (pcprop9,
-# 1 thread, work folders on a local disk: plan 16's hand runs and this registration's first ctest run), at least 300 s
+# 1 thread, work folders on a local disk: plan 16's hand runs and this registration's first ctest run; ATC 2.2 and 2.3 on 200
+# cells: 577 s and 1288 s solver walls), at least 300 s
 set(_PHYSICS_GATES
   Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
   RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
@@ -246,7 +247,7 @@ set(_PHYSICS_GATES
   AblationZeroBlowing:ablation_zero_blowing:300 AblationSebClosure:ablation_seb_closure:300
   Ablation306Static:ablation_306_static:400 AblationAtc21:ablation_atc21:300
   AblationNodeshiftInert:ablation_nodeshift_inert:300 AblationRemapUniform:ablation_remap_uniform:300
-  AblationAtc22:ablation_atc22:500 AblationAtc23:ablation_atc23:1000 AblationCoupled307:ablation_coupled307:300
+  AblationAtc22:ablation_atc22:3000 AblationAtc23:ablation_atc23:6600 AblationCoupled307:ablation_coupled307:300
   AblationSmoothing:ablation_smoothing:300 AblationRecedingFront:ablation_receding_front:300
   PeriodicMotion:periodic_motion:300 PeriodicReceding:periodic_receding:300 PeriodicDarcy:periodic_darcy:300)
 # fuss_add_physics_gate(NAME GATE TIMEOUT [options]): Gate_<NAME> runs the gate GATE of run_physics_gates.sh

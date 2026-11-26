@@ -3,7 +3,7 @@
 local PATO run at maxDeltaT 0.0005 (ref/). The checks, the sampling and the tolerances are those of
 test/pyrolysis/tools/atc2x_receding.py.
 
-Usage: verify.py [case_dir] [--record]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets every budget to 0.
+Usage: verify.py [case_dir]   Exit 0 on PASS, 1 on FAIL. FUSS_GATE_SELFTEST=1 sets every tolerance to 0.
 """
 import os
 import sys
