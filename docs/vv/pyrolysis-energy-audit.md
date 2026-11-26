@@ -62,7 +62,8 @@ whose companion directories are not given is skipped, not failed). (vi): byte-id
 
 ### Problem
 
-The geometry and graded mesh of ATC1 (100 cells over 0.05 m, graded 0.1 toward the heated face), with
+The geometry and graded mesh of ATC1 (100 cells over 0.05 m, graded 0.1 toward the heated face; the check also
+runs 50 and 200 cells with the same grading), with
 constant-property tables ($c_p = 1000$ J/(kg·K), $k = 0.4$ W/(m·K), $\rho_v = 280$ kg/m³, so
 $\alpha = k/(\rho c_p) = 1.4286\times10^{-6}$ m²/s) and every pyrolysis reaction stripped
 (`nPyroReac = 0` throughout). Face 2 is stepped to 1644 K at $t=0$ through a BC 302 time file
@@ -81,25 +82,24 @@ T(d, t) = T_w + (T_0-T_w)\sum_{n\ge0}\frac{2(-1)^n}{\lambda_n}\cos\!\Bigl(\frac{
 $$
 
 evaluated with 4000 terms (exact to round-off for $\alpha t/L^2\ge10^{-7}$; checked against the
-semi-infinite erf solution to $3\times10^{-12}$ K at $t=0.5$ s, 1 mm). `verify.py` compares each
-probe's own cell value against this series evaluated at that cell's centre, with no interpolation in
-depth or time, for $t\in\{0.5,1,2,4,8,16,30\}$ s.
+semi-infinite erf solution to $3\times10^{-12}$ K at $t=0.5$ s, 1 mm). `verify.py` evaluates the series at
+the two cell centres that bracket each depth (1, 2, 4, 8, 16 mm) and at the probe sample nearest each
+$t\in\{0.5,1,2,4,8,16,30\}$ s, and interpolates the error $T-T_{\rm exact}$ of those two cells linearly to
+the depth. The error, not $T$, is interpolated: the exact solution exists where FUSS has values, and an
+interpolated $T$ would add the exact profile's own interpolation error, which changes with where the
+centres fall on each mesh.
 
 ### Results
 
-| Quantity | Measured |
-|---|---|
-| max $\lvert T-T_{\rm exact}\rvert$ at 1 mm, $t=0.5$ s | 1.139 K |
-| at 1 mm, $t=1$ s | 0.533 K |
-| at 2 mm, $t=1$ s | 0.526 K |
-| at $\ge4$ mm, every time | $\le0.173$ K |
-| max over every probe and time (gated) | $\le1.3$ K |
+| Quantity | 50 cells | 100 cells | 200 cells | order (100/200) |
+|---|---:|---:|---:|---:|
+| (a) max error over every depth and time | 4.3727 K | 1.1331 K | 0.2888 K | 1.972 |
+| (b) error at 1 mm, $t=1$ s | 2.0276 K | 0.5211 K | 0.1325 K | 1.975 |
+| (c) max error at $\ge2$ mm, every time | 2.0301 K | 0.5251 K | 0.1329 K | 1.983 |
 
-The uniform-mesh (not graded) companions of the same resolution step show second-order convergence:
-14.8 K (100 cells) → 3.8 K (200 cells) at 1 mm / 0.5 s; they are not gated.
+The largest error sits at 1 mm and $t=0.5$ s on every mesh.
 
 ### Pass criteria
 
-- max $\lvert T-T_{\rm exact}\rvert$ over every probe and $t\in\{0.5,1,2,4,8,16,30\}$ s $\le1.3$ K;
-- at the 1 mm pair, $t=1$ s: $\le0.7$ K;
-- at every pair $\ge2$ mm, every time: $\le0.6$ K.
+Each of (a), (b), (c) falls from 50 to 100 to 200 cells and its order on the finest pair lies in
+$[1.6, 2.4]$ (expected $p=2$, second order in space, the band $0.8p$-$1.2p$). No stored FUSS value enters.

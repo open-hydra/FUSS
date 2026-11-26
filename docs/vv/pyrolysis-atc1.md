@@ -36,6 +36,7 @@ grid. It is computed by the check from the committed files each time it runs: 13
 |---|---|
 | max over the six probes and $t=1\ldots60$ s (FIAT's grid) of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ | 4.01 K, at (8 mm, 60 s) |
 | the tolerance, max $\lvert T_{\rm PATO}-T_{\rm FIAT}\rvert$ over the same probes and grid | 13.18 K, at (1 mm, 1 s) |
+| reported: the error the depth interpolation adds, estimated on the exact constant-property step-heated slab at these probes | 0.37 K, at (4 mm, 2 s) |
 
 Reported, not gated: the metric against FIAT directly, max $\lvert T_{\rm FUSS}-T_{\rm FIAT}\rvert$
 over the six probes and the full window, is 16.03 K (at 2 mm, 4 s); the pyrolysis front depths
@@ -47,4 +48,6 @@ the surface at the last field write) and the surface $\dot m_{pg}$ there, $5.387
 max over the six probes and FIAT's 1 s grid $t=1\ldots60$ s of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert\le$
 the PATO-FIAT spread over the same probes and grid (computed from the committed reference files; no
 stored FUSS value enters). FUSS's value at a thermocouple depth is the linear interpolation between the
-two bracketing probes, then linear in time; PATO's is linear in time.
+two bracketing probes, then linear in time; PATO's is linear in time. PATO exists only at its probes, so
+FUSS has to be interpolated to them; the check prints the size of that interpolation term (estimated on
+the exact step-heated slab with the virgin properties at 298 K) beside the tolerance.

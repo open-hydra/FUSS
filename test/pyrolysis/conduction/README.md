@@ -25,22 +25,26 @@ header; `--uniform` for a uniform-mesh companion, not gated here).
 
 ## Check
 
-`verify.py [case_dir]` (default: `graded100`) compares every probe, as a cell value at its own
-depth, with the exact series solution at the probe times `{0.5, 1, 2, 4, 8, 16, 30}` s:
-
-- `max |T - exact|` over every probe and time `<= TOL_ALL` (1.3 K);
-- `|T - exact|` at the 1 mm pair, `t = 1 s`, `<= TOL_1MM_1S` (0.7 K);
-- `max |T - exact|` over the pairs at `>= 2 mm` and every time `<= TOL_DEEP` (0.6 K).
-
-The uniform-mesh companion is not gated; it shows second order in space.
+`verify.py case_dir [case_dir ...]` takes a ladder of runs, coarsest first: the gate runs 50 cells, the committed
+`graded100` and 200 cells, the same 0.1 grading (`make_case.py --kind conduction --tables
+../kinetics_isothermal/T0700/INPUT --ncells N`). At each depth (1, 2, 4, 8, 16 mm) and probe time
+`{0.5, 1, 2, 4, 8, 16, 30}` s it takes the error `T - exact` of the two cells that bracket the depth, at their own
+centres, and interpolates it linearly to the depth (interpolating `T` instead would add the exact profile's own
+interpolation error, which changes from mesh to mesh). Three quantities: (a) the max error over every depth and time,
+(b) the error at 1 mm, `t = 1 s`, (c) the max error at `>= 2 mm`. Each must fall on every rung and its order on the
+finest pair lie in [1.6, 2.4] (`tools/conv_rule.py`, p = 2): 4.3727, 1.1331, 0.2888 K, order 1.972; 2.0276, 0.5211,
+0.1325 K, 1.975; 2.0301, 0.5251, 0.1329 K, 1.983. `FUSS_GATE_SELFTEST=1` empties the order window.
 
 ## Run
 
 ```bash
-cd test/pyrolysis/conduction/graded100
-./FUSS.sh solve
-cd .. && python3 verify.py graded100
+T=test/pyrolysis
+for n in 50 200; do python3 $T/tools/make_case.py /tmp/cond_N$n --kind conduction \
+    --tables $T/kinetics_isothermal/T0700/INPUT --ncells $n --masterdir $PWD; done
+for d in /tmp/cond_N50 $T/conduction/graded100 /tmp/cond_N200; do (cd $d && ./FUSS.sh solve); done
+python3 $T/conduction/verify.py /tmp/cond_N50 $T/conduction/graded100 /tmp/cond_N200
 ```
 
-Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`energy_audit`, `adiabatic0d`, `heated0d`, `ATC1` and `ATC2-chemistryOff`; not in CTest).
+Physics gate: `test/run_physics_gates.sh -c pyrolysis` (CTest `Gate_Pyrolysis`; together with `kinetics_isothermal`,
+`energy_audit`, `adiabatic0d`, `heated0d`, `ATC1` and `ATC2-chemistryOff`), which writes the two extra rungs into its
+work folder.

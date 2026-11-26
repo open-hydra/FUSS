@@ -22,7 +22,7 @@ splitting inside the RK3 stages (frozen stage temperature), which is second orde
 by `test/pyrolysis/tools/make_case.py --T0 1000` (see the `input.ini` header).
 
 The type-2 twin is `test/pyrolysis/darcy/adiabatic0d_type2/` (both `301` faces open at `p-wall`,
-`K = 1e-7` m², so the pressure excursion stays below 0.1 Pa and the fixed-`p` oracle applies); its
+`K = 1e-7` m², so the pressure excursion stays at most 0.075 Pa and the fixed-`p` oracle applies); its
 `verify.py` calls this directory's `verify.py`, which detects the closure.
 
 ## Check

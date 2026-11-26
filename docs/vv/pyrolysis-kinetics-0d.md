@@ -98,21 +98,20 @@ Each type-1 case runs on the ladder `vnn`, `vnn`/2, `vnn`/4 (0.25, 0.125, 0.0625
 kinetics/energy split within a stage. The spatial non-uniformity stays at round-off: at most
 $2.4\times10^{-12}$ K (`adiabatic0d`) and exactly 0 (`heated0d`).
 
-The type-2 twins run on the same ladders against the type-2 oracle:
+The type-2 twins run against the type-2 oracle, `heated0d_type2` on the same ladder `vnn`, `vnn`/2, `vnn`/4
+and `adiabatic0d_type2` on `vnn`/4, `vnn`/8, `vnn`/16 (0.0625, 0.03125, 0.015625):
 
 | Case | max $\lvert T-T_{\rm or2}\rvert$ [K] | order | max $\lvert\chi-\chi_{\rm or2}\rvert$ | order |
 |---|---|---:|---|---:|
-| `darcy/adiabatic0d_type2` | $1.6575\times10^{-2}$, $1.9851\times10^{-2}$, $8.5622\times10^{-3}$ | 1.213 | $9.195\times10^{-4}$, $1.924\times10^{-4}$, $4.351\times10^{-5}$ | 2.144 |
+| `darcy/adiabatic0d_type2` | $8.5622\times10^{-3}$, $2.4896\times10^{-3}$, $6.1842\times10^{-4}$ | 2.009 | $4.351\times10^{-5}$, $1.144\times10^{-5}$, $2.914\times10^{-6}$ | 1.973 |
 | `darcy/heated0d_type2` | $7.4875\times10^{-4}$, $1.9209\times10^{-4}$, $3.9729\times10^{-5}$ | 2.273 | $9.281\times10^{-6}$, $2.386\times10^{-6}$, $5.750\times10^{-7}$ | 2.053 |
 
-The adiabatic type-2 temperature error does not fall from the first to the second rung, so that case does
-not meet the monotone-fall criterion below. Two further halvings (`vnn` 0.03125, 0.015625) continue the
-sequence with $2.4896\times10^{-3}$ and $6.1842\times10^{-4}$ K, pairwise orders $-0.26$, 1.21, 1.78, 2.01: the
-temperature error approaches second order only from `vnn` = 0.0625 down. On the same five rungs $\chi$ converges
-at 2.26, 2.14, 1.93, 1.97, and the heated twin at 1.96, 2.27, 1.91, 2.03 ($T$) and 1.96, 2.05, 1.98, 1.99
-($\chi$). The spatial non-uniformity stays below $1.9\times10^{-7}$ K (adiabatic) and $6.8\times10^{-7}$ K
-(heated). With $K=10^{-7}$ m² the pressure excursion stays below 0.04 Pa (adiabatic) and 0.26 Pa (heated), so
-these cases do not resolve the order of the pressure step.
+The adiabatic ladder starts at `vnn`/4 because on the first two halvings from the case's `vnn` = 0.25 the
+temperature error does not yet fall ($1.6575\times10^{-2}$, $1.9851\times10^{-2}$, $8.5622\times10^{-3}$ K at
+0.25, 0.125, 0.0625): those steps are outside the asymptotic range. The spatial non-uniformity stays below
+$1.9\times10^{-7}$ K (adiabatic) and $6.8\times10^{-7}$ K (heated). With $K=10^{-7}$ m² the pressure excursion
+$\max p_{pg}-p_w$ stays at most 0.075 Pa (adiabatic) and 0.503 Pa (heated), so these cases test the
+kinetics/energy splitting under type 2, not the time order of the pressure step.
 
 Reported but not gated: the exact type-2 minus type-1 shift (adiabatic: $0.0696$ K; heated: $-3.914$ K
 at the end) is what each type-2 run must reproduce, and (for `heated0d`, when PATO's own TACOT tables
@@ -130,8 +129,8 @@ are present) the shift from using PATO's table enthalpy instead of the case's ow
   $N_{\rm steps}\times3\times\varepsilon\times\max T$ for $T$ and $N_{\rm steps}\times3\times\varepsilon$ for $\chi$
   ($\varepsilon=2^{-52}$; one rounding per RK3 stage per step).
 - The type-2 cases reuse the type-1 `verify.py` (it detects `gas-closure` from `input.ini` and switches
-  to the type-2 oracle) on the same ladder: both errors must fall on every rung; their observed order on
-  the finest pair is printed, not gated (no expected order is stated for the type-2 step: the pressure
-  step is first order in time, the kinetics/energy split second order). The non-uniformity bound is
-  $10^{-5}$ K, a floor set from measured draws rather than a physics budget (the gas storage
-  $-\epsilon p$ in $E$ makes $T$ follow the sub-pascal pressure excursion).
+  to the type-2 oracle) with the same rule, $p=2$: both errors fall on every rung and their order on the
+  finest pair lies in $[1.6, 2.4]$, `heated0d_type2` on `vnn`, `vnn`/2, `vnn`/4 and `adiabatic0d_type2` on
+  `vnn`/4, `vnn`/8, `vnn`/16. The non-uniformity bound is $10^{-5}$ K, a floor set from measured draws
+  rather than a physics budget (the gas storage $-\epsilon p$ in $E$ makes $T$ follow the sub-pascal
+  pressure excursion).

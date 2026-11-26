@@ -301,11 +301,11 @@ A case graded by `run_physics_gates.sh` (a `Gate_` test under CTest) follows the
 - an `expected.json` beside a verify holds only what the rule needs from outside the run (the expected
   orders, a round-off floor), never a measured FUSS value; there is no `--record`;
 - an identity between two FUSS runs (restart, threads, blocks, a mirror) takes a bound from an argument
-  where one exists (the run's own round-off, $N_{\rm steps}\times N_{\rm cells}\times\varepsilon$ for a
-  budget sum; the Newton stop tolerance per step for the type-2 restart; the surface-balance tolerance
-  for the mirrored 307 faces). Where none exists the bound is a floor set from measured draws, and the
-  code says so: the type-2 0-D non-uniformity ($10^{-5}$ K), the restart $B'_{pg}$ under type 2
-  ($10^{-9}$) and the periodic Darcy sector ($10^{-10}$);
+  where one exists and holds in repeated draws (the run's own round-off,
+  $N_{\rm steps}\times N_{\rm cells}\times\varepsilon$, for a budget sum). Where none does, the bound is
+  a floor set from measured draws, and the code says so: the type-2 0-D non-uniformity ($10^{-5}$ K), the
+  type-2 restart of `heated0d_type2` ($10^{-10}$), the restart $B'_{pg}$ under type 2 ($10^{-9}$), the
+  mirrored 307 faces ($10^{-8}$) and the periodic Darcy sector ($10^{-10}$);
 - the gate's own `FUSS_GATE_SELFTEST=1` is a proven-red hook, not a correctness check: it runs the
   case with its tolerance deliberately broken (a sedded copy of `verify.py`, or an input key edited
   in a work copy) and requires the run to FAIL, so that a gate nobody has ever seen fail is not
