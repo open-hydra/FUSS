@@ -1799,6 +1799,16 @@ test/pyrolysis/lit/zhang2010/N050	OUTPUT/wall96.tec	66a22e9ef154e9ed7982356f78bd
 test/pyrolysis/lit/zhang2010/N050	OUTPUT/wall97.tec	c317e196400bdd16722c98e6cf5f070a
 test/pyrolysis/lit/zhang2010/N050	OUTPUT/wall98.tec	5dad30a56629968a4cdcc7acd15e0632
 test/pyrolysis/lit/zhang2010/N050	OUTPUT/wall99.tec	0aec26e879e1784fb54292e82a51c2b7
+test/pyrolysis/two_layer/N020	OUTPUT/energy-budget.txt	08218e7b152a8516415eb973aa5af89f
+test/pyrolysis/two_layer/N020	OUTPUT/field.tec	a89df8d5f8f246792ffbb3356464b563
+test/pyrolysis/two_layer/N020	OUTPUT/field1.tec	704f4ecac291a77b20a80d9cadb66a0e
+test/pyrolysis/two_layer/N020	OUTPUT/field2.tec	7ae04dc660005360fa2119bcfef1598d
+test/pyrolysis/two_layer/N020	OUTPUT/field3.tec	1ce196d1e45a70003ac1f04585f8f269
+test/pyrolysis/two_layer/N020	OUTPUT/residual-history.dat	542b06bf21d43270399edd1bfa0f4d3f
+test/pyrolysis/two_layer/N020	OUTPUT/wall.tec	f93417912f8b69ba823484c648019a63
+test/pyrolysis/two_layer/N020	OUTPUT/wall1.tec	a75b664480a6d06df35e1951a85e3137
+test/pyrolysis/two_layer/N020	OUTPUT/wall2.tec	1beb337c31f47849affa539b20306390
+test/pyrolysis/two_layer/N020	OUTPUT/wall3.tec	c4ced0e1cb194627505d5989e2479e17
 test/steady-state/convective_Plate	OUTPUT/diagnostic.tec	d4159f21598038f0bf49607f55f05a27
 test/steady-state/convective_Plate	OUTPUT/field.tec	f74e74f6873dd8dc69b1e52c92d438cf
 test/steady-state/convective_Plate	OUTPUT/residual-history.dat	894796089b7a9adc7100043c9d132c2c
