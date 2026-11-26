@@ -599,11 +599,11 @@ PYNOKIN
   solve "$dest/ATC1" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="ATC1: solver exit $rc  (see $dest/ATC1/run.log)"; return 1; fi
   if ! python3 "$base/ATC1/verify.py" "$dest/ATC1" > "$dest/ATC1/verify.log" 2>&1; then
-    KEYNUM="ATC1: $(grep -E -m1 'FAIL|max over the gated' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
+    KEYNUM="ATC1: $(grep -E -m1 'FAIL|ATC1 gate:' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
   fi
-  # the gate is the move of the 100-cell discretisation error against the Richardson anchor (2026-10-08); FIAT is informational
+  # the gate is FUSS against PATO with the PATO-FIAT spread as tolerance (plan 17); FIAT itself is informational
   local atc1 atc1f
-  atc1=$(grep -F -m1 'max over the gated points' "$dest/ATC1/verify.log" | awk -F'= ' '{print $2}' | awk '{print $1}')
+  atc1=$(grep -F -m1 'ATC1 gate:' "$dest/ATC1/verify.log" | sed -E 's/.*T_PATO\| = ([0-9.]+) K.*spread ([0-9.]+) K.*/\1 K (spread \2 K)/')
   atc1f=$(grep -F -m1 'max over the six probes vs FIAT' "$dest/ATC1/verify.log" | awk -F': ' '{print $2}' | awk '{print $1}')
 
   # 4.5 ATC2-chemistryOff against PATO ($FUSS_PATO_ATC2_OUT, else the bundled ref/)
@@ -616,7 +616,7 @@ PYNOKIN
   local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
   grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
 
-  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction ${cnd:-?} K  ATC1 move vs f* ${atc1:-?} K (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction ${cnd:-?} K  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
   return 0
 }
 

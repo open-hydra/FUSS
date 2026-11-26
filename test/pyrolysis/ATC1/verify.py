@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Gate 4.4 of plan 06, re-anchored on 2026-10-08: Ablation Test Case 1 against FUSS's own converged solution.
+"""Gate 4.4 of plan 06, re-anchored by plan 17 (2026-11-26) on PATO: Ablation Test Case 1 against PATO 3.1.
+
+GATE (plan 17, the lead's reading (a) of P17-D2): max over the six probes (1, 2, 4, 8, 16 mm, the 50 mm back face) and
+FIAT's 1 s grid t = 1..60 s of |T_FUSS - T_PATO| <= the PATO-FIAT spread, max over the same probes and grid (0..60 s)
+of |T_PATO - T_FIAT|, computed here with tools/measure_spread.py's pairing from ref/pato-298K (PATO 3.1, the unmodified
+tutorial at 298 K; $FUSS_PATO_ATC1_OUT replaces that directory) and ref/FIAT_T.dat (13.18 K,
+ref/pato-298K/spread_298.txt). FUSS_GATE_SELFTEST=1 sets the tolerance to 0. The text below, from "Gate" to the end
+of the Richardson paragraph, is the history of the anchor this replaced (P17-D8: no Richardson check is gated).
 
 A 0.05 m TACOT slab, 100 cells graded 0.1 toward the heated face, whose
 temperature follows Tw_time.dat (298 -> 1644 K in 0.1 s, held to 60 s); the
@@ -74,6 +81,20 @@ def read_fiat(path):
     return rows
 
 
+def read_cols(path):
+    """a PATO probe file (scalar/Ta_plot, Ta_surfacePatch): a //-header line, then rows t v1 .. vn"""
+    rows = []
+    for line in open(path):
+        s = line.strip()
+        if not s or s.startswith("//"):
+            continue
+        try:
+            rows.append([float(x) for x in s.split()])
+        except ValueError:
+            pass
+    return rows
+
+
 def read_tec(path):
     with open(path) as fh:
         lines = fh.read().split("\n")
@@ -122,9 +143,6 @@ def main():
     if not os.path.isfile(fiat_path) and os.environ.get("PATO_DIR"):
         fiat_path = os.path.join(os.environ["PATO_DIR"], "tutorials", "1D", "AblationTestCase_1.0", "data", "ref", "FIAT", "T")
     fiat = read_fiat(fiat_path)
-    expected_path = os.path.join(here, "expected.json")
-    if not os.path.isfile(expected_path):
-        print("FAIL: expected.json (the Richardson anchor) is missing"); return 1
 
     # FUSS series at the exact depths
     series = {}
@@ -139,30 +157,33 @@ def main():
         series[d] = [(t0, (1.0 - w) * v0 + w * v1) for (t0, v0), (t1, v1) in zip(s_lo, s_hi)]
     series[50] = read_series(os.path.join(case, "OUTPUT", "back.txt"))
 
-    exp = json.load(open(expected_path))
-    band = float(exp.get("band_K", 1.0))
-    points = exp["points"]
-    print("ATC1 gate: FUSS (bracketing probes, exact depths) vs its Richardson limit f_star, %d points, band %.1f K" % (len(points), band))
-    ok = True
-    worst_move, worst_pt = 0.0, None
-    print("  depth  t     T_FUSS    f_star   T-f_star  measured   move")
-    for q in points:
-        d, t = int(q["depth_mm"]), float(q["t"])
-        v = interp_t(series[d], t)
-        if v is None and series[d] and 0.0 <= t - series[d][-1][0] <= 0.2:
-            v = series[d][-1][1]        # the run ends within one probe interval of t (60 s): last sample
-        if v is None:
-            print("FAIL: no FUSS sample at t = %g s for depth %d mm" % (t, d)); return 1
-        err = v - q["f_star"]
-        move = err - q["f100_minus_fstar"]
-        flag = "" if abs(move) <= band else "  <-- FAIL"
-        if abs(move) > abs(worst_move):
-            worst_move, worst_pt = move, (d, t)
-        if abs(move) > band:
-            ok = False
-        if t in (1.0, 5.0, 10.0, 30.0, 60.0) or flag:
-            print("  %4d %5g %9.3f %9.3f %8.3f %8.3f %7.3f%s" % (d, t, v, q["f_star"], err, q["f100_minus_fstar"], move, flag))
-    print("  max over the gated points |move| = %.3f K at %s (band %.1f K)" % (abs(worst_move), worst_pt, band))
+    # the gate: FUSS against PATO on FIAT's grid, the PATO-FIAT spread as tolerance (measure_spread.py's pairing)
+    pato_dir = os.environ.get("FUSS_PATO_ATC1_OUT") or os.path.join(here, "ref", "pato-298K")
+    Ppl = read_cols(os.path.join(pato_dir, "Ta_plot"))
+    Psu = read_cols(os.path.join(pato_dir, "Ta_surfacePatch"))
+    pato = {d: [(r[0], r[c]) for r in rows] for d, (rows, c) in
+            {1: (Ppl, 1), 2: (Ppl, 2), 4: (Ppl, 3), 8: (Ppl, 4), 16: (Ppl, 6), 50: (Psu, 2)}.items()}
+    spread = max((abs(interp_t(pato[d], row[0]) - row[FIAT_COL[d]]), d, row[0])
+                 for d in pato for row in fiat if 0.0 <= row[0] <= 60.0)
+    tol = 0.0 if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1" else spread[0]
+    worst = (0.0, None, None)
+    for d in DEPTHS_MM + [50]:
+        for row in fiat:
+            t = row[0]
+            if t < 1.0 or t > 60.0:
+                continue
+            v = interp_t(series[d], t)
+            if v is None and series[d] and 0.0 <= t - series[d][-1][0] <= 0.2:
+                v = series[d][-1][1]        # the run ends within one probe interval of t (60 s): last sample
+            if v is None:
+                print("FAIL: no FUSS sample at t = %g s for depth %d mm" % (t, d)); return 1
+            e = abs(v - interp_t(pato[d], t))
+            if e > worst[0]:
+                worst = (e, d, t)
+    ok = worst[0] <= tol
+    print("ATC1 gate: max over the six probes and FIAT's 1 s grid of |T_FUSS - T_PATO| = %.2f K at %s mm, %g s; "
+          "tolerance = the PATO-FIAT spread %.2f K (at %s mm, %g s; PATO %s)  %s"
+          % (worst[0], worst[1], worst[2], tol, spread[1], spread[2], pato_dir, "PASS" if ok else "FAIL"))
 
     # informational: the former metric against FIAT
     worst_all = 0.0
