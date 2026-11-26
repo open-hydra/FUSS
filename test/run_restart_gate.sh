@@ -71,11 +71,20 @@
 #                                    and the stage-D binaries alike; the plain
 #                                    restart is one more draw (6.6e-12 on
 #                                    stage C, 1.24e-11 on stage D). Its budget
-#                                    is 1e-10: five times the widest draw, and
-#                                    still 270 times below a lost history
-#                                    (restarting with T_prev := T: rel|dT|
-#                                    2.7e-8, chi 1.2e-7; with eta_prev :=
-#                                    eta_st: 7.7e-8 and 3.4e-7).
+#                                    is N_half x NEWTON_REL_F = 200 x 1e-13 =
+#                                    2.0e-11 (Lib_Pyrolysis.f90): each step of
+#                                    the restarted leg may stop one Newton
+#                                    tolerance away from the continuous run's
+#                                    iterate, and those offsets add without
+#                                    amplification (argued). Draws on binary
+#                                    b2b68f65 (2026-11-26): the plain restart
+#                                    0 in every field; perturbing T, chi_1,
+#                                    p_pg 1.54e-11, 1.33e-11, 1.29e-11 (chi_2);
+#                                    T_prev, eta_prev 0. It stays 1300 times
+#                                    below a lost history (restarting with
+#                                    T_prev := T: rel|dT| 2.7e-8, chi 1.2e-7;
+#                                    with eta_prev := eta_st: 7.7e-8 and
+#                                    3.4e-7).
 #                 pyrolysis/darcy/heated0d_type2 in vtk raw  the same case
 #                                    written and restarted through the binary
 #                                    VTK files (field.vtm, vtk/*.vts; plan 14
@@ -391,6 +400,8 @@ PY
   # under type 2 while the chemistry is on: B'_pg = mdot_pg / (rhoeUeCH0 beta) is recomputed every step from the
   # open-face Darcy flux, a difference of p, and so sits at the round-trip floor of the derived fields above (ATC22
   # 1.9e-11 on 2026-10-13, heated0d_type2's mdot_pg 1.4e-10); 1e-9 there, still far below a lost read (4e-2 .. 1).
+  # The 1e-9 is a floor set from measured draws, not a physics budget (the 15-digit quantum of p over the cell
+  # difference of p, the header's argument, is not computed per case).
   if [ $rc -eq 0 ] && [ -f "$cont/OUTPUT/bc306-state.dat" ]; then
     out=$(python3 - "$cont/OUTPUT/bc306-state.dat" "$rst/OUTPUT/bc306-state.dat" "$cont/OUTPUT/field.tec" <<'PY'
 import sys
@@ -451,12 +462,14 @@ run_case "test/pyrolysis/energy_audit"       100
 run_case "test/pyrolysis/darcy/mass_balance_1d" 200
 # the history fields of the type-2 step (T_prev, eta_prev) under heating and
 # kinetics: 200 steps per half (~0.56 s each; 827 K at the restart, 1236 K at the end, reacting); its own
-# budget, 1e-10: one-digit perturbations of the restart file end 0.7e-11 ..
-# 1.9e-11 apart (header), a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
-run_case "test/pyrolysis/darcy/heated0d_type2"  200 1.0e-10
+# budget N_half x NEWTON_REL_F (header): one Newton stop tolerance per restarted step; one-digit perturbations of the
+# restart file end 0 .. 1.54e-11 apart (header), a lost T_prev or eta_prev 2.7e-8 .. 3.4e-7
+NEWTON_REL_F=1.0e-13   # src/lib/physics/Lib_Pyrolysis.f90
+TOL_H0D_T2=$(awk -v n=200 -v f=$NEWTON_REL_F 'BEGIN{printf "%.1e", n * f}')
+run_case "test/pyrolysis/darcy/heated0d_type2"  200 "$TOL_H0D_T2"
 # the same case through the binary VTK restart (plan 14 S9b): field.vtm must carry chi_* and the four type-2 columns
 # by name (a renamed chi_1 or T_prev is refused since S9b, accepted silently before)
-run_case "test/pyrolysis/darcy/heated0d_type2"  200 1.0e-10 "vtk raw"
+run_case "test/pyrolysis/darcy/heated0d_type2"  200 "$TOL_H0D_T2" "vtk raw"
 # quasi-steady type 2 with threshold kinetics (2026-10-13): the gas the stages
 # released beyond the prediction waits in (eta_st - eta_prev) p_pg, all three
 # restart columns; 800 steps per half (~136 s each, inside the 300 s case) cross many cell fronts

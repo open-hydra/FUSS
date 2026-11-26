@@ -1303,7 +1303,8 @@ gate_periodic_receding () {
 # where the iteration sits on its floor. TOL = 10 x the largest sector-vs-ring difference of twelve draws (the three
 # legs at tol 1e-10, 3e-11, 1e-11, 1e-12), rounded up to one digit: largest 9.942e-12 (T, one block, tol 3e-11); draws
 # (two blocks | one block | ablation) 1e-10 3.2e-13 | 6.7e-12 | 9.0e-12, 3e-11 1.5e-12 | 9.9e-12 | 2.5e-12, 1e-11 and
-# 1e-12 1.2e-12 | 9.5e-12 | 2.5e-12 (plan 14 S9d Part B M-B3-a)
+# 1e-12 1.2e-12 | 9.5e-12 | 2.5e-12 (plan 14 S9d Part B M-B3-a). A floor set from measured draws, not a physics
+# budget: the [FUSS-Darcy] tol times an amplification nobody has bounded.
 TOL_PERIODIC_DARCY=1e-10
 gate_periodic_darcy () {
   local k1

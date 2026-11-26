@@ -12,10 +12,15 @@ replayed). Five copies of run307 that differ only in INPUT/env307.dat (generate.
                                                                   rhoeUeCH0 and h_r exactly, and alpha_qrad > 0 only where
                                                                   its block's q_rad is
   ba      ab's blocks swapped between the two faces            -> the j-mirror of ab: every field file and both faces'
-                                                                  seb.txt rows, |ab(i,j) - ba(i,3-j)| <= MIRROR_TOL x the
-                                                                  field's max (round-off: the mesh is j-symmetric and the
-                                                                  solver is not exactly), while ba itself differs from
-                                                                  ab by >= SWAP_MIN (the swap is not a no-op)
+                                                                  seb.txt rows, |ab(i,j) - ba(i,3-j)| <= seb-tol x the
+                                                                  field's max (the mesh is j-symmetric and the solver is
+                                                                  not exactly: the two mirrored faces' surface-energy
+                                                                  balances stop anywhere inside their Newton tolerance
+                                                                  |dT_w| <= seb-tol T_w, [FUSS-Ablation] seb-tol of
+                                                                  run307/input.ini, else the registry default 1e-8; the
+                                                                  route from T_w to every compared field, mdot_pg among
+                                                                  them, is argued, not traced), while ba itself differs
+                                                                  from ab by >= SWAP_MIN (the swap is not a no-op)
 
 Exit 0 on PASS, 1 on FAIL. Python 3.6.
 """
@@ -23,9 +28,21 @@ import filecmp
 import os
 import sys
 
-MIRROR_TOL = 1e-8      # measured 2026-10-22: 4.1e-11 (seb.txt mdot_pg); ab against its own mirror: 7.1
+SEB_TOL_DEFAULT = 1e-8  # src/lib/config/Register_Ablation.f90, 'seb-tol' (measured mirror 4.1e-11 on 2026-10-22)
 SWAP_MIN = 1e-3        # measured: 0.27 (T)
 SKIP = ("x", "y", "z", "matID")
+
+
+def seb_tol(d):
+    """[FUSS-Ablation] seb-tol of the run's input.ini (comments after ';' dropped), else the registry default"""
+    sec = None
+    for line in open(os.path.join(d, "input.ini")):
+        t = line.split(";")[0].strip()
+        if t.startswith("["):
+            sec = t
+        elif sec == "[FUSS-Ablation]" and "=" in t and t.split("=", 1)[0].strip() == "seb-tol":
+            return float(t.split("=", 1)[1])
+    return SEB_TOL_DEFAULT
 
 
 def outputs(d):
@@ -150,6 +167,7 @@ def main():
         bad.append("ab_rev: %d of %d files equal ab's" % (n2, m2))
     for r in ("ab", "ab_rev", "ba"):
         bad += face_values(run[r])
+    MIRROR_TOL = seb_tol(run["ab"])
     worst, direct, where = mirror(run["ab"], run["ba"])
     if not worst <= MIRROR_TOL:
         bad.append("ba is not the j-mirror of ab: %.3e (%s) > %.0e" % (worst, where, MIRROR_TOL))

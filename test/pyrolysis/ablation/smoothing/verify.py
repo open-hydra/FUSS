@@ -33,6 +33,8 @@ import sys
 LY, NY, NX = 0.05, 20, 40
 SELFTEST = os.environ.get("FUSS_GATE_SELFTEST") == "1"
 RATIO_MIN = 1.0e9 if SELFTEST else 4.5
+# (seam) bounds: floors set from measured draws (the docstring), not a physics budget -- the [FUSS-Darcy] tol times an
+# amplification through the surface smoothing that nobody has bounded
 TOL_SEAM_S, TOL_SEAM_T = (0.0, 0.0) if SELFTEST else (1.0e-10, 1.0e-7)
 
 
