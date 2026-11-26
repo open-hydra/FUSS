@@ -124,8 +124,9 @@
 #                 periodic_*  -- plan 14 S9d Part B, periodic faces (201): periodic_motion,
 #                                periodic_receding, periodic_darcy.
 #
-#               UNDER CTEST (test/CMakeLists.txt, label gate): one test per name,
-#               `-b <the tree's FUSS> -w <build>/test/runs/gates/<name> -c <name>`.
+#               UNDER CTEST (test/CMakeLists.txt, label gate): one test Gate_<Name>
+#               per name, `-b <the tree's FUSS> -w <FUSS_GATE_WORK>/Gate_<Name> -c
+#               <name>` (FUSS_GATE_WORK, a cache path: build/test/runs/gates).
 #               -b (or FUSS_GATE_BIN) names the binary to grade; without it,
 #               bin/FUSS of this tree, as before. A gate whose verify.py printed
 #               a SKIP line (a check it could not run, e.g. ATC2-chemistryOff
