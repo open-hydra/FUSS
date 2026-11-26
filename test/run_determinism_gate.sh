@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
 #         FILE: test/run_determinism_gate.sh
-#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]...
+#        USAGE: ./test/run_determinism_gate.sh [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]... [-w WORKDIR] [-b FUSS_BINARY]
 #  DESCRIPTION: Run the whole suite TWICE with identical settings and require
 #               the two manifests to be identical.
 #
@@ -55,6 +55,13 @@
 #               replaces the list and implies -x; -X runs the cross-thread
 #               section alone, without the two full passes (development use:
 #               the two passes are the gate).
+#
+#               -w WORKDIR replaces the work folder $TMPDIR/fuss-determinism.$$.
+#               -b FUSS_BINARY (or FUSS_GATE_BIN, with -X only: the two passes
+#               run bin/ of the tree in place) is the binary the cross-thread
+#               runs snapshot instead of bin/ of this tree; FUSS_GATE_XTHREADS
+#               (default 8) is their second thread count. -X writes only the work
+#               folder: CTest runs that form (Gate_Determinism).
 #===============================================================================
 set -u
 
@@ -67,6 +74,9 @@ XCASES=()
 NMPI=0
 # the text of a refusal by an MPI guard, an extended regex (empty: no case is refused since plan 11 stage 4)
 MPI_REFUSAL_RE=""
+WORK=""
+BIN="${FUSS_GATE_BIN:-}"
+XTHREADS="${FUSS_GATE_XTHREADS:-8}"
 
 while test $# -gt 0; do
   case $1 in
@@ -76,14 +86,20 @@ while test $# -gt 0; do
     -x | --cross-thread) XTHREAD=1; shift ;;
     -X | --cross-thread-only) XTHREAD=1; XONLY=1; shift ;;
     -c | --case) XTHREAD=1; XCASES+=("$2"); shift 2 ;;
-    -h | --help) echo "usage: $0 [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]..."; exit 1 ;;
+    -w | --work) WORK=$2; shift 2 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]... [-w WORKDIR] [-b FUSS_BINARY]"; exit 1 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
 done
 [ "${#XCASES[@]}" -gt 0 ] || XCASES=(moving-mesh/freestream pyrolysis/darcy/mass_balance_1d pyrolysis/darcy/tensor_linear_2d)
 
-WORK="${TMPDIR:-/tmp}/fuss-determinism.$$"
+[ -n "$WORK" ] || WORK="${TMPDIR:-/tmp}/fuss-determinism.$$"
 mkdir -p "$WORK"
+if [ -n "$BIN" ]; then
+  [ "$XONLY" -eq 1 ] || { echo "-b needs -X: the two passes run bin/ of the tree in place (run_regression.sh)"; exit 1; }
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+fi
 
 # -m N (plan 11): both passes and the cross-thread runs use the mpi preset's bin/FUSS-mpi on N ranks
 # through Intel MPI's own launcher (run_regression.sh -m does the same for the passes).
@@ -154,18 +170,18 @@ if [ "$XTHREAD" -eq 1 ]; then
   # and was observed CHURNING mid-run (same reasoning as
   # run_physics_gates.sh's BINSNAP; see that file's header for the failure it
   # was written to avoid).
-  cp "$ROOT/bin/$EXE" "$XWORK/FUSS.snapshot"
+  cp "${BIN:-$ROOT/bin/$EXE}" "$XWORK/FUSS.snapshot"
 
   xfail=0
   for xc in "${XCASES[@]}"; do
-    echo "  cross-thread check: $xc, -p 1 vs -p 8"
+    echo "  cross-thread check: $xc, -p 1 vs -p $XTHREADS"
     SRC="$ROOT/test/$xc"
     xname=$(echo "$xc" | tr '/' '_')
     if [ ! -f "$SRC/FUSS.sh" ]; then
       echo "  FAIL  no case at test/$xc"
       xfail=$((xfail+1)); continue
     fi
-    for nt in 1 8; do
+    for nt in 1 "$XTHREADS"; do
       d="$XWORK/$xname/p$nt"
       rm -rf "$d"; mkdir -p "$d"
       cp -r "$SRC/INPUT" "$SRC/MESH" "$SRC/input.ini" "$SRC/FUSS.sh" "$d/"
@@ -189,13 +205,13 @@ if [ "$XTHREAD" -eq 1 ]; then
     done
 
     m1=$(md5sum "$XWORK/$xname/p1/OUTPUT/field.tec" | cut -d' ' -f1)
-    m8=$(md5sum "$XWORK/$xname/p8/OUTPUT/field.tec" | cut -d' ' -f1)
+    m8=$(md5sum "$XWORK/$xname/p$XTHREADS/OUTPUT/field.tec" | cut -d' ' -f1)
     echo "    field.tec md5  -p 1: $m1"
-    echo "    field.tec md5  -p 8: $m8"
+    echo "    field.tec md5  -p $XTHREADS: $m8"
     if [ "$m1" = "$m8" ]; then
-      echo "  PASS  $xc field.tec is bit-identical at 1 and 8 threads"
+      echo "  PASS  $xc field.tec is bit-identical at 1 and $XTHREADS threads"
     else
-      echo "  FAIL  $xc field.tec differs between 1 and 8 threads -- see $XWORK/$xname"
+      echo "  FAIL  $xc field.tec differs between 1 and $XTHREADS threads -- see $XWORK/$xname"
       xfail=$((xfail+1))
     fi
   done

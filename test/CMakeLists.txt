@@ -300,6 +300,15 @@ fuss_add_gate(Gate_BuildConfig 300 "gate;implementation;verification"
               ${_REQ} file=${CMAKE_SOURCE_DIR}/CMakePresets.json --
               bash ${CMAKE_CURRENT_SOURCE_DIR}/check_build_config.sh --preset ${_FUSS_PRESET})
 
+# The cross-thread section of run_determinism_gate.sh (-X): three cases at 1 and FUSS_GATE_THREADS threads, field.tec
+# byte for byte, in the work folder only. Not registered: its two full passes and run_init_sweep.sh, which run every case
+# in place through run_regression.sh (they replace the OUTPUT/ and bin/ folders of the cases in the source tree), and
+# the init sweep also builds twice into bin/ of the source tree (docs/development/testing.md)
+fuss_add_gate(Gate_Determinism 300 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_determinism_gate.sh -X -b $<TARGET_FILE:${solver}>
+              -w ${_GATES}/Gate_Determinism)
+set_tests_properties(Gate_Determinism PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
+
 # MPI gates (mpi-gate, not needs-mpi: CI's MPI job runs Open MPI, these launch Intel MPI's $I_MPI_ROOT/bin/mpirun and
 # skip without it). The forms and rank counts of the records: run_mpi_gate.sh (up to 4 ranks), the restart of the
 # 4-block receding slab on 4 ranks, the guard demos on 2, the runtime input on 4
