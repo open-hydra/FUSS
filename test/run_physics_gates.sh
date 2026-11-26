@@ -581,18 +581,28 @@ PYNOKIN
       KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$name/verify.log" | sed 's/^ *//')"; return 1
     fi
   done
-  for sub in conduction/graded100; do
-    src="$base/$sub"; stage "$src" "$dest/$(echo "$sub" | tr / _)"
-    solve "$dest/$(echo "$sub" | tr / _)" "$NTHREADS"; rc=$?
-    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$(echo "$sub" | tr / _)/run.log)"; return 1; fi
-    if ! python3 "$base/${sub%%/*}/verify.py" "$dest/$(echo "$sub" | tr / _)" > "$dest/$(echo "$sub" | tr / _)/verify.log" 2>&1; then
-      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$(echo "$sub" | tr / _)/verify.log" | sed 's/^ *//')"; return 1
+  # conduction against the slab series on the ladder of 50, 100, 200 cells (plan 17 P17-D1): 100 is the committed
+  # graded100, 50 and 200 come from make_case.py with the arguments that write it
+  local n cdir cl=()
+  for n in 50 100 200; do
+    if [ "$n" = 100 ]; then
+      cdir="$dest/conduction_graded100"; stage "$base/conduction/graded100" "$cdir"
+    else
+      cdir="$dest/conduction_N$n"
+      gen_case make_case.py "$cdir" --kind conduction --tables "$base/kinetics_isothermal/T0700/INPUT" --ncells "$n" \
+        || { KEYNUM="conduction N$n: generator failed (see $cdir.gen.log)"; return 1; }
     fi
+    solve "$cdir" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="conduction N$n: solver exit $rc  (see $cdir/run.log)"; return 1; fi
+    cl+=("$cdir")
   done
+  if ! python3 "$base/conduction/verify.py" "${cl[@]}" > "$dest/conduction_graded100/verify.log" 2>&1; then
+    KEYNUM="conduction: $(grep -E -m1 'FAIL' "$dest/conduction_graded100/verify.log" | sed 's/^ *//')"; return 1
+  fi
   local ad0 ht0 cnd
   ad0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/adiabatic0d_T1000/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
   ht0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/heated0d/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
-  cnd=$(grep -F -m1 'max |T - exact|, all' "$dest/conduction_graded100/verify.log" | awk -F'= ' '{print $2}' | awk '{print $1}')
+  cnd=$(grep -F -m1 '(a) max |T - exact|' "$dest/conduction_graded100/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
 
   # 4.4 ATC1 against FIAT (bundled)
   stage "$base/ATC1" "$dest/ATC1"
@@ -616,7 +626,7 @@ PYNOKIN
   local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
   grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
 
-  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction ${cnd:-?} K  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction order ${cnd:-?}  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
   return 0
 }
 
