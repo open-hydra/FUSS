@@ -3,7 +3,7 @@ module FUSS_Lib_Diffusive
 
   implicit none
   private
-  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa
+  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa, Series_k
 
 contains
 
@@ -75,13 +75,28 @@ contains
 
     call co_Kappa( matID1, T1, k1 )
     call co_Kappa( matID2, T2, k2 )
+    kappa = Series_k ( k1, h1, k2, h2 )
+
+  end function Series_Kappa
+
+
+  !> The series conductivity of two half cells of conductivities k1, k2 and widths h1, h2 normal to their face,
+  !> k = (h1 + h2) / (h1/k1 + h2/k2), evaluated as (h1 + h2) k1 k2 / (h1 k2 + h2 k1); 0 when a side does not conduct.
+  !> The one expression of every face between two materials: inside a block (Diffusive_Flux, Series_Kappa), at a
+  !> block connection (Connection_Face_Flux, from the k_s caches under pyrolysis) and in the time step (Mod_dt), each
+  !> with the lower cell of the face first.
+  pure function Series_k ( k1, h1, k2, h2 ) result ( kappa )
+    implicit none
+    real(R8), intent(in) :: k1, h1, k2, h2
+    real(R8)             :: kappa
+
     if ( k1 <= 0d0 .or. k2 <= 0d0 ) then
       kappa = 0d0
     else
       kappa = ( h1 + h2 ) * k1 * k2 / ( h1 * k2 + h2 * k1 )
     end if
 
-  end function Series_Kappa
+  end function Series_k
 
 
   !> Inverse of a 3x3 matrix by its adjugate (transposed cofactors). Works for M

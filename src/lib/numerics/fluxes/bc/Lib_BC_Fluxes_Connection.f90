@@ -207,11 +207,7 @@ contains
       h_loc = dot_product ( Mi_loc(:,aa), Normal )
       h_con = dot_product ( Mi_con(:,aa), Normal )
       if ( present(kappa_pair) ) then
-        if ( kappa_pair(1) <= 0d0 .or. kappa_pair(2) <= 0d0 ) then
-          kappa = 0d0
-        else
-          kappa = ( h_loc + h_con ) * kappa_pair(1) * kappa_pair(2) / ( h_loc * kappa_pair(2) + h_con * kappa_pair(1) )
-        end if
+        kappa = Series_k ( kappa_pair(1), h_loc, kappa_pair(2), h_con )
       else if ( mod(Fm,2) == 0 ) then
         kappa = Series_Kappa ( Blk % matID(Im,Jm,Km), T_loc, h_loc, bc % matIDg, T_con, h_con )
       else
