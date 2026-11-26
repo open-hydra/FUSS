@@ -24,26 +24,28 @@ Checks (plan 06 section 4.3):
         is resolved by the coarsest run, dt ~ 0.17 s; with the plan's 0.1 s ramp
         the staircase sampling of the ramp aliased and the differences GREW under
         refinement -- 3.3, 4.9, 1.9 K measured 2026-10-07 -- so the ramp was lengthened);
-        max|T(0.5) - T(0.25)| / max|T(0.25) - T(0.125)| >= 1.6 and
-        max|T(0.5) - T(0.125)| <= budget_iv (expected.json; recorded on the
-        first run with --record, then the gate fails above measured + 1 K)
+        the order log2(max|T(0.5) - T(0.25)| / max|T(0.25) - T(0.125)|) in
+        [0.8, 1.2] (first order in dt, test/pyrolysis/README.md; the band of
+        plan 17 P17-D5); no stored FUSS number (plan 17 removed the budget_iv of
+        measured + 1 K)
   (v)   zero-kinetics self-consistency, from the --nokin rerun: every chi_*
         and mdot_pg exactly 0.0, rho_s = rho_v to 1e-14 relative, and
         Q_gas_out = M_gas_out = 0 exactly in its budget file
   (vi)  cross-thread determinism, from the --p8 rerun: field.tec and
         energy-budget.txt byte-identical to the 1-thread run
 
-Usage: verify.py <case_dir> [--vnn025 DIR] [--vnn0125 DIR] [--nokin DIR] [--p8 DIR] [--record]
+Usage: verify.py <case_dir> [--vnn025 DIR] [--vnn0125 DIR] [--nokin DIR] [--p8 DIR]
 A sub-check whose directory is not given prints SKIP. Exit 0 on PASS, 1 on FAIL.
 Python 3.6, no numpy.
 """
-import hashlib, json, os, re, sys
+import hashlib, math, os, re, sys
 
 TOL_BAL = 1.0e-10
 TOL_STATE = 1.0e-10
 TOL_RHO_V = 1.0e-14
-ORDER_RATIO_MIN = 1.6
-BUDGET_IV_DEFAULT = 3.0     # K, provisional (plan 06 section 4.3 (iv)); replaced by expected.json
+ORDER_LO, ORDER_HI = 0.8, 1.2   # (iv): P17-D5 (U20) for p = 1
+if os.environ.get("FUSS_GATE_SELFTEST", "0") == "1":   # the proven-red hook (plan 17): (iv) can no longer pass
+    ORDER_LO, ORDER_HI = float("inf"), -float("inf")
 
 
 def read_tec(path):
@@ -190,14 +192,11 @@ def md5(path):
 def main():
     args = sys.argv[1:]
     opts = {"--vnn025": None, "--vnn0125": None, "--nokin": None, "--p8": None}
-    record = False
     pos = []
     i = 0
     while i < len(args):
         if args[i] in opts:
             opts[args[i]] = os.path.abspath(args[i + 1]); i += 2
-        elif args[i] == "--record":
-            record = True; i += 1
         else:
             pos.append(args[i]); i += 1
     case = os.path.abspath(pos[0]) if pos else os.path.dirname(os.path.abspath(__file__))
@@ -243,8 +242,6 @@ def main():
     ok = ok and max(rel_E, rel_M) <= TOL_STATE
 
     # (iv): vnn refinement
-    expected_path = os.path.join(here, "expected.json")
-    expected = json.load(open(expected_path)) if os.path.isfile(expected_path) else {}
     if opts["--vnn025"] and opts["--vnn0125"]:
         probes = sorted(f for f in os.listdir(os.path.join(case, "OUTPUT")) if f.startswith("p") and f.endswith("mm.txt"))
         grid = [2.0 + 0.1 * n for n in range(81)]
@@ -259,14 +256,10 @@ def main():
                     continue
                 d1 = max(d1, abs(a - b)); d2 = max(d2, abs(b - c)); d3 = max(d3, abs(a - c))
         ratio = d1 / d2 if d2 > 0.0 else float("inf")
-        budget = expected.get("budget_iv_K", BUDGET_IV_DEFAULT)
-        if record:
-            expected["measured_iv_K"] = d3
-            expected["budget_iv_K"] = d3 + 1.0
-            budget = d3 + 1.0
-        st = "ok" if (ratio >= ORDER_RATIO_MIN and d3 <= budget) else "FAIL"
-        print("  (iv)  vnn refinement: |T05-T025| %.3e |T025-T0125| %.3e ratio %.3f (>= %.1f); max |T05-T0125| %.3e K (budget %.2f)  %s"
-              % (d1, d2, ratio, ORDER_RATIO_MIN, d3, budget, st))
+        p_obs = math.log(ratio, 2) if 0.0 < ratio < float("inf") else float("nan")
+        st = "ok" if ORDER_LO <= p_obs <= ORDER_HI else "FAIL"
+        print("  (iv)  vnn refinement: |T05-T025| %.3e |T025-T0125| %.3e ratio %.3f, order %.3f in [%g, %g]; max |T05-T0125| %.3e K (info)  %s"
+              % (d1, d2, ratio, p_obs, ORDER_LO, ORDER_HI, d3, st))
         ok = ok and st == "ok"
     else:
         print("  (iv)  vnn refinement               SKIP (no --vnn025/--vnn0125)")
@@ -297,9 +290,6 @@ def main():
     else:
         print("  (vi)  cross-thread                 SKIP (no --p8)")
 
-    if record:
-        json.dump(expected, open(expected_path, "w"), indent=1, sort_keys=True)
-        print("  recorded %s" % expected_path)
     print("PASS" if ok else "FAIL")
     return 0 if ok else 1
 

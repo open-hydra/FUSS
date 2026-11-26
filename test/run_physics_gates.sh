@@ -1133,8 +1133,9 @@ gate_conjugate_receding () {
   # so (pair) is an identity, stale metrics or not. The red control asks instead that stale metrics MOVE the interface
   # flux; that the refreshed metrics are the right ones is the restart gate's job (run_restart_gate.sh: the restart
   # recomputes every metric at set-up from the moved mesh and must reproduce the continuous run to 1e-11).
-  # stale_min: measured 8.523e-8 of q_scale at S7b (0.2-0.3 % of an interface flux of at most 2.7e-2 W), bound = 1/100
-  local stale_min=8.5e-10 dq
+  # stale_min: the (pair) identity's own a-priori floor, 1e-12 of q_scale (verify.py): stale metrics must move the
+  # interface flux by more than the round-off that identity allows (plan 17; the measured 8.523e-8 of S7b is not a bound)
+  local stale_min=1e-12 dq
   dq=$(python3 - "$dest/refresh" "$dest/stale" <<'PY'
 import sys
 def rows(d):

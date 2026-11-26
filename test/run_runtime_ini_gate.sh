@@ -109,6 +109,12 @@ start_case () {
 
   local e
   for e in "$@"; do sed -i "$e" "$d/input.ini"; done
+  # The stop below must be read at a LATER re-read than the edit, so that iterations run after the edit was processed:
+  # with WAIT_FOR_REPORT set, wait for the report of the edit first (plan 17: the dt check of immutable_ignored)
+  if [ -n "${WAIT_FOR_REPORT:-}" ]; then
+    local w1=0
+    while [ ! -s "$d/$REPORT" ] && [ $w1 -lt 600 ]; do sleep 0.1; w1=$((w1+1)); done
+  fi
   # A reading that breaks a rule is not taken as a whole (plan 14 S6, D8-A2): wait for its record, then put the file of
   # the start back (through a copy: the solver must never read a half-written file), so the stop below is taken
   if [ -n "${RESTORE_AFTER_REPORT:-}" ]; then
@@ -140,7 +146,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-d=$(start_case immutable_ignored 's/^vnn = .*/vnn = 0.123/')
+d=$(WAIT_FOR_REPORT=1 start_case immutable_ignored 's/^vnn = .*/vnn = 0.123/')
 if [ -f "$d/$REPORT" ] && grep -q "vnn" "$d/$REPORT"; then
   pass "an immutable change is ignored and named: $(grep -m1 vnn "$d/$REPORT" | sed 's/^ *//')"
 else
@@ -154,8 +160,12 @@ if [ "$NMPI" -gt 1 ]; then
     bad "immutable_ignored: the vnn line is in the report $nvnn times on $NMPI ranks (expected once)"
   fi
 fi
-if grep -qE "Delta t = 0\.868029E-01" "$d/run.log"; then
-  pass "...and the running value really was kept (dt unchanged)"
+# the run's dt after the edit against its own dt before it (plan 17: no stored FUSS value): one distinct value, more
+# than one line (the report was waited for, so the stop came at least one ini-diter after the edit was read)
+ndt=$(grep -o 'Delta t = [^ ]*' "$d/run.log" | sort -u | wc -l)
+nln=$(grep -c 'Delta t = ' "$d/run.log")
+if [ "$ndt" -eq 1 ] && [ "$nln" -gt 1 ]; then
+  pass "...and the running value really was kept (dt unchanged over $nln steps: $(grep -o -m1 'Delta t = [^ ]*' "$d/run.log"))"
 else
   bad "immutable_ignored: dt changed, so the edit was applied after all"
   grep -m1 "Delta t" "$d/run.log" | sed 's/^/          /'
