@@ -213,8 +213,10 @@ endif()
 #  ctest -L gate (all), ctest -R Gate_Pyrolysis -V (one); every gate also carries verification (outside the PR tier)
 # ===========================================================================
 # Each runs in its own folder runs/gates/<test name>, on this tree's executable ($<TARGET_FILE>); exit code 77 is a skip
-# (a check the script could not run), which ctest reports as Not Run
-set(_GATES "${_WORK}/gates")
+# (a check the script could not run), which ctest reports as Not Run. FUSS_GATE_WORK moves the folders: a build tree on
+# NFS slows the gates that write at every iteration by 10 to 200 times (measured 2026-11-26), use a local disk there
+set(FUSS_GATE_WORK "${_WORK}/gates" CACHE PATH "Folder of the work folders of the gate tests (default: runs/gates of the build tree)")
+set(_GATES "${FUSS_GATE_WORK}")
 if (USE_MPI)
   set(_FUSS_PRESET mpi)        # the preset check_build_config.sh compares this tree with
 else()
