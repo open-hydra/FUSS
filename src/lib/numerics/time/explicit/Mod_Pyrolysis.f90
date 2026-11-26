@@ -426,7 +426,8 @@ contains
 
 
   !> The temperature the gas leaves a line at: its outflow face's wall temperature
-  !> of this stage, the exit cell's where no wall BC set one.
+  !> of this stage, the exit cell's where no wall BC set one (a coupled face, 103,
+  !> whose ghost is a copy of the cell).
   real(R8) function Exit_Temperature ( domain, b, b1, b2, i, j, k ) result ( Tf )
     use FUSS_Advanced_Types_m
     implicit none

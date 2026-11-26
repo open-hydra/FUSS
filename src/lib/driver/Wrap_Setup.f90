@@ -811,17 +811,20 @@ contains
     end subroutine Check_Pyrolysis_Compatibility
 
 
-    !> bc.txt-level rules of plan 06 sections 2.1 and 3.7 (root, after
-    !> Check_BC): one block, no 101/102/103/104 face (chi ghosts are plan 08) and
-    !> a wall BC (301-305) on the outflow end of the block.
+    !> bc.txt-level rules of the pyrolysis closures (root, after Check_BC): no
+    !> chimera face (102, 104); type 1: one block and a wall (301-307) or a
+    !> coupled face (103) on the outflow end; type 2: a face open to the gas when
+    !> the gas is produced. A coupled face (103) the gas leaves through gets one
+    !> notice: the gas is not handed to the other solver.
     subroutine Check_Pyrolysis_BC_Topology ( domain, has_error )
       implicit none
       type(FUSS_domain_type), intent(in) :: domain
       logical, intent(out) :: has_error
       logical :: bad, kinetics_on
-      integer :: i, fo, r, nopen
+      integer :: i, fo, r, nopen, nexit103
 
       bad = .false.
+      nexit103 = 0
 
       ! Darcy closure, bc-level rules (plan 07 §3.4, §3.8). The chimera
       ! refusal must outlive plan 08's lifting of the single-block rule below.
@@ -837,6 +840,7 @@ contains
         nopen = 0
         do i = 1, domain%nbound
           if ( Darcy_Is_Open( domain%bc(i)%type ) ) nopen = nopen + 1
+          if ( domain%bc(i)%type == 103 .and. Darcy_Is_Open( 103 ) ) nexit103 = nexit103 + 1
         enddo
         kinetics_on = ( obj_darcy%pi_source > 0.0d0 )
         do r = 1, obj_pyrolysis%nsub
@@ -844,7 +848,7 @@ contains
         enddo
         if ( nopen == 0 .and. kinetics_on ) then
           write(*,'(A)') ' [ERROR] Darcy: no face is open to the gas while the pyrolysis gas is produced.'
-          write(*,'(A)') '         The gas has nowhere to go: open a wall face through [FUSS-Darcy] open-bc-types.'
+          write(*,'(A)') '         The gas has nowhere to go: open a wall or coupled face through [FUSS-Darcy] open-bc-types.'
           bad = .true.
         endif
         if ( nopen == 0 .and. obj_darcy%quasi_steady ) then
@@ -857,8 +861,9 @@ contains
       ! Guard 9 (plan 08 section 2.9): block connections (101) under type 2
       ! only -- the type-1 outflow line integral restarts at every block, so a
       ! second block's gas would be lost; chimera (102, 104) has no chi or p
-      ! donor path, and a coupled face (103) no chi exchange (the coupled
-      ! ablating wall is 307).
+      ! donor path. A coupled face (103) mirrors chi as a wall does (the other
+      ! solver holds no chi) and passes the conduction flux of the coupling;
+      ! the gas that leaves through it is not handed to the other solver.
       if ( .not. obj_darcy%enabled .and. domain%nb > 1 ) then
         write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
           'cross block faces); use type2 for a multi-block mesh.'
@@ -882,8 +887,8 @@ contains
             endif
             bad = .true.
             exit
-          case (102, 103, 104)
-            write(*,'(A)') ' [ERROR] pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2).'
+          case (102, 104)
+            write(*,'(A)') ' [ERROR] pyrolysis: chimera faces (102, 104) are refused (a 101 face needs gas-closure = type2).'
             write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, &
               ' on face ', domain%bc(i)%f
             bad = .true.
@@ -904,14 +909,24 @@ contains
       if ( fo > 0 ) then
         do i = 1, domain%nbound
           if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
-          if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 307 ) then
-            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-307).'
+          if ( domain%bc(i)%type == 103 ) then
+            nexit103 = nexit103 + 1
+          else if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 307 ) then
+            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-307) or a coupled face (103).'
             write(*,'(A,I0,A,I0,A)') '         Face ', fo, ' of block 1 carries type ', domain%bc(i)%type, &
               ': a symmetry plane or a null face cannot pass the pyrolysis gas.'
             bad = .true.
             exit
           endif
         enddo
+      endif
+
+      ! The gas leaving through a coupled face (103) leaves FUSS's balance (the
+      ! budget's M_gas_out, Q_gas_out) and enters no other solver: the coupling
+      ! exchanges the conduction flux only.
+      if ( .not. bad .and. nexit103 > 0 ) then
+        write(*,'(A,I0,A)') ' [NOTICE] pyrolysis: the gas leaves through ', nexit103, ' coupled face(s) (103); it is '// &
+          'not passed to the other solver: its mass and enthalpy leave FUSS''s budget (M_gas_out, Q_gas_out) only.'
       endif
 
       has_error = bad

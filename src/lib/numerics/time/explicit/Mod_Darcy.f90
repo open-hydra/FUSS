@@ -2096,7 +2096,7 @@ contains
                                     [b, Im, Jm, Km], eta_w, Gw, eps_w, rho_w, h_w )
             ! The gas crosses the face at the wall temperature its BC routine
             ! computed this stage (bc%Tw_face; the cell's where no wall BC set
-            ! one), carried by the face mass flux of the pressure solve itself
+            ! one: a coupled face, 103), carried by the face mass flux of the pressure solve itself
             ! (Open_Face_Fluxes' expression): edot_pg = h_g(p_w, T_w) mdot_pg.
             ! Before 2026-10-13 the face value averaged h Gamma of the cell with
             ! h_g(p_w, T_cell) Gamma_w: the enthalpy at the cell temperature, an

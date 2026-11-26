@@ -115,9 +115,9 @@ module FUSS_Advanced_Types_m
     ! leaving through the face (outward positive), set by the solver.
     real(R8) :: pw = 0d0, mdot_pg = 0d0, edot_pg = 0d0
     ! Tw_face: the wall temperature the face's BC routine computed in the
-    ! current RK stage (BC_Fluxes, 301-305), read by the type-2 gas-enthalpy
-    ! flux of an open face; -1 where no wall BC has set it (the cell value is
-    ! used there).
+    ! current RK stage (BC_Fluxes, 301-307), read by the gas-enthalpy flux of
+    ! an open face (type 2) and of the outflow face (type 1); -1 where no wall
+    ! BC sets it, a coupled face (103) included: the cell value is used there.
     real(R8) :: Tw_face = -1d0
     ! One flux per connection face (101): the record of the same face seen from the other block, whether this record
     ! computes the face (owner), and the share of this cell (heat into the cell, W) that the owner leaves in it

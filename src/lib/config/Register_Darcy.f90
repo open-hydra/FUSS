@@ -11,7 +11,7 @@
 !>
 !> open-bc-types is a STRING on purpose: add_int_array reads ONE scalar from the
 !> default text and copies it to every element (Registry.f90), so it cannot hold
-!> the default '303 305 306'. Parse_Open_Codes turns the string into the code
+!> the default '303 305 306 103'. Parse_Open_Codes turns the string into the code
 !> list and is called from the ini-level guard (which refuses an unparsable
 !> token or a code outside the allowed set) and from Assign_Setup.
 module FUSS_Register_Darcy
@@ -61,7 +61,7 @@ contains
                   'Dirichlet gas pressure [Pa] on an open face whose bc.txt line carries no p_w of its own', &
                   '> 0', .false. )
 
-    call reg%add( trim(section), 'open-bc-types', obj_darcy%open_bc_types, '303 305 306', &
+    call reg%add( trim(section), 'open-bc-types', obj_darcy%open_bc_types, '303 305 306 103', &
                   'Blank-separated BC codes whose faces are open to the gas (p = p_w); from {301,302,303,304,305,306,103}', &
                   '', .false. )
 

@@ -332,7 +332,7 @@ module FUSS_Config_Types_m
     real(R8) :: p_ref = 101325.0d0                   ! scale of the reported per-sweep change
     real(R8) :: p_init = 101325.0d0                  ! uniform p_pg on newrun [Pa]
     real(R8) :: p_wall = 101325.0d0                  ! Dirichlet value on open faces without their own p_w [Pa]
-    character(len=llen) :: open_bc_types = '303 305 306'   ! BC codes whose faces are open to the gas
+    character(len=llen) :: open_bc_types = '303 305 306 103'   ! BC codes whose faces are open to the gas
     logical  :: quasi_steady = .false.               ! drop the storage term d(eta p)/dt
     logical  :: klinkenberg = .false.                ! K_eff = K + (mu/p) B
     real(R8) :: pseudo_vnn = 0.5d0                   ! damping of the Jacobi (pseudo) sweep, (0, 1]

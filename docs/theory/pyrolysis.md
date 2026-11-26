@@ -177,14 +177,14 @@ $$
 R_s \mathrel{+}= \dot M_s\,h_g\bigl(p_\text{gas}, T_{s+1/2}\bigr) - \dot M_{s-1}\,h_g\bigl(p_\text{gas}, T_{s-1/2}\bigr),
 $$
 
-with $T_{s+1/2} = \tfrac12(T_s + T_{s+1})$ at an interior face and, at the exit face, the wall temperature its boundary condition computed in the stage (the cell temperature if no wall condition set one). Summed over the line, the flows telescope: the line loses $\dot M_N\,h_g(T_w)$. The discretisation is given in [Spatial Discretisation](numerics.md#type-1-enthalpy-along-the-outflow-lines).
+with $T_{s+1/2} = \tfrac12(T_s + T_{s+1})$ at an interior face and, at the exit face, the wall temperature its boundary condition computed in the stage (the cell temperature if no wall condition set one: a coupled face, 103). Summed over the line, the flows telescope: the line loses $\dot M_N\,h_g(T_w)$. The discretisation is given in [Spatial Discretisation](numerics.md#type-1-enthalpy-along-the-outflow-lines).
 
 **What type 1 cannot represent.**
 
 - No gas pressure and no gas storage: the gas leaves in the step it is produced, at `p-gas`.
 - No flow other than along the index lines of `outflow-direction`: no lateral spreading, no flow around an impermeable insert, no exit through any other face.
 - The face opposite the exit is impermeable by construction.
-- One block only: the integral restarts at every block, so the set-up refuses block connections (101) and periodic faces (201). The exit face must carry a wall condition (301–307), and an ablating wall (306, 307) must be that face.
+- One block only: the integral restarts at every block, so the set-up refuses block connections (101) and periodic faces (201). The exit face must carry a wall condition (301–307) or be a coupled face (103), and an ablating wall (306, 307) must be that face.
 - The central face temperature is free of oscillations while the cell Péclet number $\dot m_{pg}\,c_{p,g}\,\Delta x/k_s$ stays below 2; the code does not check it.
 
 The closure is exact only for a one-dimensional, quasi-steady flow with an impermeable back face.
@@ -268,7 +268,8 @@ Under `quasi-steady = true` the storage term is absent. The difference between t
 | block connection (101) | $p$ and the gas mass flow continuous |
 | chimera (102, 104) | refused |
 
-- A face is open when its code is in `open-bc-types` (default `303 305 306`, any of 301–306; the parser also accepts 103, which pyrolysis refuses). An ablating wall (306, 307) is always open.
+- A face is open when its code is in `open-bc-types` (default `303 305 306 103`, any of 301–306 and 103). An ablating wall (306, 307) is always open.
+- A coupled face (103) is open at `p-wall`: no gas pressure is exchanged with the other solver, and the gas that leaves through it is not passed to it (its mass and enthalpy leave the energy budget of FUSS only).
 - $p_w$ is the optional fourth value of a 303 or 305 line, else `p-wall`; an ablating wall takes the $p_w$ of its env table or exchange.
 - The set-up refuses a case without an open face while gas is produced.
 
@@ -312,8 +313,8 @@ The pressure is first order in time; the coefficients $\boldsymbol\Gamma$ and $\
 
 | Closure | Refused |
 |---------|---------|
-| both | `integration-variables = prim`; `time-accurate = false`; IRS; more than one grid level; chimera (102, 104) and coupling (103) faces |
-| type 1 | more than one block, block connections (101), periodic faces (201); no `outflow-direction`; an exit face without a wall condition (301–307); an ablating wall off the exit face |
+| both | `integration-variables = prim`; `time-accurate = false`; IRS; more than one grid level; chimera faces (102, 104) |
+| type 1 | more than one block, block connections (101), periodic faces (201); no `outflow-direction`; an exit face that is neither a wall (301–307) nor a coupled face (103); an ablating wall off the exit face |
 | type 2 | `[FUSS-Pyrolysis] p-gas`; no open face while gas is produced; no open face with `quasi-steady = true`; a material without `K_v`, `K_c`; `klinkenberg = true` without `B_v`, `B_c`; `axes-follow-grid = true` |
 
 `[FUSS-Darcy]` without `gas-closure = type2` is refused as well.

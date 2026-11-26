@@ -117,6 +117,10 @@
 #                                Atreya 2007 corrected: front, T, char pressure, gas ledgers
 #                                of both type-2 modes), zhang2010 (three-code slab, BC 305,
 #                                within the codes' spread). ~4 min at -p 1.
+#                 pyrolysis_103 -- a coupled face (103) as the gas exit: the 103 twins of heated0d (type 1)
+#                                and heated0d_type2 equal their 301 q = 0 twins byte for byte (wall files
+#                                aside: a 103 face is not in them), their budgets close to 1e-10, the set-up
+#                                NOTICE, the refusals of 102, 104 and of a type-2 domain without exit. ~10 s.
 #                 ablation_*  -- plan 08 and 12, the ablating walls 306/307, cases under
 #                                test/pyrolysis/ablation/: zero_blowing, seb_closure,
 #                                306_static, atc21, nodeshift_inert, remap_uniform, atc22,
@@ -196,6 +200,9 @@
 #                   change reaching a genuine verify.py assertion, no solver
 #                   code touched -- is demonstrated regardless of which of
 #                   the four checks fires.
+#                 - pyrolysis_103: the twins are compared with their wall
+#                   files, which differ by construction (a 103 face is not in
+#                   them): "type 1 twins: 61 identical file(s), 59 problem(s)".
 #               Measured green/red runs and the runtime are recorded at the
 #               bottom of this header once both were executed (2026-09-15).
 #
@@ -229,7 +236,7 @@ BIN="${FUSS_GATE_BIN:-}"                    # -b wins; empty = bin/FUSS of this 
 P8THREADS="${FUSS_GATE_P8_THREADS:-8}"      # threads of pyrolysis's cross-thread leg (energy_audit_p8)
 
 # Every gate, in the order they run; -c picks one
-CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis
+CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis pyrolysis_103
        darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
        darcy_atc2_chemistry_off
        bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
@@ -1332,6 +1339,73 @@ gate_periodic_darcy () {
   periodic_gate ablation ablation "$TOL_PERIODIC_DARCY" "--vars T,p_pg --nodes" test/pyrolysis/ablation/periodic_receding \
     || { KEYNUM="$k1 / $KEYNUM"; return 1; }
   KEYNUM="$k1 / $KEYNUM"
+}
+
+# A coupled face (103) under pyrolysis, standalone (no coupling: ext_flux = 0): the gas leaves through it as through an
+# adiabatic wall (301, q = 0) on the same face. Twins built at run time from heated0d (type 1, outflow face 2) and
+# heated0d_type2 (type 2; face 1 made a symmetry face in both twins, so face 2 is the only exit: the 103 twin takes the
+# default open-bc-types, which holds 103, the 301 twin open-bc-types = 301). On this 1-D orthogonal slab the 301 wall
+# solves Tw = T exactly (no tangential term, q = 0) and puts 0 into the residual, as the 103 face puts ext_flux = 0;
+# the gas leaves both at the cell temperature: the same arithmetic, so every OUTPUT file is byte-identical but the wall
+# output (a 103 face is no wall of wall.tec; FUSS_GATE_SELFTEST=1 compares it too: the red of the harness). The
+# budgets: energy |dE + Q_out - Q_src| and gas mass |dM_s + M_gas_out + dM_g| <= 1e-10 (gate 4.3's bound) on the 103
+# twins. The refusals that remain, each exit 1 with its message: 102 and 104 faces (type 1), and a type-2 103 face
+# sealed by open-bc-types = 303 while the gas is produced. The base refuses the 103 twins (the red of 2026-11-26).
+gate_pyrolysis_103 () {
+  local dest="$WORK/pyrolysis_103" t="$ROOT/test/pyrolysis/tools" rc v cmp1 cmp2 bal excl="--exclude wall" k103="1 1 1 1 1 1 1 1 1"
+  [ "$SELFTEST" = "1" ] && excl=""
+  rm -rf "$dest"; mkdir -p "$dest"
+  for v in t1_301 t1_103 r102 r104; do stage "$ROOT/test/pyrolysis/heated0d" "$dest/$v"; done
+  for v in t2_301 t2_103 rsealed; do
+    stage "$ROOT/test/pyrolysis/darcy/heated0d_type2" "$dest/$v"
+    python3 "$t/set_face_bc.py" "$dest/$v/INPUT/bc.txt" 1 1 300 > /dev/null || { KEYNUM="$v: set_face_bc.py failed"; return 1; }
+  done
+  for v in t1_103 t2_103 rsealed; do
+    python3 "$t/set_face_bc.py" "$dest/$v/INPUT/bc.txt" 1 2 103 "$k103" > /dev/null || { KEYNUM="$v: set_face_bc.py failed"; return 1; }
+  done
+  python3 "$t/set_face_bc.py" "$dest/r102/INPUT/bc.txt" 1 2 102 "1 1" "1 3 1 1 1.0" "1 2 1 1 1.0" > /dev/null || return 1
+  python3 "$t/set_face_bc.py" "$dest/r104/INPUT/bc.txt" 1 2 104 "1 1" "1 3 1 1 1.0" "1 2 1 1 1.0" > /dev/null || return 1
+  sed -i '/^open-bc-types/d' "$dest/t2_103/input.ini"
+  sed -i 's/^open-bc-types.*/open-bc-types = 303/' "$dest/rsealed/input.ini"
+  for v in t1_301 t1_103 t2_301 t2_103; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; }
+  done
+  for v in t1_103 t2_103; do
+    grep -q 'NOTICE\] pyrolysis: the gas leaves through 2 coupled face(s) (103)' "$dest/$v/run.log" \
+      || { KEYNUM="$v: no set-up NOTICE on the gas leaving through the 103 faces"; return 1; }
+  done
+  python3 "$t/twin_compare.py" "$dest/t1_301" "$dest/t1_103" $excl > "$dest/t1.cmp" 2>&1; rc=$?
+  cmp1=$(tail -1 "$dest/t1.cmp" | sed 's/^twin_compare: //')
+  [ "$rc" -eq 0 ] || { KEYNUM="type 1 twins: $cmp1 (see $dest/t1.cmp)"; return 1; }
+  python3 "$t/twin_compare.py" "$dest/t2_301" "$dest/t2_103" $excl > "$dest/t2.cmp" 2>&1; rc=$?
+  cmp2=$(tail -1 "$dest/t2.cmp" | sed 's/^twin_compare: //')
+  [ "$rc" -eq 0 ] || { KEYNUM="type 2 twins: $cmp2 (see $dest/t2.cmp)"; return 1; }
+  bal=$(python3 - "$dest/t1_103" "$dest/t2_103" <<'PY'
+import sys
+out = []
+for case in sys.argv[1:]:
+    rows = [[float(v) for v in l.split()] for l in open(case + "/OUTPUT/energy-budget.txt") if not l.startswith("#")]
+    r0 = rows[0]
+    we = wm = 0.0
+    for r in rows:
+        dMg = (r[7] - r0[7]) if len(r) > 7 else 0.0
+        we = max(we, abs(r[1] - r0[1] + r[3] - r[6]) / max(abs(r0[1]), abs(r[3]), abs(r[6])))
+        wm = max(wm, abs(r[2] - r0[2] + r[5] + dMg) / r0[2])
+    out.append((we, wm))
+print(" ".join("%.1e/%.1e" % p for p in out), "FAIL" if max(max(p) for p in out) > 1.0e-10 else "ok")
+PY
+)
+  case "$bal" in *ok) ;; *) KEYNUM="budget of the 103 twins (energy/mass, type 1 type 2): $bal"; return 1 ;; esac
+  for v in r102 r104 rsealed; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 1 ] || { KEYNUM="$v: exit $rc, expected the refusal's 1  (see $dest/$v/run.log)"; return 1; }
+  done
+  grep -q 'ERROR\] pyrolysis: chimera faces (102, 104) are refused' "$dest/r102/run.log" \
+    && grep -q 'ERROR\] pyrolysis: chimera faces (102, 104) are refused' "$dest/r104/run.log" \
+    && grep -q 'ERROR\] Darcy: no face is open to the gas while the pyrolysis gas is produced' "$dest/rsealed/run.log" \
+    || { KEYNUM="a refusal fired without its message (see $dest/r*/run.log)"; return 1; }
+  KEYNUM="103 = 301 q=0 twins: type 1 $cmp1; type 2 $cmp2; budgets (energy/mass) ${bal% ok} (<= 1e-10); 102, 104, sealed 103 refused"
 }
 
 # ---------------------------------------------------------------------------

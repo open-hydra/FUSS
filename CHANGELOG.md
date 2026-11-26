@@ -94,6 +94,10 @@ In this branch only; upstream `main` up to `4f5673c` is merged in (2026-11-17 to
   type-2 pyrolysis across periodic faces when the permeability tensors are invariant under the pair's rotation.
 - The hook that a coupling driver (hydra) passes to the solve has an explicit interface: one argument,
   `type(FUSS_domain_type), intent(inout) :: domain`.
+- A coupled face (`103`) is accepted under pyrolysis: type 1 may end its outflow lines there, type 2 opens it by default
+  (`open-bc-types` default `303 305 306 103`, pressure `p-wall`); the gas leaves it at the cell temperature. The gas is
+  not passed to the gas solver: its mass and enthalpy leave FUSS's energy budget only, and a notice at set-up says so.
+  Chimera faces (`102`, `104`) stay refused.
 
 Where this branch behaves differently from upstream:
 
