@@ -125,7 +125,9 @@ The tests of `test/input-io/` run scripts on copies of the cases. Each prints on
 
 `test/CMakeLists.txt` registers every gate script below as CTest tests of label `gate`, also
 labelled `verification`, so the pull-request check does not run them. Each test runs in its own
-folder `build/test/runs/gates/<test>`, on the tree's executable (`-b $<TARGET_FILE:FUSS>`). Exit code
+folder `build/test/runs/gates/<test>` (or under `FUSS_GATE_WORK`: on a build tree on NFS the gates that write at
+every iteration run 10 to 200 times slower and pass their `TIMEOUT`), on the tree's executable
+(`-b $<TARGET_FILE:FUSS>`). Exit code
 77 means that the script skipped a check: a `verify.py` that printed `SKIP` (a reference file
 missing), or a requirement `test/ctest_requires.sh` found missing (Intel MPI, the build's own
 compiler at its version, `CMakePresets.json`). CTest reports such a test *Not Run*, never *Passed*.
@@ -135,6 +137,7 @@ ctest --test-dir build -N -L gate                     # the gate tests, by name
 ctest --test-dir build -L gate -j 4                   # all of them (the longest about 11 minutes at one thread)
 ctest --test-dir build -R '^Gate_Pyrolysis$' -V       # one gate, with its output
 cmake -DFUSS_GATE_THREADS=4 build                     # thread count of the two cross-thread legs (default 8, their PROCESSORS)
+cmake -DFUSS_GATE_WORK=/var/tmp/$USER-gates build     # work folders on a local disk (default build/test/runs/gates)
 ctest --test-dir build-mpi -L mpi-gate                # the MPI forms (mpi preset, I_MPI_ROOT set)
 ```
 

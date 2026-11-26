@@ -231,8 +231,8 @@ function(fuss_add_gate NAME TIMEOUT LABELS)
     "PYTHONDONTWRITEBYTECODE=1;FUSS_GATE_PRESET=${_FUSS_PRESET};FUSS_GATE_P8_THREADS=${FUSS_GATE_THREADS};FUSS_GATE_XTHREADS=${FUSS_GATE_THREADS}")
 endfunction()
 
-# Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the wall of the run of 2026-11-26
-# (1 thread, pcprop9), at least 300 s
+# Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the walls of 2026-11-26 (pcprop9,
+# 1 thread, work folders on a local disk: plan 16's hand runs and this registration's first ctest run), at least 300 s
 set(_PHYSICS_GATES
   Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
   RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
@@ -267,7 +267,9 @@ fuss_add_physics_gate(RecedingAll receding 3600 -a)
 # the cross-thread leg of pyrolysis (energy_audit at 1 and FUSS_GATE_THREADS threads, byte for byte)
 set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
 
-# The other gate scripts, 1 thread. ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
+# The other gate scripts, 1 thread; TIMEOUT as above (walls of 2026-11-26: restart 27 s, guard demos 16 s, runtime input
+# 4 s with 6 runs bounded at 300 s each, determinism 21 s; MPI: guard demos 67 s on pcprop9, 241 s on sprop2 on 2026-10-24;
+# the other MPI forms not measured). ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
 # MPI gates, the build's own compiler (its version: gfortran reads only its own .mod files), CMakePresets.json
 set(_REQ bash ${CMAKE_CURRENT_SOURCE_DIR}/ctest_requires.sh)
 set(_FC "fc=${CMAKE_Fortran_COMPILER}")
@@ -275,10 +277,10 @@ if (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
   set(_FC "fc=${CMAKE_Fortran_COMPILER}:${CMAKE_Fortran_COMPILER_VERSION}")
 endif()
 # a run split in two halves with a restart between reproduces the continuous run (run_restart_gate.sh)
-fuss_add_gate(Gate_Restart 1800 "gate;implementation;verification"
+fuss_add_gate(Gate_Restart 300 "gate;implementation;verification"
               bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_Restart)
 # every set-up refusal stops the configuration it is meant to reject, with its text and exit code 1
-fuss_add_gate(Gate_GuardDemos 1800 "gate;implementation;verification"
+fuss_add_gate(Gate_GuardDemos 300 "gate;implementation;verification"
               bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_GuardDemos)
 # input.ini read again during the run: only the runtime-mutable keys apply (each run bounded at 300 s)
 fuss_add_gate(Gate_RuntimeIni 2400 "gate;implementation;verification"
