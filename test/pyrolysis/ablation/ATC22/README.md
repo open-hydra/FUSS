@@ -60,18 +60,20 @@ that quantity, computed by the verify from `ref/` each time it runs (no stored F
 front missed it (1.869e-4 m against 1.803e-4 m), so the case runs on 200 cells (plan 17 P17-D10). Against the 0.5 ms
 oracle, binary b2b68f65, 2026-11-26:
 
-| quantity | max \|FUSS − PATO\| | at | tolerance: max \|PATO − Amaryllis\| | at | N100 (2026-10-13) |
+| quantity | max \|FUSS − PATO\| | at | tolerance: max \|PATO − Amaryllis\| | at | FUSS on 100 cells (same binary) |
 |---|---|---|---|---|---|
-| T, 7 depths | 14.21 K | 5.4 s, 1 mm | 62.86 K | 60.1 s, 12 mm | 6.06 K |
-| T_w | 1.967 K | 60.3 s | 98.57 K | 0.1 s | 1.46 K |
-| ṁ_g | 7.66e-4 kg/m²/s | 0.2 s | 2.54e-3 | 0.3 s | 1.44e-4 |
-| ṁ_c | 2.47e-4 kg/m²/s | 0.2 s | 4.50e-2 | 60.1 s | 1.14e-4 |
-| recession | 7.4 µm | 59.9 s | 51.9 µm | 60.1 s | 3.2 µm |
-| virgin-98 % front | 0.102 mm | 59.3 s | 0.180 mm | 59.3 s | 0.188 mm |
+| T, 7 depths | 14.21 K | 5.4 s, 1 mm | 62.86 K | 60.1 s, 12 mm | 6.071 K |
+| T_w | 1.967 K | 60.3 s | 98.57 K | 0.1 s | 1.445 K |
+| ṁ_g | 7.66e-4 kg/m²/s | 0.2 s | 2.54e-3 | 0.3 s | 1.45e-4 |
+| ṁ_c | 2.47e-4 kg/m²/s | 0.2 s | 4.50e-2 | 60.1 s | 1.13e-4 |
+| recession | 7.4 µm | 59.9 s | 51.9 µm | 60.1 s | 3.1 µm |
+| virgin-98 % front | 0.102 mm | 59.3 s | 0.180 mm | 59.3 s | 0.187 mm (red) |
 | char-2 % front | 32 µm | 0.2 s | 56 µm | 0.2 s | 5.9 µm |
 
-Refining FUSS moves T, T_w and ṁ_g away from the 100-cell PATO run: part of the N100 agreement was the two codes sharing
-the same mesh error (the N400 study below). PATO itself was not rerun on 200 cells.
+The reference is a 100-cell PATO run, so the comparison is mesh-dependent on the reference side: refining FUSS from 100
+to 200 cells moves T (6.07 → 14.21 K), T_w (1.45 → 1.97 K) and ṁ_g (1.45e-4 → 7.66e-4) away from it, because part of
+the 100-cell agreement is the two codes sharing the same mesh error (the N400 study below). PATO was not rerun on 200
+cells.
 
 **Where the largest T difference comes from: mesh error near the surface, in both codes.** Measured over 0–8 s with
 `make_case.py --ncells 400` and `edit_pato_atc2x.py --ncells 400 --end-time 8` (the PATO run is in `ref/mesh-N400/`):

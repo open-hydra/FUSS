@@ -34,19 +34,21 @@ spread max_t |PATO − Amaryllis|, computed from `ref/` each time the verify run
 it (2.529e-4 m against 1.476e-4 m); on 200 cells every quantity is inside. Against the 0.5 ms oracle, binary b2b68f65,
 2026-11-26:
 
-| quantity | max \|FUSS − PATO\| | at | tolerance: max \|PATO − Amaryllis\| | at | N100 (2026-10-13) |
+| quantity | max \|FUSS − PATO\| | at | tolerance: max \|PATO − Amaryllis\| | at | FUSS on 100 cells (same binary) |
 |---|---|---|---|---|---|
-| T, 7 depths | 14.88 K | 4.4 s, 1 mm | 101.7 K | 60 s, 16 mm | 10.97 K |
-| T_w | 9.133 K | 0.2 s | 225.2 K | 0.1 s | 3.83 K |
-| ṁ_g | 2.72e-3 kg/m²/s | 0.3 s | 6.77e-3 | 0.3 s | 1.55e-3 |
-| ṁ_c | 6.98e-4 kg/m²/s | 0.3 s | 4.57e-2 | 60.1 s | 2.47e-4 |
+| T, 7 depths | 14.88 K | 4.4 s, 1 mm | 101.7 K | 60 s, 16 mm | 11.03 K |
+| T_w | 9.133 K | 0.2 s | 225.2 K | 0.1 s | 3.794 K |
+| ṁ_g | 2.72e-3 kg/m²/s | 0.3 s | 6.77e-3 | 0.3 s | 1.54e-3 |
+| ṁ_c | 6.98e-4 kg/m²/s | 0.3 s | 4.57e-2 | 60.1 s | 2.43e-4 |
 | recession | 32 µm | 60.2 s | 0.177 mm | 60 s | 33 µm |
-| virgin-98 % front | 0.130 mm | 57.3 s | 0.148 mm | 113.6 s | 0.254 mm |
+| virgin-98 % front | 0.130 mm | 57.3 s | 0.148 mm | 113.6 s | 0.253 mm (red) |
 | char-2 % front | 32 µm | 0.2 s | 0.253 mm | 119.8 s | 47 µm |
 
 The virgin-98 % front is the closest to its tolerance (88 %): PATO and Amaryllis agree unusually well there, and the front
-sits in cells 0.16 mm wide at N200, so a front error below one cell is what a first-order scheme gives. As on 2.2,
-refining FUSS moves T, T_w and ṁ_g away from the 100-cell PATO run; PATO was not rerun on 200 cells.
+sits in cells 0.16 mm wide at N200, so a front error below one cell is what a first-order scheme gives. As on 2.2, the
+reference is a 100-cell PATO run, so the comparison is mesh-dependent on the reference side: refining FUSS from 100 to
+200 cells moves T (11.03 → 14.88 K), T_w (3.79 → 9.13 K) and ṁ_g (1.54e-3 → 2.72e-3) away from it. PATO was not rerun
+on 200 cells.
 
 **Where the largest T difference comes from.** It is the early thermal wave near the surface, which neither code has
 converged at 100 cells. Measured over 0–8 s, both codes at N400 (the PATO run is in `ref/mesh-N400/`):
