@@ -78,12 +78,22 @@ Every boundary cell face has a type code in `INPUT/bc.txt`. ATLAS writes the cod
 | 303 | $q = h_\text{conv}(T_\text{ref} - T_w) + q_\text{rad}$ | `hconv`, `qrad`, `Tref` |
 | 304 | $q = \varepsilon\sigma(T_\text{ref}^4 - T_w^4)$ | `eps`, `Tref` |
 | 305 | $q = h_\text{conv}(T_\text{ref} - T_w) + \varepsilon\sigma(T_\text{ref}^4 - T_w^4)$ | `hconv`, `eps`, `Tref` |
+| 306 | Ablating wall: surface energy balance against B′ tables | written by the case generators, not ATLAS |
+| 307 | Coupled ablating wall: 306's balance with exchange values from hydra | hydra only |
 
 The walls 301–305 share one routine: $T_w$ and the heat flux into the solid follow from the wall model and the half-cell conduction balance. See [Boundary Conditions](../user/boundary-conditions.md).
 
 ### Volumetric heat source
 
 $\dot{q}_\text{vol}$ is a cell field read from `INPUT/st.tec` when that file exists (zero otherwise).
+
+### Pyrolysis
+
+`[FUSS-Pyrolysis]` switches on a charring-solid model: Arrhenius kinetics per material, and the pyrolysis
+gas by a quasi-steady one-dimensional outflow (`gas-closure = type1`) or a Darcy pressure solve
+(`type2`, `[FUSS-Darcy]`). An ablating wall (BC 306, or the coupled BC 307) solves the surface energy
+balance against B′ tables. See [Pyrolysis](../theory/pyrolysis.md), [Ablation](../theory/ablation.md)
+and [Input File](../user/input.md#pyrolysis).
 
 ---
 

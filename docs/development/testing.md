@@ -1,8 +1,10 @@
 # Testing
 
 The cases in `test/` run FUSS on problems with analytical or benchmark solutions, and check the
-numerical features, the inputs and the parallel runs. CTest runs them all; each case can also be run
-by hand. The setup of each verification case is in the `README.md` of its folder.
+numerical features, the inputs and the parallel runs. CTest runs most of them; each case can also be
+run by hand. The pyrolysis, Darcy, ablating-wall and literature-benchmark cases under `test/pyrolysis/`
+are not registered in `test/CMakeLists.txt`: they are graded by the [gate scripts](#gate-scripts)
+instead. The setup of each case is in the `README.md` of its folder.
 
 ---
 
@@ -29,10 +31,19 @@ by hand. The setup of each verification case is in the `README.md` of its folder
 | `numerics-features/time_convergence/simdir` | Parallel timing study | smoke run; `plot.py` |
 | `numerics-features/vnn_stability` | Stability limit of the time step | `run.sh` |
 | `numerics-features/patch_test`, `connection_split` | Linear-field exactness; a mesh split into blocks | `run_*.sh` |
+| `numerics-features/periodic_sector` | Periodic faces (BC 201): one sector of a helical annular wall, as two blocks and as one block periodic with itself, against the full ring of `101` connections, both face metrics, a wrong pairing stopped at set-up | `run_sector.sh` |
 | `verification/convergence-order` | Observed order of accuracy on non-smooth meshes; FAS against single grid | `run.sh` |
 | `mesh-checks` | Set-up checks: thin blocks, wedges, folded cells, turned ghost layers | `run.sh`, `thin-blocks.sh` |
 | `input-io` | Input errors, runtime input, restart, decomposition maps | scripts |
 | `unit/*` | Cell volume, rounding order, table reader | unit programs |
+| `pyrolysis/kinetics_isothermal`, `adiabatic0d`, `heated0d`, `conduction` | Pyrolysis of a charring solid on a static mesh: the closed-form kinetics propagator, the 0-D decomposition ODE (adiabatic and volumetrically heated), pure conduction on the graded mesh with the kinetics stripped | `verify.py` |
+| `pyrolysis/energy_audit` | Discrete energy and solid-mass balances of the pyrolysis update, closed to round-off; the independent state sum and a vnn refinement | `verify.py`, `expected.json` |
+| `pyrolysis/ATC1`, `ATC2-chemistryOff` | Ablation Test Cases 1 and 2 (chemistry off) on the TACOT tables, against FIAT and a local PATO run | `verify.py`, `expected.json` |
+| `pyrolysis/darcy` | The type-2 (Darcy) gas closure: sealed and open slabs, the analytic steady pressure profile (with and without Klinkenberg), an orthotropic permeability tensor, and the 0-D / ATC2 cases rerun under type 2 | `verify.py` per case |
+| `pyrolysis/exact` | Exact-solution benchmarks of the type-2 closure: transient pressure diffusion, steady transpiration, a sharp charring front | `verify_exact.py` |
+| `pyrolysis/lit` | Literature benchmarks: Baum & Atreya (2007) charring front with Darcy flow, Zhang (2010) three-code decomposing slab | `verify.py` |
+| `pyrolysis/ablation` | Ablating wall (BC `306`/`307`): the surface energy balance, B′ tables, the `307`/`306` identity | see `ablation/README.md` |
+| `mpi/bit-identity`, `mpi/thread-funnel` | One MPI rank against several ranks/threads: byte-identical output files; MPI calls only from the main thread | `run.sh` |
 
 A case directory holds `input.ini`, `MESH/mesh.tec`, `INPUT/` and `FUSS.sh`. A `verify.py` reads the
 run's `OUTPUT/`, prints `Result: PASS` or `FAIL`, and exits with 1 on failure. The studies keep their
@@ -100,6 +111,27 @@ The tests of `test/input-io/` run scripts on copies of the cases. Each prints on
 | `MPIExitCodes` | `needs-mpi` | both ranks print the STOP line and exit with 1, on input, `bc.txt`, initial-condition and runtime errors |
 | `MPIRestart` | `needs-mpi` | the split restart on 2 ranks, also with two grid levels |
 | `MPIDecompositionMap` | `needs-mpi` | reordered blocks on 2 and 4 ranks write the files of the serial run; a map for 3 ranks stops a 2-rank run |
+
+---
+
+## Gate scripts
+
+None of the scripts below is registered in `test/CMakeLists.txt` or called from a GitHub Actions
+workflow (`.github/workflows/ctest.yml`, `docs.yml`): every one is run by hand, and several call each
+other.
+
+| Script | What it proves | Usage | Called by |
+|---|---|---|---|
+| `run_physics_gates.sh` | Runs a fresh copy of each physics-claim case and grades it with that case's own `verify.py`: the pyrolysis, Darcy and ablating-wall cases of `test/pyrolysis/` (`pyrolysis`, `darcy_sealed_nosource`, `darcy_mass_balance_1d`, `darcy_sealed_profile`, `darcy_klinkenberg`, `darcy_tensor_linear_2d`, `darcy_0d`, `darcy_atc2_chemistry_off`, `bench_pressure_transient`, `bench_transpiration`, `bench_sharp_front`, `bench_baum_atreya`, `bench_zhang2010`, `ablation_zero_blowing`, `ablation_seb_closure`, `ablation_306_static`, `ablation_atc21`, `ablation_coupled307`, among others), plus the pre-existing non-pyrolysis cases | `./test/run_physics_gates.sh [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a]` | by hand |
+| `run_restart_gate.sh` | A run split into two halves with a restart in between must reproduce a continuous run; legs include `pyrolysis/energy_audit` (the reaction state `chi_*` round-trips), `pyrolysis/darcy/mass_balance_1d`, `pyrolysis/darcy/heated0d_type2` (also in `vtk raw`), `pyrolysis/lit/baum_atreya2007/qs_N100`, `pyrolysis/ablation/seb_closure` and `pyrolysis/ablation/coupled307/run307` (the restart state `bc306-state.dat`), among other legs | `./test/run_restart_gate.sh [-w WORKDIR] [-m NRANKS] [-c CASE[:HALF[:TOL[:FORMAT]]]]...` | by hand |
+| `run_mpi_gate.sh` | A case run on N MPI ranks must write the same output files as the same case on one rank, byte for byte (`wall*.tec` compared with −0.0 equal to +0.0) | `./test/run_mpi_gate.sh [-w WORKDIR] [-r] [-c CASE:NRANKS[:verify]]...` | by hand; runs `check_build_config.sh --preset mpi` and `check_mpi_tags.py` itself before its cases |
+| `run_determinism_gate.sh` | The same build, run twice with identical settings, must write identical manifests (`run_regression.sh` under the hood); `-x` additionally checks that one case gives the same `OUTPUT/field.tec` at two thread counts | `./test/run_determinism_gate.sh [-p NTHREADS] [-m NRANKS] [-a] [-x] [-X] [-c CASE]...` | by hand |
+| `run_guard_demos.sh` | Every setup refusal is run against the configuration it is meant to reject, and both the error text and the exit code (1) are checked; covers the pyrolysis section (IRS, multigrid, `prim`, steady, connection and outflow errors, missing or malformed tables), `[FUSS-Darcy]` (the type-1/type-2 combination, bad keys, no open face, chimera, a bad `p_w`), the ablating wall `306`/`307` (a bad `bc.txt` line, the env table, the B′ table, the restart state `bc306-state.dat`, the `307` exchange contract) and periodic faces (`201`, the type-1 refusal), among other sections; `-m N` repeats every demo on N MPI ranks | `./test/run_guard_demos.sh [-w WORKDIR] [-m NRANKS]` | by hand |
+| `run_runtime_ini_gate.sh` | `input.ini` re-read mid-run applies only the runtime-mutable keys and ignores (and logs) every other change, including one that would reach a refusal checked only at set-up | `./test/run_runtime_ini_gate.sh [-w WORKDIR] [-m NRANKS]` | by hand |
+| `run_init_sweep.sh` | Builds the solver twice with opposite garbage-fill policies for uninitialised locals and runs the suite under each (`run_regression.sh` under the hood); any artefact that differs read an uninitialised variable | `./test/run_init_sweep.sh [-p NTHREADS]` | by hand |
+| `run_hook_interface_check.sh` | The per-stage user hook (`FUSS_Hook_Interface_m`, `external_function_if`) is checked at compile time: a procedure with the wrong signature fails to compile, the right one compiles | `./test/run_hook_interface_check.sh` | by hand |
+| `check_build_config.sh` | `build/` was configured the way `CMakePresets.json` says (a serial or TecIO-linked build would otherwise run silently) | `./test/check_build_config.sh [--quiet] [--preset NAME]` | `run_regression.sh`, `run_physics_gates.sh`, `run_mpi_gate.sh --preset mpi` |
+| `check_mpi_tags.py` | Every point-to-point MPI call in `src/` carries a named, distinct tag constant in `0..32767` (and below `7001`, which hydra-MF's own tags use) | `python3 -I check_mpi_tags.py --dir <src directory>` or `check_mpi_tags.py <repo> <tree-ish>` | `run_mpi_gate.sh`, before its cases |
 
 ---
 
@@ -206,5 +238,21 @@ by rewriting `iter-threshold` and every `level<m>-iter` of the copy.
    exit 1 on failure.
 3. Write `README.md`: setup, check and run command.
 4. Register the case in `test/CMakeLists.txt` with
-   `fuss_add_test(<Name> <dir> <timeout> "<labels>" --verify)`.
+   `fuss_add_test(<Name> <dir> <timeout> "<labels>" --verify)`; a pyrolysis, Darcy or ablating-wall
+   case instead gets a `gate_<name>` function and a case name in `run_physics_gates.sh` (not in
+   `test/CMakeLists.txt`).
 5. Add a page to `docs/vv/` (problem, result, assessment) and to the `nav` of `mkdocs.yml`.
+
+### The physics-gate convention (`test/pyrolysis/`)
+
+A case graded by `run_physics_gates.sh` instead of CTest follows the same `verify.py` contract (read
+`OUTPUT/`, compare with the reference, print `Result: PASS` or `FAIL`, exit 1 on failure), plus:
+
+- a sibling `expected.json` holds the measured values the gate checks against (never the tolerance
+  itself, which stays in `verify.py`); `verify.py ... --record` writes the measured values into it;
+- the gate's own `FUSS_GATE_SELFTEST=1` is a proven-red hook, not a correctness check: it runs the
+  case with its tolerance deliberately broken (a sedded copy of `verify.py`, or an input key edited
+  in a work copy) and requires the run to FAIL, so that a gate nobody has ever seen fail is not
+  mistaken for one that works. `verify.py` scripts that take the variable honour
+  `FUSS_GATE_SELFTEST=1` by zeroing their own budgets (and emptying any order window) rather than
+  reading it from `run_physics_gates.sh`.

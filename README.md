@@ -17,9 +17,10 @@ FUSS is an open-source solid heat-conduction solver for the energy equation on m
 
 - **Solid heat conduction** — steady-state and time-accurate computations on multi-block structured grids.
 - **Multi-material support** — multiple solid regions with temperature-dependent material properties (density, specific heat, thermal conductivity) read from tabulated data.
+- **Pyrolysing porous materials** — charring solids with Arrhenius kinetics; the pyrolysis gas by a quasi-steady one-dimensional outflow (type 1) or a Darcy pressure solve (type 2).
 - **Explicit time integration** — forward Euler, RK2 and RK3, with optional Implicit Residual Smoothing (IRS).
 - **Convergence acceleration** — local time stepping, grid sequencing (multigrid levels) and FAS V/W cycles for steady-state solutions.
-- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation with or without convection, symmetry, multi-block connection, chimera (overset) blocks, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
+- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation with or without convection, symmetry, multi-block connection, periodic faces, chimera (overset) blocks, an ablating wall against B′ tables, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
 - **Parallel execution** — shared-memory parallelism via OpenMP; MPI support for distributed-memory runs.
 - **Flexible I/O** — solution output in Tecplot (ASCII and binary) and VTK formats. Point probes for time-history recording. Restart capability.
 
@@ -114,8 +115,11 @@ FUSS/
 │   │   └── variable_cp_Plate/        #   Temperature-dependent heat capacity
 │   ├── numerics-features/            # Numerical feature checks
 │   │   ├── chimera/                  #   Chimera (overset) blocks
+│   │   ├── periodic_sector/          #   Periodic faces (BC 201)
 │   │   ├── residual_convergence/     #   Convergence strategy comparison
 │   │   └── time_convergence/         #   Parallel scaling performance
+│   ├── pyrolysis/                    # Pyrolysing solids, the Darcy gas closure, the ablating wall
+│   ├── mpi/                          # MPI bit-identity and thread-funnel checks
 │   ├── CMakeLists.txt                # CTest definitions
 │   └── run_case.sh                   # Runs one case for CTest
 ├── cmake/             # CMake modules
