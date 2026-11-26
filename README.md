@@ -63,9 +63,10 @@ See the [Quick Start](https://open-hydra.github.io/FUSS/getting-started/quick-st
 ### Run the Test Suite
 
 ```bash
-ctest --test-dir build -L fast                        # 24 tests (25 with TecIO), about a minute
+ctest --test-dir build -L fast                        # 25 tests (26 with TecIO), about a minute
 ctest --test-dir build -LE "needs-mpi|verification"   # the pull-request check (.github/workflows/ctest.yml)
-ctest --test-dir build -L verification                # observed order and FAS = single grid, about a minute on 6 cores
+ctest --test-dir build -L verification -LE gate       # observed order and FAS = single grid, about a minute on 6 cores
+ctest --test-dir build -L gate                        # the gate scripts (-L verification selects them too)
 ctest --test-dir build                                # all: verification cases, smoke runs, MPI checks
 ```
 
