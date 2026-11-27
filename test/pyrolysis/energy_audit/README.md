@@ -37,8 +37,9 @@ scheme's own Runge–Kutta weights, so the balances below are identities of the 
 - **time-discretisation order**: probe series from two `vnn` refinements, interpolated onto a common
   time grid: the ratio of the successive differences gives the observed order, which must lie in
   [0.8, 1.2] (first order in `dt`; measured 1.163); `FUSS_GATE_SELFTEST=1` empties that window;
-- the no-kinetics variant and a 1-vs-8-thread run are additional legs the gate script runs through
-  the same `verify.py` (`--vnn025`, `--vnn0125`, `--nokin`, `--p8`).
+- the no-kinetics variant and a run at `FUSS_GATE_P8_THREADS` threads (default 8) against the 1-thread
+  run are additional legs the gate script runs through the same `verify.py` (`--vnn025`, `--vnn0125`,
+  `--nokin`, `--p8` with `--p8-threads`).
 
 ## Run
 

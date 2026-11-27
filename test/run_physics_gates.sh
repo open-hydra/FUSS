@@ -90,8 +90,8 @@
 #                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
 #                                energy_audit (energy and solid-mass balances 1e-10,
 #                                independent state sum, vnn 0.25/0.125/0.0625 (0.5/0.25/0.125 before plan 14 S7) first-order
-#                                refinement, the no-kinetics variant exact zeros, 1 vs 8
-#                                threads byte-identical), ATC1 vs FIAT, and
+#                                refinement, the no-kinetics variant exact zeros, 1 vs
+#                                FUSS_GATE_P8_THREADS threads byte-identical), ATC1 vs FIAT, and
 #                                ATC2-chemistryOff vs the bundled PATO zero-emissivity
 #                                run (or $FUSS_PATO_ATC2_OUT). ~3 min at -p 1.
 #                 darcy_*     -- plan 07 phase 2b (gas-closure = type2), cases under
@@ -537,7 +537,7 @@ gate_pyrolysis () {
   done
   local chi_err; chi_err=$(grep -F -m1 'max |chi' "$dest/T1200/verify.log" | awk '{print $6}')
 
-  # 4.3 energy audit: the case, two vnn refinements, the no-kinetics variant, 8 threads
+  # 4.3 energy audit: the case, two vnn refinements, the no-kinetics variant, P8THREADS threads
   stage "$base/energy_audit" "$dest/energy_audit"
   solve "$dest/energy_audit" "$NTHREADS"; rc=$?
   if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit: solver exit $rc  (see $dest/energy_audit/run.log)"; return 1; fi
@@ -570,7 +570,8 @@ PYNOKIN
   if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p $P8THREADS: solver exit $rc"; return 1; fi
   if ! python3 "$base/energy_audit/verify.py" "$dest/energy_audit" \
          --vnn025 "$dest/energy_audit_vnn0.125" --vnn0125 "$dest/energy_audit_vnn0.0625" \
-         --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" > "$dest/energy_audit/verify.log" 2>&1; then
+         --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" --p8-threads "$P8THREADS" \
+         > "$dest/energy_audit/verify.log" 2>&1; then
     KEYNUM="energy_audit: $(grep -E -m1 'FAIL' "$dest/energy_audit/verify.log" | sed 's/^ *//')"; return 1
   fi
   local ebal; ebal=$(grep -F -m1 '(i)' "$dest/energy_audit/verify.log" | awk '{print $5}')
@@ -639,10 +640,10 @@ PYNOKIN
   if ! python3 "$base/ATC2-chemistryOff/verify.py" "$dest/ATC2-chemistryOff" > "$dest/ATC2-chemistryOff/verify.log" 2>&1; then
     KEYNUM="ATC2-chemistryOff: $(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | sed 's/^ *//')"; return 1
   fi
-  local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}')
+  local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}'); atc2=${atc2:+$atc2 K}
   grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
 
-  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction order ${cnd:-?}  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?} K"
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  1 vs $P8THREADS threads identical  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction order ${cnd:-?}  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?}"
   return 0
 }
 

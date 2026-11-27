@@ -32,9 +32,10 @@ Checks (plan 06 section 4.3):
         and mdot_pg exactly 0.0, rho_s = rho_v to 1e-14 relative, and
         Q_gas_out = M_gas_out = 0 exactly in its budget file
   (vi)  cross-thread determinism, from the --p8 rerun: field.tec and
-        energy-budget.txt byte-identical to the 1-thread run
+        energy-budget.txt byte-identical to the 1-thread run; --p8-threads N
+        is the thread count that run used (printed; the check does not read it)
 
-Usage: verify.py <case_dir> [--vnn025 DIR] [--vnn0125 DIR] [--nokin DIR] [--p8 DIR]
+Usage: verify.py <case_dir> [--vnn025 DIR] [--vnn0125 DIR] [--nokin DIR] [--p8 DIR [--p8-threads N]]
 A sub-check whose directory is not given prints SKIP. Exit 0 on PASS, 1 on FAIL.
 Python 3.6, no numpy.
 """
@@ -192,10 +193,13 @@ def md5(path):
 def main():
     args = sys.argv[1:]
     opts = {"--vnn025": None, "--vnn0125": None, "--nokin": None, "--p8": None}
+    p8_threads = None
     pos = []
     i = 0
     while i < len(args):
-        if args[i] in opts:
+        if args[i] == "--p8-threads":
+            p8_threads = args[i + 1]; i += 2
+        elif args[i] in opts:
             opts[args[i]] = os.path.abspath(args[i + 1]); i += 2
         else:
             pos.append(args[i]); i += 1
@@ -281,11 +285,12 @@ def main():
     else:
         print("  (v)   no-kinetics                  SKIP (no --nokin)")
 
-    # (vi): 1 vs 8 threads
+    # (vi): 1 thread vs the --p8 run's thread count
     if opts["--p8"]:
         same = all(md5(os.path.join(case, "OUTPUT", f)) == md5(os.path.join(opts["--p8"], "OUTPUT", f))
                    for f in ("field.tec", "energy-budget.txt"))
-        print("  (vi)  1 vs 8 threads: field.tec and energy-budget.txt identical %s  %s" % (same, "ok" if same else "FAIL"))
+        other = "%s threads" % p8_threads if p8_threads else "the --p8 run (thread count not given)"
+        print("  (vi)  1 thread vs %s: field.tec and energy-budget.txt identical %s  %s" % (other, same, "ok" if same else "FAIL"))
         ok = ok and same
     else:
         print("  (vi)  cross-thread                 SKIP (no --p8)")
