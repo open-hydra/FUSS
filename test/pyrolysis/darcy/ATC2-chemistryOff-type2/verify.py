@@ -12,8 +12,10 @@ heated face. $FUSS_PATO_ATC2_OUT (a PATO output/porousMat/scalar directory) over
 
 FUSS samples each depth with two bracketing index-position probes (probes.json; columns t T p_pg),
 linear in x, then onto PATO's 0.1 s grid by the cubic through the four probe rows around each PATO time
-(tools/abl_tools.interp4). A probe row lands up to one step after its 0.1 s multiple; linear in time, that
-offset moved (T) by 0.05 K between the time steps vnn 0.25 / 0.125 / 0.0625, against 3e-4 K of the solution.
+(tools/abl_tools.interp4). The comparison is therefore interpolated in time: a probe row lands up to one step
+after its 0.1 s multiple. Accuracy of the interpolation, measured against probe rows written at every step: 1.1e-3 K
+on (T) at the committed step (vnn 0.25; 10.5682 vs 10.5671 K), 1e-4 K at vnn 0.125 and 0.0625. Linear in time, the
+offset moved (T) by 0.05 K between those steps, against 3e-4 K of the solution itself.
 
 Checks (plan 17: one external code, so the T tolerance is the PATO - Amaryllis T spread of Ablation Test Case 2.1,
 P17-D4, from test/pyrolysis/ablation/ATC21/ref by tools/abl_tools.spread_atc21):

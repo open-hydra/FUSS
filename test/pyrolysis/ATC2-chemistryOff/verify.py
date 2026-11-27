@@ -18,6 +18,9 @@ FUSS samples each depth with two bracketing index-position probes (probes.json),
 linear in x, then onto PATO's 0.1 s grid by the cubic through the four probe rows
 around each PATO time (tools/abl_tools.interp4: a probe row lands up to one step
 after its 0.1 s multiple, and linear in time that offset moves the maximum with dt).
+The comparison is therefore interpolated in time; measured against probe rows
+written at every step, the maximum is accurate to 3e-4 K at the committed step
+(vnn 0.25: 14.8305 vs 14.8303-14.8305 K).
 
 Pass: max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= the T spread of Ablation Test Case 2.1 (plan 17
 P17-D4: one external code here, so the tolerance is the PATO - Amaryllis spread of ATC 2.1, same material and heating,
