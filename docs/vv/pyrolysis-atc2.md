@@ -18,9 +18,9 @@ heated face. $T(0) = 300$ K; face 2 is the closed-form Robin wall BC 303, `hconv
 `qrad = 0`, `Tref = 2800` K from $t=0$; 60 s. FUSS brackets each of PATO's seven probe depths (1, 2, 4,
 8, 12, 16, 24 mm) with two index-position probes, interpolated linearly in $x$, then in time onto PATO's
 0.1 s grid by the cubic through the four nearest probe rows. A probe row is written at the first time
-step at or after each multiple of 0.1 s; with a linear interpolant in time, that offset alone moved the
-type-2 maximum below by 0.05 K between time steps in the ratio 4 : 2 : 1, against 3 × 10⁻⁴ K of
-the solution itself; with the cubic the three agree to 2 × 10⁻³ K.
+step at or after each multiple of 0.1 s; a linear interpolant in time would turn that offset into a
+shift of the type-2 maximum below of about 0.05 K between time steps in the ratio 4 : 2 : 1, against
+3 × 10⁻⁴ K of the solution itself, while the cubic holds the three within 2 × 10⁻³ K.
 
 The type-2 case solves the gas pressure ([FUSS-Darcy]) with TACOT's own permeability
 ($K_v=1.6\times10^{-11}$, $K_c=2\times10^{-11}$ m²); the heated 303 face is open to the gas, the back
