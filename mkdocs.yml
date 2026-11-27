@@ -137,6 +137,7 @@ nav:
     - Parallel Identity: vv/parallel-identity.md
     - Pyrolysis Kinetics and 0-D Decomposition: vv/pyrolysis-kinetics-0d.md
     - Pyrolysis Energy Audit: vv/pyrolysis-energy-audit.md
+    - Two Materials in One Block under Pyrolysis: vv/pyrolysis-two-layer.md
     - Ablation Test Case 1: vv/pyrolysis-atc1.md
     - Ablation Test Case 2 (chemistry off): vv/pyrolysis-atc2.md
     - Darcy Gas Closure, Exact Solutions: vv/darcy-exact.md

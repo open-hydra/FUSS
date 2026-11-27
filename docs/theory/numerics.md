@@ -248,7 +248,9 @@ the balance again at the stage's state and puts $A_f\,q_\text{in}$ into the resi
 ### Coupling with hydra (103, 104)
 
 The face flux is set by the hydra fluid solver; FUSS adds it to the residual unchanged. The ghost
-cells are mirrored as for symmetry.
+cells are mirrored as for symmetry. Under pyrolysis a 103 face is accepted (104 is refused): its ghost
+cells mirror the reaction state too, and the pyrolysis gas that leaves through it leaves at the cell
+temperature and is not passed to the fluid solver ([Pyrolysis](pyrolysis.md)).
 
 ---
 

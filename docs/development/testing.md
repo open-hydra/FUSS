@@ -305,7 +305,8 @@ A case graded by `run_physics_gates.sh` (a `Gate_` test under CTest) follows the
   $N_{\rm steps}\times N_{\rm cells}\times\varepsilon$, for a budget sum). Where none does, the bound is
   a floor set from measured draws, and the code says so: the type-2 0-D non-uniformity ($10^{-5}$ K), the
   type-2 restart of `heated0d_type2` ($10^{-10}$), the restart $B'_{pg}$ under type 2 ($10^{-9}$), the
-  mirrored 307 faces ($10^{-8}$) and the periodic Darcy sector ($10^{-10}$);
+  mirrored 307 faces ($10^{-8}$), the periodic Darcy sector ($10^{-10}$) and the two-layer slab cut at its
+  material interface ($10^{-10}$ K, $5\times10^{-8}$ Pa);
 - the gate's own `FUSS_GATE_SELFTEST=1` is a proven-red hook, not a correctness check: it runs the
   case with its tolerance deliberately broken (a sedded copy of `verify.py`, or an input key edited
   in a work copy) and requires the run to FAIL, so that a gate nobody has ever seen fail is not
