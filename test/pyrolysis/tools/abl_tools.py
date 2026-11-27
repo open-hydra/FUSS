@@ -8,6 +8,7 @@ seb_closure    plan 08 section 3.2: (a) |F| / max|term| <= 10 seb-tol; (b) beta 
                mdot_ch consistent with mdot_pg, rhoeUeCH0 and beta
 pato_rows      a PATO output/porousMat file (scalar/Ta_plot, scalar/Ta_surfacePatch, mass) or an Amaryllis file
 interp         linear interpolation in t of a [(t, v)] series (None outside it)
+interp4        the same through the 4-point Lagrange polynomial of the rows around t (cubic; None outside it)
 fronts         PATO's virgin-98 % / char-2 % front depths (massIOModel.C:131-166) from a FUSS field file
 """
 import math
@@ -177,6 +178,35 @@ def interp(series, t):
             hi = m
     (t0, v0), (t1, v1) = series[lo], series[hi]
     return v0 if t1 == t0 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+
+
+def interp4(series, t):
+    """The value at t of the cubic through four consecutive rows of a [(t, v)] series: the two that bracket t and
+    one more on each side (the first or last four at the ends; linear below four rows). None outside the series.
+    A probe row lands up to one step after the time it was due, so a row offset that moves with the step shifts
+    a linear interpolant by about offset x row spacing x T''/2; the cubic's error is smaller by orders."""
+    if not series or t < series[0][0] or t > series[-1][0]:
+        return None
+    n = len(series)
+    if n < 4:
+        return interp(series, t)
+    lo, hi = 0, n - 1
+    while hi - lo > 1:
+        m = (lo + hi) // 2
+        if series[m][0] <= t:
+            lo = m
+        else:
+            hi = m
+    k0 = max(0, min(lo - 1, n - 4))
+    pts = series[k0:k0 + 4]
+    v = 0.0
+    for a, (ta, va) in enumerate(pts):
+        w = 1.0
+        for b, (tb, _) in enumerate(pts):
+            if b != a:
+                w *= (t - tb) / (ta - tb)
+        v += w * va
+    return v
 
 
 def bracket(series, t):

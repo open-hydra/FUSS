@@ -27,8 +27,11 @@ to 0 and `chemistryOn = 0` (`edit_pato_case.py` applies the edits); its probe ou
 
 ## Check
 
-`verify.py` interpolates each probe pair in `x`, then onto PATO's 0.1 s grid in time, and passes when
-`max |T_FUSS - T_PATO|` over `t = 0.1..60 s` and the seven depths (14.82 K, at 1 mm / 1.1 s) is within
+`verify.py` interpolates each probe pair in `x`, then onto PATO's 0.1 s grid in time by the cubic through the
+four nearest probe rows (`tools/abl_tools.interp4`; a probe row lands up to one step after its 0.1 s multiple,
+which a linear interpolant turned into a dt-dependent shift: 14.8242 / 14.8218 / 14.8209 K at vnn 0.25 / 0.125 / 0.0625,
+14.8305 K on all three with the cubic, 14.8304 K from per-step probe rows), and passes when
+`max |T_FUSS - T_PATO|` over `t = 0.1..60 s` and the seven depths (14.83 K, at 1 mm / 1.1 s) is within
 the PATO-Amaryllis T spread of Ablation Test Case 2.1 (25.35 K, at 1 mm / 0.3 s), the same material and
 heating: one external code solved this variant, so its tolerance is borrowed, computed live from
 `../ablation/ATC21/ref` (`tools/abl_tools.spread_atc21`). `FUSS_GATE_SELFTEST=1` sets it to 0.

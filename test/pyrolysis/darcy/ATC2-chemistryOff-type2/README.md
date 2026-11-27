@@ -12,11 +12,11 @@ One external code solved this variant, so the T tolerance is the PATO-Amaryllis 
 material and heating), computed live from `../../ablation/ATC21/ref` (`tools/abl_tools.spread_atc21`); (acc) and (dir) compare
 with the type-1 run the same gate makes (`--type1`; they print SKIP without it).
 
-| check | binary b2b68f65 (2026-11-26) | bound |
+| check | binary bae76985 (2026-11-27) | bound |
 |---|---|---|
-| (T) max `|T − T_PATO|`, 7 depths, 0.1–60 s | 10.51 K at 1 mm, 0.9 s | the ATC 2.1 T spread, 25.35 K (1 mm, 0.3 s) |
-| (acc) the same maximum | 10.51 K | the same gate's type-1 maximum, 14.82 K (1 mm, 1.1 s) |
-| (dir) `|T − T_PATO|` at that type-1 maximum's point | 10.38 K | < 14.82 K |
+| (T) max `|T − T_PATO|`, 7 depths, 0.1–60 s | 10.57 K at 1 mm, 0.9 s | the ATC 2.1 T spread, 25.35 K (1 mm, 0.3 s) |
+| (acc) the same maximum | 10.57 K | the same gate's type-1 maximum, 14.83 K (1 mm, 1.1 s) |
+| (dir) `|T − T_PATO|` at that type-1 maximum's point | 10.41 K | < 14.83 K |
 | (p) max `|Δp_FUSS − Δp_PATO|` / PATO's peak `Δp` | 0.005 (11.2 Pa at 24 mm, 0.7 s; FUSS peak 2050.4 Pa, PATO 2049.0 Pa) | 0.1966 |
 | (sign) `T_type2 − T_type1` where `T_PATO ≥ 700 K` | max −3.115 K | ≤ +0.05 K |
 

@@ -15,7 +15,9 @@ by PATO at the points) is read from $FUSS_PATO_ATC2_OUT when set, else from the
 bundled ref/ copy of the 2026-10-07 run.
 
 FUSS samples each depth with two bracketing index-position probes (probes.json),
-linear in x then linear in time onto PATO's 0.1 s grid.
+linear in x, then onto PATO's 0.1 s grid by the cubic through the four probe rows
+around each PATO time (tools/abl_tools.interp4: a probe row lands up to one step
+after its 0.1 s multiple, and linear in time that offset moves the maximum with dt).
 
 Pass: max_{t = 0.1..60 s, 7 depths} |T_FUSS - T_PATO| <= the T spread of Ablation Test Case 2.1 (plan 17
 P17-D4: one external code here, so the tolerance is the PATO - Amaryllis spread of ATC 2.1, same material and heating,
@@ -45,18 +47,7 @@ def read_series(path):
 
 
 def interp_t(series, t):
-    if not series or t < series[0][0] or t > series[-1][0]:
-        return None
-    lo, hi = 0, len(series) - 1
-    while hi - lo > 1:
-        mid = (lo + hi) // 2
-        if series[mid][0] <= t:
-            lo = mid
-        else:
-            hi = mid
-    t0, v0 = series[lo]
-    t1, v1 = series[hi]
-    return v0 if t1 == t0 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return abl_tools.interp4(series, t)
 
 
 def read_pato_plot(path):

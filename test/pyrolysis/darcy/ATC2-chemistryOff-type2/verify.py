@@ -11,7 +11,9 @@ ref/Ta_plot and ref/p_plot, rows `t v1..v7` every 0.1 s at 1, 2, 4, 8, 12, 16, 2
 heated face. $FUSS_PATO_ATC2_OUT (a PATO output/porousMat/scalar directory) overrides ref/.
 
 FUSS samples each depth with two bracketing index-position probes (probes.json; columns t T p_pg),
-linear in x then linear in time onto PATO's 0.1 s grid.
+linear in x, then onto PATO's 0.1 s grid by the cubic through the four probe rows around each PATO time
+(tools/abl_tools.interp4). A probe row lands up to one step after its 0.1 s multiple; linear in time, that
+offset moved (T) by 0.05 K between the time steps vnn 0.25 / 0.125 / 0.0625, against 3e-4 K of the solution.
 
 Checks (plan 17: one external code, so the T tolerance is the PATO - Amaryllis T spread of Ablation Test Case 2.1,
 P17-D4, from test/pyrolysis/ablation/ATC21/ref by tools/abl_tools.spread_atc21):
@@ -58,18 +60,7 @@ def read_series(path, col):
 
 
 def interp_t(series, t):
-    if not series or t < series[0][0] or t > series[-1][0]:
-        return None
-    lo, hi = 0, len(series) - 1
-    while hi - lo > 1:
-        mid = (lo + hi) // 2
-        if series[mid][0] <= t:
-            lo = mid
-        else:
-            hi = mid
-    t0, v0 = series[lo]
-    t1, v1 = series[hi]
-    return v0 if t1 == t0 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
+    return abl_tools.interp4(series, t)
 
 
 def read_pato_plot(path):
