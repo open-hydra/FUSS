@@ -278,10 +278,10 @@ contains
       enddo ; enddo ; enddo
       !$omp end do
 
-      ! (b)+(c) running integral along every line of the outflow direction,
-      !     cells numbered from the sealed end; mdot_pg = Mdot / A(downstream
-      !     face); donor-cell advection flux into R. pi_tot is the realised
-      !     stage production (increment over dt), so gate 4.3 closes to round-off.
+      ! (b)+(c) running integral along every line of the outflow direction, cells numbered from the sealed end;
+      !     mdot_pg = Mdot / A(downstream face); advection flux into R, central: an interior face at the mean
+      !     temperature of its two cells, the outflow face at its wall temperature. pi_tot is the realised stage
+      !     production (increment over dt), so gate 4.3 closes to round-off.
       nd = domain%blk(b)%dim(d)
       n1 = domain%blk(b)%dim(t1)
       n2 = domain%blk(b)%dim(t2)
