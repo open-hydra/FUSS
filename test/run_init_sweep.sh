@@ -48,6 +48,16 @@
 #               which is also the cleanest available explanation of why the
 #               original bug looked like run-to-run randomness: the two values
 #               the stack happened to hold are exactly the two the flags force.
+#
+#               WHAT IT DOES TO THIS TREE. Each pass builds in its own folder
+#               under ${TMPDIR:-/tmp}, but writes its executable to $ROOT/bin/FUSS
+#               (src/app/CMakeLists.txt sets the output folder to bin/ of the
+#               source tree), and runs every case in place through
+#               test/run_regression.sh, which deletes and writes again the
+#               OUTPUT/ and bin/ folders of the cases. At exit it deletes
+#               $ROOT/build and builds it again from the preset default, which
+#               writes $ROOT/bin/FUSS once more. That is why CTest does not
+#               register it: run it by hand, with nothing else using the tree.
 #===============================================================================
 set -u
 
@@ -87,30 +97,25 @@ echo "  work    : $WORK"
 echo "  threads : $NTHREADS"
 echo
 
-# CLEANING UP AFTER THIS SCRIPT IS NOT OPTIONAL.
+# THE EXIT TRAP. Both passes write $ROOT/bin/FUSS (see the header), so the sweep
+# ends with pass B's -finit binary there. The trap deletes $ROOT/build and builds
+# it again from the preset, which writes the preset's executable to bin/FUSS.
 #
-# CMakeLists.txt handed add_subdirectory an explicit binary dir for ORION and
-# FiNeR: "${CMAKE_CURRENT_SOURCE_DIR}/build/lib/ORION/". That path was fixed, so
-# building from ANY build directory wrote those subprojects into $ROOT/build
-# -- while their .mod files go to the sweep's own module dir. The result is that
-# $ROOT/build is left referring to module files that are not there, and the next
-# ordinary `cmake --build build` fails with errors in ORION, PENF, FACE and
-# FiNeR that look nothing like the cause. That is not hypothetical; it happened
-# the first time this script was run.
+# The trap was first written for another reason, gone since c8f1d07: the
+# top-level CMakeLists.txt then gave ORION and FiNeR the fixed binary folder
+# $ROOT/build/lib/ORION/, so every pass built them into $ROOT/build while their
+# .mod files went to the pass's own module folder, and the next
+# `cmake --build build` failed in ORION, PENF, FACE and FiNeR. They now build
+# in the build folder given (ORION in _deps/orion-build/, FiNeR in
+# _deps/finer-build/ of the pass's folder), and the passes no longer write into $ROOT/build.
 #
-# Since c8f1d07 they are built in the build directory given (plan 14 S9c: ORION
-# in _deps/orion-build/ with its .mod files in modules/, FiNeR in
-# _deps/finer-build/ and its five libraries in _deps/finer-build/src/third_party/<name>/).
-#
-# So the trap below rebuilds $ROOT/build from scratch. It costs a couple of
-# minutes and it is the difference between a diagnostic and a trap for the next
-# person.
+# The copy of bin/FUSS made below ($SAVED) is not restored by the trap.
 SAVED="$WORK/FUSS.original"
 [ -f "$ROOT/bin/FUSS" ] && cp "$ROOT/bin/FUSS" "$SAVED"
 
 restore () {
   echo
-  echo "  restoring $ROOT/build (the sweep clobbers ORION/FiNeR in it) ..."
+  echo "  rebuilding $ROOT/build from the preset (it writes bin/FUSS, which the passes overwrote) ..."
   rm -rf "$ROOT/build"
   # Restore via the PRESET, never by hand-writing a cmake line. CMakePresets.json
   # records the options this tree was actually configured with -- notably
