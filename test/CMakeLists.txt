@@ -270,8 +270,9 @@ fuss_add_physics_gate(RecedingAll receding 3600 -a)
 set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
 
 # The other gate scripts, 1 thread; TIMEOUT as above (local-disk walls of 2026-11-26: restart 27 s, guard demos 16 s,
-# determinism 21 s, MPI guard demos 67 s). The runtime-input gates take 6 x their per-run bound (300 s, 900 s on N > 1
-# ranks) plus a margin, so that the script reports a hung run itself; Gate_MPI and Gate_RestartMPI are not measured.
+# determinism 21 s; the MPI gates on sprop2, 2026-11-27, alone and beside other tests: Gate_MPI 161-173 s, Gate_RestartMPI
+# 1.9-2.5 s, Gate_GuardDemosMPI 110-138 s (67 s on pcprop9), Gate_RuntimeIniMPI 6.5-7.5 s). The runtime-input gates take
+# 6 x their per-run bound (300 s, 900 s on N > 1 ranks) plus a margin, so that the script reports a hung run itself.
 # ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
 # MPI gates, the build's own compiler (its version: gfortran reads only its own .mod files), CMakePresets.json
 set(_REQ bash ${CMAKE_CURRENT_SOURCE_DIR}/ctest_requires.sh)
@@ -320,13 +321,13 @@ set_tests_properties(Gate_Determinism PROPERTIES PROCESSORS ${FUSS_GATE_THREADS}
 # skip without it). The forms and rank counts of the records: run_mpi_gate.sh (up to 4 ranks), the restart of the
 # 4-block receding slab on 4 ranks, the guard demos on 2, the runtime input on 4
 if (USE_MPI)
-  fuss_add_gate(Gate_MPI 3600 "gate;mpi-gate;verification"
+  fuss_add_gate(Gate_MPI 900 "gate;mpi-gate;verification"
                 ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_mpi_gate.sh -b $<TARGET_FILE:${solver}>
                 -w ${_GATES}/Gate_MPI)
-  fuss_add_gate(Gate_RestartMPI 1800 "gate;mpi-gate;verification"
+  fuss_add_gate(Gate_RestartMPI 300 "gate;mpi-gate;verification"
                 ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}>
                 -w ${_GATES}/Gate_RestartMPI -m 4 -c test/moving-mesh/receding_4blk:200)
-  fuss_add_gate(Gate_GuardDemosMPI 400 "gate;mpi-gate;verification"
+  fuss_add_gate(Gate_GuardDemosMPI 700 "gate;mpi-gate;verification"
                 ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}>
                 -w ${_GATES}/Gate_GuardDemosMPI -m 2)
   fuss_add_gate(Gate_RuntimeIniMPI 6000 "gate;mpi-gate;verification"
