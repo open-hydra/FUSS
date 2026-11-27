@@ -123,7 +123,9 @@ for spec in "${CASES[@]}"; do
     mkdir -p "$d/OUTPUT" "$d/bin"
     ( cd "$d" && timeout 900 ./FUSS.sh -p 1 -m "$r" solve ) > "$d/run.log" 2>&1
     rc=$?
-    if [ $rc -ne 0 ] || grep -q "\[ERROR\]\|NaN or T<0" "$d/run.log"; then
+    # every stop exits 1; a NaN or out-of-table temperature (Check_And_Fix_State) also prints two [ERROR] lines
+    # and "[RANK n] STOP: NaN or T outside the properties table"
+    if [ $rc -ne 0 ] || grep -q "\[ERROR\]\|NaN or T outside the properties table" "$d/run.log"; then
       bad "$case_rel: the $r-rank run failed (exit $rc$([ $rc -eq 124 ] && echo ', timed out'); see $d/run.log)"
       continue 2
     fi
