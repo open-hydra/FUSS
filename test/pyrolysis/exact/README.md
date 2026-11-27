@@ -39,6 +39,6 @@ cd test/pyrolysis/exact/pressure_transient/N020
 cd ../.. && python3 verify_exact.py pressure_transient pressure_transient/N020
 ```
 
-Physics gates (not in CTest): `test/run_physics_gates.sh -c bench_pressure_transient`,
+Physics gates (also CTest tests, `ctest -L gate`): `test/run_physics_gates.sh -c bench_pressure_transient`,
 `-c bench_transpiration`, `-c bench_sharp_front` (each generates and runs its own N020/N040/N080, or
 N050/N100/N200, ladder into a work directory).

@@ -47,5 +47,5 @@ cd test/pyrolysis/ATC2-chemistryOff
 ```
 
 Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`energy_audit`, `adiabatic0d`, `heated0d`, `conduction` and `ATC1`; not in CTest). The type-2 twin is
+`energy_audit`, `adiabatic0d`, `heated0d`, `conduction` and `ATC1`; also a CTest test, `ctest -L gate`). The type-2 twin is
 `test/pyrolysis/darcy/ATC2-chemistryOff-type2/`, covered by `test/pyrolysis/darcy/README.md`.

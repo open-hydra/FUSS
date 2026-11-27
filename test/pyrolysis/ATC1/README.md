@@ -46,4 +46,4 @@ cd test/pyrolysis/ATC1
 ```
 
 Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`energy_audit`, `adiabatic0d`, `heated0d`, `conduction` and `ATC2-chemistryOff`; not in CTest).
+`energy_audit`, `adiabatic0d`, `heated0d`, `conduction` and `ATC2-chemistryOff`; also a CTest test, `ctest -L gate`).

@@ -38,7 +38,7 @@ cd test/pyrolysis/darcy/<case>
 # (or verify_klinkenberg.py) from test/pyrolysis/darcy/sealed_profile, which reads all four
 ```
 
-Physics gates (not in CTest): `test/run_physics_gates.sh -c darcy_sealed_nosource`,
+Physics gates (also CTest tests, `ctest -L gate`): `test/run_physics_gates.sh -c darcy_sealed_nosource`,
 `-c darcy_mass_balance_1d`, `-c darcy_sealed_profile`, `-c darcy_klinkenberg`,
 `-c darcy_tensor_linear_2d`, `-c darcy_0d`, `-c darcy_atc2_chemistry_off`, `-c periodic_darcy`.
 `mass_balance_1d_2x` and `tensor_linear_2d_2x2` are also run by `test/run_mpi_gate.sh` (2 and 4 ranks

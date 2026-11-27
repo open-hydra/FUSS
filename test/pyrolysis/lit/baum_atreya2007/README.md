@@ -50,6 +50,6 @@ cd test/pyrolysis/lit/baum_atreya2007
 python3 verify.py full_N100 --qs qs_N100
 ```
 
-Physics gate: `test/run_physics_gates.sh -c bench_baum_atreya` (not in CTest; generates and runs
+Physics gate: `test/run_physics_gates.sh -c bench_baum_atreya` (also a CTest test, `ctest -L gate`; generates and runs
 `full_N100`, `full_N200` and the quasi-steady `qs_N100` into a work directory). `qs_N100` is also a
 leg of `test/run_restart_gate.sh`.

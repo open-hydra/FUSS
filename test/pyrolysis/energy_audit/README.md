@@ -49,6 +49,6 @@ cd test/pyrolysis/energy_audit
 ```
 
 Physics gate: `test/run_physics_gates.sh -c pyrolysis` (together with `kinetics_isothermal`,
-`adiabatic0d`, `heated0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`; not in CTest). Also a leg of
+`adiabatic0d`, `heated0d`, `conduction`, `ATC1` and `ATC2-chemistryOff`; also a CTest test, `ctest -L gate`). Also a leg of
 `test/run_restart_gate.sh` (the reaction state `chi_*` round-trips across a restart) and the base of
 the pyrolysis guard demos (`test/run_guard_demos.sh`).

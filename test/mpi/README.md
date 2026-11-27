@@ -35,5 +35,5 @@ test/mpi/thread-funnel/run.sh   build/bin/FUSS   /tmp/fuss-thread-funnel   # nee
 ```
 
 CTest (`needs-mpi` tier, registered only in a tree built with `USE_MPI`): `MPIBitIdentity`,
-`MPIThreadFunnel`. The pyrolysis, Darcy and ablating-wall MPI checks of this branch are not CTest
-tests: `test/run_mpi_gate.sh` runs them by hand (see the V&V page for the case list).
+`MPIThreadFunnel`. The pyrolysis, Darcy and ablating-wall MPI checks are run by
+`test/run_mpi_gate.sh`, the CTest test `Gate_MPI` of the same tree (`ctest -L mpi-gate`; see the V&V page for the case list).

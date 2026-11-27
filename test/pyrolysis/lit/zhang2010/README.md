@@ -44,4 +44,4 @@ cd test/pyrolysis/lit/zhang2010/N050
 cd .. && python3 verify.py N050
 ```
 
-Physics gate: `test/run_physics_gates.sh -c bench_zhang2010` (not in CTest).
+Physics gate: `test/run_physics_gates.sh -c bench_zhang2010` (also a CTest test, `ctest -L gate`).
