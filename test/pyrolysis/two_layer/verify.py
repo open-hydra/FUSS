@@ -9,18 +9,19 @@ composite-slab solution (test/pyrolysis/tools/two_layer_exact.py).
                                             field and the error of its last output is below that of its first (the
                                             check of the runs at the nominal vnn limits, below)
     verify.py --ladder <c1> <c2> [<c3> ...] the errors of N, 2N, 4N... cells at the output nearest T_SAMPLE (each at
-                                            its own time) and the observed orders log2(e_N / e_2N); exit 0 when every
-                                            order lies in [ORDER_LO, ORDER_HI]
+                                            its own time), coarsest first; exit 0 by the convergence rule of
+                                            tools/conv_rule.py with p = 2: the error falls on every rung and the
+                                            observed order on the finest pair lies in [1.6, 2.4]
 
 WHAT THE ORDER BAND IS. The scheme is the second-order finite-volume diffusion operator; the jump lies on a face, and
 inside each layer the solution is smooth at T_SAMPLE (8 s: 46 cell diffusion times h^2/alpha of the coarsest mesh,
 0.175 s for LOW at N = 20, after the step at t = 0; the heated front, sqrt(alpha_LOW t) = 3.4 mm, has reached the
 interface 5 mm from the heated face). With the two half cells in series at the jump the interface flux is
-consistent to O(h^2) and the error falls at second order: band [1.8, 2.2] around 2 (the bench gates' lower bound
-1.8; the upper bound a symmetric margin -- a faster fall than 2 is pre-asymptotic, not a merit). The mean of the two
-k_s at the jump (the scheme before 2026-11-26) gives the interface an O(1) relative conductance error at every mesh
-(10.5 against 1.9 times k_LOW), a contact resistance that shrinks with h only: the error falls at FIRST order,
-outside the band. Neither bound is taken from a FUSS run. At a fixed vnn dt ~ h^2, so the time error is O(h^6) for
+consistent to O(h^2) and the error falls at second order: p = 2, and the band is the convergence rule's
+[0.8 p, 1.2 p] = [1.6, 2.4] (tools/conv_rule.py, the rule of every exact-solution gate). The mean of the two k_s at
+the jump (the scheme before 2026-11-26) gives the interface an O(1) relative conductance error at every mesh (10.5
+against 1.9 times k_LOW), a contact resistance that shrinks with h only: the error falls at FIRST order, outside the
+band. Neither bound is taken from a FUSS run. At a fixed vnn dt ~ h^2, so the time error is O(h^6) for
 RK3, O(h^4) for RK2 and O(h^2) for euler: the band holds for every scheme at any vnn below the limit (for euler the
 error constant grows with vnn).
 
@@ -32,7 +33,8 @@ limit the field leaves [T0, TW] by a few K early on (no maximum principle there)
 stability only: it reaches its end and its error falls between the first output and the last (an unstable mode
 would grow). Accuracy is graded below the limit (--ladder).
 
-Every number read is printed. Python 3.6, no numpy.
+Every number read is printed. FUSS_GATE_SELFTEST=1 empties the order window of --ladder (the proven-red hook of
+conv_rule.py). Python 3.6, no numpy.
 """
 import glob
 import json
@@ -44,9 +46,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "tools"))
 import two_layer_exact  # noqa: E402
+import conv_rule as cr  # noqa: E402
 
 T_SAMPLE = 8.0
-ORDER_LO, ORDER_HI = 1.8, 2.2
+P_EXPECTED = 2
 
 
 def read_field(path):
@@ -170,13 +173,14 @@ def ladder(cases):
         e, x = error(c, ex, hit[0][2], hit[0][1])
         errs.append((cfg["ncells"], e, x))
         print("  N = %4d  max |T - T_exact| at t = %.9f s: %.6e K (x = %.6e m)" % (cfg["ncells"], hit[0][1], e, x))
-    ok = True
+    if len(errs) < 2:
+        print("two_layer ladder: FAIL  the convergence rule needs a ladder of 2 or more runs")
+        return 1
     for (n1, e1, _), (n2, e2, _) in zip(errs, errs[1:]):
-        p = math.log(e1 / e2) / math.log(n2 / n1) if e1 > 0 and e2 > 0 else float("nan")
-        good = ORDER_LO <= p <= ORDER_HI
-        ok = ok and good
-        print("  order %4d -> %4d: %.3f  (band [%.1f, %.1f]) %s" % (n1, n2, p, ORDER_LO, ORDER_HI,
-                                                                  "ok" if good else "FAIL"))
+        print("  order %4d -> %4d: %.3f  (printed; the rule grades the finest pair)" % (n1, n2, cr.order(e1, e2, n1, n2)))
+    ok, text = cr.check("max |T - T_exact| at 8 s [K]", [e for _n, e, _x in errs], [n for n, _e, _x in errs],
+                        P_EXPECTED, fmt="%.6e")
+    print("  %s  %s" % (text, "PASS" if ok else "FAIL"))
     print("two_layer ladder: %s" % ("PASS" if ok else "FAIL"))
     return 0 if ok else 1
 

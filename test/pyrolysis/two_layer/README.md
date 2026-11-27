@@ -18,8 +18,9 @@ diffusivity of `HIGH` half that of `LOW`.
 - `verify.py <case>`: the error of every field file against the exact solution
   (`test/pyrolysis/tools/two_layer_exact.py`, the eigenfunction series of the composite slab) and whether the run
   reached its end with `T` inside `[T0 - 1, TW + 1]`.
-- `verify.py --ladder <N020> <N040> <N080>`: the errors at 8 s and the observed orders; pass when every order lies in
-  `[1.8, 2.2]` around the scheme's second order (the reasoning is in the docstring).
+- `verify.py --ladder <N020> <N040> <N080>`: the errors at 8 s and the observed orders; pass by the convergence rule
+  of `test/pyrolysis/tools/conv_rule.py` with `p = 2`: the error falls on every rung and the order on the finest pair
+  lies in `[1.6, 2.4]` (the reasoning is in the docstring).
 - `verify.py --decay <case>`: the check of a run at the nominal `vnn` limit: it reaches its end and its error falls
   from the first output to the last (at the limit the shortest mode is not damped, for one material as for two).
 - `compare_cut.py <uncut> <cut> --tol K`: the slab as one block against the slab cut at the interface into two

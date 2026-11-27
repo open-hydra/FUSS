@@ -208,8 +208,10 @@
 #                 - pyrolysis_103: the twins are compared with their wall
 #                   files, which differ by construction (a 103 face is not in
 #                   them): "type 1 twins: 61 identical file(s), 59 problem(s)".
-#                 - pyrolysis_two_layer: the cut is compared with tolerance 0,
-#                   below its round-off (6.4e-12 K, 2.1e-9 Pa on 2026-11-26).
+#                 - pyrolysis_two_layer: the order window of the ladders (a)
+#                   and (c) is emptied (tools/conv_rule.py), so the gate fails
+#                   at (a); the tolerances of the cut (d) are 0, below its
+#                   round-off (6.4e-12 K, 2.1e-9 Pa on 2026-11-26).
 #               Measured green/red runs and the runtime are recorded at the
 #               bottom of this header once both were executed (2026-09-15).
 #
@@ -1419,8 +1421,9 @@ PY
 # one block, no kinetics, constant properties; tools/make_two_layer.py writes it, the committed N020 deck is first
 # checked against a fresh generation), exact solution tools/two_layer_exact.py. The time step is the plain cell step:
 # the series face is bounded by the two materials apart (docs/theory/time-integration.md).
-# (a) k ratio 20, N = 20, 40, 80 at RK3 vnn 0.05: the error falls at second order, band [1.8, 2.2] (verify.py
-#     --ladder: the band is the scheme's order, not a measured value); the mean of the two k_s at the jump (the scheme
+# (a) k ratio 20, N = 20, 40, 80 at RK3 vnn 0.05: the error falls at second order by the convergence rule
+#     (verify.py --ladder, tools/conv_rule.py with p = 2: the error falls on every rung, the order on the finest pair
+#     lies in [1.6, 2.4]; the band is the scheme's order, not a measured value); the mean of the two k_s at the jump (the scheme
 #     before 2026-11-26) falls at first order (27.1 / 13.6 / 6.83 K).
 # (b) seven configurations -- k ratio 20 and 100 on equal cells, cells 5 x larger in HIGH and in LOW for both ratios,
 #     and k ratio 100 on 2-D cells of aspect ratio 2 (dy = 2 dx, 4 rows) -- at the nominal limits RK3 0.628, RK2 0.5,
@@ -1429,15 +1432,20 @@ PY
 #     oscillation decays only slowly; an unstable mode would grow). With the mean 18 of the 21 runs stop on an energy
 #     outside the table; the three of k 20 with LOW cells 5 x larger run on, 35 K off and first order.
 # (c) the same seven at 0.9 x the limits (RK3 0.5652, RK2 0.45, euler 0.45), N and 2N cells (the 2-D case refined in
-#     both directions): the error falls at second order, band [1.8, 2.2] (at a fixed vnn dt ~ h^2, so every scheme's
-#     time error is O(h^2) or smaller).
+#     both directions): the error falls at second order by the same rule, p = 2 (one pair: the error falls and the
+#     order lies in [1.6, 2.4]; at a fixed vnn dt ~ h^2, so every scheme's time error is O(h^2) or smaller).
 # (d) block independence, type 2 (type 1 takes one block): the N = 40 slab and its cut at the interface into two blocks
-#     (test/tools/split_blocks.py; the jump becomes a 101 face) take the same steps and agree on T within N_steps
-#     ulp(TW) and on p_pg within N_steps ulp(p_w): both pressure solves are direct (one Thomas sweep along the line,
-#     which the block without an open face continues), so the two runs differ by the summation order of the interface
-#     cells' residuals and of the connection terms, at most an ulp a step, not amplified by the contractive update (a
-#     bound derived, not measured; with the mean inside the block and the series across the cut they differed by
-#     13.6 K).
+#     (test/tools/split_blocks.py; the jump becomes a 101 face) take the same steps and agree on T within
+#     TOL_CUT_T and on p_pg within TOL_CUT_P. The two runs differ by the summation order of the interface cells'
+#     residuals and of the connection terms (both pressure solves are direct: one Thomas sweep along the line, which
+#     the block without an open face continues). The bound N_steps x ulp argued for this (one ulp a step, not
+#     amplified) does not hold: the difference does not grow with the steps (T 1.1e-11 K after 21 steps, 6.8e-12 K
+#     after 14629) and exceeds N_steps x ulp on short runs. So both tolerances are floors set from measured draws,
+#     not a physics budget: 5 x the widest difference of eleven draws (N 10-80, k ratio 20 and 100, RK3/RK2/euler,
+#     vnn 0.025-0.5652, 21-14629 steps), rounded up to one digit: T 1.830e-11 K (N 40, RK3 0.5652), p_pg 9.139e-09 Pa
+#     (N 80, RK2 0.45). With the mean inside the block and the series across the cut they differed by 13.6 K.
+TOL_CUT_T=1e-10
+TOL_CUT_P=5e-8
 two_layer_cfg () {  # two_layer_cfg <configuration> <refinement m>: make_two_layer.py arguments
   local m=$2
   case $1 in
@@ -1452,7 +1460,7 @@ two_layer_cfg () {  # two_layer_cfg <configuration> <refinement m>: make_two_lay
 }
 gate_pyrolysis_two_layer () {
   local dest="$WORK/pyrolysis_two_layer" g="$ROOT/test/pyrolysis/tools/make_two_layer.py" v="$ROOT/test/pyrolysis/two_layer"
-  local rc c n f k1 k2 k3 nst tolT tolp sv s vn m o lo hi nd worst
+  local rc c n f k1 k2 k3 nst tolT=$TOL_CUT_T tolp=$TOL_CUT_P sv s vn m o lo hi nd worst
   local CFGS="k20u k100u k20h5 k20h02 k100h5 k100h02 k100d2"
   rm -rf "$dest"; mkdir -p "$dest"
   python3 "$g" "$dest/fresh_N020" --ncells 20 > /dev/null || { KEYNUM="make_two_layer.py failed"; return 1; }
@@ -1474,7 +1482,7 @@ gate_pyrolysis_two_layer () {
   done
   python3 "$v/verify.py" --ladder "$dest/N020" "$dest/N040" "$dest/N080" > "$dest/ladder.log" 2>&1; rc=$?
   k1=$(grep -E '^  order' "$dest/ladder.log" | awk '{print $5}' | paste -sd/ -)
-  k1="(a) orders $k1 (band [1.8, 2.2]), errors $(grep -E '^  N =' "$dest/ladder.log" | awk '{print $13}' | paste -sd/ -) K"
+  k1="(a) orders $k1 ($(grep -o 'falls on every rung [A-Za-z]*; order on the finest pair .*\]' "$dest/ladder.log")), errors $(grep -E '^  N =' "$dest/ladder.log" | awk '{print $13}' | paste -sd/ -) K"
   [ "$rc" -eq 0 ] || { KEYNUM="ladder: $k1 (see $dest/ladder.log)"; return 1; }
   # (b) nominal limits: stable (the error decays), 7 configurations x 3 schemes
   nd=0
@@ -1508,7 +1516,7 @@ gate_pyrolysis_two_layer () {
       n="sub_${c}_$s"
       python3 "$v/verify.py" --ladder "$dest/${n}_m1" "$dest/${n}_m2" > "$dest/$n.log" 2>&1; rc=$?
       o=$(grep -E '^  order' "$dest/$n.log" | awk '{print $5}')
-      [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $c $s vnn $vn: order $o (band [1.8, 2.2]) (see $dest/$n.log)"; return 1; }
+      [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $c $s vnn $vn: order $o (in [1.6, 2.4] and falling, by tools/conv_rule.py) (see $dest/$n.log)"; return 1; }
       lo=$(python3 -c "print(min($lo, $o))"); hi=$(python3 -c "print(max($hi, $o))")
     done
   done
@@ -1516,8 +1524,6 @@ gate_pyrolysis_two_layer () {
   # (d)
   nst=$(grep -c 'Iter =' "$dest/t2/run.log")
   [ "$nst" -eq "$(grep -c 'Iter =' "$dest/t2cut/run.log")" ] || { KEYNUM="$k1; $k2; the cut slab took another number of steps"; return 1; }
-  # ulp(1000 K) = 2^-43, ulp(101325 Pa) = 2^-36 (python 3.6 has no math.ulp)
-  tolT=$(python3 -c "print('%.3e' % ($nst * 2.0**-43))"); tolp=$(python3 -c "print('%.3e' % ($nst * 2.0**-36))")
   [ "$SELFTEST" = "1" ] && { tolT=0; tolp=0; }
   python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolT" --vars T > "$dest/cut.log" 2>&1; rc=$?
   python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolp" --vars p_pg >> "$dest/cut.log" 2>&1 || rc=1

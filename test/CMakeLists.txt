@@ -239,6 +239,7 @@ set(_PHYSICS_GATES
   RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
   ConjugateReceding:conjugate_receding:300 ConjugateRecedingT2:conjugate_receding_t2:300 Receding:receding:300
   ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:600
+  Pyrolysis103:pyrolysis_103:300 PyrolysisTwoLayer:pyrolysis_two_layer:300
   DarcySealedNosource:darcy_sealed_nosource:300 DarcyMassBalance1d:darcy_mass_balance_1d:300
   DarcySealedProfile:darcy_sealed_profile:300 DarcyKlinkenberg:darcy_klinkenberg:300
   DarcyTensorLinear2d:darcy_tensor_linear_2d:300 Darcy0d:darcy_0d:300 DarcyAtc2ChemistryOff:darcy_atc2_chemistry_off:300
