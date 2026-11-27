@@ -3,6 +3,9 @@
 #         FILE: test/check_build_config.sh
 #        USAGE: ./test/check_build_config.sh [--quiet] [--preset NAME]
 #  DESCRIPTION: Assert that build/ was configured the way CMakePresets.json says.
+#               Exit 0 when the tree matches its preset, and when there is no
+#               CMakePresets.json (nothing checked); 1 on a mismatch, a tree not
+#               configured, or a preset NAME the file does not define.
 #
 #               WHY THIS EXISTS
 #               ---------------
@@ -42,8 +45,10 @@ done
 
 PRESET="$ROOT/CMakePresets.json"
 
+# No presets file (a fresh clone before its first configure): nothing to compare with, so nothing is checked and the
+# exit is 0. An unknown preset NAME with the file present is the caller's error (exit 1, below).
 if [ ! -f "$PRESET" ]; then
-  echo "  build-config: no CMakePresets.json, nothing to check against" >&2
+  echo "  build-config: no CMakePresets.json, nothing checked" >&2
   exit 0
 fi
 
@@ -72,8 +77,9 @@ def resolved(n, seen=()):
     return cv, p.get("binaryDir", bdir)
 
 if name not in presets:
-    print("  build-config: no '%s' preset, nothing to check" % name)
-    sys.exit(0)
+    print("  build-config: no preset '%s' in CMakePresets.json (it has: %s)" % (name, ", ".join(sorted(presets))),
+          file=sys.stderr)
+    sys.exit(1)
 want, bdir = resolved(name)
 bdir = (bdir or "${sourceDir}/build").replace("${sourceDir}", root)
 cache_path = os.path.join(bdir, "CMakeCache.txt")
