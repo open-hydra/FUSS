@@ -419,15 +419,19 @@ demo_pyro pyro_moving       1 "pyrolysis on a moving mesh needs law = nodeshift"
 law = translation
 vel = 1.0e-4 0.0 0.0"
 demo_pyro pyro_no_outflow   1 "outflow-direction must be set"                    "outflow-direction=none"
-# face 5 (type 0, no value line) becomes a 103 self-connection with its 9-integer line
-demo_pyro pyro_connection   1 "pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:103:1 1 1 1 6 1 0 0 1"
+# face 5 (type 0, no value line) becomes a 102 chimera face with one donor per ghost row, volume fraction 1, so that
+# IO_BC's no-donor abort does not stop the run first (a coupled face 103 is accepted under pyrolysis: the gate
+# pyrolysis_103 of run_physics_gates.sh)
+demo_pyro pyro_chimera_102  1 "pyrolysis: chimera faces (102, 104) are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:102:1 1
+ 1 1 1 1 1.0
+ 1 1 1 1 1.0"
 # a block connection under type 1: its outflow line integral cannot cross it (plan 08 section 2.9 (4))
 demo_pyro pyro_type1_multiblock 1 "gas-closure = type1 is single-block" "BCFACE:5:101:1 1 1 1 6 1 0 0 1"
-demo_pyro pyro_chimera_104  1 "pyrolysis: 102, 103 and 104 faces are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:104:1 1
+demo_pyro pyro_chimera_104  1 "pyrolysis: chimera faces (102, 104) are refused (a 101 face needs gas-closure = type2)" "BCFACE:5:104:1 1
  1 1 1 1 1.0
  1 1 1 1 1.0"
 # the outflow face 2 (302 with a time file) becomes a 300 symmetry plane, no value line
-demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-307)"         "BCFACE:2:300:-"
+demo_pyro pyro_outflow_face 1 "outflow face must be a wall BC (301-307) or a coupled face (103)" "BCFACE:2:300:-"
 demo_pyro pyro_missing_virgin 1 "[ERROR] pyrolysis tables"                       "RM:INPUT/virgin.dat"
 # F[2][1] = 0.9 makes the phase's sum of F 1.15 > 1
 demo_pyro pyro_bad_F        1 "[ERROR] pyrolysis tables"                         "PYRO:F[2][1] 0.9"
