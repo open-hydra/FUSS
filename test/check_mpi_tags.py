@@ -7,8 +7,8 @@ in 0..32767 (the least MPI_TAG_UB the standard allows), and below 7001 (hydra-MF
 MPI_COMM_WORLD). A tag named TAG_* that is not a declared integer parameter, a parameter whose value is an expression
 (TAG_X = 7000 + 5), and any point-to-point call this check does not resolve (SENDRECV, SSEND, BSEND, RSEND, ISSEND,
 PROBE, IPROBE, MPROBE, MRECV) are violations too.
-Usage: python3 -I tag_table_check.py <repo> <tree-ish>     (git mode)
-       python3 -I tag_table_check.py --dir <src directory>  (files on disk, e.g. the stage worktree's src/)
+Usage: python3 -I check_mpi_tags.py <repo> <tree-ish>     (git mode)
+       python3 -I check_mpi_tags.py --dir <src directory>  (files on disk, e.g. the stage worktree's src/)
 Prints the table and every call with its resolved constant; exit 1 on any violation."""
 import re, sys, subprocess, os
 P2P = re.compile(r'\bcall\s+MPI_(I?SEND|I?RECV|SEND_INIT|RECV_INIT)\s*\(', re.I)
@@ -131,4 +131,4 @@ for name in sorted(values, key=values.get):
     print(f'  {values[name]:6d}  {name}  ({", ".join(sorted({f for _, f, _ in consts[name]}))})')
 if errors:
     print('\nVIOLATIONS:'); [print('  ' + e) for e in errors]; sys.exit(1)
-print('\nPASS: every tag a named constant, values distinct, all in 0..7000')
+print('\nPASS: every tag a named constant, values distinct, all in 0..7000 (0..32767 and below 7001)')
