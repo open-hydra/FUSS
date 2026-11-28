@@ -1,6 +1,8 @@
 import os
 import re
 import sys
+sys.stdout = open(sys.stdout.fileno(), "w", encoding="utf-8", closefd=False,
+                  buffering=1 if sys.stdout.line_buffering else -1)   # print UTF-8 whatever the locale (python 3.6)
 
 WALL_TEC     = os.path.join(os.path.dirname(__file__), "OUTPUT", "wall.tec")
 TARGET_ZONE  = "B1F2"

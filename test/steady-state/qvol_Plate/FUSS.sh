@@ -25,8 +25,11 @@ function print_usage {
 
 # Directories and files definition
 MASTERDIR=../../..
-MASTER=$MASTERDIR/bin/FUSS
-LOCAL=./bin/FUSS
+# FUSS_EXE selects the executable of a build tree (plan 11: FUSS-mpi for the mpi preset),
+# FUSS_MPIRUN the MPI launcher (the gates set the Intel MPI one, never the first on PATH).
+FUSS_EXE=${FUSS_EXE:-FUSS}
+MASTER=$MASTERDIR/bin/$FUSS_EXE
+LOCAL=./bin/$FUSS_EXE
 
 # Default Options
 BG=0
@@ -73,7 +76,7 @@ if [[ $1 == compile ]]; then
   mkdir -p bin
   rm -f $LOCAL
   cd $MASTERDIR
-  ./install.sh compile
+  if [[ $FUSS_EXE == FUSS-mpi ]]; then ./install.sh compile --preset=mpi; else ./install.sh compile; fi
   cd $DIR
   cp $MASTER $LOCAL
 fi
@@ -91,15 +94,17 @@ if [[ $1 == solve ]]; then
   if [[ $NMPI == 1 ]]; then
     if [[ $BG == 0 ]]; then
       $LOCAL
+      RC=$?
     else
       $LOCAL 2>errors_file >logfile &
       echo $! > .ID
     fi
   else
     if [[ $BG == 0 ]]; then
-      mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL
+      ${FUSS_MPIRUN:-mpirun} -np $NMPI --map-by socket --bind-to socket $LOCAL
+      RC=$?
     else
-      mpirun -np $NMPI --map-by socket --bind-to socket $LOCAL 2>errors_file >logfile &
+      ${FUSS_MPIRUN:-mpirun} -np $NMPI --map-by socket --bind-to socket $LOCAL 2>errors_file >logfile &
       echo $! > .ID
     fi
   fi
@@ -108,3 +113,15 @@ fi
 if [[ $1 == kill ]]; then
 read PID < .ID && kill $PID
 fi
+
+# Propagate the solver's exit status.
+#
+# Without this the script always exits 0, because the last thing it evaluates is
+# the `kill` test above. That silently defeated every abort code the solver
+# produces: test/run_regression.sh branches on exit status and recorded a case
+# that had refused to run as 'ok', fingerprinting whatever partial output it
+# managed to write. Code 1 on every stop (plan 14 S6, D3).
+#
+# Background runs cannot report a status here -- the solver is still running --
+# so RC stays 0 for them, by design.
+exit ${RC:-0}

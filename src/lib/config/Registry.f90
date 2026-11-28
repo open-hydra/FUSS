@@ -6,7 +6,7 @@ module FUSS_Input_Registry
 
   integer, parameter :: TYPE_INT=1, TYPE_REAL=2, TYPE_LOG=3, TYPE_STR=4
 
-  public :: registry_t, Validate_Registry, Save_Values, Restore_Values, Key_Is_Set
+  public :: registry_t, Validate_Registry, Validate_Param, Save_Values, Restore_Values, Key_Is_Set
 
   !--------------------------------------------------------
   ! Value container (typed pointers)
@@ -382,13 +382,10 @@ contains
   !> What an error does is up to the caller: at set-up it stops the run (Check_Input in Wrap_Setup); in a reading during
   !> the run it is an error of that reading, which ini-error decides (Read_Inifile_Runtime).
   function Validate_Registry() result(out)
-    use FUSS_Finite_m, only: Not_Finite
     implicit none
 
     character(len=1024) :: out
-    integer :: i, k
-    real(R8) :: val
-    character(len=16) :: nth
+    integer :: i
 
     out=""
 
@@ -398,101 +395,105 @@ contains
     end if
 
     do i=1,reg%size
-
-      if (reg%params(i)%unread) then
-        out = Unread_Message(i)
-        return
-      end if
-
-      if (reg%params(i)%required .and. .not. reg%params(i)%is_set) then
-        out = "[ERROR] Required parameter not set: "//trim(reg%params(i)%name)
-        return
-      end if
-
-      ! A real value, or a value of a list of reals, that is not finite
-      if (associated(reg%params(i)%value%r)) then
-        if (Not_Finite(reg%params(i)%value%r)) then
-          out = "[ERROR] "//Key_And_Value(i)//": the value is not a finite real number"
-          return
-        end if
-      else if (associated(reg%params(i)%value%rarr)) then
-        do k = 1, size(reg%params(i)%value%rarr)
-          if (Not_Finite(reg%params(i)%value%rarr(k))) then
-            write(nth,'(I0)') k
-            out = "[ERROR] "//Key_And_Value(i)//": value "//trim(nth)//" of the list is not a finite real number"
-            return
-          end if
-        end do
-      end if
-
-      if (reg%params(i)%allowed == "") cycle
-
-      ! A list of numbers: the rule holds for each of its values
-      if (associated(reg%params(i)%value%iarr)) then
-        do k = 1, size(reg%params(i)%value%iarr)
-          val = real(reg%params(i)%value%iarr(k), R8)
-          call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-          if (out /= "") exit
-        end do
-      else if (associated(reg%params(i)%value%rarr)) then
-        do k = 1, size(reg%params(i)%value%rarr)
-          val = reg%params(i)%value%rarr(k)
-          call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-          if (out /= "") exit
-        end do
-      end if
-      if (associated(reg%params(i)%value%iarr) .or. associated(reg%params(i)%value%rarr)) then
-        if (out /= "") then
-          write(nth,'(I0)') k
-          out = trim(out)//" (value "//trim(nth)//" of the list)"
-          return
-        end if
-        cycle
-      end if
-
-      select case(reg%params(i)%type_id)
-
-      case(TYPE_INT)
-
-        if (.not. associated(reg%params(i)%value%i)) cycle
-
-        val = real(reg%params(i)%value%i, R8)
-        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case(TYPE_REAL)
-
-        if (.not. associated(reg%params(i)%value%r)) cycle
-
-        val = reg%params(i)%value%r
-        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case(TYPE_STR)
-
-        if (.not. associated(reg%params(i)%value%s)) cycle
-        if (trim(reg%params(i)%value%s) == "") cycle
-        call validate_string(reg%params(i)%name, reg%params(i)%value%s, reg%params(i)%allowed, out)
-        if (out /= "") return
-
-      case(TYPE_LOG)
-
-        ! The reader takes a logical value only (a list-directed read: T or F, after an optional period, starts the value;
-        ! any other value is a value that does not read, given above): nothing is left to check, if the rule says no more
-        ! than that
-        if (.not. logical_rule(reg%params(i)%allowed)) then
-          out = "[ERROR] "//trim(reg%params(i)%name)//": the registry does not check its rule "//trim(reg%params(i)%allowed)
-          return
-        end if
-
-      case default
-        cycle
-
-      end select
-
+      call Validate_Param(i, out)
+      if (out /= "") return
     end do
 
   end function Validate_Registry
+
+
+  !> The checks of Validate_Registry on ONE parameter (upstream's rules, 189ba21 and ae408c3: a value that does not read
+  !> as its type, a required key, a real that is not finite, every rule form on every value of a list). Factored out so
+  !> that Reload_Runtime_Ini (Backend_INI) applies to one runtime-mutable key mid-run the rule it passed at set-up (plan
+  !> 10 D3). `out` is left untouched if the parameter is valid, so callers can chain.
+  subroutine Validate_Param(i, out)
+    use FUSS_Finite_m, only: Not_Finite
+    implicit none
+
+    integer,          intent(in)    :: i
+    character(len=*), intent(inout) :: out
+    integer :: k
+    real(R8) :: val
+    character(len=16) :: nth
+
+    if (reg%params(i)%unread) then
+      out = Unread_Message(i)
+      return
+    end if
+
+    if (reg%params(i)%required .and. .not. reg%params(i)%is_set) then
+      out = "[ERROR] Required parameter not set: "//trim(reg%params(i)%name)
+      return
+    end if
+
+    ! A real value, or a value of a list of reals, that is not finite
+    if (associated(reg%params(i)%value%r)) then
+      if (Not_Finite(reg%params(i)%value%r)) then
+        out = "[ERROR] "//Key_And_Value(i)//": the value is not a finite real number"
+        return
+      end if
+    else if (associated(reg%params(i)%value%rarr)) then
+      do k = 1, size(reg%params(i)%value%rarr)
+        if (Not_Finite(reg%params(i)%value%rarr(k))) then
+          write(nth,'(I0)') k
+          out = "[ERROR] "//Key_And_Value(i)//": value "//trim(nth)//" of the list is not a finite real number"
+          return
+        end if
+      end do
+    end if
+
+    if (reg%params(i)%allowed == "") return
+
+    ! A list of numbers: the rule holds for each of its values
+    if (associated(reg%params(i)%value%iarr)) then
+      do k = 1, size(reg%params(i)%value%iarr)
+        val = real(reg%params(i)%value%iarr(k), R8)
+        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+        if (out /= "") exit
+      end do
+    else if (associated(reg%params(i)%value%rarr)) then
+      do k = 1, size(reg%params(i)%value%rarr)
+        val = reg%params(i)%value%rarr(k)
+        call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+        if (out /= "") exit
+      end do
+    end if
+    if (associated(reg%params(i)%value%iarr) .or. associated(reg%params(i)%value%rarr)) then
+      if (out /= "") then
+        write(nth,'(I0)') k
+        out = trim(out)//" (value "//trim(nth)//" of the list)"
+      end if
+      return
+    end if
+
+    select case(reg%params(i)%type_id)
+
+    case(TYPE_INT)
+      if (.not. associated(reg%params(i)%value%i)) return
+      val = real(reg%params(i)%value%i, R8)
+      call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+
+    case(TYPE_REAL)
+      if (.not. associated(reg%params(i)%value%r)) return
+      val = reg%params(i)%value%r
+      call validate_numeric(reg%params(i)%name, val, reg%params(i)%allowed, out)
+
+    case(TYPE_STR)
+      if (.not. associated(reg%params(i)%value%s)) return
+      if (trim(reg%params(i)%value%s) == "") return
+      call validate_string(reg%params(i)%name, reg%params(i)%value%s, reg%params(i)%allowed, out)
+
+    case(TYPE_LOG)
+      ! The reader takes a logical value only: nothing is left to check, if the rule says no more than that
+      if (.not. logical_rule(reg%params(i)%allowed)) &
+        out = "[ERROR] "//trim(reg%params(i)%name)//": the registry does not check its rule "//trim(reg%params(i)%allowed)
+
+    case default
+      return
+
+    end select
+
+  end subroutine Validate_Param
 
 
   !> Keeps a copy of the value of every parameter of the registry, whatever its type, and of the fields that Load_Ini

@@ -3,10 +3,13 @@
 # Tiers are expressed through LABELS, as in MOSE (test/TESTING-PLAN.md of MOSE):
 #   fast          under a minute each (the tier in about a minute at -j4): the selector of the pre-push check, ctest -L fast
 #   validation    comparison with an analytic or reference solution (also the cases of the fast tier that have one)
-#   verification  full forms of verification cases (families of grids, long runs): ConvergenceOrder, MultigridSolution; run on
-#                 request, ctest -L verification
+#   verification  full forms of verification cases (families of grids, long runs): ConvergenceOrder, MultigridSolution; and,
+#                 for now, every gate (below); run on request, ctest -L verification
 #   smoke         cases without a verifier, 300 iterations: the run must end cleanly (FUSS only; MOSE has none)
 #   needs-mpi     registered only with USE_MPI=ON: 2 ranks, or ranks x threads layouts, must give the same output files
+#   gate          the gate scripts of test/ (run_physics_gates.sh one test per gate, the restart, guard, runtime-input and
+#                 build checks; with USE_MPI=ON the MPI gates, label mpi-gate): ctest -L gate. Each also carries
+#                 verification, which keeps them out of the PR tier; a gate that skips a check is reported Not Run (77)
 # Second-level tags, as MOSE's: physics (a model or a boundary condition against its solution), numerics (a property of the
 # discretisation), implementation (inputs, stops, restart, parallel runs), unit (a program that calls a routine).
 #
@@ -203,4 +206,133 @@ if (USE_MPI)
   fuss_add_mpi_script(MPIExitCodes         input-io/mpi-exit-codes.sh     300 "needs-mpi;implementation")
   fuss_add_mpi_script(MPIRestart           input-io/mpi-restart.sh        300 "needs-mpi;implementation")
   fuss_add_mpi_script(MPIDecompositionMap  input-io/mpi-decomposition-map.sh 300 "needs-mpi;implementation")
+endif()
+
+# ===========================================================================
+#  Gate scripts (gate): the scripts of test/ run by hand, under CTest
+#  ctest -L gate (all), ctest -R Gate_Pyrolysis -V (one); every gate also carries verification (outside the PR tier)
+# ===========================================================================
+# Each runs in its own folder runs/gates/<test name>, on this tree's executable ($<TARGET_FILE>); exit code 77 is a skip
+# (a check the script could not run), which ctest reports as Not Run. FUSS_GATE_WORK moves the folders: a build tree on
+# NFS slows the gates that write at every iteration by 10 to 200 times (measured 2026-11-26), use a local disk there
+set(FUSS_GATE_WORK "${_WORK}/gates" CACHE PATH "Folder of the work folders of the gate tests (default: runs/gates of the build tree)")
+set(_GATES "${FUSS_GATE_WORK}")
+if (USE_MPI)
+  set(_FUSS_PRESET mpi)        # the preset check_build_config.sh compares this tree with
+else()
+  set(_FUSS_PRESET default)
+endif()
+set(FUSS_GATE_THREADS 8 CACHE STRING "Threads of the cross-thread legs of the gates (pyrolysis, determinism): their PROCESSORS")
+
+# fuss_add_gate(NAME TIMEOUT LABELS command...): a gate script, with SKIP_RETURN_CODE 77 and no __pycache__ written
+function(fuss_add_gate NAME TIMEOUT LABELS)
+  fuss_register(${NAME} ${TIMEOUT} "${LABELS}" ${ARGN})
+  set_tests_properties(${NAME} PROPERTIES SKIP_RETURN_CODE 77 ENVIRONMENT
+    "PYTHONDONTWRITEBYTECODE=1;FUSS_GATE_PRESET=${_FUSS_PRESET};FUSS_GATE_P8_THREADS=${FUSS_GATE_THREADS};FUSS_GATE_XTHREADS=${FUSS_GATE_THREADS}")
+endfunction()
+
+# Physics gates: `run_physics_gates.sh -c <gate>` per gate, 1 thread. TIMEOUT >= 5 x the walls of 2026-11-26 (pcprop9,
+# 1 thread, work folders on a local disk: plan 16's hand runs and this registration's first ctest run; ATC 2.2 and 2.3 on 200
+# cells: 577 s and 1288 s solver walls; pyrolysis with its 0-D and conduction ladder rungs: 109 s), at least 300 s
+set(_PHYSICS_GATES
+  Freestream:freestream:300 Conservation:conservation:300 Bc303Qrad:bc303_qrad:300 Bc303Qrad1d:bc303_qrad_1d:300
+  RadiationEquilibrium:radiation_equilibrium:300 ConjugateTwoLayer:conjugate_two_layer:300
+  ConjugateReceding:conjugate_receding:300 ConjugateRecedingT2:conjugate_receding_t2:300 Receding:receding:300
+  ResidualConvergence:residual_convergence:1500 Pyrolysis:pyrolysis:600
+  Pyrolysis103:pyrolysis_103:300 PyrolysisTwoLayer:pyrolysis_two_layer:300
+  DarcySealedNosource:darcy_sealed_nosource:300 DarcyMassBalance1d:darcy_mass_balance_1d:300
+  DarcySealedProfile:darcy_sealed_profile:300 DarcyKlinkenberg:darcy_klinkenberg:300
+  DarcyTensorLinear2d:darcy_tensor_linear_2d:300 Darcy0d:darcy_0d:300 DarcyAtc2ChemistryOff:darcy_atc2_chemistry_off:300
+  BenchPressureTransient:bench_pressure_transient:300 BenchTranspiration:bench_transpiration:300
+  BenchSharpFront:bench_sharp_front:300 BenchBaumAtreya:bench_baum_atreya:300 BenchZhang2010:bench_zhang2010:300
+  AblationZeroBlowing:ablation_zero_blowing:300 AblationSebClosure:ablation_seb_closure:300
+  Ablation306Static:ablation_306_static:400 AblationAtc21:ablation_atc21:300
+  AblationNodeshiftInert:ablation_nodeshift_inert:300 AblationRemapUniform:ablation_remap_uniform:300
+  AblationAtc22:ablation_atc22:3000 AblationAtc23:ablation_atc23:6600 AblationCoupled307:ablation_coupled307:300
+  AblationSmoothing:ablation_smoothing:300 AblationRecedingFront:ablation_receding_front:300
+  PeriodicMotion:periodic_motion:300 PeriodicReceding:periodic_receding:300 PeriodicDarcy:periodic_darcy:300)
+# fuss_add_physics_gate(NAME GATE TIMEOUT [options]): Gate_<NAME> runs the gate GATE of run_physics_gates.sh
+function(fuss_add_physics_gate NAME GATE TIMEOUT)
+  fuss_add_gate(Gate_${NAME} ${TIMEOUT} "gate;physics;verification"
+                bash ${CMAKE_CURRENT_SOURCE_DIR}/run_physics_gates.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_${NAME} -c ${GATE} ${ARGN})
+endfunction()
+foreach(_g IN LISTS _PHYSICS_GATES)
+  string(REPLACE ":" ";" _g "${_g}")
+  list(GET _g 0 _name)
+  list(GET _g 1 _gate)
+  list(GET _g 2 _timeout)
+  fuss_add_physics_gate(${_name} ${_gate} ${_timeout})
+endforeach()
+# receding with its .slow grids N160/N320 (-a; 637 s at 1 thread)
+fuss_add_physics_gate(RecedingAll receding 3600 -a)
+# the cross-thread leg of pyrolysis (energy_audit at 1 and FUSS_GATE_THREADS threads, byte for byte)
+set_tests_properties(Gate_Pyrolysis PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
+
+# The other gate scripts, 1 thread; TIMEOUT as above (local-disk walls of 2026-11-26: restart 27 s, guard demos 16 s,
+# determinism 21 s; the MPI gates on sprop2, 2026-11-27, alone and beside other tests: Gate_MPI 161-173 s, Gate_RestartMPI
+# 1.9-2.5 s, Gate_GuardDemosMPI 110-138 s (67 s on pcprop9), Gate_RuntimeIniMPI 6.5-7.5 s). The runtime-input gates take
+# 6 x their per-run bound (300 s, 900 s on N > 1 ranks) plus a margin, so that the script reports a hung run itself.
+# ctest_requires.sh turns a missing requirement into a skip (77): Intel MPI for the
+# MPI gates, the build's own compiler (its version: gfortran reads only its own .mod files), CMakePresets.json
+set(_REQ bash ${CMAKE_CURRENT_SOURCE_DIR}/ctest_requires.sh)
+set(_FC "fc=${CMAKE_Fortran_COMPILER}")
+if (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+  set(_FC "fc=${CMAKE_Fortran_COMPILER}:${CMAKE_Fortran_COMPILER_VERSION}")
+endif()
+# a run split in two halves with a restart between reproduces the continuous run (run_restart_gate.sh)
+fuss_add_gate(Gate_Restart 300 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_Restart)
+# every set-up refusal stops the configuration it is meant to reject, with its text and exit code 1
+fuss_add_gate(Gate_GuardDemos 300 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_GuardDemos)
+# input.ini read again during the run: only the runtime-mutable keys apply (each run bounded at 300 s)
+fuss_add_gate(Gate_RuntimeIni 2400 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_runtime_ini_gate.sh -b $<TARGET_FILE:${solver}> -w ${_GATES}/Gate_RuntimeIni)
+# the per-stage hook is checked at compile time, against this tree's modules
+fuss_add_gate(Gate_HookInterface 300 "gate;implementation;verification"
+              ${_REQ} ${_FC} -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_hook_interface_check.sh)
+set_property(TEST Gate_HookInterface APPEND PROPERTY ENVIRONMENT
+             "FC=${CMAKE_Fortran_COMPILER}" "FUSS_MODULE_DIR=${CMAKE_Fortran_MODULE_DIRECTORY}")
+# MORPH (MORPH_PATH of this tree) depends on no FUSS module, stops nowhere, compiles -Wall clean; its unit programs give
+# the same output at 1 and 8 threads (MORPH's own script)
+fuss_add_gate(Gate_MorphGuards 300 "gate;implementation;verification"
+              ${_REQ} ${_FC} -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_morph_guards.sh)
+set_property(TEST Gate_MorphGuards APPEND PROPERTY ENVIRONMENT "FC=${CMAKE_Fortran_COMPILER}" "MORPH_PATH=${MORPH_PATH}")
+set_tests_properties(Gate_MorphGuards PROPERTIES PROCESSORS 8)
+# every point-to-point MPI call of src/ carries a distinct named tag constant (static)
+fuss_add_gate(Gate_MPITags 300 "gate;implementation;verification"
+              python3 -I ${CMAKE_CURRENT_SOURCE_DIR}/check_mpi_tags.py --dir ${CMAKE_SOURCE_DIR}/src)
+# this tree was configured as its preset of CMakePresets.json says (mpi with USE_MPI, else default); skip without one
+fuss_add_gate(Gate_BuildConfig 300 "gate;implementation;verification"
+              ${_REQ} file=${CMAKE_SOURCE_DIR}/CMakePresets.json --
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/check_build_config.sh --preset ${_FUSS_PRESET})
+
+# The cross-thread section of run_determinism_gate.sh (-X): three cases at 1 and FUSS_GATE_THREADS threads, field.tec
+# byte for byte, in the work folder only. Not registered: its two full passes and run_init_sweep.sh, which run every case
+# in place through run_regression.sh (they replace the OUTPUT/ and bin/ folders of the cases in the source tree), and
+# the init sweep also builds twice into bin/ of the source tree (docs/development/testing.md)
+fuss_add_gate(Gate_Determinism 300 "gate;implementation;verification"
+              bash ${CMAKE_CURRENT_SOURCE_DIR}/run_determinism_gate.sh -X -b $<TARGET_FILE:${solver}>
+              -w ${_GATES}/Gate_Determinism)
+set_tests_properties(Gate_Determinism PROPERTIES PROCESSORS ${FUSS_GATE_THREADS})
+
+# MPI gates (mpi-gate, not needs-mpi: CI's MPI job runs Open MPI, these launch Intel MPI's $I_MPI_ROOT/bin/mpirun and
+# skip without it). The forms and rank counts of the records: run_mpi_gate.sh (up to 4 ranks), the restart of the
+# 4-block receding slab on 4 ranks, the guard demos on 2, the runtime input on 4
+if (USE_MPI)
+  fuss_add_gate(Gate_MPI 900 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_mpi_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_MPI)
+  fuss_add_gate(Gate_RestartMPI 300 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_restart_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_RestartMPI -m 4 -c test/moving-mesh/receding_4blk:200)
+  fuss_add_gate(Gate_GuardDemosMPI 700 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_guard_demos.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_GuardDemosMPI -m 2)
+  fuss_add_gate(Gate_RuntimeIniMPI 6000 "gate;mpi-gate;verification"
+                ${_REQ} impi -- bash ${CMAKE_CURRENT_SOURCE_DIR}/run_runtime_ini_gate.sh -b $<TARGET_FILE:${solver}>
+                -w ${_GATES}/Gate_RuntimeIniMPI -m 4)
+  set_tests_properties(Gate_MPI Gate_RestartMPI Gate_RuntimeIniMPI PROPERTIES PROCESSORS 4)
+  set_tests_properties(Gate_GuardDemosMPI PROPERTIES PROCESSORS 2)
 endif()

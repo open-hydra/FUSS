@@ -20,12 +20,18 @@ contains
     use FUSS_IO_BC,                only: Setup_BC
     use FUSS_Mod_Metrics,          only: Setup_Metrics
     use FUSS_IO_Probes,            only: Setup_Probes, Restart_Probes, Drop_Probe_Rows, Drop_Rows_After
-    use FUSS_IO_Wall,              only: Initialize_Wall_File, IOwall
+    use FUSS_IO_Wall,              only: Initialize_Wall_File, Set_Wall_Variables, IOwall
     use FUSS_Lib_Ghost,            only: Fill_Ghost_Cell, Fill_matIDg
     use FUSS_Mod_MPI,              only: mpi_is_root, partition_blocks, mpi_stop_all, mpi_stop_if_any, mpi_bcast_logical
+    use FUSS_Load_Pyrolysis,       only: Load_Pyrolysis_Tables, Check_Pyrolysis_Tables
+    use FUSS_Mod_Pyrolysis,        only: Write_Energy_Budget
+    use FUSS_Mod_Darcy,            only: Darcy_Setup_Blocks, Fill_Ghost_p, Darcy_Update_Velocity, Darcy_Print_Setup, &
+                                         Darcy_Is_Open
     use FUSS_Mod_Timers,           only: timer_run_begin
     use FUSS_Mod_GhostExchange,    only: build_ghost_schedule, build_local_bc_index, &
                                          allocate_exchange_schedules
+    use FUSS_Mod_Recession,        only: Ablation_Update_Env, Setup_Ablation, Setup_Recession, Setup_Recession_Seams
+    use FUSS_Mod_Periodic_Checks,  only: Check_Periodic_Translation, Check_Periodic_Permeability
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
     ! Local
@@ -46,10 +52,28 @@ contains
 
     ! Read input.ini
     call Read_Inifile ()
+    ! Flags DERIVED from the ini must exist before Check_Input, or a guard that
+    ! tests them is a comment for the input that sets them indirectly.
+    ! Example: `irs-beta > 0` enables IRS, but the promotion lived in
+    ! Assign_Setup, which runs after Check_Input, so `irs-beta = 0.5` with no
+    ! `irs` key passed the mesh-motion IRS guard and smoothed the remapped
+    ! residual anyway. Guard demo: run_guard_demos.sh irs_beta.
+    ! irs-beta alone switches IRS (upstream 3447dd9: the `irs` key is gone)
+    obj_irs%enabled = ( obj_irs%beta > 0d0 )
+    ! Same reason, plan 07: the Darcy closure is selected by a [FUSS-Pyrolysis]
+    ! key; every guard, the table checks and Assign_Setup read this flag.
+    obj_darcy%enabled = obj_pyrolysis%enabled .and. ( trim(obj_pyrolysis%gas_closure) == 'type2' )
     setup_error = .false.
     if (mpi_is_root) call Check_Input ( setup_error )
     call Stop_Together ( setup_error, 'input file error (see above)' )
     call Check_FAS ()
+
+    ! Pyrolysis material files (plan 06 section 3.2): loaded on every rank once the input is validated (a file every
+    ! rank reads stops every rank together, mpi_stop_all), value-checked on rank 0
+    if (obj_pyrolysis%enabled) call Load_Pyrolysis_Tables ()
+    setup_error = .false.
+    if (mpi_is_root .and. obj_pyrolysis%enabled) call Check_Pyrolysis_Tables ( setup_error )
+    call Stop_Together ( setup_error, 'pyrolysis material error (see above)' )
 
     ! Allocate container objects Domain and IOfield.
     allocate ( simulation%domain  ( obj_multigrid%MGL ) )
@@ -87,9 +111,22 @@ contains
 
     ! Read Boundary Conditions file
     call Setup_BC ( simulation%domain )
+    ! The checks of rank 0 on the boundary conditions, in the order of a run that stops at the first refusal: a later
+    ! check reads what an earlier one refused (plan 14 S6, D22)
     setup_error = .false.
-    if (mpi_is_root) call Check_BC ( setup_error )
+    if (mpi_is_root) then
+      call Check_BC ( setup_error )
+      if ( .not. setup_error .and. obj_pyrolysis%enabled ) &
+        call Check_Pyrolysis_BC_Topology ( simulation%domain(1), setup_error )
+      ! Ablating walls (plan 08): their rules hold with or without pyrolysis, so they are checked apart
+      if ( .not. setup_error .and. obj_ablation%enabled ) call Check_Ablation ( simulation%domain(1), setup_error )
+      if ( .not. setup_error .and. ( obj_ablation%enabled .or. trim(obj_mesh_motion%law) == 'nodeshift' ) ) &
+        call Check_Ablation_BC_Topology ( simulation%domain(1), setup_error )
+    end if
     call Stop_Together ( setup_error, 'boundary condition error (see above)' )
+    ! A restart reads the ablating faces' state back; law = nodeshift: the receding faces, the surface-node map
+    call Setup_Ablation ( simulation%domain(1), obj_sim_param%newrun )
+    call Setup_Recession ( simulation%domain(1) )
     
     ! MPI: partition blocks once on finest-level cell counts (restriction and
     ! prolongation are block-local, so a block must live on the same rank at
@@ -116,10 +153,24 @@ contains
       call fill_matIDg (simulation%domain(m))
     end do
 
+    ! Darcy closure (plan 07 section 3.3): the per-block sweep direction and
+    ! the sweep work arrays, once the BC types and the block ownership are known.
+    if (obj_darcy%enabled) call Darcy_Setup_Blocks ( simulation%domain(1) )
+
     ! Read grid file and setup metrics in each grid level.
     do m = 1, obj_multigrid%MGL
       call Setup_Metrics ( simulation%domain(m) )
     end do
+
+    ! Periodic faces (201) with ours' features (plan 14 S9d Part B), on the pairs of the finest level (the only level of a
+    ! moving mesh, Check_Mesh_Motion_Compatibility), fitted by Setup_Metrics; every rank, from the same data.
+    ! law = translation: a velocity that the copies of the periodic domain cannot follow stops here (Mod_Periodic_Checks)
+    call Check_Periodic_Translation ( simulation%domain(1) )
+    ! law = nodeshift: the periodic seams of the receding surface, then its smoothing windows (Mod_Recession; also
+    ! without a periodic face: the windows are built here since S9d)
+    call Setup_Recession_Seams ( simulation%domain(1) )
+    ! gas-closure = type2: the permeability tensors invariant under the rotation of every pair (Mod_Periodic_Checks)
+    call Check_Periodic_Permeability ( simulation%domain(1) )
     
     ! Setup probes location, output files, and variables to be printed (before the
     ! nodes of remote blocks are freed: placing a probe searches every block)
@@ -134,8 +185,10 @@ contains
     ! Solution setup
     call Setup_Output_Solution ( simulation%IOfield )
 
-    ! Initialize the wall files, one per multigrid level (wall, wall-level<n>)
+    ! Initialize the wall files, one per multigrid level (wall, wall-level<n>): the variables on
+    ! every rank (they size the wall values' reduction, plan 11), the files and patch meshes on root
     allocate ( IOwall(obj_multigrid%MGL) )
+    if (obj_io % write_wall) call Set_Wall_Variables ()
     if (mpi_is_root .and. obj_io % write_wall) then
       do m = 1, obj_multigrid%MGL
         call Initialize_Wall_File ( simulation%domain(m), simulation%IOfield(1)%tec%extension)
@@ -244,6 +297,15 @@ contains
           call Restart_Probes ( simulation%domain(1)%time, &
                                 resume = .not. ( obj_io%restart%steady .and. obj_time_scheme%time_accurate ) )
         call Fill_Ghost_Cell ( simulation%domain(1) )
+        ! Ablating walls (plan 08): the env values at the start time, so the
+        ! first step and a restart see the table's p_w
+        call Ablation_Update_Env ( simulation%domain(1), simulation%domain(1)%time, setup = .true. )
+        ! Gas-pressure ghosts and the t = 0 cell velocity (plan 07): serial
+        ! here, inside the parallel region of every later step.
+        if (obj_darcy%enabled) then
+          call Fill_Ghost_p ( simulation%domain(1) )
+          call Darcy_Update_Velocity ( simulation%domain(1) )
+        endif
 
         ! Interpolate initial solution on coarser domains
         if ( obj_multigrid%MGL > 1 ) then
@@ -254,6 +316,10 @@ contains
         endif
 
     end select
+
+    ! Pyrolysis energy budget at t = t0, after the caches are built and the
+    ! clock is set (plan 06 section 3.6); every rank (its block sums go to root)
+    if (obj_pyrolysis%enabled) call Write_Energy_Budget ( simulation%domain(1) )
 
     ! Print warnings onto the logfile/shell.
     if (mpi_is_root) call Print_Warnings ()
@@ -438,23 +504,45 @@ contains
 
     subroutine Check_Input ( has_error )
       use FUSS_Input_Registry
-      use FUSS_Read_Ini, only: input_warnings
+      use FUSS_Read_Ini, only: input_warnings, unknown_options_message, long_values_message
       implicit none
       logical, intent(out) :: has_error
       character(len=hlen) :: out
       integer :: r
 
-      out = Validate_Registry()
-      ! decomposition-map names a file of INPUT/: the folder, and the phase prefix of bc.txt, are put before it
-      if ( index(out,'ERROR') == 0 .and. trim(obj_io%decomposition_map) /= 'none' .and. &
-           index(obj_io%decomposition_map, '/') > 0 ) &
-        out = '[ERROR] input.ini, [FUSS-IO] decomposition-map = '//trim(obj_io%decomposition_map)// &
-              ': the value is the name of a file in INPUT/, without a folder'
-      has_error = index(out,'ERROR') > 0
-      if ( has_error ) then
+      has_error = .false.
+      ! Order (plan 14 S6, D-S6-2): Scan_Ini's errors first (levels that are not an integer, a probe numbered past a gap; upstream
+      ! 189ba21): a probe past a gap is also an option nothing registered, and its own message is the useful one. Then ours'
+      ! two checks (plan 10 D1, plan 14 D7), before the registry as in plan 10: a misspelt key keeps its default and passes
+      ! the registry, so the unknown option is the cause to name. Then the registry (upstream's rules on every key).
+      out = ''
+      if ( allocated(reg%load_error) ) then
+        out = reg%load_error
+      else if ( len_trim(unknown_options_message) > 0 ) then
+        has_error = .true.
+        write(*,'(A,T35,A)') '   Input file', 'FAIL'
+        write(*,'(4X,A)') trim(unknown_options_message)
+        write(*,'(4X,A)') 'This part of input.ini is not being applied. A misspelt key keeps'
+        write(*,'(4X,A)') 'its default, and a repeated section header is ignored entirely --'
+        write(*,'(4X,A)') 'in both cases the run would otherwise look completely normal.'
+      else if ( len_trim(long_values_message) > 0 ) then
+        has_error = .true.
+        write(*,'(A,T35,A)') '   Input file', 'FAIL'
+        write(*,'(4X,A)') trim(long_values_message)
+        write(*,'(4X,A)') 'The value would be cut to the limit without a message.'
+      else
+        out = Validate_Registry()
+        ! decomposition-map names a file of INPUT/: the folder, and the phase prefix of bc.txt, are put before it
+        if ( index(out,'ERROR') == 0 .and. trim(obj_io%decomposition_map) /= 'none' .and. &
+             index(obj_io%decomposition_map, '/') > 0 ) &
+          out = '[ERROR] input.ini, [FUSS-IO] decomposition-map = '//trim(obj_io%decomposition_map)// &
+                ': the value is the name of a file in INPUT/, without a folder'
+      endif
+      if ( index(out,'ERROR') > 0 ) then
+        has_error = .true.
         write(*,'(A,T35,A)') '   Input file', 'FAIL'
         write(*,'(4X,A)') trim(out)
-      else
+      else if ( .not. has_error ) then
         write(*,'(A,T35,A)') '   Input file', 'OK'
       endif
       if (allocated(input_warnings)) then
@@ -463,7 +551,566 @@ contains
         enddo
       endif
 
+      ! Ours' rules between keys (plan 05/06/07/08): each runs only on an input that passed what precedes it, as when
+      ! each of them stopped the run at its end
+      if ( .not. has_error ) call Check_Input_Consistency ( has_error )
+      if ( .not. has_error ) call Check_Mesh_Motion_Compatibility ( has_error )
+      if ( .not. has_error ) call Check_Pyrolysis_Compatibility ( has_error )
+
     end subroutine Check_Input
+
+
+    !> Keys that are each valid but contradict one another, or the build.
+    subroutine Check_Input_Consistency ( has_error )
+      implicit none
+      logical, intent(out) :: has_error
+      logical :: bad
+
+      bad = .false.
+
+#ifdef FUSS_NO_TECIO
+      ! Without TecIO, ORION cannot write or read a binary Tecplot file and ends the
+      ! run there with a bare stop: exit status 0, after the setup.
+      if ( index(obj_io%sol_format, 'binary') > 0 .and. index(obj_io%sol_format, 'tecplot') > 0 ) then
+        write(*,'(A)') ' [ERROR] sol-format = tecplot binary needs TecIO, and this FUSS is built without it'
+        write(*,'(A)') '         (USE_TECIO = false). Use tecplot ascii, or rebuild with USE_TECIO = true.'
+        bad = .true.
+      endif
+      if ( index(obj_io%ic_format, 'binary') > 0 .and. index(obj_io%ic_format, 'tecplot') > 0 ) then
+        write(*,'(A)') ' [ERROR] ic-format = tecplot binary needs TecIO, and this FUSS is built without it'
+        write(*,'(A)') '         (USE_TECIO = false). Use tecplot ascii, or rebuild with USE_TECIO = true.'
+        bad = .true.
+      endif
+#endif
+
+      has_error = bad
+
+    end subroutine Check_Input_Consistency
+
+
+    !> Reject combinations of moving mesh with convergence-acceleration features
+    !> whose interaction has not been analysed.
+    !>
+    !> These are enforced as ERRORS rather than documented as caveats on
+    !> purpose. Both would otherwise produce a plausible-looking answer that is
+    !> quietly wrong, which is the worst possible failure mode for a solver:
+    !>
+    !>   * IRS smooths the residual AFTER the volumetric source has been folded
+    !>     in and scaled by dt (Lib_Newstate.f90, Scale_Residual_Cons ->
+    !>     Residual_Smoothing). With a moving mesh the residual also carries the
+    !>     ALE swept-volume flux, and Jacobi-smoothing that term across cells
+    !>     destroys the discrete GCL balance it was constructed to satisfy.
+    !>
+    !>   * Multigrid builds the metrics of every level once, at setup
+    !>     (Wrap_Setup -> Setup_Metrics over all MGL levels). There is no
+    !>     coarse-level mesh-motion law, so coarse levels would keep the initial
+    !>     geometry while the fine level moves.
+    !>
+    !> Lifting either restriction is a separate piece of work, not a flag flip.
+    subroutine Check_Mesh_Motion_Compatibility ( has_error )
+      implicit none
+      logical, intent(out) :: has_error
+      logical :: bad
+
+      ! Test `law` directly rather than obj_mesh_motion%enabled: Check_Input
+      ! runs immediately after Read_Inifile, whereas `enabled` is derived later
+      ! in Assign_Setup. Reading the flag here would silently test an unset
+      ! value and the guard would never fire -- which is exactly what happened
+      ! the first time this was written.
+      has_error = .false.
+      if ( trim(obj_mesh_motion%law) == 'static' ) return
+
+      bad = .false.
+
+      if ( obj_irs%enabled ) then
+        write(*,'(A)') ' [ERROR] mesh motion is not compatible with implicit residual smoothing.'
+        write(*,'(A)') '         IRS smooths the residual after the ALE swept-volume flux has'
+        write(*,'(A)') '         been added, which breaks the discrete GCL balance.'
+        write(*,'(A)') '         Set irs = false, or law = static.'
+        bad = .true.
+      endif
+
+      if ( trim(obj_time_scheme%integration_variables) /= 'cons' ) then
+        write(*,'(A)') ' [ERROR] mesh motion requires integration-variables = cons.'
+        write(*,'(A)') '         The primitive path integrates T with a rho*cp coefficient and'
+        write(*,'(A)') '         carries no ALE swept-volume term, so it would silently ignore'
+        write(*,'(A)') '         the volume change instead of conserving energy across it.'
+        bad = .true.
+      endif
+
+      ! A moving mesh in a non-time-accurate run is not merely inaccurate, it is
+      ! undefined. Mod_Explicit advances domain%time only when one of the two
+      ! time-accurate flags is set; otherwise time stays pinned at -1.0 and the
+      ! motion law is evaluated at (-1 + dtglobal) every iteration. dtglobal is
+      ! itself the evolving local-time-stepping minimum, so the mesh does not
+      ! freeze -- it wobbles as convergence proceeds, and the swept volumes are
+      ! whatever that wobble produced. The GCL still holds, so nothing would
+      ! flag it.
+      if ( .not. obj_time_scheme%time_accurate .and. &
+           .not. obj_sim_param%HYDRA_time_accurate ) then
+        write(*,'(A)') ' [ERROR] mesh motion requires a time-accurate run.'
+        write(*,'(A)') '         With local time stepping the simulation clock is never advanced,'
+        write(*,'(A)') '         so the motion law would be evaluated at a meaningless time that'
+        write(*,'(A)') '         drifts with the local dt.'
+        write(*,'(A)') '         Set time-accurate = true, or law = static.'
+        bad = .true.
+      endif
+
+      ! The oscillatory prescribed law anchors its displacement to a REFERENCE
+      ! mesh, which it captures from whatever geometry it is first handed. On a
+      ! restart that geometry is the already-moved mesh out of the solution
+      ! file, so the displacement would be applied a second time on top of
+      ! itself and the run would continue from a different -- and physically
+      ! meaningless -- geometry. Nothing downstream could detect it: the GCL
+      ! would still hold, because the mesh is self-consistent, just wrong.
+      !
+      ! Restoring it properly means persisting the reference mesh, which is
+      ! effort spent on a verification-only law. The laws that Phase 3 actually
+      ! needs (translation, and node-shifting driven by the wall recession rate)
+      ! displace INCREMENTALLY from the current mesh and so restart correctly
+      ! with no extra state at all. Refuse the one case that cannot.
+      if ( trim(obj_mesh_motion%law) == 'prescribed' .and. .not. obj_sim_param%newrun ) then
+        write(*,'(A)') ' [ERROR] the prescribed mesh-motion law cannot be restarted.'
+        write(*,'(A)') '         It displaces from a reference mesh captured at setup, which on a'
+        write(*,'(A)') '         restart is the already-moved geometry, so the displacement would'
+        write(*,'(A)') '         be applied twice.'
+        write(*,'(A)') '         Use law = translation, which displaces incrementally, or start a'
+        write(*,'(A)') '         new run.'
+        bad = .true.
+      endif
+
+      if ( obj_multigrid%MGL > 1 ) then
+        write(*,'(A)') ' [ERROR] mesh motion is not compatible with multigrid.'
+        write(*,'(A)') '         Coarse-level metrics are built once at setup and there is no'
+        write(*,'(A)') '         coarse-level motion law, so coarse grids would keep the'
+        write(*,'(A)') '         initial geometry while the fine grid moves.'
+        write(*,'(A)') '         Use a single grid level, or law = static.'
+        bad = .true.
+      endif
+
+      has_error = bad
+
+    end subroutine Check_Mesh_Motion_Compatibility
+
+
+    !> Refuse the combinations pyrolysis (plan 06) has no treatment for. This
+    !> is the single, per-phase-extensible home for every pyrolysis / Darcy /
+    !> ablation setup guard: later phases add their refusals here, each with a
+    !> run_guard_demos.sh entry that shows it firing. Deliberately NOT inside
+    !> Check_Mesh_Motion_Compatibility, which returns early on a static mesh.
+    subroutine Check_Pyrolysis_Compatibility ( has_error )
+      use FUSS_Input_Registry, only: Key_Is_Set
+      use FUSS_Register_Darcy, only: Parse_Open_Codes
+      implicit none
+      logical, intent(out) :: has_error
+      logical :: bad, ok
+      integer :: codes(8), ncodes
+      character(len=64) :: badtok
+
+      bad = .false.
+
+      ! 12. [FUSS-Darcy] is read only under gas-closure = type2 (plan 07 §3.8);
+      !     present with another closure, or without [FUSS-Pyrolysis], nothing
+      !     would apply it -- the silent-non-application the input layer refuses.
+      if ( obj_darcy%section_present .and. .not. obj_darcy%enabled ) then
+        write(*,'(A)') ' [ERROR] [FUSS-Darcy] is read only with [FUSS-Pyrolysis] gas-closure = type2.'
+        write(*,'(A)') '         Remove the section, or select the type-2 gas closure.'
+        bad = .true.
+      endif
+
+      if ( .not. obj_pyrolysis%enabled ) then
+        has_error = bad
+        return
+      endif
+
+      ! 1. IRS. The promotion of irs-beta > 0 runs before Check_Input; the
+      !    second clause is a belt against it moving back.
+      if ( obj_irs%enabled .or. obj_irs%beta > 0d0 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis is not compatible with implicit residual smoothing.'
+        write(*,'(A)') '         The smoothed residual would no longer match the kinetics increments'
+        write(*,'(A)') '         it is integrated with. Set irs = false and irs-beta = 0.'
+        bad = .true.
+      endif
+
+      ! 2. Multigrid: there is no coarse-level reaction state.
+      if ( obj_multigrid%MGL > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis is not compatible with multigrid.'
+        write(*,'(A)') '         The reaction advancements are not restricted or prolongated.'
+        write(*,'(A)') '         Use a single grid level.'
+        bad = .true.
+      endif
+
+      ! 3. The stored energy E(T, chi) is the integrated variable (plan 06 R1).
+      if ( trim(obj_time_scheme%integration_variables) /= 'cons' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis requires integration-variables = cons.'
+        write(*,'(A)') '         The primitive path integrates T with a rho*cp coefficient that'
+        write(*,'(A)') '         assumes rho = rho(T); with pyrolysis rho depends on the history.'
+        bad = .true.
+      endif
+
+      ! 4. (the type-2 refusal of phase 2 was lifted by plan 07)
+
+      ! 5. The kinetics integrate physical time.
+      if ( .not. obj_time_scheme%time_accurate .and. .not. obj_sim_param%HYDRA_time_accurate ) then
+        write(*,'(A)') ' [ERROR] pyrolysis requires a time-accurate run.'
+        write(*,'(A)') '         The Arrhenius kinetics integrate physical time; local time stepping'
+        write(*,'(A)') '         would advance the reactions of every cell by a different, meaningless dt.'
+        write(*,'(A)') '         Set time-accurate = true.'
+        bad = .true.
+      endif
+
+      ! 6. The pyrolysis state is remapped through the swept volumes only for
+      !    the receding mesh of an ablating wall (plan 08 section 2.9).
+      if ( trim(obj_mesh_motion%law) /= 'static' .and. trim(obj_mesh_motion%law) /= 'nodeshift' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis on a moving mesh needs law = nodeshift.'
+        write(*,'(A)') '         Only the receding mesh of an ablating wall (306) remaps the pyrolysis state.'
+        bad = .true.
+      endif
+
+      ! 7. The type-1 closure needs the direction the gas leaves through
+      !    (type 2 takes the direction from the pressure field).
+      if ( .not. obj_darcy%enabled .and. trim(obj_pyrolysis%outflow_direction) == 'none' ) then
+        write(*,'(A)') ' [ERROR] pyrolysis: outflow-direction must be set (+i, -i, +j, -j, +k or -k).'
+        write(*,'(A)') '         The type-1 closure integrates the gas production along that direction.'
+        bad = .true.
+      endif
+
+      ! 8. (lifted by plan 11 stages 3a and 3b: pyrolysis runs on any rank count;
+      !    the ablating wall keeps its own refusal in Check_Ablation until stage 4)
+
+      ! Darcy closure, ini-level rules (plan 07 §3.8).
+      if ( obj_darcy%enabled ) then
+        ! 13. p-gas prescribes the gas pressure of type 1; under type 2 the
+        !     pressure is solved, so an explicit p-gas contradicts the choice.
+        if ( Key_Is_Set( trim(codename)//'-Pyrolysis', 'p-gas' ) ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Pyrolysis] p-gas is refused with gas-closure = type2: the gas pressure is solved.'
+          write(*,'(A)') '         Remove p-gas (use [FUSS-Darcy] p-init / p-wall).'
+          bad = .true.
+        endif
+        ! 14. The Jacobi damping must not exceed 1 (the registry checks one-sided rules only).
+        if ( obj_darcy%pseudo_vnn > 1.0d0 ) then
+          write(*,'(A,ES10.3)') ' [ERROR] [FUSS-Darcy] pseudo-vnn must be in (0, 1]; given ', obj_darcy%pseudo_vnn
+          bad = .true.
+        endif
+        ! 15. Every open-bc-types token is an openable wall code.
+        call Parse_Open_Codes( obj_darcy%open_bc_types, codes, ncodes, ok, badtok )
+        if ( .not. ok ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Darcy] open-bc-types: bad token "'//trim(badtok)//'"'
+          write(*,'(A)') '         Allowed: blank-separated codes from {301, 302, 303, 304, 305, 306, 103}.'
+          bad = .true.
+        endif
+        ! 16. The grid-following material frame is a placeholder key.
+        if ( obj_darcy%axes_follow_grid ) then
+          write(*,'(A)') ' [ERROR] [FUSS-Darcy] axes-follow-grid = true is not built: the permeability tensor is given in the mesh frame.'
+          bad = .true.
+        endif
+      endif
+
+      has_error = bad
+
+    end subroutine Check_Pyrolysis_Compatibility
+
+
+    !> bc.txt-level rules of the pyrolysis closures (root, after Check_BC): no
+    !> chimera face (102, 104); type 1: one block and a wall (301-307) or a
+    !> coupled face (103) on the outflow end; type 2: a face open to the gas when
+    !> the gas is produced. A coupled face (103) the gas leaves through gets one
+    !> notice: the gas is not handed to the other solver.
+    subroutine Check_Pyrolysis_BC_Topology ( domain, has_error )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
+      logical :: bad, kinetics_on
+      integer :: i, fo, r, nopen, nexit103
+
+      bad = .false.
+      nexit103 = 0
+
+      ! Darcy closure, bc-level rules (plan 07 §3.4, §3.8). The chimera
+      ! refusal must outlive plan 08's lifting of the single-block rule below.
+      if ( obj_darcy%enabled ) then
+        do i = 1, domain%nbound
+          if ( domain%bc(i)%type == 102 .or. domain%bc(i)%type == 104 ) then
+            write(*,'(A)') ' [ERROR] Darcy: a chimera (102, 104) face has no pressure condition under gas-closure = type2.'
+            write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, ' on face ', domain%bc(i)%f
+            bad = .true.
+            exit
+          endif
+        enddo
+        nopen = 0
+        do i = 1, domain%nbound
+          if ( Darcy_Is_Open( domain%bc(i)%type ) ) nopen = nopen + 1
+          if ( domain%bc(i)%type == 103 .and. Darcy_Is_Open( 103 ) ) nexit103 = nexit103 + 1
+        enddo
+        kinetics_on = ( obj_darcy%pi_source > 0.0d0 )
+        do r = 1, obj_pyrolysis%nsub
+          if ( obj_pyrolysis%reac(r)%A > 0.0d0 ) kinetics_on = .true.
+        enddo
+        if ( nopen == 0 .and. kinetics_on ) then
+          write(*,'(A)') ' [ERROR] Darcy: no face is open to the gas while the pyrolysis gas is produced.'
+          write(*,'(A)') '         The gas has nowhere to go: open a wall or coupled face through [FUSS-Darcy] open-bc-types.'
+          bad = .true.
+        endif
+        if ( nopen == 0 .and. obj_darcy%quasi_steady ) then
+          write(*,'(A)') ' [ERROR] Darcy: a sealed domain has no unique quasi-steady pressure (singular line systems).'
+          write(*,'(A)') '         Open a face through [FUSS-Darcy] open-bc-types, or set quasi-steady = false.'
+          bad = .true.
+        endif
+      endif
+
+      ! Guard 9 (plan 08 section 2.9): block connections (101) under type 2
+      ! only -- the type-1 outflow line integral restarts at every block, so a
+      ! second block's gas would be lost; chimera (102, 104) has no chi or p
+      ! donor path. A coupled face (103) mirrors chi as a wall does (the other
+      ! solver holds no chi) and passes the conduction flux of the coupling;
+      ! the gas that leaves through it is not handed to the other solver.
+      if ( .not. obj_darcy%enabled .and. domain%nb > 1 ) then
+        write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
+          'cross block faces); use type2 for a multi-block mesh.'
+        write(*,'(A,I0,A)') '         The mesh has ', domain%nb, ' blocks.'
+        bad = .true.
+      endif
+      do i = 1, domain%nbound
+        select case ( domain%bc(i)%type )
+          case (101)
+            if ( obj_darcy%enabled ) cycle
+            if ( domain%bc(i)%per /= 0 ) then
+              ! a periodic face (201) is read as a 101 with per /= 0 (IO_BC, upstream 477e50b)
+              write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 does not take a periodic face (201): FUSS reads it '// &
+                'as a block connection (101), and the outflow line integral does not cross block faces.'
+              write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is a periodic face (201) on face ', &
+                domain%bc(i)%f, ' of block ', domain%bc(i)%b
+            else
+              write(*,'(A)') ' [ERROR] pyrolysis: gas-closure = type1 is single-block (its outflow line integral does not '// &
+                'cross block faces); use type2 for a multi-block mesh.'
+              write(*,'(A,I0,A,I0)') '         bc.txt record ', i, ' is a block connection (101) on face ', domain%bc(i)%f
+            endif
+            bad = .true.
+            exit
+          case (102, 104)
+            write(*,'(A)') ' [ERROR] pyrolysis: chimera faces (102, 104) are refused (a 101 face needs gas-closure = type2).'
+            write(*,'(A,I0,A,I0,A,I0)') '         bc.txt record ', i, ' is of type ', domain%bc(i)%type, &
+              ' on face ', domain%bc(i)%f
+            bad = .true.
+            exit
+        end select
+      enddo
+
+      select case ( trim(obj_pyrolysis%outflow_direction) )
+        case ('+i') ; fo = 2
+        case ('-i') ; fo = 1
+        case ('+j') ; fo = 4
+        case ('-j') ; fo = 3
+        case ('+k') ; fo = 6
+        case ('-k') ; fo = 5
+        case default; fo = 0
+      end select
+      if ( obj_darcy%enabled ) fo = 0     ! guard 10 is the type-1 line integral's
+      if ( fo > 0 ) then
+        do i = 1, domain%nbound
+          if ( domain%bc(i)%b /= 1 .or. domain%bc(i)%f /= fo ) cycle
+          if ( domain%bc(i)%type == 103 ) then
+            nexit103 = nexit103 + 1
+          else if ( domain%bc(i)%type < 301 .or. domain%bc(i)%type > 307 ) then
+            write(*,'(A)') ' [ERROR] pyrolysis: outflow face must be a wall BC (301-307) or a coupled face (103).'
+            write(*,'(A,I0,A,I0,A)') '         Face ', fo, ' of block 1 carries type ', domain%bc(i)%type, &
+              ': a symmetry plane or a null face cannot pass the pyrolysis gas.'
+            bad = .true.
+            exit
+          endif
+        enddo
+      endif
+
+      ! The gas leaving through a coupled face (103) leaves FUSS's balance (the
+      ! budget's M_gas_out, Q_gas_out) and enters no other solver: the coupling
+      ! exchanges the conduction flux only.
+      if ( .not. bad .and. nexit103 > 0 ) then
+        write(*,'(A,I0,A)') ' [NOTICE] pyrolysis: the gas leaves through ', nexit103, ' coupled face(s) (103); it is '// &
+          'not passed to the other solver: its mass and enthalpy leave FUSS''s budget (M_gas_out, Q_gas_out) only.'
+      endif
+
+      has_error = bad
+
+    end subroutine Check_Pyrolysis_BC_Topology
+
+
+    !> bc.txt-level rules of the ablating wall 306 (plan 08 sections 2.1, 2.3,
+    !> 2.10), with or without pyrolysis (root, after Check_BC).
+    subroutine Check_Ablation ( domain, has_error )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
+      logical :: bad
+      integer :: i, r, m, fo
+      real(R8) :: v(8)
+
+      bad = .false.
+      ! (the MPI refusal is lifted: plan 11 stage 4)
+      if ( mod( obj_ablation%smoothing_width, 2 ) == 0 ) then
+        write(*,'(A,I0,A)') ' [ERROR] [FUSS-Ablation] smoothing-width = ', obj_ablation%smoothing_width, &
+          ' must be odd: the stencil is centred on its node (1 = no smoothing).'
+        bad = .true.
+      endif
+      ! multigrid: refused where the first 306 record is read (Read_BCfile)
+      if ( obj_mesh_motion%enabled ) then
+        select case ( trim(obj_mesh_motion%law) )
+          case ( 'translation', 'prescribed' )
+            write(*,'(A)') ' [ERROR] the ablating wall (306) cannot ride a '//trim(obj_mesh_motion%law)// &
+              ' mesh: its recession moves the mesh (law = nodeshift, plan 08), or nothing does (law = static).'
+            bad = .true.
+        end select
+      endif
+
+      fo = 0
+      if ( obj_pyrolysis%enabled .and. .not. obj_darcy%enabled ) then
+        select case ( trim(obj_pyrolysis%outflow_direction) )
+          case ('+i') ; fo = 2
+          case ('-i') ; fo = 1
+          case ('+j') ; fo = 4
+          case ('-j') ; fo = 3
+          case ('+k') ; fo = 6
+          case ('-k') ; fo = 5
+        end select
+      endif
+
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type /= 306 .and. domain%bc(i)%type /= 307 ) cycle
+        associate ( bc => domain%bc(i) )
+          ! the type-1 line integral carries the gas to the outflow face only
+          if ( fo > 0 .and. ( bc%b /= 1 .or. bc%f /= fo ) ) then
+            write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': under gas-closure = type1 a ', bc%type, &
+              ' face must be the outflow face (outflow-direction): the gas it blows is the line integral that ends there.'
+            bad = .true.
+          endif
+          ! a coupled ablating wall runs with the chemistry on (plan 08 section 2.5 ii);
+          ! its exchange values have no table here (hydra, or Setup_Ablation's coupled-env-file)
+          if ( bc%type == 307 ) then
+            if ( .not. obj_pyrolysis%enabled ) then
+              write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a coupled ablating wall (307) runs with the '// &
+                'chemistry on, which needs [FUSS-Pyrolysis] (its gas and its B'' table).'
+              bad = .true.
+            endif
+            if ( bad ) exit
+            cycle
+          endif
+          m = 0
+          if ( obj_pyrolysis%enabled ) m = nint( domain%blk(bc%b)%matID(bc%i,bc%j,bc%k) )
+          do r = 1, bc%env%nrow
+            v(1) = bc%env%time(r)
+            v(2:8) = bc%env%var(:,r)
+            if ( v(2) <= 0.0d0 .or. v(3) < 0.0d0 .or. v(7) < 0.0d0 .or. v(6) < 0.0d0 .or. v(6) > 1.0d0 &
+                 .or. v(8) <= 0.0d0 ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                ' needs p_w > 0, rhoeUeCH0 >= 0, hconv >= 0, 0 <= chem <= 1 and T_edge > 0'
+              bad = .true.
+            endif
+            if ( v(6) > 0.0d0 .and. .not. obj_pyrolysis%enabled ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, ' has chem > 0, but a 306 face '// &
+                'without [FUSS-Pyrolysis] (kinematic mode) has no pyrolysis gas and no B'' table: every row needs chem = 0.'
+              bad = .true.
+            endif
+            if ( v(6) > 0.0d0 .and. bc%ibprime == 0 ) then
+              write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                ' has chem > 0 and the face has no B'' table (none).'
+              bad = .true.
+            endif
+            if ( m > 0 .and. obj_darcy%enabled ) then
+              associate ( mt => obj_pyrolysis%mat(m) )
+                if ( v(2) < mt%p_lev(1) .or. v(2) > mt%p_lev(mt%Np) ) then
+                  write(*,'(A,I0,A,I0,A,ES12.4,A,ES12.4,A,ES12.4,A)') ' [ERROR] bc.txt record ', i, ': env row ', r, &
+                    ' p_w = ', v(2), ' Pa lies outside the gas table of the face''s material [', mt%p_lev(1), ', ', &
+                    mt%p_lev(mt%Np), '] Pa'
+                  bad = .true.
+                endif
+              end associate
+            endif
+            if ( bad ) exit
+          enddo
+        end associate
+        if ( bad ) exit
+      enddo
+
+      has_error = bad
+
+    end subroutine Check_Ablation
+
+
+    !> bc.txt-level rules of a RECEDING mesh (law = nodeshift, plan 08 section
+    !> 2.3), with or without pyrolysis (root, after Check_Ablation). The node-
+    !> map rules (a) and (b) need the surface-node map and are Setup_Recession's.
+    subroutine Check_Ablation_BC_Topology ( domain, has_error )
+      implicit none
+      type(FUSS_domain_type), intent(in) :: domain
+      logical, intent(out) :: has_error
+      logical :: bad
+      integer :: i, b, f, n306
+      integer, allocatable :: face_of(:)
+      real(R8) :: m0
+
+      bad = .false.
+      has_error = .false.
+      if ( trim(obj_mesh_motion%law) /= 'nodeshift' ) return
+
+      n306 = count( [( domain%bc(i)%type == 306, i = 1, domain%nbound )] )
+      if ( n306 == 0 ) then
+        write(*,'(A)') ' [ERROR] law = nodeshift moves the ablating faces (306), and bc.txt has none.'
+        has_error = .true.
+        return
+      endif
+
+      ! one receding face per block; its opposite face is not 306 as well
+      allocate( face_of(domain%nb) )
+      face_of = 0
+      do i = 1, domain%nbound
+        if ( domain%bc(i)%type /= 306 ) cycle
+        b = domain%bc(i)%b ; f = domain%bc(i)%f
+        if ( face_of(b) == 0 ) then
+          face_of(b) = f
+        elseif ( face_of(b) /= f ) then
+          if ( ( face_of(b) + 1 ) / 2 == ( f + 1 ) / 2 ) then
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ': its 306 faces ', face_of(b), ' and ', f, &
+              ' are opposite faces; under law = nodeshift the face opposite the receding one stays put.'
+          else
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ' carries 306 faces on two face ids (', face_of(b), &
+              ' and ', f, '); under law = nodeshift a block recedes from one face only.'
+          endif
+          bad = .true.
+          exit
+        endif
+      enddo
+
+      ! a receding block: no coupled face (MOSE does not move), one material, no qvol
+      do i = 1, domain%nbound
+        b = domain%bc(i)%b
+        if ( face_of(b) == 0 ) cycle
+        select case ( domain%bc(i)%type )
+          case ( 103, 104, 307 )
+            write(*,'(A,I0,A,I0,A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and owns a coupled face ', &
+              domain%bc(i)%type, ' (bc.txt record ', i, '): the coupled solver''s mesh does not move.'
+            bad = .true.
+            exit
+        end select
+      enddo
+      do b = 1, domain%nb
+        if ( face_of(b) == 0 ) cycle
+        associate ( blk => domain%blk(b) )
+          m0 = blk%matID(1,1,1)
+          if ( any( blk%matID(1:blk%dim(1),1:blk%dim(2),1:blk%dim(3)) /= m0 ) ) then
+            write(*,'(A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and holds more than one material: '// &
+              'matID is not remapped, so a receding block must be single-material.'
+            bad = .true.
+          endif
+          if ( any( blk%qvol(1:blk%dim(1),1:blk%dim(2),1:blk%dim(3)) /= 0.0d0 ) ) then
+            write(*,'(A,I0,A)') ' [ERROR] block ', b, ' recedes (law = nodeshift) and has a volumetric source qvol: '// &
+              'qvol stays attached to the cells and is not remapped.'
+            bad = .true.
+          endif
+        end associate
+      enddo
+
+      has_error = bad
+
+    end subroutine Check_Ablation_BC_Topology
 
 
     subroutine Check_FAS()
@@ -621,6 +1268,17 @@ contains
       write(*,'(A)') ' ========================================================================================='
       write(*,'(A)') ' Solid model'
       write(*,'(A,T35,A)') ' Equation', trim(obj_sim_param%description)
+      if ( obj_pyrolysis%enabled ) then
+        write(*,'(A)') ' Pyrolysis'
+        write(*,'(A,T35,A)') '   Gas closure', trim(obj_pyrolysis%gas_closure)
+        if ( .not. obj_darcy%enabled ) then
+          write(*,'(A,T35,A)') '   Outflow direction', trim(obj_pyrolysis%outflow_direction)
+          write(*,'(A,T35,ES12.4)') '   Gas pressure [Pa]', obj_pyrolysis%p_gas
+        endif
+        write(*,'(A,T35,I0)') '   Materials', obj_pyrolysis%nmat
+        write(*,'(A,T35,I0)') '   Reactions (all materials)', obj_pyrolysis%nsub
+        if ( obj_darcy%enabled ) call Darcy_Print_Setup ( simulation%domain(1) )
+      endif
       write(*,'(A)') ' ========================================================================================='
 
       ! ----- Numerical scheme -----

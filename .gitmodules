@@ -1,3 +1,6 @@
 [submodule "lib/FiNeR"]
 	path = lib/FiNeR
 	url = https://github.com/szaghi/FiNeR.git
+[submodule "lib/MORPH"]
+	path = lib/MORPH
+	url = https://github.com/open-hydra/MORPH.git

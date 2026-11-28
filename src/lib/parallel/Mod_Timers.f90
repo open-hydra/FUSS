@@ -108,7 +108,8 @@ contains
   end subroutine timer_iter_end
 
 
-  !> Open the exchange-wait timer. Call from a single-threaded region only.
+  !> Open the exchange-wait timer. Call on the master thread only (MPI_WTIME:
+  !> MPI_THREAD_FUNNELED).
   subroutine timer_comm_begin()
     t_comm_beg = timer_wtime()
   end subroutine timer_comm_begin

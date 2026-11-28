@@ -1,0 +1,6 @@
+{
+ "note": "plan 17 P17-D1: expected order of max|p - p_series|/dp at t = 0.5 L^2/D on the ladder N020/N040/N080 (verify_exact.py, tools/conv_rule.py): 2, the line solve's order in space; the backward-Euler step is first order in time and dt ~ dx^2 at fixed vnn (docs/theory/pyrolysis.md). Gate: run_physics_gates.sh -c bench_pressure_transient.",
+ "order": {
+  "e": 2
+ }
+}

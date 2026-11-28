@@ -116,6 +116,8 @@ nav:
     - Spatial Discretization: theory/numerics.md
     - Time Integration: theory/time-integration.md
     - Material Properties: theory/thermo.md
+    - Pyrolysis: theory/pyrolysis.md
+    - Ablating Walls: theory/ablation.md
 
   - Verification & Validation:
     - vv/index.md
@@ -132,6 +134,15 @@ nav:
     - Residual Convergence Analysis: vv/residual-convergence.md
     - Multigrid Cycles (FAS): vv/fas-cycles.md
     - Parallel Scaling: vv/parallel-scaling.md
+    - Parallel Identity: vv/parallel-identity.md
+    - Pyrolysis Kinetics and 0-D Decomposition: vv/pyrolysis-kinetics-0d.md
+    - Pyrolysis Energy Audit: vv/pyrolysis-energy-audit.md
+    - Two Materials in One Block under Pyrolysis: vv/pyrolysis-two-layer.md
+    - Ablation Test Case 1: vv/pyrolysis-atc1.md
+    - Ablation Test Case 2 (chemistry off): vv/pyrolysis-atc2.md
+    - Darcy Gas Closure, Exact Solutions: vv/darcy-exact.md
+    - Pyrolysis Literature Benchmarks: vv/pyrolysis-literature.md
+    - Ablating Wall: vv/ablating-wall.md
 
   - Developer Guide:
     - development/index.md

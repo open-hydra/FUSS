@@ -1,0 +1,13 @@
+{
+ "K": 1e-13,
+ "L": 0.05,
+ "T0": 1000.0,
+ "kind": "sealed_profile",
+ "ncells": 80,
+ "ny": 2,
+ "p0": 101325.0,
+ "pi": 0.1,
+ "quasi_steady": true,
+ "solver": "tridiag",
+ "tol": 1e-13
+}

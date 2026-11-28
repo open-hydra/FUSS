@@ -1,0 +1,6 @@
+{
+ "dt_peak": 30.0,
+ "mdot_hi": 1.05,
+ "mdot_lo": 0.95,
+ "note": "The mdot window of the gate: the FUSS peak gas flux within [mdot_lo, mdot_hi] x the lowest/highest of the three codes' peaks and its time within dt_peak s of their mean peak time. These factors are not taken from the reference (the codes' own range is not met: FUSS's converged peak is 2.7 % below the lowest code). The temperature tolerances are the codes' own spreads, computed by verify.py from ref/. Gate: bench_zhang2010."
+}

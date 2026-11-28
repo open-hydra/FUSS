@@ -1,6 +1,6 @@
 module FUSS_IO_Wall
   use iso_fortran_env, only: I4 => int32, R8 => real64
-  use FUSS_Config_Types_m, only: obj_io, obj_io_bc
+  use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_ablation, obj_mesh_motion
   use FUSS_Global_m
   use FUSS_Parameters_m
   use Lib_ORION_data
@@ -10,6 +10,27 @@ module FUSS_IO_Wall
   type(ORION_data), allocatable :: IOwall(:)
 
 contains
+
+  !> The wall output's variables. Set on EVERY rank: Extract_Properties_From_BC
+  !> sizes the reduction of the wall values with Onwall, while the wall file itself
+  !> is set up on root only (Initialize_Wall_File). Set on root alone, it left the
+  !> other ranks reducing zero values against root's Onwall per face cell -- a
+  !> collective with mismatched counts, which deadlocked the first wall output of
+  !> a multi-rank run (found 2026-10-16 by plan 11, multimat_Plate on 4 ranks).
+  subroutine Set_Wall_Variables ()
+    implicit none
+    ! Two columns, unless the run has an ablating wall (306, plan 08 section
+    ! 2.4): then seven, the extra five from the face's stored balance. A run
+    ! without one keeps its wall.tec byte for byte.
+    if ( obj_ablation%enabled ) then
+      obj_io%Onwall = 7
+      obj_io%Owallnames = '"Tw" "qw" "sdot" "mdot_pg" "mdot_ch" "Bprime" "recession"'
+    else
+      obj_io%Onwall = 2
+      obj_io%Owallnames = '"Tw" "qw"'
+    endif
+  end subroutine Set_Wall_Variables
+
 
   subroutine Initialize_Wall_File ( domain, extension )
     use FUSS_Advanced_Types_m
@@ -22,8 +43,7 @@ contains
 
     lv = domain%mg_level
     IOwall(lv)%tec%extension = extension
-    obj_io%Onwall = 2
-    obj_io%Owallnames = '"Tw" "qw"'
+    call Set_Wall_Variables ()
 
     allocate(IOwall(lv)%block(1:count(obj_io_bc%viscous_flag)))
 
@@ -88,6 +108,52 @@ contains
   end subroutine Initialize_Wall_File
 
 
+  !> Copy the current face nodes into the wall patches (root; the patches exist,
+  !> Initialize_Wall_File). A moving mesh calls it before every wall output.
+  subroutine Fill_Wall_Mesh ( domain )
+    use FUSS_Advanced_Types_m
+    implicit none
+    type(FUSS_domain_type), intent(in) :: domain
+    ! Local
+    integer :: b, f, bb, i, j, k, ni, nj, nk, lv
+
+    lv = domain%mg_level
+    bb = 0
+    do b = 1, domain % nb; do f = 1, 6
+      if ( .not. obj_io_bc%viscous_flag( b , f ) ) cycle
+      bb = bb + 1
+      ni = domain%blk(b)%dim(1); nj = domain%blk(b)%dim(2); nk = domain%blk(b)%dim(3)
+      select case(f)
+      case(1)
+        do k = 0, nk; do j = 0, nj
+          IOwall(lv) % block(bb) % mesh(:,0,j,k) = domain % blk(b) % node(0,j,k) % c
+        enddo; enddo
+      case(2)
+        do k = 0, nk; do j = 0, nj
+          IOwall(lv) % block(bb) % mesh(:,0,j,k) = domain % blk(b) % node(ni,j,k) % c
+        enddo; enddo
+      case(3)
+        do k = 0, nk; do i = 0, ni
+          IOwall(lv) % block(bb) % mesh(:,i,0,k) = domain % blk(b) % node(i,0,k) % c
+        enddo; enddo
+      case(4)
+        do k = 0, nk; do i = 0, ni
+          IOwall(lv) % block(bb) % mesh(:,i,0,k) = domain % blk(b) % node(i,nj,k) % c
+        enddo; enddo
+      case(5)
+        do j = 0, nj; do i = 0, ni
+          IOwall(lv) % block(bb) % mesh(:,i,j,0) = domain % blk(b) % node(i,j,0) % c
+        enddo; enddo
+      case(6)
+        do j = 0, nj; do i = 0, ni
+          IOwall(lv) % block(bb) % mesh(:,i,j,0) = domain % blk(b) % node(i,j,nk) % c
+        enddo; enddo
+      end select
+    enddo; enddo
+
+  end subroutine Fill_Wall_Mesh
+
+
   !> Update the orion-field data and write them accordingly to the chosen format (vtk,tecplot)
   subroutine Write_Wall_Solution( domain, file )
     use Lib_VTK
@@ -95,7 +161,7 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Parameters_m
     use FUSS_Mod_MPI, only: mpi_is_root
-    use FUSS_Mod_GhostExchange, only: mpi_io_barrier
+    use FUSS_Mod_GhostExchange, only: mpi_io_barrier, gather_node_to_root
     use strings, only: parse
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
@@ -113,6 +179,15 @@ contains
     ! Each rank computes wall properties for its local blocks and reduces to root.
     ! (collective — all ranks must call)
     call Extract_Properties_From_BC( domain )
+
+    ! A moving mesh: the wall patches take the current nodes. The patch mesh was
+    ! built once at setup, so every wall.tec of a moving run carried the initial
+    ! surface, on one rank too (plan 11 stage 2); the nodes of other ranks' blocks
+    ! are gathered first (collective).
+    if ( obj_mesh_motion%enabled ) then
+      call gather_node_to_root ( domain )
+      if ( mpi_is_root ) call Fill_Wall_Mesh ( domain )
+    endif
 
     if (mpi_is_root) then
       path = 'OUTPUT/'
@@ -156,14 +231,15 @@ contains
     use FUSS_Advanced_Types_m
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: mpi_is_root, is_local_block, mpi_reduce_sum_r8_array
-    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature
+    use FUSS_Lib_BC_Fluxes_Wall, only: Wall_Temperature, wall_newton_quiet
     use FUSS_Lib_Ghost, only: Fill_Ghost_Cell
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     real(R8), dimension(2) :: Ovar
+    real(R8), dimension(7) :: Ow
     integer :: f, lower, upper, i, b, bb, Bm, Im, Jm, Km, Fm, Is, Js, Ks
-    integer :: n_wall_total, wall_i, lv
+    integer :: n_wall_total, wall_i, nv, lv
     real(R8), allocatable :: wall_buf(:)
     type :: kept_block_t
       real(R8), allocatable :: T(:,:,:), matID(:,:,:)
@@ -185,6 +261,8 @@ contains
       kept_Tg(:,i)   = domain%bc(i)%Tg
       kept_matIDg(i) = domain%bc(i)%matIDg
     end do
+    ! The wall solves of the output (the fill's Ghost_Wall and the face loop below) are not counted (Lib_BC_Fluxes_Wall)
+    wall_newton_quiet = .true.
     !$omp parallel
     call Fill_Ghost_Cell ( domain )
     !$omp end parallel
@@ -197,7 +275,8 @@ contains
       end do
     end do
 
-    allocate(wall_buf(2 * n_wall_total))
+    nv = obj_io%Onwall
+    allocate(wall_buf(nv * n_wall_total))
     wall_buf = 0d0
 
     ! Each rank computes Ovar only for its local blocks
@@ -218,16 +297,25 @@ contains
           Km = domain % bc(i) % k
           Fm = domain % bc(i) % f
           Ovar = 0d0
+          Ow = 0d0
           if (domain % bc(i) % type >= 301 .and. domain % bc(i) % type <= 305) then
             ! As the residual: ghosts = .true., the ghost cells just filled from this field (above); the fill also set
             ! the values of the time tables at the output time (Ghost_Wall)
             call Wall_Temperature ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), .true., Ovar(1), Ovar(2) )
+            Ow(1:2) = Ovar
           endif
-          wall_buf(2*(wall_i-1)+1 : 2*wall_i) = Ovar
+          ! 306, 307: the stored state of the last converged balance -- re-
+          ! running the routine here would repeat the Newton solve and move it
+          if ( domain % bc(i) % type == 306 .or. domain % bc(i) % type == 307 ) &
+            Ow = [ domain%bc(i)%Tw_prev, domain%bc(i)%qw_last, domain%bc(i)%sdot, domain%bc(i)%mdot_pg, &
+                   domain%bc(i)%mdot_ch, domain%bc(i)%Bprime, domain%bc(i)%s_total ]
+          wall_buf(nv*(wall_i-1)+1 : nv*wall_i) = Ow(1:nv)
         enddo
 
       enddo ! face
     enddo ! block
+
+    wall_newton_quiet = .false.
 
     ! The state of the run back, as it was before the fill above
     do b = 1, domain%nb
@@ -242,7 +330,7 @@ contains
 
     ! Reduce wall_buf to root. Each cell is owned by exactly one rank, so SUM gives
     ! correct values.
-    call mpi_reduce_sum_r8_array(wall_buf, 2*n_wall_total)
+    call mpi_reduce_sum_r8_array(wall_buf, nv*n_wall_total)
 
     ! Root fills IOwall from the gathered buffer
     if (mpi_is_root) then
@@ -256,15 +344,14 @@ contains
 
           do i = lower, upper
             wall_i = wall_i + 1
-            Ovar = wall_buf(2*(wall_i-1)+1 : 2*wall_i)
+            Ow(1:nv) = wall_buf(nv*(wall_i-1)+1 : nv*wall_i)
 
             select case(f)
               case(1,2); Is = 1               ; Js = domain%bc(i)%j ; Ks = domain%bc(i)%k
               case(3,4); Is = domain%bc(i)% i ; Js = 1              ; Ks = domain%bc(i)%k
               case(5,6); Is = domain%bc(i)% i ; Js = domain%bc(i)%j ; Ks = 1
             end select
-            IOwall(lv)%block(bb)%vars(1, Is, Js, Ks) = Ovar(1)
-            IOwall(lv)%block(bb)%vars(2, Is, Js, Ks) = Ovar(2)
+            IOwall(lv)%block(bb)%vars(1:nv, Is, Js, Ks) = Ow(1:nv)
           enddo
 
         enddo ! face

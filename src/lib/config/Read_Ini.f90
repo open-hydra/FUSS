@@ -4,6 +4,12 @@ module FUSS_Read_Ini
 
   ! Warnings on keys that are set but have no effect, printed by Check_Input
   character(len=256), allocatable :: input_warnings(:)
+  !> Set by Read_Inifile when input.ini carries options nothing reads, or a repeated section (plan 10 D1). Reported by
+  !> Check_Input (Wrap_Setup), which refuses the input: every such option is listed in one pass.
+  character(len=1024), public :: unknown_options_message = ''
+  !> Set by Read_Inifile when a string value is longer than its variable (it would be cut without a message). Reported
+  !> by Check_Input.
+  character(len=1024), public :: long_values_message = ''
 
 contains
 
@@ -12,7 +18,10 @@ contains
     use FUSS_Read_Sim_Param, only: Register_Sim_Param
     use FUSS_Read_IO,        only: Register_IO_Fields, Register_Probes
     use FUSS_Read_Numerics,  only: Register_Numerics
-    use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini
+    use FUSS_Read_Pyrolysis, only: Register_Pyrolysis
+    use FUSS_Register_Darcy, only: Register_Darcy
+    use FUSS_Register_Ablation, only: Register_Ablation
+    use FUSS_Backend_INI,    only: Load_Ini, Scan_Ini, Snapshot_Ini_Text, Check_Unknown_Options, Check_Value_Lengths
     use FUSS_Input_Registry
     implicit none
     ! Local
@@ -32,15 +41,27 @@ contains
     call Register_IO_Fields()
     call Register_Probes(nprobes, probes_name)
     call Register_Numerics(nmgl)
+    call Register_Pyrolysis()
+    call Register_Darcy()
+    call Register_Ablation()
 
     ! Registry is built, now load the values from the ini file
     call Load_Ini(fini)
+    ! The text of every key at set-up, which each reading during the run is compared with (Reload_Runtime_Ini). Here and
+    ! not in Load_Ini, which every reading during the run calls too (Read_Inifile_Runtime): there it would overwrite the
+    ! set-up text before the comparison, and no change would ever be reported
+    call Snapshot_Ini_Text(fini)
 
     ! The keys of input.ini that the reader does not give
     call Warn_Unread_Keys(fini)
 
     ! Keys set to no effect
     call Find_Input_Warnings(fini, nmgl)
+
+    ! Anything in a FUSS-owned section that nothing registered is a typo or a stale key, and either way it is NOT
+    ! being applied (plan 10 D1, plan 14 D7). Recorded here, reported by Check_Input.
+    call Check_Unknown_Options(fini, unknown_options_message)
+    call Check_Value_Lengths(fini, long_values_message)
 
   end subroutine Read_Inifile
 
@@ -107,31 +128,30 @@ contains
   end subroutine Warn_Unread_Keys
 
 
-  !> input.ini read again during the run, every ini-diter iterations (FUSS_postprocess, at iteration iter). The values
-  !> read again keep to the rules of the registry, as at set-up (Check_Input in Wrap_Setup). An error of the reading (a
-  !> file that cannot be read, a value that does not read as its type, is out of its rule or is not finite) stops the run
-  !> with ini-error = stop, as at set-up. With ini-error = warn, the default, the reading is not taken: a warning gives
-  !> the iteration and the error (Write_Not_Taken), and the run goes on with every value it had before the reading,
-  !> those of the keys of the same reading that were right too (Save_Values before Load_Ini, Restore_Values on the
-  !> error). The value of ini-error in force when the reading starts decides, also when the file read again writes
-  !> another one: Load_Ini writes the value of the file in its variable before the checks. Every rank checks the text
-  !> that rank 0 read and passed to it (Load_Input_File), so every rank finds the same values; the ranks take each
-  !> decision together (the largest of a flag), so that every rank stops, or every rank goes on with the same values (a
-  !> rank that stopped alone would wait for the others in mpi_stop_all, and ranks with other values would call their
-  !> collectives in other orders). The runtime guards of FUSS (IRS, FAS; Wrap_Postprocess) run after this reading and
-  !> see the values it left.
+  !> input.ini read again during the run, every ini-diter iterations (FUSS_postprocess, at iteration iter).
+  !> The reading (plan 14 D8-A2): rank 0 reads the file and passes its text to every rank (Load_Input_File); the whole
+  !> reading keeps to the rules of the registry, as at set-up, and an error of it does what ini-error says (warn, the
+  !> default: the reading is not taken, Write_Not_Taken; stop: every rank stops, exit code 1). The value of ini-error in
+  !> force when the reading starts decides.
+  !> What a reading without error changes (plan 10 D3, user decision 2026-09-14): only the keys of RUNTIME_MUTABLE
+  !> (Backend_INI), each checked again on its own (Reload_Runtime_Ini); a changed value of any other key is IGNORED, the
+  !> run goes on with the value it started with, so the set-up guards (mesh motion, pyrolysis, Darcy, ablation) cannot be
+  !> bypassed mid-run. Every ignored change, and every reading not taken, is a line of
+  !> OUTPUT/<prefix>runtime-ini-ignored.txt (rank 0), created only then: its existence is the signal.
+  !> Every rank checks and applies the same text, so every rank takes the same decisions (no broadcast of values).
   subroutine Read_Inifile_Runtime(iter)
     use Finer,               only: file_ini
-    use FUSS_Backend_INI,    only: Load_Ini
+    use FUSS_Backend_INI,    only: Load_Ini, Reload_Runtime_Ini
     use FUSS_Input_Registry
     use FUSS_Config_Types_m, only: obj_io
-    use FUSS_Mod_MPI,        only: mpi_rank_, mpi_allreduce_max_r8, mpi_allreduce_min_r8, mpi_stop_all
+    use FUSS_Mod_MPI,        only: mpi_rank_, mpi_is_root, mpi_allreduce_max_r8, mpi_allreduce_min_r8, mpi_stop_all
     use iso_fortran_env,     only: R8 => real64
     implicit none
     integer, intent(in) :: iter   !< The iteration at which input.ini is read again
     ! Local
     type(file_ini) :: fini
     character(len=1024) :: out
+    character(len=4096) :: report
     real(R8) :: flag, flag_all, first
     logical  :: warn, taken
 
@@ -140,15 +160,18 @@ contains
 
     ! Load input.ini: a file that cannot be read stops the run, or with warn leaves the reading not taken
     call Load_Input_File(fini, 'Input file, read again', warn, iter, taken)
-    if (.not. taken) return
+    if (.not. taken) then
+      if (mpi_is_root) call Append_Ignored(iter, 'reading not taken: input.ini cannot be read (see the log)')
+      return
+    end if
 
-    ! The values before the reading, which a reading that is not taken puts back; then the values of the file
+    ! The whole reading against the rules of the registry: loaded into the registry, checked, and the values before the
+    ! reading put back whatever the verdict (Save_Values / Restore_Values); the keys it may change are applied below
     call Save_Values()
     call Load_Ini(fini)
-
-    ! Validate registry: the values read again keep to the rules of the registry, as at setup. The rule broken is
-    ! written once, by the first rank that found it (rank 0: every rank checks the same text)
     out = Validate_Registry()
+    call Restore_Values()
+
     flag = 0.0_R8
     if (index(out,'ERROR') > 0) flag = 1.0_R8
     call mpi_allreduce_max_r8(flag, flag_all)
@@ -156,7 +179,7 @@ contains
       call mpi_allreduce_min_r8(merge(real(mpi_rank_, R8), huge(1.0_R8), flag > 0.0_R8), first)
       if (warn) then
         if (flag > 0.0_R8 .and. nint(first) == mpi_rank_) call Write_Not_Taken('Input file, read again', iter, out)
-        call Restore_Values()
+        if (mpi_is_root) call Append_Ignored(iter, 'reading not taken: '//Without_Error_Tag(out))
         return
       end if
       if (flag > 0.0_R8 .and. nint(first) == mpi_rank_) then
@@ -167,7 +190,46 @@ contains
       call mpi_stop_all('stopped with the ranks that found an error in input.ini read again')
     end if
 
+    ! A reading without error: the runtime-mutable keys whose text changed are applied, every other change is ignored
+    call Reload_Runtime_Ini(fini, iter, report)
+    if (mpi_is_root .and. len_trim(report) > 0) call Append_Ignored(-1, report)
+
   end subroutine Read_Inifile_Runtime
+
+
+  !> A record of OUTPUT/<prefix>runtime-ini-ignored.txt (rank 0 only), opened in append mode, so that the file exists only
+  !> once something was ignored or not taken (plan 10 D3). iter >= 0: one line 'iteration <iter>:  <text>'; iter < 0:
+  !> text already holds its lines (Reload_Runtime_Ini's report).
+  subroutine Append_Ignored(iter, text)
+    use FUSS_Global_m, only: FUSS_phase_prefix
+    implicit none
+    integer,          intent(in) :: iter
+    character(len=*), intent(in) :: text
+    ! Local
+    integer :: u
+    character(len=32) :: head
+
+    open(newunit=u, file='OUTPUT/'//trim(FUSS_phase_prefix)//'runtime-ini-ignored.txt', &
+         status='unknown', position='append', action='write')
+    if (iter >= 0) then
+      write(head,'(A,I0,A)') 'iteration ', iter, ':  '
+      write(u,'(A)') trim(head)//'  '//trim(text)
+    else
+      write(u,'(A)') trim(text)
+    end if
+    close(u)
+
+  end subroutine Append_Ignored
+
+
+  !> An error of the registry without its leading '[ERROR] ' (the reading not taken is a warning, not an error)
+  function Without_Error_Tag(text) result(r)
+    implicit none
+    character(len=*), intent(in) :: text
+    character(len=:), allocatable :: r
+    r = trim(adjustl(text))
+    if (index(r, '[ERROR] ') == 1) r = r(9:)
+  end function Without_Error_Tag
 
 
   !> Loads input.ini into fini, and stops the run if it cannot be read: a file that cannot be opened (missing, or without

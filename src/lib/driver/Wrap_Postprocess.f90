@@ -35,6 +35,7 @@ contains
     use FUSS_Lib_Newstate,   only: fas_update_fallbacks
     use FUSS_Lib_Multigrid,  only: fas_fallbacks
     use FUSS_Mod_Timers,     only: timer_summary
+    use FUSS_Lib_BC_Fluxes_Wall, only: wall_newton_capped
     use IR_precision
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
@@ -140,6 +141,14 @@ contains
 
       ! Timing summary (collective — every rank contributes its accumulators)
       call timer_summary()
+
+      ! 304/305 wall-temperature solves that reached the 50-step Newton cap (Lib_BC_Fluxes_Wall, plan 14 D17),
+      ! summed over the ranks (collective, as the timing summary); one line, only if there was any
+      nfall = wall_newton_capped
+      call mpi_reduce_sum_r8( nfall )
+      if ( mpi_is_root .and. nfall > 0.5d0 ) write(*,'(A,I0,A)') ' [WARNING] wall BC 304/305: ', &
+        int(nfall, selected_int_kind(18)), ' wall-temperature solves reached the 50-step Newton cap in this run'// &
+        ' (the last iterate was used each time)'
 
       ! Write the level being computed (collective)
       call Write_Solution ( simulation%domain(level), simulation%IOfield(level), solfile )
@@ -310,7 +319,9 @@ contains
     ! Update input data
     if ( mod (simulation%domain(level) % iter, obj_io%ini_diter) == 0d0 ) then
       call Read_Inifile_Runtime( simulation%domain(level)%iter )
-      ! level<n>-iter / iter-threshold take effect at runtime
+      ! level<n>-iter / iter-threshold take effect at runtime. Under plan 14 D8-A2 iter-threshold is runtime-mutable
+      ! (Backend_INI RUNTIME_MUTABLE): its new value reaches itermax here; level<n>-iter, irs-beta and the FAS keys are
+      ! not, so the IRS and FAS blocks below see the set-up values and do nothing.
       if ( obj_multigrid%MGL > 1 ) then
         do m = 1, obj_multigrid%MGL
           simulation%domain(m)%itermax = obj_multigrid%iter_threshold(m)

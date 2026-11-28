@@ -12,17 +12,30 @@ contains
     use FUSS_Mod_MPI, only: is_local_block
     use FUSS_Lib_BC_Fluxes_Connection
     use FUSS_Lib_BC_Fluxes_Wall
+    use FUSS_Lib_BC_Fluxes_Wall_Ablating, only: BC_Wall_Ablating
+    use FUSS_Config_Types_m, only: obj_darcy
+    use FUSS_Mod_Darcy, only: Darcy_First_Step_Pending
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: f, lower, upper, i, ii, b
     integer  :: Bm, Im, Jm, Km, Fm
+    real(R8) :: Ovar(2)    ! wall temperature and flux of an ablating face
+    logical  :: count_clamps
     
     ! BC fluxes are computed block by block and, within a block, face by face, over the
     ! records of the blocks this rank owns only (lists built once by build_local_bc_index):
     ! no rank scans the records of the whole domain. The records of one face of one block
     ! write distinct target cells, so one worksharing loop over them is race-free; its
     ! implicit barrier keeps the face contributions of a corner cell summed in the order 1..6.
+    ! A wall BC (301-307) also leaves its wall temperature in bc%Tw_face, which the
+    ! type-2 gas-enthalpy flux of an open face reads later in the same stage.
+    ! The 301/302 time tables are read in the ghost fill (Ghost_Wall), at the
+    ! clock Mod_Explicit sets to the stage's time.
+    ! The ablating wall counts its B' table clamps only once per stage: not in
+    ! the first pass of a new type-2 run's first step, which is discarded.
+    count_clamps = .true.
+    if ( obj_darcy%enabled ) count_clamps = .not. Darcy_First_Step_Pending()
     blocks: do b = 1, domain % nb
       if (.not. is_local_block(b)) cycle blocks
       faces: do f = 1, 6
@@ -30,7 +43,7 @@ contains
         lower = domain % local_bf_first(b,f)
         upper = lower + domain % local_bf_count(b,f) - 1
 
-        !$omp do schedule ( dynamic ) private(ii, i, Bm, Im, Jm, Km, Fm)
+        !$omp do schedule ( dynamic ) private(ii, i, Bm, Im, Jm, Km, Fm, Ovar)
         do ii = lower, upper
           i  = domain % local_bf_idx(ii)
           Bm = domain % bc(i) % b
@@ -42,6 +55,8 @@ contains
           
             case (101) ! block connection: the share of the flux of the face that its owner left in this cell (Connection_Fluxes)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % Fc
+              ! TEST ONLY interface-flux.txt (plan 08 R5): the heat into the cell, the opposite of its residual share
+              domain % bc(i) % q_if = - domain % bc(i) % Fc
 
             case (102) ! chimera: two-sided balance with the cell metric and the ghost metric
               call BC_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) % Mg(1), &
@@ -52,6 +67,11 @@ contains
             case (301:305) ! walls: heat flux (301), temperature (302), convection (303), radiation (304, 305)
               call BC_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i) )
 
+            case (306, 307) ! wall: ablating (plan 08), surface energy balance with the B' table and the env
+                            ! table (307: the env of the hydra exchange, lambda = 0)
+              call BC_Wall_Ablating ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), Ovar, count_clamps )
+              domain % bc(i) % Tw_face = Ovar(1)
+            
             case(103,104) ! Multi-Solver Coupling (104 = with chimera)
               domain % blk(Bm) % R(Im,Jm,Km) = domain % blk(Bm) % R(Im,Jm,Km) + domain % bc(i) % ext_flux
           

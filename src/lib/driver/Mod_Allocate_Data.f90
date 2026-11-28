@@ -1,4 +1,5 @@
 module FUSS_Mod_Allocate_Data
+  use FUSS_Mod_MPI, only: fuss_abort
   use, intrinsic :: iso_fortran_env, only : iostat_end
   
   implicit none
@@ -9,15 +10,17 @@ contains
 
   subroutine Setup_Data_Structure ( domain, IOfield )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io
+    use FUSS_Config_Types_m, only: obj_io, obj_pyrolysis, obj_darcy
     use FUSS_Global_m
+    use FUSS_Mod_Pyrolysis,  only: Pyrolysis_Init_Cells
+    use FUSS_Mod_Darcy,      only: Darcy_Init_Cells
     use Lib_ORION_data
     
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     type(ORION_data), intent(inout)       :: IOfield
     ! Local
-    integer :: b, d, nblocks
+    integer :: b, d, r, nblocks
    
     ! Domain is the FUSS-alias of IOfield
     nblocks = size ( IOfield%block )
@@ -31,8 +34,8 @@ contains
       domain%blk(b)%dim(3) = IOfield%block(b)%Nk
     enddo
     
-    ! IOfield holds T, matID and qvol in every block (Read_vtk_tec allocates three variables and stops on an initial
-    ! condition with fewer than two)
+    ! IOfield holds T, matID and qvol in every block, and the pyrolysis and Darcy slots when enabled (Read_vtk_tec
+    ! allocates 3 + nchi + ndar variables and stops on an initial condition with fewer than two)
 
     do b = 1, nblocks
 
@@ -51,27 +54,77 @@ contains
       = IOfield%block(b)%vars(2, 1:,1:,1:)
       domain%blk(b)%qvol(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
       = IOfield%block(b)%vars(3, 1:,1:,1:)
+      ! Pyrolysis state (plan 06 section 3.6): vars(4:3+nsub) as Read_vtk_tec left them
+      if ( obj_pyrolysis%enabled ) then
+        do r = 1, obj_pyrolysis%nsub
+          domain%blk(b)%chi(r,1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+          = IOfield%block(b)%vars(3+r, 1:,1:,1:)
+        enddo
+      endif
+      ! Darcy state (plan 07 section 3.8), as Read_vtk_tec left it: vars(4+nsub)
+      ! p_pg (p-init on a new run), vars(5+nsub) T_prev (T when the file
+      ! carries none), vars(6+nsub) eta_prev and vars(7+nsub) eta_st (negative
+      ! sentinels when absent: Darcy_Init_Cells takes the equation of state).
+      if ( obj_darcy%enabled ) then
+        domain%blk(b)%p_pg(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(4+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%T_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(5+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%eta_prev(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(6+obj_pyrolysis%nsub, 1:,1:,1:)
+        domain%blk(b)%eta_st(1:IOfield%block(b)%Ni,1:IOfield%block(b)%Nj,1:IOfield%block(b)%Nk) &
+        = IOfield%block(b)%vars(7+obj_pyrolysis%nsub, 1:,1:,1:)
+      endif
       domain%time = obj_io%IOtime
 
     enddo
+
+    ! Darcy state of the initial field (plan 07 section 3.3): the equation-of-
+    ! state coefficient, the stored gas and the history. BEFORE the pyrolysis
+    ! caches, whose field-list round trip (T -> E -> T) reads the stored gas.
+    if ( obj_darcy%enabled ) call Darcy_Init_Cells ( domain )
+    ! Property caches from (T, chi), the initial-condition range check and the
+    ! field-list round-trip self-check (plan 06 section 3.1).
+    if ( obj_pyrolysis%enabled ) call Pyrolysis_Init_Cells ( domain )
 
   end subroutine Setup_Data_Structure
 
 
   subroutine Allocate_Block( blk, nijk )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_irs
+    use FUSS_Config_Types_m, only: obj_irs, obj_mesh_motion
     use FUSS_Global_m
+    use FUSS_Field_List_m,   only: Field_List_Count, Field_List_Get, field_entry_t
     implicit none
     integer, intent(in)                  :: nijk(3)
     type(FUSS_block_type), intent(inout) :: blk
     ! Local
-    integer :: ni, nj, nk
+    integer :: ni, nj, nk, fl, i, j, k
+    type(field_entry_t) :: e
 
     ni = nijk(1) ; nj = nijk(2) ; nk = nijk(3)
 
     ! Metrics
     allocate( blk % node ( 0:ni, 0:nj, 0:nk ) )
+
+    ! The ALE bookkeeping (previous-step volumes, swept volumes), needed only by
+    ! a moving mesh. Allocated on demand so a static run carries no extra memory.
+    ! The previous-step node positions are MORPH's (Morph_Update), not a block's.
+    if ( obj_mesh_motion%enabled ) then
+      allocate( blk % vol_old  ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+      allocate( blk % dV_swept ( 6, 1:ni, 1:nj, 1:nk ) )
+      blk % vol_old  = 0.0_R8
+      blk % dV_swept = 0.0_R8
+      ! law = nodeshift (plan 08 section 2.3): the per-step displacement of
+      ! the receding face's nodes, every incarnation of a shared node alike
+      if ( trim(obj_mesh_motion%law) == 'nodeshift' ) then
+        allocate( blk % node_disp ( 0:ni, 0:nj, 0:nk ) )
+        do k = 0, nk ; do j = 0, nj ; do i = 0, ni
+          blk % node_disp(i,j,k) % c = 0.0_R8
+        enddo ; enddo ; enddo
+      endif
+    endif
+
     allocate( blk % M    ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
     allocate( blk % dl   ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
     allocate( blk % vol  ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
@@ -91,17 +144,121 @@ contains
       allocate( blk % RS1, blk % RS2, mold = blk % R )
     end if
 
+    ! ------------------------------------------------------------------------
+    ! Initialise everything.
+    !
+    ! Setup_Metrics fills only the INTERIOR cells 1..n of vol/M/dl (ghost-cell
+    ! metrics are stored separately in bc%Mg/dlg/volg), so the ghost entries of
+    ! these arrays were previously left as whatever the allocator handed back.
+    ! That was observable: adding fields to this derived type -- which shifts the
+    ! heap layout and therefore the garbage -- changed the results of 254 of 262
+    ! solution artefacts across the test suite, including single-grid cases.
+    !
+    ! Results must not depend on the memory layout of a derived type. Zeroing
+    ! here makes runs reproducible across unrelated code changes, which is also
+    ! what makes byte-comparison regression gates meaningful at all.
+    ! ------------------------------------------------------------------------
+    blk % vol   = 0.0_R8
+    blk % dl    = FUSS_vector_3D_type( [0.0_R8, 0.0_R8, 0.0_R8] )
+    blk % M     = FUSS_tensor_3D_type( reshape([0.0_R8,0.0_R8,0.0_R8, &
+                                                0.0_R8,0.0_R8,0.0_R8, &
+                                                0.0_R8,0.0_R8,0.0_R8], [3,3]) )
+    blk % node  = FUSS_vector_3D_type( [0.0_R8, 0.0_R8, 0.0_R8] )
+
+    blk % T       = 0.0_R8
+    blk % TO      = 0.0_R8
+    blk % R       = 0.0_R8
+    blk % matID   = 0.0_R8
+    blk % qvol    = 0.0_R8
+    blk % dtlocal = 0.0_R8
+    if ( obj_irs%enabled ) then
+      blk % RS1 = 0.0_R8
+      blk % RS2 = 0.0_R8
+    end if
+
+    ! Fields of the list (plan 06 section 3.1): allocated and zeroed here,
+    ! freed in deallocate_remote_computation_data, written by IO_Solution. A
+    ! managed name without a handler stops the run, so a row added without its
+    ! handler fails loudly instead of silently staying unallocated.
+    do fl = 1, Field_List_Count()
+      e = Field_List_Get( fl )
+      if ( .not. e%managed ) cycle
+      select case ( trim(e%name) )
+        case ('chi')
+          allocate( blk % chi ( e%ncomp, 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+          blk % chi = 0.0_R8
+        case ('chiO')
+          allocate( blk % chiO ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % chiO = 0.0_R8
+        case ('dchi')
+          allocate( blk % dchi ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % dchi = 0.0_R8
+        case ('rho_s')
+          allocate( blk % rho_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % rho_s = 0.0_R8
+        case ('k_s')
+          allocate( blk % k_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % k_s = 0.0_R8
+        case ('cp_s')
+          allocate( blk % cp_s ( 1:ni, 1:nj, 1:nk ) )
+          blk % cp_s = 0.0_R8
+        case ('mdot_pg')
+          allocate( blk % mdot_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % mdot_pg = 0.0_R8
+        ! Darcy closure (plan 07 section 3.1)
+        case ('p_pg')
+          allocate( blk % p_pg ( 1-gc:ni+gc, 1-gc:nj+gc, 1-gc:nk+gc ) )
+          blk % p_pg = 0.0_R8
+        case ('p_pgO')
+          allocate( blk % p_pgO ( 1:ni, 1:nj, 1:nk ) )
+          blk % p_pgO = 0.0_R8
+        case ('u_pg')
+          allocate( blk % u_pg ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % u_pg = 0.0_R8
+        case ('p_new')
+          allocate( blk % p_new ( 1:ni, 1:nj, 1:nk ) )
+          blk % p_new = 0.0_R8
+        case ('eta_pg')
+          allocate( blk % eta_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_pg = 0.0_R8
+        case ('eta_prev')
+          allocate( blk % eta_prev ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_prev = 0.0_R8
+        case ('eta_st')
+          allocate( blk % eta_st ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_st = 0.0_R8
+        case ('eta_stO')
+          allocate( blk % eta_stO ( 1:ni, 1:nj, 1:nk ) )
+          blk % eta_stO = 0.0_R8
+        case ('gam_pg')
+          allocate( blk % gam_pg ( e%ncomp, 1:ni, 1:nj, 1:nk ) )
+          blk % gam_pg = 0.0_R8
+        case ('pi_pg')
+          allocate( blk % pi_pg ( 1:ni, 1:nj, 1:nk ) )
+          blk % pi_pg = 0.0_R8
+        case ('T_prev')
+          allocate( blk % T_prev ( 1:ni, 1:nj, 1:nk ) )
+          blk % T_prev = 0.0_R8
+        case default
+          write(*,'(A)') ' [ERROR] Allocate_Block: no handler for the managed field '//trim(e%name)
+          call fuss_abort ( 1 )
+      end select
+    enddo
+
   end subroutine Allocate_Block
   
 
   subroutine deallocate_remote_computation_data(domain)
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_mesh_motion
     use FUSS_Mod_MPI, only: is_local_block, mpi_is_root
+    use FUSS_Field_List_m, only: Field_List_Count, Field_List_Get, field_entry_t
 
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
-    integer :: b, d, i, c
-    logical, allocatable :: needs_remote_T(:)
+    integer :: b, d, i, c, fl
+    type(field_entry_t) :: e
+    logical, allocatable :: needs_remote_T(:), needs_remote_gam(:), needs_remote_dir(:)
 
     ! Build mask of remote blocks whose T and matID (and dir) must be kept:
     !  - chimera (102): remote donors of a receiver block this rank owns.
@@ -123,6 +280,28 @@ contains
       end select
     end do
 
+    ! Under the Darcy closure (plan 11 stage 3), the remote source block of a connection
+    ! into a block this rank owns keeps its gam_pg: the connection rows read the
+    ! neighbour's Gamma at the source cell, which Exchange_Gam_Halo refreshes there
+    allocate(needs_remote_gam(domain%nb))
+    needs_remote_gam = .false.
+    do i = 1, domain%nbound
+      if (domain%bc(i)%type /= 101) cycle
+      if (is_local_block(domain%bc(i)%b) .and. .not. is_local_block(domain%bc(i)%bs)) &
+        needs_remote_gam(domain%bc(i)%bs) = .true.
+    end do
+
+    ! A receding ablating wall (law = nodeshift, plan 11 stage 4): a remote block owning 306
+    ! faces keeps its face metrics, where Allgather_306_State puts each face's current area
+    ! and normal every step for the nodal recession rates
+    allocate(needs_remote_dir(domain%nb))
+    needs_remote_dir = .false.
+    if (trim(obj_mesh_motion%law) == 'nodeshift') then
+      do i = 1, domain%nbound
+        if (domain%bc(i)%type == 306) needs_remote_dir(domain%bc(i)%b) = .true.
+      end do
+    end if
+
     do b = 1, domain%nb
       if (is_local_block(b)) cycle
 
@@ -136,20 +315,57 @@ contains
       if (allocated(domain%blk(b)%dtlocal))      deallocate(domain%blk(b)%dtlocal)
       if (allocated(domain%blk(b)%qvol))         deallocate(domain%blk(b)%qvol)
 
+      ! Fields of the list (plan 06 section 3.1), same policy as TO/R
+      do fl = 1, Field_List_Count()
+        e = Field_List_Get( fl )
+        if ( .not. e%managed ) cycle
+        select case ( trim(e%name) )
+          case ('chi')    ; if (allocated(domain%blk(b)%chi))     deallocate(domain%blk(b)%chi)
+          case ('chiO')   ; if (allocated(domain%blk(b)%chiO))    deallocate(domain%blk(b)%chiO)
+          case ('dchi')   ; if (allocated(domain%blk(b)%dchi))    deallocate(domain%blk(b)%dchi)
+          case ('rho_s')  ; if (allocated(domain%blk(b)%rho_s))   deallocate(domain%blk(b)%rho_s)
+          case ('k_s')    ; if (allocated(domain%blk(b)%k_s))     deallocate(domain%blk(b)%k_s)
+          case ('cp_s')   ; if (allocated(domain%blk(b)%cp_s))    deallocate(domain%blk(b)%cp_s)
+          case ('mdot_pg'); if (allocated(domain%blk(b)%mdot_pg)) deallocate(domain%blk(b)%mdot_pg)
+          case ('p_pg')   ; if (allocated(domain%blk(b)%p_pg))    deallocate(domain%blk(b)%p_pg)
+          case ('p_pgO')  ; if (allocated(domain%blk(b)%p_pgO))   deallocate(domain%blk(b)%p_pgO)
+          case ('u_pg')   ; if (allocated(domain%blk(b)%u_pg))    deallocate(domain%blk(b)%u_pg)
+          case ('p_new')  ; if (allocated(domain%blk(b)%p_new))   deallocate(domain%blk(b)%p_new)
+          case ('eta_pg') ; if (allocated(domain%blk(b)%eta_pg))  deallocate(domain%blk(b)%eta_pg)
+          case ('eta_prev'); if (allocated(domain%blk(b)%eta_prev)) deallocate(domain%blk(b)%eta_prev)
+          case ('eta_st') ; if (allocated(domain%blk(b)%eta_st))  deallocate(domain%blk(b)%eta_st)
+          case ('eta_stO'); if (allocated(domain%blk(b)%eta_stO)) deallocate(domain%blk(b)%eta_stO)
+          case ('gam_pg') ; if (allocated(domain%blk(b)%gam_pg) .and. .not. needs_remote_gam(b)) &
+                              deallocate(domain%blk(b)%gam_pg)
+          case ('pi_pg')  ; if (allocated(domain%blk(b)%pi_pg))   deallocate(domain%blk(b)%pi_pg)
+          case ('T_prev') ; if (allocated(domain%blk(b)%T_prev))  deallocate(domain%blk(b)%T_prev)
+          case default
+            write(*,'(A)') ' [ERROR] deallocate_remote_computation_data: no handler for the managed field '//trim(e%name)
+            call fuss_abort ( 1 )
+        end select
+      enddo
+
       ! T and matID — free unless this remote block is a chimera donor
       if (.not. needs_remote_T(b)) then
         if (allocated(domain%blk(b)%T))     deallocate(domain%blk(b)%T)
         if (allocated(domain%blk(b)%matID)) deallocate(domain%blk(b)%matID)
       end if
 
+      ! The motion history of a moving mesh: only a block's own rank moves it and
+      ! remaps its cells (plan 11 stage 2)
+      if (allocated(domain%blk(b)%vol_old))  deallocate(domain%blk(b)%vol_old)
+      if (allocated(domain%blk(b)%dV_swept)) deallocate(domain%blk(b)%dV_swept)
+
       ! Metrics — free on non-root ranks only (root needs them for wall I/O)
       ! Keep dir on blocks needed for manifold (BC_Manifold reads blk(Bs)%dir%f%A)
+      ! The nodes stay on every rank (plan 11 stage 2): a block connection between
+      ! two ranks builds its ghost metric from the neighbour's node planes, which
+      ! exchange_node_planes refreshes each step, and root gathers them for output.
       if (.not. mpi_is_root) then
-        if (allocated(domain%blk(b)%node)) deallocate(domain%blk(b)%node)
         if (allocated(domain%blk(b)%M))    deallocate(domain%blk(b)%M)
         if (allocated(domain%blk(b)%dl))   deallocate(domain%blk(b)%dl)
         if (allocated(domain%blk(b)%vol))  deallocate(domain%blk(b)%vol)
-        if (.not. needs_remote_T(b)) then
+        if (.not. needs_remote_T(b) .and. .not. needs_remote_dir(b)) then
           do d = 1, 3
             if (allocated(domain%blk(b)%dir(d)%f)) deallocate(domain%blk(b)%dir(d)%f)
           end do
@@ -157,7 +373,7 @@ contains
       end if
     end do
 
-    deallocate(needs_remote_T)
+    deallocate(needs_remote_T, needs_remote_gam, needs_remote_dir)
 
   end subroutine deallocate_remote_computation_data
 

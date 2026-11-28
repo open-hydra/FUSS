@@ -1,0 +1,8 @@
+{
+ "ledger_full": 1e-10,
+ "note": "expected orders of the front error (1: a cell-by-cell front is first order by design) and of the L2 T error (1: it follows the front), averages over 30-300 s on the ladder full N100/N200 (verify.py, tools/conv_rule.py); ledger_full is the round-off floor of the full runs' gas ledger. Gate: bench_baum_atreya.",
+ "order": {
+  "eL2": 1,
+  "exf": 1
+ }
+}

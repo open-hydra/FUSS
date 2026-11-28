@@ -12,6 +12,9 @@ contains
     use FUSS_Config_Types_m
     use FUSS_IO_Solution,         only: Setup_Input_Solution
     use FUSS_Mod_Newstate,        only: Assign_Integration_Variables
+    use FUSS_Field_List_m,        only: Field_List_Init
+    use FUSS_Mod_Pyrolysis,       only: Pyrolysis_Assign_Setup
+    use FUSS_Mod_Darcy,           only: Darcy_Assign_Setup
     implicit none
 
     ! Setting input solution
@@ -23,10 +26,28 @@ contains
     else
       obj_time_scheme%n_rk = 1
     end if
-    obj_irs%enabled = ( obj_irs%beta > 0d0 )
+    ! obj_irs%enabled = ( irs-beta > 0 ) is set in FUSS_Wrap_Setup, BEFORE
+    ! Check_Input, so the guards see it (upstream 3447dd9 sets it here). Do not move it back here.
     obj_irs%at_setup = obj_irs%enabled
     call Assign_Integration_Variables()
     obj_space_scheme%stencil_metric = ( trim(obj_space_scheme%diffusive_metric) == 'stencil' )
+
+    ! Mesh motion. Derived here rather than registered directly, so that the
+    ! INI exposes one readable keyword (`law`) instead of a bare on/off flag
+    ! that could disagree with it. Must run before Setup_Data_Structure, which
+    ! allocates the ALE arrays (vol_old, dV_swept) only when this is true.
+    obj_mesh_motion%enabled = ( trim(obj_mesh_motion%law) /= 'static' )
+
+    ! Field list (plan 06 section 3.1): the pyrolysis rows need nsub, known
+    ! once the material files are loaded (before this routine); the converters
+    ! and the derived outflow direction come with them. Must run before
+    ! Setup_Data_Structure, whose Allocate_Block walks the list.
+    ! obj_darcy%enabled (gas-closure = type2) is derived in FUSS_Wrap_Setup
+    ! right after Read_Inifile, before Check_Input, for the same reason as
+    ! obj_irs%enabled: the guards must see it.
+    call Field_List_Init( obj_pyrolysis%nsub, obj_pyrolysis%enabled, obj_darcy%enabled )
+    if ( obj_pyrolysis%enabled ) call Pyrolysis_Assign_Setup()
+    if ( obj_darcy%enabled )     call Darcy_Assign_Setup()
 
     !! Descriptions, warnings and errors
 
@@ -43,6 +64,13 @@ contains
     end if
     if (obj_irs%enabled) then
       obj_irs%description = 'Beta set to '//trim(str(.true.,real(obj_irs%beta)))
+    end if
+
+    ! Mesh motion
+    if (obj_mesh_motion%enabled) then
+      obj_mesh_motion%description = 'ALE, law = '//trim(obj_mesh_motion%law)
+    else
+      obj_mesh_motion%description = 'static mesh'
     end if
 
   end subroutine Assign_Setup

@@ -1,0 +1,7 @@
+{
+ "note": "plan 17 P17-D1: expected order 1 of the mass-based front error (a cell-by-cell front is first order by design) and of the L2 T error, time averages over t >= 5 s (the T error follows the front; argued, P17-D12), on the ladder N050/N100/N200. Gate: bench_sharp_front.",
+ "order": {
+  "e": 1,
+  "exf": 1
+ }
+}

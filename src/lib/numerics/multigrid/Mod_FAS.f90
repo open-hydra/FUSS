@@ -15,9 +15,10 @@ contains
   subroutine FAS_Solve ( simulation, External_Function )
     use FUSS_Advanced_Types_m, only: FUSS_simulation_type
     use FUSS_Config_Types_m,   only: obj_multigrid, obj_sim_param
+    use FUSS_Hook_Interface_m, only: external_function_if
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
-    external :: External_Function
+    procedure(external_function_if) :: External_Function
     ! Local
     integer :: top
 
@@ -33,9 +34,10 @@ contains
     use FUSS_Advanced_Types_m, only: FUSS_simulation_type
     use FUSS_Config_Types_m,   only: obj_multigrid, obj_sim_param
     use FUSS_Mod_Explicit,     only: Explicit_Step
+    use FUSS_Hook_Interface_m, only: external_function_if
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
-    external :: External_Function
+    procedure(external_function_if) :: External_Function
     integer, intent(in) :: level, top
     ! Local
     integer :: it, g, nsmooth, ngamma

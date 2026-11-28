@@ -1,0 +1,198 @@
+#!/bin/bash
+#===============================================================================
+#         FILE: test/run_init_sweep.sh
+#        USAGE: ./test/run_init_sweep.sh [-p NTHREADS]
+#  DESCRIPTION: Detector for the "read a variable that was never assigned"
+#               defect family (plan 10, D8).
+#
+#               Builds the solver TWICE with opposite garbage-fill policies and
+#               runs the whole suite under each. If any artefact differs, some
+#               code path read uninitialised memory, and the differing case
+#               says where to look.
+#
+#                 A   -finit-local-zero
+#                       every local set to zero / .false.
+#                 B   -finit-logical=true -finit-integer=-999999
+#                     -finit-real=nan -finit-derived
+#                       every local set to something conspicuous
+#
+#               THREE instances of this defect have been found in FUSS, each by
+#               accident rather than by a test:
+#
+#                 blk%vol/M/dl ghost entries   results depended on the memory
+#                                              layout of a derived type; 254 of
+#                                              262 artefacts flipped
+#                 coarse SOLUTIONTIME          1.33e+180 in file headers
+#                 endsim / endmg               output file NAMES varied run to
+#                                              run with identical solutions;
+#                                              multigrid runs ended early
+#
+#               Three is a pattern. This is the check that would have caught
+#               all three in one pass.
+#
+#               KNOWN LIMIT, measured not assumed: these flags apply to LOCAL
+#               variables. gfortran does not reliably apply -finit-real to
+#               allocatable components, which is how the first instance above
+#               evaded an earlier -finit-real=snan attempt. A clean sweep is
+#               therefore evidence about locals, not a proof about the whole
+#               program. Allocated arrays are covered instead by explicit
+#               initialisation in Mod_Allocate_Data.
+#
+#               PROVEN RED. Reverting the endsim/endmg initialisation in
+#               Mod_Explicit and re-running just multimat_Plate under both
+#               builds reproduces the original defect exactly:
+#
+#                 pass A (-finit-local-zero, endmg = .false.)  files 1, 2, 3
+#                 pass B (-finit-logical=true, endmg = .true.) files 10, 20, 30
+#
+#               which is also the cleanest available explanation of why the
+#               original bug looked like run-to-run randomness: the two values
+#               the stack happened to hold are exactly the two the flags force.
+#
+#               WHAT IT DOES TO THIS TREE. Each pass builds in its own folder
+#               under ${TMPDIR:-/tmp}, but writes its executable to $ROOT/bin/FUSS
+#               (src/app/CMakeLists.txt sets the output folder to bin/ of the
+#               source tree), and runs every case in place through
+#               test/run_regression.sh, which deletes and writes again the
+#               OUTPUT/ and bin/ folders of the cases. At exit it deletes
+#               $ROOT/build and builds it again from the preset default, which
+#               writes $ROOT/bin/FUSS once more. That is why CTest does not
+#               register it: run it by hand, with nothing else using the tree.
+#===============================================================================
+set -u
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+NTHREADS=1
+
+while test $# -gt 0; do
+  case $1 in
+    -p | --parallel) NTHREADS=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-p NTHREADS]"; exit 1 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+WORK="${TMPDIR:-/tmp}/fuss-init-sweep.$$"
+mkdir -p "$WORK"
+
+FLAGS_A="-finit-local-zero"
+FLAGS_B="-finit-logical=true -finit-integer=-999999 -finit-real=nan -finit-derived"
+
+# Base flags copied from the normal RELEASE build. gcc-ar / gcc-ranlib are not
+# optional: with -flto and plain ar the FUSSL archive gets an empty symbol index
+# and the link fails with undefined references that look like missing sources.
+#
+# -ffp-contract=off in BOTH passes (2026-10-09, plan 07). The -finit-* code
+# changes the shape of the compiled procedures, and with it which a*b+c the
+# compiler fuses into one FMA: the type-2 Darcy cases (darcy/adiabatic0d_type2,
+# darcy/heated0d_type2) then differed between the passes in the last bit, made
+# visible by the temperature inversion's stop band, with every local
+# initialised (a signalling-NaN -O0 build trapped nothing). With contraction
+# off both passes agreed byte for byte on those cases; a local read before
+# assignment still differs between the passes, since its two values do.
+BASE="-fno-underscoring -march=native -cpp -ffree-line-length-none -ffp-contract=off"
+
+echo "FUSS uninitialised-read sweep"
+echo "  work    : $WORK"
+echo "  threads : $NTHREADS"
+echo
+
+# THE EXIT TRAP. Both passes write $ROOT/bin/FUSS (see the header), so the sweep
+# ends with pass B's -finit binary there. The trap deletes $ROOT/build and builds
+# it again from the preset, which writes the preset's executable to bin/FUSS.
+#
+# The trap was first written for another reason, gone since c8f1d07: the
+# top-level CMakeLists.txt then gave ORION and FiNeR the fixed binary folder
+# $ROOT/build/lib/ORION/, so every pass built them into $ROOT/build while their
+# .mod files went to the pass's own module folder, and the next
+# `cmake --build build` failed in ORION, PENF, FACE and FiNeR. They now build
+# in the build folder given (ORION in _deps/orion-build/, FiNeR in
+# _deps/finer-build/ of the pass's folder), and the passes no longer write into $ROOT/build.
+#
+# The copy of bin/FUSS made below ($SAVED) is not restored by the trap.
+SAVED="$WORK/FUSS.original"
+[ -f "$ROOT/bin/FUSS" ] && cp "$ROOT/bin/FUSS" "$SAVED"
+
+restore () {
+  echo
+  echo "  rebuilding $ROOT/build from the preset (it writes bin/FUSS, which the passes overwrote) ..."
+  rm -rf "$ROOT/build"
+  # Restore via the PRESET, never by hand-writing a cmake line. CMakePresets.json
+  # records the options this tree was actually configured with -- notably
+  # USE_OPENMP=true and USE_TECIO=false -- and CMake's own defaults are the
+  # opposite on both. Rebuilding with hand-written flags silently produced a
+  # serial, TecIO-linked binary whose results differed from the baseline in one
+  # case; it cost a full regression run to notice and another to explain.
+  ( cd "$ROOT" && cmake --preset default > "$WORK/restore.log" 2>&1 \
+      && cmake --build build -j 8 >> "$WORK/restore.log" 2>&1 ) \
+    && echo "  restored." \
+    || echo "  RESTORE FAILED -- see $WORK/restore.log; run 'cmake --preset default' by hand."
+}
+trap restore EXIT
+
+# FiNeR's five libraries in the mode of the tree's own build (CMakeLists.txt FUSS_FINER_DEPS: FREE unless its
+# cache says BACKUP): a configure in the other mode would move the clones in lib/FiNeR/src/third_party, or stop
+FINER_DEPS_MODE=$(sed -n 's/^FUSS_FINER_DEPS:[A-Z]*=//p' "$ROOT/build/CMakeCache.txt" 2>/dev/null)
+FINER_DEPS_MODE=${FINER_DEPS_MODE:-FREE}
+
+for pass in A B; do
+  case $pass in
+    A) EXTRA="$FLAGS_A" ;;
+    B) EXTRA="$FLAGS_B" ;;
+  esac
+
+  bdir="$WORK/build-$pass"
+  printf '  pass %s  configure+build ... ' "$pass"
+  # The compiler MUST be named explicitly. A fresh configure on this machine
+  # finds Intel's ifx first and fails in SetFortranFlags.cmake with "No compile
+  # flags were found" -- and the -finit-* flags are gfortran-specific anyway.
+  if ! cmake -S "$ROOT" -B "$bdir" \
+        -DCMAKE_BUILD_TYPE=RELEASE \
+        -DCMAKE_Fortran_COMPILER=/usr/bin/gfortran \
+        -DCMAKE_C_COMPILER=/usr/bin/gcc \
+        -DCMAKE_CXX_COMPILER=/usr/bin/g++ \
+        -DCMAKE_AR=/usr/bin/gcc-ar-12 \
+        -DCMAKE_RANLIB=/usr/bin/gcc-ranlib-12 \
+        -DFETCHCONTENT_SOURCE_DIR_ORION="$ROOT/lib/ORION" \
+        -DFUSS_FINER_DEPS="$FINER_DEPS_MODE" \
+        -DCMAKE_Fortran_FLAGS="$BASE $EXTRA" \
+        > "$WORK/$pass.cmake.log" 2>&1; then
+    echo "FAILED to configure -- see $WORK/$pass.cmake.log"; exit 1
+  fi
+  if ! cmake --build "$bdir" -j 8 > "$WORK/$pass.build.log" 2>&1; then
+    echo "FAILED to build -- see $WORK/$pass.build.log"; exit 1
+  fi
+  echo "done"
+
+  # No binary shuffling needed: src/app/CMakeLists.txt sets
+  # CMAKE_RUNTIME_OUTPUT_DIRECTORY to ${CMAKE_SOURCE_DIR}/bin, so an
+  # out-of-source build still writes $ROOT/bin/FUSS -- which is exactly what
+  # every case's FUSS.sh copies. Build then run, in that order, per pass.
+  # `touch` so the -nt check in FUSS.sh always refreshes the case-local copy.
+  touch "$ROOT/bin/FUSS"
+
+  printf '  pass %s  running suite ... ' "$pass"
+  if "$ROOT/test/run_regression.sh" -p "$NTHREADS" -o "$WORK/$pass" \
+       > "$WORK/$pass.run.log" 2>&1; then
+    echo "$(wc -l < "$WORK/$pass/manifest.txt") artefacts"
+  else
+    echo "FAILED -- see $WORK/$pass.run.log"; exit 1
+  fi
+done
+
+echo
+if diff -q "$WORK/A/manifest.txt" "$WORK/B/manifest.txt" > /dev/null; then
+  echo "  PASS  opposite initialisation policies gave identical artefacts"
+  echo "        (no local variable is read before being assigned)"
+  exit 0
+else
+  echo "  FAIL  the two builds disagree -- something reads uninitialised memory"
+  echo
+  diff "$WORK/A/manifest.txt" "$WORK/B/manifest.txt" \
+    | grep '^[<>]' | cut -f1 | sed 's/^[<>] //' | sort -u | sed 's/^/          /'
+  echo
+  echo "  Those cases are where to look. Note the symptom may be subtler than a"
+  echo "  wrong number: the endsim/endmg instance changed only output file NAMES"
+  echo "  while every solution stayed bit-identical."
+  exit 1
+fi

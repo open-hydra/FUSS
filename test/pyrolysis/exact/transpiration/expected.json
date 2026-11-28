@@ -1,0 +1,7 @@
+{
+ "note": "plan 17 P17-D1: expected orders of the steady max|T - T_exact| (2: docs/theory/numerics.md, 'Measured order') and of the relative mdot error (2: the Darcy flux of the second-order line solve; argued, P17-D12) on the ladder N020/N040/N080. Gate: bench_transpiration.",
+ "order": {
+  "e": 2,
+  "emdot": 2
+ }
+}

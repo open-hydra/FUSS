@@ -1,0 +1,225 @@
+#!/bin/bash
+#===============================================================================
+#         FILE: test/run_runtime_ini_gate.sh
+#        USAGE: ./test/run_runtime_ini_gate.sh [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]
+#  DESCRIPTION: input.ini is re-read every `ini-diter` iterations WHILE THE RUN
+#               IS IN PROGRESS. This gates what that re-read is allowed to do
+#               (plan 10, D3).
+#
+#               It used to re-assign every registered parameter and then compute
+#               Validate_Registry() into a variable it never looked at. So an
+#               out-of-range value was accepted in silence, `newrun` and `law`
+#               were re-assignable without the state derived from them being
+#               re-derived, and -- worst -- editing `irs = true` into a running
+#               moving-mesh case reached exactly the configuration that is
+#               refused at startup, because the guards only run at setup.
+#
+#               The policy now: only runtime-mutable parameters are applied.
+#               Anything else is IGNORED, the run continues on the value it
+#               started with, and the attempt is appended to
+#               OUTPUT/<prefix>runtime-ini-ignored.txt -- a file created ONLY
+#               when something was ignored, so its existence is the signal.
+#
+#               HOW THESE TESTS WORK, since the defect only exists mid-flight:
+#               each case starts a run configured to continue effectively
+#               forever, waits until it is demonstrably running, edits
+#               input.ini, and lets the run finish. `time-threshold` is
+#               runtime-mutable, so lowering it is BOTH the positive test and
+#               the mechanism that stops the run.
+#
+#               `time-threshold`, not `iter-threshold`, stops every case:
+#               iter-threshold became mutable only with plan 14 S6 (D8-A2), and
+#               the scenario iter_threshold_mutable tests it on its own.
+#===============================================================================
+set -u
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+BASE="$ROOT/test/moving-mesh/receding/N040"
+WORK="${TMPDIR:-/tmp}/fuss-runtime-ini.$$"
+NMPI=0
+BIN="${FUSS_GATE_BIN:-}"
+
+while test $# -gt 0; do
+  case $1 in
+    -w | --work) WORK=$2; shift 2 ;;
+    -m | --mpi)  NMPI=$2; shift 2 ;;
+    -b | --binary) BIN=$2; shift 2 ;;
+    -h | --help) echo "usage: $0 [-w WORKDIR] [-m NRANKS] [-b FUSS_BINARY]"; exit 1 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# -m N (plan 11): the mpi preset's bin/FUSS-mpi on N ranks through Intel MPI's own launcher. Rank 0
+# reads input.ini and passes its text to every rank (upstream 0bf87b2); only rank 0 writes the report: one copy of it.
+# Every run is bounded (timeout signals the solver's whole process group): a run the edits below fail to stop is a
+# FAIL after 300 s (900 s on N > 1 ranks), never a hang
+MPIOPT="" ; TMO="timeout 300"
+if [ "$NMPI" -gt 0 ]; then
+  [ -n "${I_MPI_ROOT:-}" ] || { echo "-m needs I_MPI_ROOT (the Intel MPI of the mpi preset)"; exit 1; }
+  export FUSS_EXE=FUSS-mpi FUSS_MPIRUN="$I_MPI_ROOT/bin/mpirun"
+  MPIOPT="-m $NMPI" ; [ "$NMPI" -gt 1 ] && TMO="timeout 900"
+fi
+
+mkdir -p "$WORK"
+# -b PATH (or FUSS_GATE_BIN): every run takes that executable, copied once into $WORK/.master/bin under the name its
+# FUSS.sh looks for (FUSS, or FUSS-mpi under -m), which is then their MASTERDIR; without it, bin/ of this tree as before
+MASTERDIR=$ROOT
+if [ -n "$BIN" ]; then
+  if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then echo "no FUSS executable at $BIN"; exit 1; fi
+  MASTERDIR="$WORK/.master"
+  mkdir -p "$MASTERDIR/bin" && cp "$BIN" "$MASTERDIR/bin/${FUSS_EXE:-FUSS}" || exit 1
+fi
+fail=0
+pass() { printf '  \033[0;32mPASS\033[0m  %s\n' "$1"; }
+bad()  { printf '  \033[0;31mFAIL\033[0m  %s\n' "$1"; fail=$((fail+1)); }
+
+echo "FUSS runtime input.ini gate"
+echo "  work dir : $WORK"
+[ -n "$BIN" ] && echo "  binary   : $BIN ($(md5sum < "$BIN" | cut -c1-8))"
+echo
+
+REPORT="OUTPUT/runtime-ini-ignored.txt"
+
+# $1 = case name, $2.. = sed expressions applied to input.ini MID-RUN
+start_case () {
+  local name=$1; shift
+  local d="$WORK/$name"
+
+  rm -rf "$d"; mkdir -p "$d"
+  cp -r "$BASE/INPUT" "$BASE/MESH" "$BASE/input.ini" "$BASE/FUSS.sh" "$d/"
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$MASTERDIR|" "$d/FUSS.sh"
+  mkdir -p "$d/OUTPUT" "$d/bin"
+
+  # Run effectively forever, and re-read input.ini often.
+  sed -i 's/^iter-threshold = .*/iter-threshold = 100000000/' "$d/input.ini"
+  sed -i 's/^time-threshold = .*/time-threshold = 1e30/'      "$d/input.ini"
+  sed -i 's/^ini-diter     = .*/ini-diter     = 20/'          "$d/input.ini"
+  cp "$d/input.ini" "$d/input.ini.start"
+
+  ( cd "$d" && $TMO ./FUSS.sh -p 1 $MPIOPT solve > run.log 2>&1 ) &
+  local runner=$!
+
+  # Wait until it is demonstrably past the first re-read, so the edit lands
+  # mid-flight rather than racing setup.
+  local waited=0
+  while [ ! -s "$d/OUTPUT/residual-history.dat" ] && [ $waited -lt 200 ]; do
+    sleep 0.1; waited=$((waited+1))
+  done
+  sleep 0.5
+
+  local e
+  for e in "$@"; do sed -i "$e" "$d/input.ini"; done
+  # The stop below must be read at a LATER re-read than the edit, so that iterations run after the edit was processed:
+  # with WAIT_FOR_REPORT set, wait for the report of the edit first (plan 17: the dt check of immutable_ignored)
+  if [ -n "${WAIT_FOR_REPORT:-}" ]; then
+    local w1=0
+    while [ ! -s "$d/$REPORT" ] && [ $w1 -lt 600 ]; do sleep 0.1; w1=$((w1+1)); done
+  fi
+  # A reading that breaks a rule is not taken as a whole (plan 14 S6, D8-A2): wait for its record, then put the file of
+  # the start back (through a copy: the solver must never read a half-written file), so the stop below is taken
+  if [ -n "${RESTORE_AFTER_REPORT:-}" ]; then
+    local w2=0
+    while [ ! -s "$d/$REPORT" ] && [ $w2 -lt 600 ]; do sleep 0.1; w2=$((w2+1)); done
+    cp "$d/input.ini.start" "$d/input.ini.new" && mv "$d/input.ini.new" "$d/input.ini"
+  fi
+  # Always stop it: time-threshold is read live every step, so this is also the
+  # positive control -- if the mutable path were broken the run would hang here
+  # and the test would time out rather than quietly pass.
+  sed -i 's/^time-threshold = .*/time-threshold = 1e-9/' "$d/input.ini"
+
+  wait $runner
+  echo "$d"
+}
+
+# ---------------------------------------------------------------------------
+d=$(start_case mutable_applies)
+if grep -q "FUSS timing" "$d/run.log"; then   # end-of-run banner of timer_summary (Mod_Timers.f90); "Time of operation" went away with the upstream timers (2b32bbc)
+  pass "a runtime-mutable change takes effect (time-threshold lowered, run stopped)"
+else
+  bad "mutable_applies: run did not terminate after time-threshold was lowered"
+fi
+if [ ! -f "$d/$REPORT" ]; then
+  pass "no report file when only mutable parameters changed"
+else
+  bad "mutable_applies: a report file was written when nothing should have been ignored"
+  sed 's/^/          /' "$d/$REPORT"
+fi
+
+# ---------------------------------------------------------------------------
+d=$(WAIT_FOR_REPORT=1 start_case immutable_ignored 's/^vnn = .*/vnn = 0.123/')
+if [ -f "$d/$REPORT" ] && grep -q "vnn" "$d/$REPORT"; then
+  pass "an immutable change is ignored and named: $(grep -m1 vnn "$d/$REPORT" | sed 's/^ *//')"
+else
+  bad "immutable_ignored: vnn change was not reported"
+fi
+if [ "$NMPI" -gt 1 ]; then
+  nvnn=$(grep -c "vnn" "$d/$REPORT" 2>/dev/null || echo 0)
+  if [ "$nvnn" -eq 1 ]; then
+    pass "...reported once on $NMPI ranks (root alone reads input.ini and writes the report)"
+  else
+    bad "immutable_ignored: the vnn line is in the report $nvnn times on $NMPI ranks (expected once)"
+  fi
+fi
+# the run's dt after the edit against its own dt before it (plan 17: no stored FUSS value): one distinct value, more
+# than one line (the report was waited for, so the stop came at least one ini-diter after the edit was read)
+ndt=$(grep -o 'Delta t = [^ ]*' "$d/run.log" | sort -u | wc -l)
+nln=$(grep -c 'Delta t = ' "$d/run.log")
+if [ "$ndt" -eq 1 ] && [ "$nln" -gt 1 ]; then
+  pass "...and the running value really was kept (dt unchanged over $nln steps: $(grep -o -m1 'Delta t = [^ ]*' "$d/run.log"))"
+else
+  bad "immutable_ignored: dt changed, so the edit was applied after all"
+  grep -m1 "Delta t" "$d/run.log" | sed 's/^/          /'
+fi
+
+# ---------------------------------------------------------------------------
+# The one that matters most: this combination is REFUSED at startup, so
+# reaching it mid-run was a way around the guard entirely.
+d=$(start_case guard_bypass 's/^integration-variables = cons$/integration-variables = cons\nirs-beta = 0.5/')
+if [ -f "$d/$REPORT" ] && grep -q "\[FUSS-Numerics\] irs-beta  ignored" "$d/$REPORT"; then
+  pass "enabling IRS mid-run on a moving mesh is ignored (the setup guard cannot be bypassed)"
+else
+  bad "guard_bypass: irs-beta change was not reported"
+fi
+
+# ---------------------------------------------------------------------------
+# A mutable parameter that IS read live must actually change behaviour, and
+# must not be reported as ignored.
+d=$(start_case mutable_not_reported 's/^res-threshold = .*/res-threshold = 1e-12/')
+if [ ! -f "$d/$REPORT" ]; then
+  pass "a mutable change is applied silently, with no report"
+else
+  bad "mutable_not_reported: res-threshold was treated as immutable"
+  sed 's/^/          /' "$d/$REPORT"
+fi
+
+# ---------------------------------------------------------------------------
+# iter-threshold is runtime-mutable since plan 14 S6 (D8-A2): a change is applied, not reported. (start_case's
+# time-threshold edit stops the run either way; itermax is re-derived by 66c8091:Wrap_Postprocess.f90:321-328)
+d=$(start_case iter_threshold_mutable 's/^iter-threshold = .*/iter-threshold = 1/')
+if [ ! -f "$d/$REPORT" ] && grep -q "FUSS timing" "$d/run.log"; then
+  pass "iter-threshold changed mid-run is runtime-mutable: not reported"
+else
+  bad "iter_threshold_mutable: iter-threshold was treated as immutable"
+  [ -f "$d/$REPORT" ] && sed 's/^/          /' "$d/$REPORT"
+fi
+
+# ---------------------------------------------------------------------------
+# A mutable parameter edited to an OUT-OF-RANGE value is refused with the whole
+# reading (plan 14 D8-A2: ini-error = warn), the old values kept, and the
+# refusal recorded in the report and the log.
+d=$(RESTORE_AFTER_REPORT=1 start_case invalid_value 's/^res-threshold = .*/res-threshold = -1.0/')
+if [ -f "$d/$REPORT" ] && grep -q "res-threshold must be" "$d/$REPORT" \
+   && grep -q 'reading not taken' "$d/$REPORT" && grep -q 'NOT TAKEN' "$d/run.log"; then
+  pass "an out-of-range mutable value is rejected: $(grep -m1 'res-threshold must' "$d/$REPORT" | sed 's/^ *//')"
+else
+  bad "invalid_value: the validation result was not acted on"
+  [ -f "$d/$REPORT" ] && sed 's/^/          /' "$d/$REPORT"
+fi
+
+echo
+if [ "$fail" -eq 0 ]; then
+  echo "runtime ini gate passed"
+else
+  echo "$fail check(s) FAILED"
+  exit 1
+fi

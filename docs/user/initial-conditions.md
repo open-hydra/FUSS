@@ -150,6 +150,7 @@ minus the global iteration count); otherwise it is time-accurate.
   of the restarted run only.
 - `residual-history.dat` and the probe files are appended to. Rows written after the solution read
   are dropped first.
+- On a restart from an older numbered solution, `energy-budget.txt`, `seb.txt`, `interface-flux.txt` and `darcy.txt` keep the previous run's rows past that solution; the residual history and the probe files are cut there.
 - With `sol-overwrite = false` the numbering continues from the stored output number, and earlier
   snapshots are kept.
 - With multigrid, a solution written at level 1 goes on at level 1: the coarse levels are restricted

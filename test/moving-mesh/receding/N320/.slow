@@ -1,0 +1,2 @@
+Grid-convergence case for gate 5.3; run it through test/moving-mesh/receding/run.sh,
+not the bit-identity regression. N320 alone takes about 20 minutes.

@@ -17,9 +17,10 @@ FUSS is an open-source solid heat-conduction solver for the energy equation on m
 
 - **Solid heat conduction** — steady-state and time-accurate computations on multi-block structured grids.
 - **Multi-material support** — multiple solid regions with temperature-dependent material properties (density, specific heat, thermal conductivity) read from tabulated data.
+- **Pyrolysing porous materials** — charring solids with Arrhenius kinetics; the pyrolysis gas by a quasi-steady one-dimensional outflow (type 1) or a Darcy pressure solve (type 2).
 - **Explicit time integration** — forward Euler, RK2 and RK3, with optional Implicit Residual Smoothing (IRS).
 - **Convergence acceleration** — local time stepping, grid sequencing (multigrid levels) and FAS V/W cycles for steady-state solutions.
-- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation with or without convection, symmetry, multi-block connection, chimera (overset) blocks, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
+- **Rich boundary conditions** — fixed temperature, prescribed heat flux, convective heat transfer with a prescribed flux, surface radiation with or without convection, symmetry, multi-block connection, periodic faces, chimera (overset) blocks, an ablating wall against B′ tables, and coupling to a fluid solver in hydra. Supports volumetric heat sources.
 - **Parallel execution** — shared-memory parallelism via OpenMP; MPI support for distributed-memory runs.
 - **Flexible I/O** — solution output in Tecplot (ASCII and binary) and VTK formats. Point probes for time-history recording. Restart capability.
 
@@ -62,10 +63,11 @@ See the [Quick Start](https://open-hydra.github.io/FUSS/getting-started/quick-st
 ### Run the Test Suite
 
 ```bash
-ctest --test-dir build -L fast                        # 24 tests (25 with TecIO), about a minute
+ctest --test-dir build -L fast                        # 25 tests (26 with TecIO), about a minute
 ctest --test-dir build -LE "needs-mpi|verification"   # the pull-request check (.github/workflows/ctest.yml)
-ctest --test-dir build -L verification                # observed order and FAS = single grid, about a minute on 6 cores
-ctest --test-dir build                                # all: verification cases, smoke runs, MPI checks
+ctest --test-dir build -L verification -LE gate       # observed order and FAS = single grid, about a minute on 6 cores
+ctest --test-dir build -L gate                        # the gate scripts (-L verification selects them too)
+ctest --test-dir build                                # all: verification cases, smoke runs, gates, MPI checks
 ```
 
 
@@ -77,8 +79,9 @@ FUSS is built on top of companion libraries: FiNeR v2.3.0 is the Git submodule `
 |---|---|
 | [ORION](https://github.com/MarcoGrossi92/ORION) | Multi-format I/O (Tecplot, VTK, Plot3D) |
 | [FiNeR](https://github.com/szaghi/FiNeR) | INI configuration file parser |
+| [MORPH](https://github.com/open-hydra/MORPH) | Mesh motion: motion laws, cell geometry, swept volumes |
 
-FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration. Every library is checked against the release FUSS requires (see [Versioning](https://open-hydra.github.io/FUSS/development/versioning/)); run `git submodule update --init` after pulling a change of the FiNeR pin. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
+FiNeR's own libraries (PENF, StringiFor, FACE, FLAP, BeFoR64) are cloned by the configuration. ORION and FiNeR are checked against the releases FUSS requires (see [Versioning](https://open-hydra.github.io/FUSS/development/versioning/)); MORPH is not; run `git submodule update --init` after pulling a change of the FiNeR pin. Optional external libraries: **OpenMP**, **MPI**, **TecIO**.
 
 ## Project Structure
 
@@ -113,8 +116,11 @@ FUSS/
 │   │   └── variable_cp_Plate/        #   Temperature-dependent heat capacity
 │   ├── numerics-features/            # Numerical feature checks
 │   │   ├── chimera/                  #   Chimera (overset) blocks
+│   │   ├── periodic_sector/          #   Periodic faces (BC 201)
 │   │   ├── residual_convergence/     #   Convergence strategy comparison
 │   │   └── time_convergence/         #   Parallel scaling performance
+│   ├── pyrolysis/                    # Pyrolysing solids, the Darcy gas closure, the ablating wall
+│   ├── mpi/                          # MPI bit-identity and thread-funnel checks
 │   ├── CMakeLists.txt                # CTest definitions
 │   └── run_case.sh                   # Runs one case for CTest
 ├── cmake/             # CMake modules

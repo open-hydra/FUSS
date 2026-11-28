@@ -29,7 +29,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # FiNeR, the one submodule (its five libraries are cloned by the configure, cmake/FiNeRDependencies.cmake). ORION is
+          # FiNeR and lib/MORPH, the two submodules (FiNeR's five libraries are cloned by the configure, cmake/FiNeRDependencies.cmake). ORION is
           # not a submodule: the configure checks out the newest release it accepts, over https (cmake/SemVerDeps.cmake).
           submodules: true
 
@@ -73,9 +73,10 @@ jobs:
         run: cmake --build build --parallel $(nproc)
 
       - name: Run tests
-        # The PR tier: the 40 tests of a build without MPI and TecIO (24 fast, 14 validation, 15 smoke), minus the full forms
-        # of the verification cases (label verification: ConvergenceOrder and MultigridSolution, about a minute on 6 cores,
-        # run on request). FUSS has no needs-cantera and needs-sundials. The longest test is ConvectivePlate
+        # The PR tier: the 41 tests of a build without MPI and TecIO (25 fast, 15 validation, 15 smoke), that is all but
+        # those labelled verification: the full forms of the verification cases (ConvergenceOrder and MultigridSolution,
+        # about a minute on 6 cores) and the gate scripts (label gate), run on request. FUSS has no needs-cantera and
+        # needs-sundials. The longest test is ConvectivePlate
         # (about two minutes at one thread; TIMEOUT 1200 in its registration).
         run: >
           ctest --test-dir build --output-on-failure --timeout 300
@@ -114,9 +115,9 @@ jobs:
       - name: Configure
         # FUSS: Mod_MPI.f90 is compiled with -fallow-argument-mismatch (src/lib/CMakeLists.txt:27-29, parallel theme c581f84) for
         # gfortran >= 10: it is what an `mpi` module without ignore-TKR interfaces (Intel MPI's) needs; with Open MPI's module
-        # it is harmless. The SetFortranFlags flag -fno-underscoring is on with gfortran, as in MOSE: this job passes only if
-        # Open MPI's Fortran library exports the lower-case names without a trailing underscore too (MOSE's own test-mpi job
-        # has the same flag and passes; with Intel MPI's library the link of FUSS fails, see ctest_alignment.md section 7).
+        # it is harmless. The SetFortranFlags flag -fno-underscoring is set only without MPI (plan 14 D6): this job links the
+        # underscored names (mpi_init_), which Intel MPI's libmpifort exports and Open MPI's Fortran library is expected to
+        # export too (S8 U4; MOSE keeps the flag with MPI).
         run: |
           cmake -B build \
             -DCMAKE_BUILD_TYPE=TESTING \

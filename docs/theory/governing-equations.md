@@ -85,7 +85,7 @@ $$
 \mathbf{P} = [T]
 $$
 
-Each cell also carries a material index, read with $T$ from the initial-condition file, and $\dot q_\text{vol}$ (see [Material Properties](thermo.md#volumetric-heat-generation)).  There is no velocity, pressure, or species field.  The key `integration-variables` selects what the Runge–Kutta stages advance; both options integrate the same equation:
+Each cell also carries a material index, read with $T$ from the initial-condition file, and $\dot q_\text{vol}$ (see [Material Properties](thermo.md#volumetric-heat-generation)).  Without pyrolysis there is no velocity, pressure, or species field (see [Decomposing Materials](#decomposing-materials)).  The key `integration-variables` selects what the Runge–Kutta stages advance; both options integrate the same equation:
 
 | `integration-variables` | Advanced quantity | Update of a stage |
 |---|---|---|
@@ -93,6 +93,19 @@ Each cell also carries a material index, read with $T$ from the initial-conditio
 | `prim` | temperature $T_i$ | the same increment divided by $\mathrm{d}h/\mathrm{d}T = \rho(T_i)\,c_p(T_i)$ |
 
 The two agree as long as the Energy column is the integral of $\rho\,c_p$, as ATLAS GPB writes it; FUSS checks the table when it loads it and warns when $\mathrm{d}h/\mathrm{d}T$ differs from $\rho\,c_p$ by more than 1 % (see [Material Properties](thermo.md#energy-column-and-the-enthalpy-inversion)).  The [variable-$c_p$ plate](../vv/2D-transient-variable-cp-plate.md) checks both paths.
+
+---
+
+## Decomposing Materials
+
+With a `[FUSS-Pyrolysis]` section the solid is a porous material that decomposes into a char and a pyrolysis gas, and the heat equation above is replaced.
+
+- The integrated variable is the total stored energy $E(T, \chi)$ of the solid (and, with the type-2 gas closure, of the gas in its pores), not $h(T)$ of `properties.dat`.
+- Each cell carries the advancement $\chi_r$ of every decomposition reaction, advanced with $T$ by the same Runge–Kutta stages; the type-2 closure adds the gas pressure, solved once per step.
+- The energy balance gains the enthalpy flow of the pyrolysis gas. The density follows from $\chi$; the conductivity and the specific heat blend the virgin and char tables.
+- The run must be time-accurate, with `integration-variables = cons`, no IRS and one grid level.
+
+The model and both gas closures are given in [Pyrolysis](pyrolysis.md); the surface energy balance of the ablating walls 306 and 307 in [Ablating Wall](ablation.md).
 
 ---
 
@@ -121,8 +134,10 @@ is the heat flux **into the solid** (W/m²): positive when the solid is heated t
 | `303` | convection (+ $q_\text{rad}$) | $q_\text{in} = h_\text{conv}\,(T_\text{ref} - T_w) + q_\text{rad}$ | `hconv qrad Tref` |
 | `304` | radiation | $q_\text{in} = \varepsilon\,\sigma\,(T_\text{ref}^4 - T_w^4)$ | `eps Tref` |
 | `305` | convection + radiation | $q_\text{in} = h_\text{conv}\,(T_\text{ref} - T_w) + \varepsilon\,\sigma\,(T_\text{ref}^4 - T_w^4)$ | `hconv eps Tref` |
+| `306` | ablating wall | $q_\text{in}$ from the surface energy balance with blowing and B′ table, solved for $T_w$ | `lambda T_inf <bprime-file> <env-file>` |
+| `307` | coupled ablating wall | the balance of 306 with the boundary-layer values of the coupled fluid solver | `bs is js ks fs d11 d12 d21 d22 T_inf <bprime-file>` |
 
-with $\sigma = 5.67\times10^{-8}$ W/(m²·K⁴).  Null and symmetry faces are adiabatic; both mirror the interior cells into the ghost cells.  A heat-flux wall with $q_w = 0$ is adiabatic as well.  For 301 and 303–305 the wall temperature $T_w$ is an unknown: it is the face temperature at which the conduction flux of the solid matches the prescribed $q_\text{in}$, and it is written to the wall output with $q_\text{in}$.  The discrete form of every condition, including the wall ghost cells, is given in [Spatial Discretisation](numerics.md#boundary-faces).  Codes 103 and 104 are only meaningful when FUSS runs inside hydra.
+with $\sigma = 5.67\times10^{-8}$ W/(m²·K⁴) (306 and 307 use $5.6704085581\times10^{-8}$).  Null and symmetry faces are adiabatic; both mirror the interior cells into the ghost cells.  A heat-flux wall with $q_w = 0$ is adiabatic as well.  For 301 and 303–307 the wall temperature $T_w$ is an unknown: it is the face temperature at which the conduction flux of the solid matches the prescribed $q_\text{in}$ (for 306 and 307, the $q_\text{in}$ of the surface energy balance), and it is written to the wall output with $q_\text{in}$.  The discrete form of every condition, including the wall ghost cells, is given in [Spatial Discretisation](numerics.md#boundary-faces).  Codes 103 and 104 are only meaningful when FUSS runs inside hydra; so is 307, which a standalone run can drive only through a test table.  The surface energy balance of 306 and 307 is given in [Ablating Wall](ablation.md).
 
 **Time tables.**  For 301 and 302 the data line may hold a file name instead of a number.  The file has two columns, time and value; if its first line contains the word `periodic`, the table repeats with period $t_\text{last} - t_\text{first}$.  Values are interpolated linearly, held at the first value before the first time and at the last value after the last time.  The table is evaluated at every ghost-cell fill; in a time-accurate run stage $s$ of the Runge–Kutta scheme reads it at $t^n + c_s\,\Delta t$ (the stage time), which preserves the temporal order of the scheme.  A run with a time table does not stop on `res-threshold` while `time-accurate = true`: the table keeps forcing the solution, so only `time-threshold` or `iter-threshold` end it.
 

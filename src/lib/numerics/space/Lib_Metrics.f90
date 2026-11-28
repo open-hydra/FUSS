@@ -1,3 +1,11 @@
+!>@brief Mesh type, ghost-cell metrics and the set-up checks of the cells.
+!>
+!> FUSS takes the geometry of its interior cells (volume, metric tensor, cell lengths, face normals and areas) from MORPH
+!> (lib/MORPH, through Adapter_Morph; plan 09), which also gives the swept volumes of a moving mesh: vol, vol_old and
+!> dV_swept from one kernel, so that the discrete GCL closes to round-off (plan 14 D9). This module serves the rest:
+!> Check_Mesh_Type (ndir, delthe from every block), the ghost-cell metrics (BC_*_Metrics), and the size, sign and volume
+!> checks of Compute_Metric_Tensor, which Mod_Metrics runs on the interior cells at set-up into scratch (the values MORPH
+!> computed are kept). Its volume (the integral of det J) and MORPH's are the same quantity, not the same bits.
 module FUSS_Lib_Metrics
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Base_Types_m

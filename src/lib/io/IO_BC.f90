@@ -7,7 +7,7 @@ module FUSS_IO_BC
   public :: Print_BC_Summary
 
   ! BC type counters — populated by Read_BCfile, consumed by Print_BC_Summary
-  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nperiodic
+  integer :: nconnect, nwall, nsym, nchimera, ncoupled, nablating, ncoupled_abl, nperiodic
   logical, public, protected :: has_tdep_bc = .false.   ! a 301/302 BC reads a time table
   character(len=64) :: bc_name = 'bc.txt'               ! the file being read, for the messages of its errors
   integer :: rec_other = 0, ti_other = 0                 ! the first record of that file with a code outside the documented
@@ -19,11 +19,11 @@ contains
 
   subroutine Setup_BC ( domain )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_multigrid, obj_io_bc
+    use FUSS_Config_Types_m, only: obj_multigrid, obj_io_bc, obj_pyrolysis
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain(obj_multigrid%MGL)
     ! Local
-    integer :: m, error, b
+    integer :: m, error, i, b
     integer, allocatable :: dims(:,:)
 
     do m = 1, obj_multigrid%MGL
@@ -49,6 +49,16 @@ contains
       end do
       call Read_BCfile ( domain(m) % bc, domain(m) % n_bf, m, dims )
       deallocate ( dims )
+
+      ! Pyrolysis (plan 06 section 3.1): the ghost chi stencil of every BC
+      ! entry is allocated and zeroed here; plan 08 fills it at connections.
+      if ( obj_pyrolysis%enabled ) then
+        do i = 1, domain(m) % nbound
+          if ( allocated(domain(m) % bc(i) % chig) ) deallocate( domain(m) % bc(i) % chig )
+          allocate( domain(m) % bc(i) % chig( obj_pyrolysis%nsub ) )
+          domain(m) % bc(i) % chig = 0.0d0
+        enddo
+      endif
       
     end do
 
@@ -107,7 +117,7 @@ contains
       read( unitfile,*,iostat=ios ) di(1), di(2), di(3), di(4), di(5), ti
       if ( ios == 0 ) call Note_Code ( n_proof + 2, ti )
       select case(ti)
-      case(101,201,301,302,303,304,305,103)
+      case(101,201,301,302,303,304,305,306,307,103)
         read( unitfile,*,iostat=ios )
       case(102,104)
         read( unitfile,*,iostat=ios ) ci, cii
@@ -134,8 +144,10 @@ contains
 
   subroutine Read_BCfile ( bc, n_bf, level, dims )
     use FUSS_Advanced_Types_m
-    use FUSS_Config_Types_m, only: obj_io, obj_io_bc
+    use FUSS_Config_Types_m, only: obj_io, obj_io_bc, obj_darcy, obj_ablation, obj_multigrid
     use FUSS_Global_m
+    use FUSS_Lib_Bprime, only: Load_Bprime_Table
+    use FUSS_Mod_MPI, only: mpi_stop_all
     use IR_Precision
     implicit none
     type(FUSS_bc_type), dimension(:), intent(inout) :: bc
@@ -143,11 +155,11 @@ contains
     integer, dimension(1:,1:), intent(inout)        :: n_bf
     integer, dimension(1:,1:), intent(in)           :: dims      ! cells of each block of this level: dims(1:3,b)
     ! Local
-    integer :: cc, i, s
+    integer :: cc, i, s, nzero_chim, ntok
     integer :: unitfile, ios, cios
     integer :: nline                         ! lines of the file read so far (Next_Line)
-    integer :: nzero_chim
     character(len=256) :: BCfile
+    character(len=256) :: bfile, efile
     character(len=:), allocatable :: pline   ! a line of the file, read whole
     integer :: lc
 
@@ -176,6 +188,8 @@ contains
       nsym = 0
       nchimera = 0
       ncoupled = 0
+      nablating = 0
+      ncoupled_abl = 0
       nperiodic = 0
       has_tdep_bc = .false.
     endif
@@ -207,6 +221,10 @@ contains
 
       ! n_bf update
       n_bf( bc(i) % b, bc(i) % f ) = n_bf( bc(i) % b, bc(i) % f ) + 1
+
+      ! Open-face gas pressure of plan 07 (read only under type 2): p-wall
+      ! unless a 303/305 value line carries its own fourth real below.
+      bc(i)%pw = obj_darcy%p_wall
 
       ! Second line is BC type-dependent
       select case( bc(i)%type )
@@ -294,11 +312,26 @@ contains
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
           bc(i)%hconv = EMPTY ; bc(i)%qrad = EMPTY ; bc(i)%Tref = EMPTY
           call Next_Line ( unitfile, pline, ios, nline )
-          if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
+          ! `hconv, qrad, Tref[, p_w]` (plan 07 section 4.3): four values first; a three-value line fails that read (end of
+          ! the internal record) and is read again for three, as upstream reads it, so no existing case moves and its
+          ! errors are upstream's. A null fourth item (a trailing comma) leaves the -huge sentinel (a sentinel a user could
+          ! type, such as -1, would be read as "not given").
+          bc(i)%pw = -huge(1.0d0)
+          cios = 1
+          if ( ios == 0 ) read( pline,*,iostat=cios ) bc(i)%hconv, bc(i)%qrad, bc(i)%Tref, bc(i)%pw
+          if ( ios == 0 .and. ( cios /= 0 .or. bc(i)%pw == -huge(1.0d0) ) ) then
+            bc(i)%hconv = EMPTY ; bc(i)%qrad = EMPTY ; bc(i)%Tref = EMPTY
+            read( pline,*,iostat=ios ) bc(i)%hconv, bc(i)%qrad, bc(i)%Tref
+            bc(i)%pw = obj_darcy%p_wall
+          endif
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
           call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
           call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%qrad, bc(i)%Tref ], 'hconv qrad Tref' )
-        
+          if ( .not. ( bc(i)%pw > 0.0d0 ) ) then   ! a fourth value <= 0, or not a number
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 303 line (p_w) must be > 0'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+
         case(304)
           if (level == 1) nwall = nwall + 1
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
@@ -314,10 +347,97 @@ contains
           obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
           bc(i)%hconv = EMPTY ; bc(i)%eps = EMPTY ; bc(i)%Tref = EMPTY
           call Next_Line ( unitfile, pline, ios, nline )
-          if ( ios == 0 ) read( pline,*,iostat=ios )  bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+          bc(i)%pw = -huge(1.0d0)
+          cios = 1
+          if ( ios == 0 ) read( pline,*,iostat=cios ) bc(i)%hconv, bc(i)%eps, bc(i)%Tref, bc(i)%pw
+          if ( ios == 0 .and. ( cios /= 0 .or. bc(i)%pw == -huge(1.0d0) ) ) then
+            bc(i)%hconv = EMPTY ; bc(i)%eps = EMPTY ; bc(i)%Tref = EMPTY
+            read( pline,*,iostat=ios ) bc(i)%hconv, bc(i)%eps, bc(i)%Tref
+            bc(i)%pw = obj_darcy%p_wall
+          endif
           if ( ios /= 0 ) call BC_Line_Error ( i, bc(i)%type, nline, pline )
           call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
           call Need_R ( i, bc(i)%type, nline, [ bc(i)%hconv, bc(i)%eps, bc(i)%Tref ], 'hconv eps Tref' )
+          if ( .not. ( bc(i)%pw > 0.0d0 ) ) then   ! a fourth value <= 0, or not a number
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': the fourth value of a 305 line (p_w) must be > 0'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+
+        case(306)
+          ! Ablating wall (plan 08 section 2.1): `lambda  T_inf  <bprime-file>
+          ! <env-file>`, the files bare names under INPUT/, read whole
+          ! (Next_Line), the file names included; `none` = no B' table, legal
+          ! only when every env row has chem = 0 (checked at setup, Check_Ablation).
+          if (level == 1) nwall = nwall + 1
+          if (level == 1) nablating = nablating + 1
+          obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
+          ! refused here, at the first 306 record of the fine grid: a coarse
+          ! grid would need its own bc file before any setup check could run
+          if ( obj_multigrid%MGL > 1 ) then
+            write(*,'(A)') ' [ERROR] the ablating wall (306) is not compatible with multigrid.'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          bfile = '' ; efile = ''
+          call Next_Line ( unitfile, pline, ios, nline )
+          if ( ios == 0 ) read( pline,*,iostat=ios ) bc(i)%lambda, bc(i)%Tinf, bfile, efile
+          if ( ios /= 0 .or. len_trim(efile) == 0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, &
+              ': a 306 line is "lambda  T_inf  <bprime-file>  <env-file>" (bare names under INPUT/, or none for the table)'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%lambda, bc(i)%Tinf ], 'lambda T_inf' )
+          if ( bc(i)%lambda < 0.0d0 .or. bc(i)%Tinf <= 0.0d0 ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 306 line needs lambda >= 0 and T_inf > 0'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          call bc(i)%env%load( 'INPUT/'//trim(efile), 7 )
+          bc(i)%ibprime = 0
+          if ( trim(bfile) /= 'none' ) bc(i)%ibprime = Load_Bprime_Table( 'INPUT/'//trim(bfile) )
+          if ( level == 1 ) then
+            obj_ablation%enabled = .true.
+            obj_ablation%n_faces = obj_ablation%n_faces + 1
+          endif
+
+        case(307)
+          ! Coupled ablating wall (plan 08 section 2.5 ii): the 103
+          ! connectivity record `bs is js ks fs d11 d12 d21 d22`, then `T_inf
+          ! <bprime-file>` -- exactly 11 tokens; no lambda, a coupled face runs
+          ! at lambda = 0 (the CFD's coefficient is already blown). The face is
+          ! 306's balance with the env taken from the exchange (env_now).
+          if (level == 1) nwall = nwall + 1
+          if (level == 1) nablating = nablating + 1
+          if (level == 1) ncoupled_abl = ncoupled_abl + 1
+          obj_io_bc%viscous_flag( bc(i)%b , bc(i)%f ) = .true.
+          obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
+          if ( obj_multigrid%MGL > 1 ) then
+            write(*,'(A)') ' [ERROR] the ablating wall (306, 307) is not compatible with multigrid.'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          bfile = ''
+          call Next_Line ( unitfile, pline, ios, nline )
+          ntok = 0
+          if ( ios == 0 ) ntok = Count_Tokens( pline )
+          if ( ios == 0 .and. ntok == 11 ) read(pline,*,iostat=ios) &
+            bc(i)%bs, bc(i)%is, bc(i)%js, bc(i)%ks, bc(i)%fs, bc(i)%d11, bc(i)%d12, bc(i)%d21, bc(i)%d22, bc(i)%Tinf, bfile
+          if ( ios /= 0 .or. ntok /= 11 ) then
+            write(*,'(A,I0,A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line is "bs is js ks fs d11 d12 d21 d22  T_inf  '// &
+              '<bprime-file>" (11 values, ', ntok, ' read): a coupled face takes no lambda, it runs at lambda = 0'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          call Need_Finite ( i, bc(i)%type, nline, [ bc(i)%Tinf ], 'T_inf' )
+          if ( bc(i)%Tinf <= 0.0d0 .or. trim(bfile) == 'none' ) then
+            write(*,'(A,I0,A)') ' [ERROR] bc.txt record ', i, ': a 307 line needs T_inf > 0 and a B'' table '// &
+              '(the chemistry of a coupled face is always on)'
+            call mpi_stop_all ( 'bc.txt error (see above)' )
+          endif
+          bc(i)%lambda = 0.0d0
+          bc(i)%ext_flux = 0.0
+          bc(i)%ibprime = Load_Bprime_Table( 'INPUT/'//trim(bfile) )
+          if ( level == 1 ) then
+            obj_ablation%enabled = .true.
+            obj_ablation%n_faces = obj_ablation%n_faces + 1
+            obj_ablation%n_coupled = obj_ablation%n_coupled + 1
+          endif
 
         case(102,104)
           if (level == 1 .and. bc(i)%type == 102) nchimera = nchimera + 1
@@ -355,6 +475,8 @@ contains
             obj_io_bc%coupling_flag( bc(i)%b , bc(i)%f ) = .true.
             bc(i)%ext_flux = 0.0
           endif
+          ! Both ghost rows need donors (104: MOSE donors, as checked on the MOSE side):
+          ! without them the blended ghost state is 0 (104: cons2prim divides by rho = 0)
           if (sum(bc(i)%volume_fraction(1:bc(i)%ni(1))) < 0.5d0 .or. &
               sum(bc(i)%volume_fraction(bc(i)%ni(1)+1:sum(bc(i)%ni))) < 0.5d0) then
             nzero_chim = nzero_chim + 1
@@ -396,7 +518,10 @@ contains
 
 
   subroutine Print_BC_Summary ()
+    use FUSS_Config_Types_m, only: obj_ablation, obj_time_scheme, obj_sim_param
+    use FUSS_Lib_Bprime,     only: Bprime_Count, Bprime_Describe
     implicit none
+    integer :: it
 
     write(*,*)
     write(*,'(A)') ' Boundary conditions'
@@ -405,10 +530,40 @@ contains
     if (nsym > 0)     write(*,'(A,T35,I0)') '   Symmetry', nsym
     if (nchimera > 0) write(*,'(A,T35,I0)') '   Chimera', nchimera
     if (ncoupled > 0) write(*,'(A,T35,I0)') '   Coupled wall', ncoupled
+    if (nablating > 0) then
+      if (nablating > ncoupled_abl) write(*,'(A,T35,I0)') '   Ablating wall (306)', nablating - ncoupled_abl
+      if (ncoupled_abl > 0) write(*,'(A,T35,I0)') '   Coupled ablating wall (307)', ncoupled_abl
+      do it = 1, Bprime_Count()
+        write(*,'(A)') '     B'' table '//trim(Bprime_Describe(it))
+      enddo
+    endif
     if (nperiodic > 0) write(*,'(A,T35,I0)') '   Periodic', nperiodic
     if (has_tdep_bc) write(*,'(A)') '   Time-dependent BC detected'
+    ! A steady run stays at time -1 (Wrap_Setup): each 301/302 time table gives one value for the whole run,
+    ! its first (a periodic table: its value at -1 within the period; Series_Data_m). Plan 14 D16, user 2026-11-11
+    if ( has_tdep_bc .and. .not. ( obj_time_scheme%time_accurate .or. obj_sim_param%HYDRA_time_accurate ) ) &
+      write(*,'(A)') ' [WARNING] steady run: every 301/302 time table is held at its value at time -1 for the whole run'// &
+                     ' (its first value; a periodic table: its value at -1 within the period)'
 
   end subroutine Print_BC_Summary
+
+
+  !> The number of list-directed values on a line: blank-, tab- or comma-
+  !> separated tokens (bare names hold none of these, plan 08 section 2.1).
+  pure function Count_Tokens ( line ) result ( n )
+    implicit none
+    character(len=*), intent(in) :: line
+    integer :: n, k
+    logical :: intok
+    n = 0 ; intok = .false.
+    do k = 1, len_trim(line)
+      if ( line(k:k) == ' ' .or. line(k:k) == ',' .or. line(k:k) == char(9) ) then
+        intok = .false.
+      elseif ( .not. intok ) then
+        n = n + 1 ; intok = .true.
+      endif
+    enddo
+  end function Count_Tokens
 
 
   !─────────────────────────────────────────────────────────────────────────────
@@ -493,7 +648,7 @@ contains
 
     if ( rec_other > 0 ) return
     select case ( ti )
-    case ( 0, 101, 102, 103, 104, 200, 201, 300, 301, 302, 303, 304, 305 )
+    case ( 0, 101, 102, 103, 104, 200, 201, 300, 301, 302, 303, 304, 305, 306, 307 )
     case default
       rec_other = n
       ti_other  = ti
@@ -512,7 +667,7 @@ contains
 
     hint = ''
     if ( rec_other > 0 .and. rec_other < n ) hint = '; record '//trim(str(.true.,rec_other))//' has code '// &
-      trim(str(.true.,ti_other))//', not one of 0, 101-104, 200, 201, 300-305: FUSS reads it without a data line'
+      trim(str(.true.,ti_other))//', not one of 0, 101-104, 200, 201, 300-307: FUSS reads it without a data line'
 
   end function Code_Hint
 

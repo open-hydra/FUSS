@@ -1,10 +1,18 @@
 build
+build-mpi
 bin
 CMakePresets.json
 site
 
 OUTPUT
+test/.regression
 __pycache__/
+.claude-context
+
+# Claude Code working files (local only)
+.claude/
+plan-bucket/
+CLAUDE.md
 
 # Release of ORION checked out by the configure (cmake/SemVerDeps.cmake), and the one selected
 deps.lock

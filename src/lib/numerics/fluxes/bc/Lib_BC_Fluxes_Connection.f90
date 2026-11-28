@@ -28,7 +28,7 @@ contains
   !> Flux of a face between blocks or with a chimera boundary from the two-sided balance of the temperature at the
   !> face (Tint) with the cell metric and the ghost metric Mg: the form of 102 for every metric, and of 101 with
   !> diffusive-metric = mean (the inverse-mean form of the former metric). Flux along the normal of growing index.
-  subroutine Connection_Face_Flux_Tint ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, Flux )
+  subroutine Connection_Face_Flux_Tint ( Im, Jm, Km, Fm, Blk, Mg, Tg, matIDg, Flux, kappa_pair )
     use FUSS_Lib_Solid
     use FUSS_Lib_Diffusive
     implicit none
@@ -37,6 +37,9 @@ contains
     real(R8), intent(in)         :: Tg(6), matIDg
     type(FUSS_block_type), intent(in) :: Blk
     real(R8), intent(out)        :: Flux
+    !> pyrolysis (plan 08 section 2.9): the conductivities of the two sides, k_s(T, chi) -- this cell's from the cache,
+    !> the neighbour's from Solid_State at the ghost state (Connection_Fluxes); absent = co_Kappa of both
+    real(R8), intent(in), optional :: kappa_pair(2)
     ! Local
     integer :: Dir, Face_im, Face_jm, Face_km, modfm2
     real(R8) :: T_loc, T_con, T_ip_loc, T_im_loc, T_jp_loc, T_jm_loc, T_kp_loc, T_km_loc
@@ -70,8 +73,13 @@ contains
     
     T_con = Tg(1)
 
-    call co_Kappa( Blk % matID(Im,Jm,Km), T_loc, kappa_loc )
-    call co_Kappa( matIDg, T_con, kappa_con )
+    if ( present(kappa_pair) ) then
+      kappa_loc = kappa_pair(1)
+      kappa_con = kappa_pair(2)
+    else
+      call co_Kappa( Blk % matID(Im,Jm,Km), T_loc, kappa_loc )
+      call co_Kappa( matIDg, T_con, kappa_con )
+    endif
           
     ! Tint computations
     select case ( Fm )
@@ -135,7 +143,7 @@ contains
   !> in Tg(3:6), the metric of Lib_Stencil_Metrics (blk%bm(Fm)%cM) and the conductivity of the interior faces
   !> (Diffusive_Flux): k at the mean temperature for one material, the two half cells in series between two. The
   !> chimera faces (102) keep BC_Connection. Flux: heat through the face along the normal of growing index.
-  subroutine Connection_Face_Flux ( Im, Jm, Km, Fm, Blk, bc, Flux )
+  subroutine Connection_Face_Flux ( Im, Jm, Km, Fm, Blk, bc, Flux, kappa_pair )
     use FUSS_Lib_Solid
     use FUSS_Lib_Diffusive
     implicit none
@@ -143,6 +151,8 @@ contains
     type(FUSS_block_type), intent(in) :: Blk
     type(FUSS_bc_type), intent(in)    :: bc
     real(R8), intent(out) :: Flux
+    !> pyrolysis: k_s of this cell and of the neighbour at the ghost state (Connection_Fluxes); absent = co_Kappa
+    real(R8), intent(in), optional :: kappa_pair(2)
     ! Local
     integer  :: Dir, Face_im, Face_jm, Face_km, aa, bb, cc, t, q, tb(2), e(3,3), c(3), tf(2)
     real(R8) :: T_loc, T_con, T1, T2, Normal(3), Area, Gradient(3), kappa, dloc, dgh
@@ -185,15 +195,20 @@ contains
     tf = Face_Tangential ( Fm, Im, Jm, Km )
     Gradient = matmul ( Gradient, Blk % bm(Fm) % cM(:,:,tf(1),tf(2)) )
 
-    ! Conductivity as at an interior face (lower cell first)
-    if ( Blk % matID(Im,Jm,Km) == bc % matIDg ) then
+    ! Conductivity as at an interior face (lower cell first); with pyrolysis (plan 14 D11 (b)) the two k_s: their
+    ! mean for one material, as the interior faces take it (plan 06 section 3.2), the two half cells in series for two
+    if ( present(kappa_pair) .and. Blk % matID(Im,Jm,Km) == bc % matIDg ) then
+      kappa = 0.5d0 * ( kappa_pair(1) + kappa_pair(2) )
+    else if ( Blk % matID(Im,Jm,Km) == bc % matIDg ) then
       call co_Kappa( Blk % matID(Im,Jm,Km), 0.5d0 * ( T1 + T2 ), kappa )
     else
       Mi_loc = Inverse3 ( Blk % M(Im,Jm,Km) % c )
       Mi_con = Inverse3 ( bc % Mg(1) % c )
       h_loc = dot_product ( Mi_loc(:,aa), Normal )
       h_con = dot_product ( Mi_con(:,aa), Normal )
-      if ( mod(Fm,2) == 0 ) then
+      if ( present(kappa_pair) ) then
+        kappa = Series_k ( kappa_pair(1), h_loc, kappa_pair(2), h_con )
+      else if ( mod(Fm,2) == 0 ) then
         kappa = Series_Kappa ( Blk % matID(Im,Jm,Km), T_loc, h_loc, bc % matIDg, T_con, h_con )
       else
         kappa = Series_Kappa ( bc % matIDg, T_con, h_con, Blk % matID(Im,Jm,Km), T_loc, h_loc )
@@ -332,21 +347,36 @@ contains
   subroutine Connection_Fluxes ( domain )
     use FUSS_Mod_MPI, only: mpi_size_
     use FUSS_Mod_GhostExchange, only: exchange_connection_flux
-    use FUSS_Config_Types_m, only: obj_space_scheme
+    use FUSS_Config_Types_m, only: obj_space_scheme, obj_pyrolysis
+    use FUSS_Lib_Pyrolysis, only: Solid_State
     implicit none
     type(FUSS_domain_type), intent(inout) :: domain
     ! Local
     integer  :: ii, i, p, Bm
-    real(R8) :: Flux, s
+    real(R8) :: Flux, s, kp(2), rho_s, cp_s, tau, eps_pg
 
-    !$omp do schedule (dynamic, 64) private(ii, i, p, Bm, Flux, s)
+    !$omp do schedule (dynamic, 64) private(ii, i, p, Bm, Flux, s, kp, rho_s, cp_s, tau, eps_pg)
     do ii = 1, domain % n_local_bc
       i = domain % local_bc_idx(ii)
       if ( domain % bc(i) % type /= 101 ) cycle
       if ( .not. domain % bc(i) % owner ) cycle
       Bm = domain % bc(i) % b
       p  = domain % bc(i) % partner
-      if ( obj_space_scheme % stencil_metric ) then
+      if ( obj_pyrolysis % enabled ) then
+        ! k_s(T, chi) on both sides (plan 08 section 2.9): this cell's from the cache, the neighbour's from Solid_State at
+        ! the ghost state Tg(1), chig (Fill_Ghost_Cell, Fill_Ghost_chi: both run before Fluxes)
+        kp(1) = domain % blk(Bm) % k_s ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k )
+        call Solid_State ( nint(domain % bc(i) % matIDg), domain % bc(i) % Tg(1), domain % bc(i) % chig, &
+                           rho_s, cp_s, kp(2), tau, eps_pg )
+        if ( obj_space_scheme % stencil_metric ) then
+          call Connection_Face_Flux ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
+                                      domain % blk(Bm), domain % bc(i), Flux, kappa_pair = kp )
+        else
+          call Connection_Face_Flux_Tint ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
+                                           domain % blk(Bm), domain % bc(i) % Mg(1), domain % bc(i) % Tg, &
+                                           domain % bc(i) % matIDg, Flux, kappa_pair = kp )
+        end if
+      else if ( obj_space_scheme % stencil_metric ) then
         call Connection_Face_Flux ( domain % bc(i) % i, domain % bc(i) % j, domain % bc(i) % k, domain % bc(i) % f, &
                                     domain % blk(Bm), domain % bc(i), Flux )
       else

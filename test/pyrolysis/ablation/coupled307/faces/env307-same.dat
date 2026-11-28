@@ -1,0 +1,7 @@
+// t p_w rhoeUeCH h_r q_rad   (SI; TEST ONLY exchange values, one block per 307 face: // face b i j k f)
+// face 1 100 1 1 2
+0.0 101325.0 0.3 1500000.0 0.0
+60.0 101325.0 0.3 1500000.0 0.0
+// face 1 100 2 1 2
+0.0 101325.0 0.3 1500000.0 0.0
+60.0 101325.0 0.3 1500000.0 0.0

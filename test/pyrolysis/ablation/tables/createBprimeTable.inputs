@@ -1,0 +1,33 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+  FUSS plan 08 section 2.2: equilibrium B' table for Ablation Test Case 2.x (TACOT in Earth air).
+  Elemental MASS fractions (createBprimeTable mixes z_e + Bg*z_pg) = PATO's own XE_TO_YE conversion
+  of Earth Yke[O] 0.21, Yke[N] 0.79 and TACOT Zx[C] 0.206, Zx[H] 0.679, Zx[O] 0.115, as printed by the
+  shipped ATC 2.2 run's log (2026-10-13).
+\*---------------------------------------------------------------------------*/
+FoamFile {
+  version     4.0;
+  format      ascii;
+  class       dictionary;
+  location    ".";
+  object      inputs;
+}
+
+tableName "bprime_tacot_earth.dat";
+numberBc 100;
+elemOnSurface (("C" 1));
+mixtureName tacot26;
+pressures (101325);
+nTemp 200;
+minTemp 300;
+maxTemp 4000;
+BgList (100 50 20 10 5 2.15 1.46 1.2 1 0.9 0.85 0.82 0.81 0.8 0.795 0.79 0.78 0.75 0.6 0.4 0.3 0.2 0.17 0.15 0.14 0.13 0.1 0.032 0.01 0.001);
+minBc 1e-5;
+maxBc 100;
+z_pg[C] 0.494992;
+z_pg[H] 0.136918;
+z_pg[O] 0.36809;
+z_pg[N] 0;
+z_e[C] 0;
+z_e[H] 0;
+z_e[O] 0.232918;
+z_e[N] 0.767082;

@@ -5,7 +5,8 @@ file(GLOB_RECURSE FUSS_SRC
 
 add_library(FUSSL ${FUSS_SRC})
 add_library(FUSSL::FUSSL ALIAS FUSSL)
-target_link_libraries(FUSSL PRIVATE FiNeR::FiNeR ORION)
+# MORPHL: the mesh-motion component (lib/MORPH), called through numerics/space/Adapter_Morph.f90 only
+target_link_libraries(FUSSL PRIVATE FiNeR::FiNeR ORION MORPHL)
 
 target_include_directories(FUSSL INTERFACE $<BUILD_INTERFACE:${CMAKE_Fortran_MODULE_DIRECTORY}>)
 
@@ -28,6 +29,21 @@ IF(USE_MPI)
         set_source_files_properties(parallel/Mod_MPI.f90 PROPERTIES COMPILE_OPTIONS -fallow-argument-mismatch)
     ENDIF()
 ENDIF(USE_MPI)
+
+# Lib_Stencil_Metrics computes the face metrics of the diffusive fluxes (at set-up, and after every step of a moving
+# mesh). gfortran contracts its routine Face_Inverse into fused multiply-adds differently in the default and in the
+# MPI build (29 and 32 of them), so the MPI binary on one rank did not give the serial binary's bytes on skewed
+# meshes. Without contraction in this one file both builds compute the same metric. It is set-up and per-step
+# metric code, not a hot loop.
+IF(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(numerics/space/Lib_Stencil_Metrics.f90 PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
+ENDIF()
+
+# The TecIO switch is ORION's (USE_TECIO). Without TecIO ORION stops with exit
+# status 0 at the first binary Tecplot read or write, so FUSS refuses the input.
+IF(DEFINED USE_TECIO AND NOT USE_TECIO)
+    target_compile_definitions(FUSSL PUBLIC FUSS_NO_TECIO)
+ENDIF()
 
 
 # # Install library

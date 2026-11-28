@@ -1,0 +1,18 @@
+// FUSS pyrolysis constants (plan 06 section 3.2 grammar): one `key value` per line,
+// `//` comments allowed. Written by make_tacot_tables.py from
+// test/pyrolysis/tools/make_zhang2010.py (Zhang 2010 Table 2.1)
+// on 2026-10-13
+material ZHANG
+nSolidPhases 1
+rhoI[1] 2000
+epsI[1] 0.85
+nPyroReac[1] 1
+eps_g_v 0.1
+eps_g_c 0.1
+F[1][1] 0.261764705882353
+A[1][1] 5e+28
+E[1][1] 362000
+m[1][1] 4.6
+n[1][1] 0
+T[1][1] 0
+h[1][1] 0

@@ -1,0 +1,43 @@
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/constant/porousMat/BoundaryConditions	2023-09-27 19:12:29.000000000 +0200
++++ constant/porousMat/BoundaryConditions	2026-10-13 20:14:01.123571517 +0200
+@@ -8,7 +8,7 @@
+ t(s)	p_total_w(Pa)	rhoUeCH(kg/m²/s)	h_r(J/kg)	chemistryOn
+ */
+ 0       101325          0.3e-2                  0               1        
+-0.1     101325          0.3                     1.5e6           1        
+-60      101325          0.3                     1.5e6           1        
++0.1     101325          0.3                     2.5e7           1        
++60      101325          0.3                     2.5e7           1        
+ 60.1    101325          0.3e-2                  0               0        
+ 120     101325          0.3e-2                  0               0        
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/system/controlDict	2023-09-27 19:12:29.000000000 +0200
++++ system/controlDict	2026-10-13 20:14:01.123571517 +0200
+@@ -21,7 +21,7 @@
+ 
+ stopAt          endTime;
+ 
+-endTime         120;
++endTime         8.0;
+ 
+ deltaT          1e-6;
+ 
+@@ -52,7 +52,7 @@
+ 
+ maxCo           10;
+ 
+-maxDeltaT   0.005; // reduce it if the surface temperature starts oscilliating
++maxDeltaT   0.0005; // reduce it if the surface temperature starts oscilliating
+ 
+ minDeltaT   1e-6;
+ 
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/system/porousMat/blockMeshDict	2023-09-27 19:12:29.000000000 +0200
++++ system/porousMat/blockMeshDict	2026-10-13 20:14:01.123571517 +0200
+@@ -29,7 +29,7 @@
+ 
+ blocks
+ (
+-    hex (0 1 2 3 4 5 6 7) porousMat (1 100 1) simpleGrading (1 0.1 1)
++    hex (0 1 2 3 4 5 6 7) porousMat (1 400 1) simpleGrading (1 0.1 1)
+ );
+ 
+ edges

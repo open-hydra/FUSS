@@ -43,7 +43,8 @@ seconds and checks itself.</p>
 
 [:material-thermometer: <b>Solid heat conduction</b> <i>Steady or time-accurate, with a volumetric source; k, ρ and c<sub>p</sub> tabulated against temperature per material.</i>](theory/governing-equations.md){ .fuss-tool }
 [:material-grid: <b>Cell-centred finite volume</b> <i>Multi-block structured grids; heat-flux continuity at block connections and between materials.</i>](theory/numerics.md){ .fuss-tool }
-[:material-wall: <b>Boundary conditions</b> <i>Flux or temperature (constant or in time), convection, radiation, symmetry, chimera blocks and coupling to the gas.</i>](user/boundary-conditions.md){ .fuss-tool }
+[:material-wall: <b>Boundary conditions</b> <i>Flux or temperature (constant or in time), convection, radiation, symmetry, periodic faces, chimera blocks and coupling to the gas.</i>](user/boundary-conditions.md){ .fuss-tool }
+[:material-fire: <b>Pyrolysis and ablation</b> <i>Pyrolysing porous materials with a quasi-steady or Darcy gas closure; an ablating wall against B′ tables.</i>](user/input.md#pyrolysis){ .fuss-tool }
 [:material-timer-sand: <b>Accelerated time marching</b> <i>Euler, RK2 and SSP RK3; local time step, residual smoothing and FAS multigrid for steady runs.</i>](theory/time-integration.md){ .fuss-tool }
 [:material-chip: <b>Parallel runs</b> <i>OpenMP inside the blocks, MPI over whole blocks; one process and N ranks write identical files.</i>](user/parallel.md){ .fuss-tool }
 [:material-file-chart: <b>Flexible I/O</b> <i>Tecplot ASCII and binary, VTK, wall temperature and heat-flux files, point probes and restart.</i>](user/using.md){ .fuss-tool }

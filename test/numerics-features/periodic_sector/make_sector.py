@@ -98,7 +98,7 @@ def base_nodes():
 def cart(p, sector):
     x, r, s = p
     th = (sector + s) * DTH + ALPHA * x
-    return (x, r * math.cos(th), r * math.sin(th))
+    return (x, r * math.cos(th), -r * math.sin(th))  # ours: z -> -z, a right-handed block (MORPH refuses a left-handed one)
 
 
 # Boundary and initial values: functions of the base position (x, r, s) of a face or cell centre, periodic in s

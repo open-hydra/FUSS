@@ -1,0 +1,1571 @@
+#!/bin/bash
+#===============================================================================
+#         FILE: test/run_physics_gates.sh
+#        USAGE: ./test/run_physics_gates.sh [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a] [-b FUSS_BINARY]
+#  DESCRIPTION: Run the solver on a fresh copy of each physics-claim case and
+#               grade it with that case's own verify.py.
+#
+#               WHY THIS EXISTS
+#               ---------------
+#               Until 2026-09-15 no script invoked any of these verify.py
+#               scripts. The only automated correctness check in this tree was
+#               md5 identity to test/baseline/manifest.txt -- and a manifest
+#               is re-recordable on request (run_regression.sh -B). A change
+#               that breaks conservation, or halves bc%Mg, or removes mg3's
+#               coarse work, and is then baselined, passes every other gate in
+#               test/ without complaint. This script is the one that actually
+#               checks the physics, not just that the bytes did not move.
+#
+#               Every case is copied into $WORK first (see `stage`, below) so
+#               that the in-tree OUTPUT/ is never disturbed and the committed
+#               SOLUTION/ reference data is never at risk -- run_regression.sh
+#               already lost ten tracked files once by wiping SOLUTION/, and
+#               that mistake is not repeated here.
+#
+#               CASES, AND WHAT EACH ONE PROVES
+#               --------------------------------
+#                 freestream            -- a uniform field with
+#                                        arbitrary prescribed mesh motion must
+#                                        stay uniform to ~1e-9 K (measured:
+#                                        ~1e-12 K); anything else is a GCL
+#                                        violation, geometry vs. flux disagree.
+#                 conservation          -- total volumetric-
+#                                        enthalpy energy on a moving mesh with
+#                                        adiabatic walls is conserved to 1e-10
+#                                        relative; the reference cell volumes
+#                                        are recomputed independently from the
+#                                        node coordinates, not read back from
+#                                        the solver.
+#                 conjugate_two_layer   -- a two-material slab with
+#                                        UNEQUAL cell spacing across the block
+#                                        interface (dx2/dx1=4) must reproduce
+#                                        the exact (piecewise-linear) interface
+#                                        temperature to 1e-6 K. This is the
+#                                        only case in the suite where the
+#                                        answer depends on bc%Mg being the
+#                                        NEIGHBOUR's metric and not the local
+#                                        one -- halving bc%Mg moves the answer
+#                                        by 28 K here and changes nothing on
+#                                        any equal-spacing case.
+#                 receding              -- a receding surface
+#                                        modelled as rigid translation must
+#                                        show first-order decay-length error
+#                                        against the closed form
+#                                        d_num/d = Pe/ln(1+Pe), the exact root
+#                                        of the steady 3-term recurrence for
+#                                        donor-cell upwinding on the swept
+#                                        volume. Default grids N040/N080 (see
+#                                        NOTE ON -a below); -a adds the .slow
+#                                        N160/N320.
+#                 residual_convergence  -- at a FIXED 30000-
+#                                        iteration fine-grid budget, more
+#                                        coarse-grid pre-work must leave a
+#                                        lower residual (nominal>mg1>mg2>mg3),
+#                                        IRS must accelerate, and both
+#                                        together must win. Six sub-cases,
+#                                        ~205k iterations total -- this is the
+#                                        expensive one (see RUNTIME below).
+#
+#                 bc303_qrad            -- the BC's own identity qw - hconv*(Tref-Tw)
+#                                        = qrad on all 160 face cells of the WALL
+#                                        OUTPUT to 1e-9 rel: it sees the wall-output
+#                                        site of the 303 dispatch only (with the flux
+#                                        site reverted the interior moves 11.65 K and
+#                                        the identity still closes). Red on 6cad426
+#                                        (residual = qrad). 200 iterations.
+#                 bc303_qrad_1d         -- (plan 10 D14) a 1-D slab with a closed form
+#                                        (T_w = 700 K, q_w = 4e4 W/m2): the interior
+#                                        to 1e-6 K sees the FLUX site (48.75 K with
+#                                        it reverted), the wall output's Tw, qw see
+#                                        the output site (2.44 K). ~5k iterations.
+#
+#               The groups added since -- append a new one here and to CASES, do
+#               NOT start a second gate script: one physics gate for every group,
+#               not one per phase. Each gate_<name> function below says what its
+#               case proves; CASES (-h prints it) holds the 37 names in the order
+#               they run:
+#                 radiation_equilibrium, conjugate_receding, conjugate_receding_t2
+#                             -- see their gate_ functions.
+#                 pyrolysis   -- plan 06 phase 2, six sub-checks: kinetics_isothermal
+#                                T0700/T0900/T1200 (closed-form chi, 1e-8; T exact),
+#                                energy_audit (energy and solid-mass balances 1e-10,
+#                                independent state sum, vnn 0.25/0.125/0.0625 (0.5/0.25/0.125 before plan 14 S7) first-order
+#                                refinement, the no-kinetics variant exact zeros, 1 vs
+#                                FUSS_GATE_P8_THREADS threads byte-identical), ATC1 vs FIAT, and
+#                                ATC2-chemistryOff vs the bundled PATO zero-emissivity
+#                                run (or $FUSS_PATO_ATC2_OUT). ~3 min at -p 1.
+#                 darcy_*     -- plan 07 phase 2b (gas-closure = type2), cases under
+#                                test/pyrolysis/darcy/: sealed_nosource (p stays p-init
+#                                exactly, zero flux), mass_balance_1d (steady face fluxes
+#                                pi x: b2 time-accurate 1e-6, b1 quasi-steady sedded copy
+#                                1e-9), sealed_profile (closed-form p^2 profile, observed
+#                                order >= 1.9 on N020..N160), klinkenberg (the same grids with
+#                                K + (mu/p) B: exact (p+b)^2 profile, b = mu B/K = p_w/2, order
+#                                >= 1.9 and a shift >= 100 x the error), tensor_linear_2d (rotated K:
+#                                |u_y|/|u_x| = K_yx/K_xx to 1e-10; the diagonal-K red control
+#                                written into a staged copy), 0d (adiabatic0d/heated0d under
+#                                type 2 vs the exact type-2 ODE), atc2_chemistry_off (type 2
+#                                vs the bundled PATO run, T and p, plus the type-1 case on
+#                                the same mesh for the sign check). ~2 min at -p 1.
+#                 bench_*     -- 2026-10-13, benchmarks of the type-2 closure, ladders
+#                                generated into $WORK by test/pyrolysis/tools/make_*.py:
+#                                exact (test/pyrolysis/exact/, verify_exact.py):
+#                                pressure_transient (series, order >= 1.8 on N020..N080),
+#                                transpiration (exponential T + Darcy mdot, order >= 1.8),
+#                                sharp_front (similarity, front order in [0.7, 1.4]);
+#                                literature (test/pyrolysis/lit/): baum_atreya (Baum &
+#                                Atreya 2007 corrected: front, T, char pressure, gas ledgers
+#                                of both type-2 modes), zhang2010 (three-code slab, BC 305,
+#                                within the codes' spread). ~4 min at -p 1.
+#                 pyrolysis_103 -- a coupled face (103) as the gas exit: the 103 twins of heated0d (type 1)
+#                                and heated0d_type2 equal their 301 q = 0 twins byte for byte (wall files
+#                                aside: a 103 face is not in them), their budgets close to 1e-10, the set-up
+#                                NOTICE, the refusals of 102, 104 and of a type-2 domain without exit. ~10 s.
+#                 pyrolysis_two_layer -- a face between two materials inside a block: the two-layer
+#                                slab (test/pyrolysis/two_layer) second order against the exact solution,
+#                                stable at the nominal vnn of RK3/RK2/euler and second order at 0.9 x it
+#                                on seven meshes (k ratio 20/100, cells 5 x larger on either side, 2-D),
+#                                one block = the block cut at the interface (type 2). ~1 min at -p 1.
+#                 ablation_*  -- plan 08 and 12, the ablating walls 306/307, cases under
+#                                test/pyrolysis/ablation/: zero_blowing, seb_closure,
+#                                306_static, atc21, nodeshift_inert, remap_uniform, atc22,
+#                                atc23, coupled307, smoothing, receding_front.
+#                 periodic_*  -- plan 14 S9d Part B, periodic faces (201): periodic_motion,
+#                                periodic_receding, periodic_darcy.
+#
+#               UNDER CTEST (test/CMakeLists.txt, label gate): one test Gate_<Name>
+#               per name, `-b <the tree's FUSS> -w <FUSS_GATE_WORK>/Gate_<Name> -c
+#               <name>` (FUSS_GATE_WORK, a cache path: build/test/runs/gates).
+#               -b (or FUSS_GATE_BIN) names the binary to grade; without it,
+#               bin/FUSS of this tree, as before. A gate whose verify.py printed
+#               a SKIP line (a check it could not run, e.g. ATC2-chemistryOff
+#               without its PATO files) is reported SKIP, not PASS, with those
+#               lines; the script then exits 77 (CTest's SKIP_RETURN_CODE) when
+#               no gate failed. FUSS_GATE_P8_THREADS (default 8) is the thread
+#               count of pyrolysis's cross-thread leg; FUSS_GATE_PRESET names the
+#               preset check_build_config.sh checks (default: its own default).
+#
+#               NOTE ON -a (receding). verify.py's order/decay/pointwise-error
+#               checks all pass on N040/N080 alone (order 0.881 on that pair,
+#               inside the [0.85,1.15] band -- measured 2026-09-15; N040 is
+#               2s, N080 15s at -p 1), so that pair is the default. N160/N320
+#               are the ones marked .slow in the source tree (N320 is ~20
+#               minutes per its own header) and are added by -a. GRIDS is
+#               overridden by sedding the WORK COPY of generate.py, not by
+#               editing verify.py or by any importlib trick -- same discipline
+#               run_guard_demos.sh already uses on FUSS.sh's MASTERDIR, and it
+#               keeps the invocation the same `python3 verify.py` a human uses.
+#
+#               HOW A CASE'S FUSS.sh FINDS THE BINARY. FUSS.sh resolves
+#               MASTERDIR=../../.. (or ../../../.. one level deeper) relative
+#               to its own location, so a copy under $WORK cannot find
+#               $ROOT/bin/FUSS by relative path any more. `stage` (below) seds
+#               that one line to an absolute path, exactly as
+#               run_guard_demos.sh's demo() already does; nothing about
+#               FUSS.sh's own logic changes. `stage` never copies a case's
+#               bin/ directory: FUSS.sh only refreshes bin/FUSS "if $MASTER is
+#               newer than $LOCAL" (bash `-nt`), which is also true whenever
+#               $LOCAL is simply absent -- but a STALE local FUSS.sh binary
+#               with a newer mtime than $ROOT/bin/FUSS would silently win and
+#               the gate would grade the wrong executable. Always start bin/
+#               empty.
+#
+#               THE FUSS_GATE_SELFTEST HOOK (kept, not removed -- documented
+#               here per the acceptance note that a gate never seen to fail is
+#               not a gate). FUSS_GATE_SELFTEST=1 does two things, neither of
+#               which touches a checked-in verify.py or FUSS.sh:
+#                 - freestream: a COPY of verify.py is written into the work
+#                   dir with TOL_ABS sedded to 0.0, and that copy is run
+#                   instead of the original -- proves the harness turns a
+#                   non-zero verify.py exit into a FAIL line and a non-zero
+#                   script exit (the "plumbing" proof, cheap: ~2s).
+#                 - residual_convergence: the WORK COPY of mg3/input.ini has
+#                   level2-iter sedded from 7500 to 1, i.e. mg3's coarse-grid
+#                   work is taken away -- a real physics-assertion red, not
+#                   just plumbing, input-only, no solver code touched. The
+#                   original record had this firing the budget check AND the ordering
+#                   check together (30001 vs expected 37500, mg2 no longer
+#                   exceeding mg3). Re-measured here on 2026-09-15 against
+#                   THIS binary (see the provenance note below): the budget
+#                   check still fires, but on 60000 iterations against the
+#                   same expected 37500 -- not 30001 -- and mg1>mg2>mg3 still
+#                   held (mg3's residual fell to 4.96e-04, well BELOW mg2's,
+#                   rather than rising above it), so the ordering check did
+#                   NOT fire this time. Disagreeing with that earlier
+#                   record is reported here rather than silently assumed to
+#                   match. 60000 is exactly 2x mg3's level1-iter (30000) and
+#                   the shared iter-threshold (30000) -- consistent with the
+#                   near-zero coarse budget letting the multigrid cycle
+#                   restart the fine grid for a second full pass rather than
+#                   terminating after one, which would also explain the
+#                   unexpectedly LOW residual. A concrete, testable
+#                   hypothesis about the cycle-restart logic, not chased
+#                   further here (out of this script's scope) -- either way the
+#                   mechanism this hook exists to prove -- an input-only
+#                   change reaching a genuine verify.py assertion, no solver
+#                   code touched -- is demonstrated regardless of which of
+#                   the four checks fires.
+#                 - pyrolysis_103: the twins are compared with their wall
+#                   files, which differ by construction (a 103 face is not in
+#                   them): "type 1 twins: 61 identical file(s), 59 problem(s)".
+#                 - pyrolysis_two_layer: the order window of the ladders (a)
+#                   and (c) is emptied (tools/conv_rule.py), so the gate fails
+#                   at (a); the tolerances of the cut (d) are 0, below its
+#                   round-off (6.4e-12 K, 2.1e-9 Pa on 2026-11-26).
+#               Measured green/red runs and the runtime are recorded at the
+#               bottom of this header once both were executed (2026-09-15).
+#
+#               RUNTIME (measured 2026-09-15, -p 1, default set, this script's
+#               own `time`, wall clock; solver-self-reported per case in
+#               parens; binary md5 deea5f54... stable start-to-end):
+#                 freestream 4s (0.070 min), conservation 3s (0.052 min),
+#                 conjugate_two_layer 3s (0.054 min), receding N040+N080 18s
+#                 (0.039+0.257 min), residual_convergence 6m16s total across
+#                 its 6 sub-cases (nominal 0.849, irs 1.196, mg1 0.937,
+#                 mg2 0.934, mg3 1.005, mg_irs 1.352 min) -- ~205k iterations
+#                 dominate, as expected. TOTAL: real 6m49s.
+#               This machine was under HEAVY external load during the
+#               measurement (load average ~97 on 96 cores, other users'
+#               jobs, unrelated to this script); the numbers
+#               above are still representative because they are the solver's
+#               own self-timed durations, not wall-clock deltas taken from
+#               outside a contended scheduler.
+#===============================================================================
+set -u
+# No __pycache__ in the source tree: the verify.py scripts import modules that sit beside them (same as python3 -B)
+export PYTHONDONTWRITEBYTECODE=1
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+NTHREADS=1
+ALL=0
+WORK=""
+ONLY=""
+SELFTEST="${FUSS_GATE_SELFTEST:-0}"
+BIN="${FUSS_GATE_BIN:-}"                    # -b wins; empty = bin/FUSS of this tree
+P8THREADS="${FUSS_GATE_P8_THREADS:-8}"      # threads of pyrolysis's cross-thread leg (energy_audit_p8)
+
+# Every gate, in the order they run; -c picks one
+CASES=(freestream conservation bc303_qrad bc303_qrad_1d radiation_equilibrium conjugate_two_layer conjugate_receding conjugate_receding_t2 receding residual_convergence pyrolysis pyrolysis_103 pyrolysis_two_layer
+       darcy_sealed_nosource darcy_mass_balance_1d darcy_sealed_profile darcy_klinkenberg darcy_tensor_linear_2d darcy_0d
+       darcy_atc2_chemistry_off
+       bench_pressure_transient bench_transpiration bench_sharp_front bench_baum_atreya bench_zhang2010
+       ablation_zero_blowing ablation_seb_closure ablation_306_static ablation_atc21
+       ablation_nodeshift_inert ablation_remap_uniform ablation_atc22 ablation_atc23 ablation_coupled307
+       ablation_smoothing ablation_receding_front
+       periodic_motion periodic_receding periodic_darcy)
+
+while test $# -gt 0; do
+  case $1 in
+    -p | --parallel) NTHREADS=$2; shift 2 ;;
+    -w | --work)     WORK=$2;     shift 2 ;;
+    -c | --case)     ONLY=$2;     shift 2 ;;
+    -a | --all)      ALL=1; shift ;;
+    -b | --binary)   BIN=$2;      shift 2 ;;
+    -h | --help)
+      echo "usage: $0 [-p NTHREADS] [-w WORKDIR] [-c CASE] [-a] [-b FUSS_BINARY]"
+      echo "  -c CASE   run only this case, one of the ${#CASES[@]}:"
+      echo "${CASES[*]}" | fold -s -w 96 | sed 's/ *$//; s/^/            /'
+      echo "  -a        also run receding's .slow N160/N320 grids"
+      echo "  -w WORKDIR  scratch dir for the copied cases (default: a fresh"
+      echo "              dir under \$TMPDIR/fuss-physics-gates.\$\$)"
+      echo "  -b FUSS_BINARY  the solver to grade (default: bin/FUSS of this tree; or FUSS_GATE_BIN)"
+      echo "  FUSS_GATE_SELFTEST=1  proven-red hook, see the file header"
+      echo "  FUSS_GATE_P8_THREADS=N  threads of pyrolysis's cross-thread leg (default 8)"
+      echo "  FUSS_GATE_PRESET=NAME   the preset check_build_config.sh checks the build against"
+      echo "  exit status: 0 all passed, 1 a gate failed, 77 none failed but one skipped a check"
+      exit 1 ;;
+    *) echo "unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+[ -n "$WORK" ] || WORK="${TMPDIR:-/tmp}/fuss-physics-gates.$$"
+mkdir -p "$WORK"
+
+# Refuse to grade physics against a build that was not configured the way
+# CMakePresets.json says -- same reasoning as run_regression.sh: a
+# mis-configured build (serial, or TecIO-linked) is not loud on its own.
+if ! "$ROOT/test/check_build_config.sh" ${FUSS_GATE_PRESET:+--preset "$FUSS_GATE_PRESET"}; then
+  echo
+  echo "refusing to run physics gates against a build that does not match the preset"
+  exit 1
+fi
+
+# Snapshot bin/FUSS EXACTLY ONCE, here, rather than letting `stage` re-read
+# $ROOT/bin/FUSS for every case. bin/ can be rebuilt by a concurrent build while
+# this script runs, and was observed CHURNING mid-run
+# (caught at 0 bytes, mid-write, between two cases of the same invocation).
+# Without this, two cases in the SAME run could silently grade two different
+# executables. One snapshot makes "one invocation grades one binary" true by
+# construction, not by luck.
+BINLABEL=bin/FUSS
+if [ -n "$BIN" ]; then BINLABEL=$BIN; else BIN="$ROOT/bin/FUSS"; fi
+if [ ! -f "$BIN" ] || [ ! -x "$BIN" ]; then
+  echo "no FUSS executable at $BIN" >&2
+  exit 1
+fi
+BINSNAP="$WORK/.bin-snapshot"
+mkdir -p "$BINSNAP"
+cp "$BIN" "$BINSNAP/FUSS"
+BINMD5=$(md5sum "$BINSNAP/FUSS" | cut -d' ' -f1)
+
+fail=0
+skip=0
+KEYNUM=""
+pass_line() { printf '  \033[0;32mPASS\033[0m  %-24s %s\n' "$1" "$2"; }
+fail_line() { printf '  \033[0;31mFAIL\033[0m  %-24s %s\n' "$1" "$2"; fail=$((fail+1)); }
+skip_line() { printf '  \033[0;33mSKIP\033[0m  %-24s %s\n' "$1" "$2"; skip=$((skip+1)); }
+
+echo "FUSS physics gates"
+echo "  root      : $ROOT"
+echo "  threads   : $NTHREADS"
+echo "  work      : $WORK"
+echo "  binary    : $BINMD5  ($BINLABEL, snapshotted once at start)"
+[ "$ALL" -eq 1 ] && echo "  receding  : all four grids (-a)"
+[ "$SELFTEST" = "1" ] && echo "  SELFTEST  : FUSS_GATE_SELFTEST=1 -- tolerances deliberately broken"
+echo
+
+# ---------------------------------------------------------------------------
+# stage SRC DEST -- minimal case copy: INPUT, MESH, input.ini, FUSS.sh, and a
+# fresh OUTPUT/bin. See the header note on why SOLUTION/ (reference data) and
+# any leftover OUTPUT/ are never copied.
+#
+# bin/FUSS is copied from $BINSNAP (the ONE snapshot taken at script start,
+# not a fresh read of $ROOT/bin/FUSS per case -- see the snapshot comment
+# above for why: bin/ can be rebuilt by a concurrent build, and it
+# was observed CHURNING mid-run, 0 bytes mid-write
+# at one sample. Reading it once and reusing that copy for every case is what
+# makes "one invocation grades one binary" true regardless of what else
+# touches $ROOT/bin/FUSS while this script runs. The work copy's mtime is
+# pushed an hour into the future so FUSS.sh's own runtime
+# `[[ "$MASTER" -nt "$LOCAL" ]] && cp` check (which still points at the LIVE,
+# possibly-churning $ROOT/bin/FUSS via the sedded MASTERDIR) is a guaranteed
+# no-op and can never overwrite the snapshot. MASTERDIR is still sedded to an
+# absolute path (same discipline run_guard_demos.sh already uses) so the
+# script's own logic is otherwise untouched.
+# ---------------------------------------------------------------------------
+stage () {
+  local src=$1 dest=$2
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  cp -r "$src/INPUT" "$src/MESH" "$src/input.ini" "$src/FUSS.sh" "$dest/"
+  # Case-root files some cases need at run time: the BC 302 time file
+  # (Tw_time.dat, resolved relative to the run directory) and probes.json.
+  cp "$src"/*.dat "$src"/*.json "$dest/" 2>/dev/null || true
+  sed -i "s|^MASTERDIR=.*|MASTERDIR=$ROOT|" "$dest/FUSS.sh"
+  mkdir -p "$dest/OUTPUT" "$dest/bin"
+  cp "$BINSNAP/FUSS" "$dest/bin/FUSS"
+  touch -d '+1 hour' "$dest/bin/FUSS"
+}
+
+# solve DEST NTHREADS -- run FUSS.sh in DEST, log to DEST/run.log, return rc
+solve () {
+  local dest=$1 nt=$2 rc
+  ( cd "$dest" && ./FUSS.sh -p "$nt" solve ) > "$dest/run.log" 2>&1
+  rc=$?
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# freestream
+# ---------------------------------------------------------------------------
+gate_freestream () {
+  local src="$ROOT/test/moving-mesh/freestream" dest="$WORK/freestream" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+
+  local vpy="$src/verify.py"
+  if [ "$SELFTEST" = "1" ]; then
+    cp "$src/verify.py" "$dest/verify.selftest.py"
+    sed -i 's/^TOL_ABS = .*/TOL_ABS = 0.0     # FUSS_GATE_SELFTEST: tightened to prove the gate can fail/' \
+      "$dest/verify.selftest.py"
+    vpy="$dest/verify.selftest.py"
+  fi
+
+  ( cd "$dest" && python3 "$vpy" ) > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -F -m1 'max |T - T0|' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# conservation
+# ---------------------------------------------------------------------------
+gate_conservation () {
+  local src="$ROOT/test/moving-mesh/conservation" dest="$WORK/conservation" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+
+  ( cd "$dest" && python3 "$src/verify.py" ) > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -F -m1 'relative imbalance' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# bc303_qrad
+# ---------------------------------------------------------------------------
+gate_bc303_qrad () {
+  local src="$ROOT/test/numerics-features/bc303_qrad" dest="$WORK/bc303_qrad" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+
+  # verify.py takes the case directory as its argument (it reads INPUT/bc.txt
+  # for hconv/qrad/Tref and OUTPUT/wall.tec), so it runs unmodified on the copy.
+  python3 "$src/verify.py" "$dest" > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -F -m1 'worst residual' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# bc303_qrad_1d (plan 10 D14; verify.py imports the closed form from
+# generate.py, so both are copied). Selftest: the staged bc.txt carries qrad
+# 1.01e4 while verify.py keeps 1e4 -- the input reaching the flux must move the
+# answer (T_w by 0.5 K), so the gate fails on physics, not on a tolerance.
+# ---------------------------------------------------------------------------
+gate_bc303_qrad_1d () {
+  local src="$ROOT/test/numerics-features/bc303_qrad_1d" dest="$WORK/bc303_qrad_1d" rc
+  stage "$src" "$dest"
+  cp "$src/generate.py" "$src/verify.py" "$dest/"
+  if [ "$SELFTEST" = "1" ]; then
+    sed -i 's/1\.000000E+04,/1.010000E+04,/' "$dest/INPUT/bc.txt"
+  fi
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+  python3 "$dest/verify.py" "$dest" > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -E -m2 '\((1|2)\)' "$dest/verify.log" | sed 's/^ *//; s/ *(tol[^)]*)//' | paste -sd ';' -)
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# radiation_equilibrium (plan 10 D12; plan 04 item 4's `Tref == T` test). radiative_Rod
+# with the BC 304 reference temperature set to 1000 K, its initial and face-1 (302)
+# temperature: the exact state is 1000 K everywhere with no flux, and the BC's wall
+# iteration sits exactly on its removable singularity (T_wall^4 - Tref^4)/(T_wall -
+# Tref) = 0/0, which the release turned into NaN. Checks: every cell T = 1000 K to
+# 1e-9, the 304 face's qw = 0 to 1e-9 W/m2, no [WARNING]/[ERROR]/NaN in the log.
+# Selftest: Tref 1000.001 K moves the solution, so the 1e-9 check must fail.
+# ---------------------------------------------------------------------------
+gate_radiation_equilibrium () {
+  local src="$ROOT/test/steady-state/radiative_Rod" dest="$WORK/radiation_equilibrium" rc tref="0.100000E+04"
+  stage "$src" "$dest"
+  [ "$SELFTEST" = "1" ] && tref="0.100000100E+04"
+  sed -i "s/^    0.980000E+00,    0.300000E+03,$/    0.980000E+00,    $tref,/" "$dest/INPUT/bc.txt"
+  if ! grep -q "0.980000E+00,    $tref," "$dest/INPUT/bc.txt"; then
+    KEYNUM="the 304 records were not edited (see $dest/INPUT/bc.txt)"
+    return 1
+  fi
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+  KEYNUM=$(python3 - "$dest" <<'PY'
+import os, re, sys
+d = sys.argv[1]
+def zones(path):
+    txt = open(path).read()
+    names = [t.strip('",') for t in txt.split("\n", 1)[0].split("=", 1)[1].split() if t.strip('",')]
+    out = {}
+    for part in re.split(r"\n\s*ZONE", txt)[1:]:
+        head, body = part.split("\n", 1)
+        title = re.search(r"T\s*=\s*([\w-]+)", head).group(1)
+        I, J, K = (int(x) for x in re.search(r"I=(\d+),\s*J=(\d+),\s*K=(\d+)", head).groups())
+        cc = re.search(r"\[(\d+)-(\d+)\]\s*=\s*CELLCENTERED", head)
+        lo, hi = (int(x) for x in cc.groups()) if cc else (0, -1)
+        vals = [float(x) for x in re.split(r"(?im)^\s*DATASETAUXDATA", body)[0].split()]
+        nn, nc = I * J * K, max(I - 1, 1) * max(J - 1, 1) * max(K - 1, 1)
+        off, z = 0, {}
+        for v, nm in enumerate(names, 1):
+            n = nc if lo <= v <= hi else nn
+            z[nm] = vals[off:off + n]; off += n
+        out[title] = z
+    return out
+T = [t for z in zones(os.path.join(d, "OUTPUT", "field.tec")).values() for t in z["T"]]
+w = zones(os.path.join(d, "OUTPUT", "wall.tec"))
+qw = [q for name, z in w.items() if name.endswith("F2") for q in z["qw"]]
+log = open(os.path.join(d, "run.log")).read()
+eT, eq = max(abs(t - 1000.0) for t in T), max(abs(q) for q in qw)
+flags = [k for k in ("[WARNING]", "[ERROR]", "NaN") if k in log]
+ok = eT <= 1e-9 and eq <= 1e-9 and qw and not flags
+print("%s max|T - 1000| %.3e K, max|qw| %.3e W/m2 on %d face cells%s"
+      % ("ok" if ok else "BAD", eT, eq, len(qw), ("; log: " + " ".join(flags)) if flags else ""))
+PY
+)
+  case "$KEYNUM" in ok*) return 0 ;; *) return 1 ;; esac
+}
+
+# ---------------------------------------------------------------------------
+# pyrolysis (plan 06 phase 2). One PASS/FAIL line for the group; the per-case
+# verify logs sit under $WORK/pyrolysis/. The energy_audit variants are made
+# from the STAGED copy (vnn sedded, the reaction lines dropped from
+# pyrolysis.dat), so the gate never needs PATO or the table generator.
+# ---------------------------------------------------------------------------
+gate_pyrolysis () {
+  local base="$ROOT/test/pyrolysis" dest="$WORK/pyrolysis" rc sub v
+  rm -rf "$dest"; mkdir -p "$dest"
+  KEYNUM=""
+
+  # 4.2 isothermal kinetics against the closed-form propagator
+  for sub in T0700 T0900 T1200; do
+    stage "$base/kinetics_isothermal/$sub" "$dest/$sub"
+    solve "$dest/$sub" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $dest/$sub/run.log)"; return 1; fi
+    if ! python3 "$base/kinetics_isothermal/verify.py" "$dest/$sub" > "$dest/$sub/verify.log" 2>&1; then
+      KEYNUM="$sub: $(grep -F -m1 'max |chi' "$dest/$sub/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  local chi_err; chi_err=$(grep -F -m1 'max |chi' "$dest/T1200/verify.log" | awk '{print $6}')
+
+  # 4.3 energy audit: the case, two vnn refinements, the no-kinetics variant, P8THREADS threads
+  stage "$base/energy_audit" "$dest/energy_audit"
+  solve "$dest/energy_audit" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit: solver exit $rc  (see $dest/energy_audit/run.log)"; return 1; fi
+  for v in 0.125 0.0625; do   # the 0.25 / 0.125 refinements of the convention before plan 14 S7 (vnn halved)
+    stage "$base/energy_audit" "$dest/energy_audit_vnn$v"
+    sed -i "s/^vnn = .*/vnn = $v/" "$dest/energy_audit_vnn$v/input.ini"
+    solve "$dest/energy_audit_vnn$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit vnn=$v: solver exit $rc"; return 1; fi
+  done
+  stage "$base/energy_audit" "$dest/energy_audit_nokin"
+  python3 - "$dest/energy_audit_nokin/INPUT/pyrolysis.dat" <<'PYNOKIN'
+import re, sys
+p = sys.argv[1]
+out = []
+for line in open(p):
+    key = line.split("//", 1)[0].split()
+    k = key[0] if key else ""
+    if re.match(r"^nPyroReac\[\d+\]$", k):
+        out.append(k + " 0\n")
+    elif re.match(r"^[FAEmnTh]\[\d+\]\[\d+\]$", k):
+        continue
+    else:
+        out.append(line)
+open(p, "w").write("".join(out))
+PYNOKIN
+  solve "$dest/energy_audit_nokin" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit no-kinetics: solver exit $rc"; return 1; fi
+  stage "$base/energy_audit" "$dest/energy_audit_p8"
+  solve "$dest/energy_audit_p8" "$P8THREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="energy_audit -p $P8THREADS: solver exit $rc"; return 1; fi
+  if ! python3 "$base/energy_audit/verify.py" "$dest/energy_audit" \
+         --vnn025 "$dest/energy_audit_vnn0.125" --vnn0125 "$dest/energy_audit_vnn0.0625" \
+         --nokin "$dest/energy_audit_nokin" --p8 "$dest/energy_audit_p8" --p8-threads "$P8THREADS" \
+         > "$dest/energy_audit/verify.log" 2>&1; then
+    KEYNUM="energy_audit: $(grep -E -m1 'FAIL' "$dest/energy_audit/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local ebal; ebal=$(grep -F -m1 '(i)' "$dest/energy_audit/verify.log" | awk '{print $5}')
+
+  # 4.6-4.8 exact-solution gates of the verification record 2026-10-08: adiabatic 0-D decomposition and
+  # heated 0-D decomposition against the exact type-1 ODE (tools/ode0d.py), pure conduction on the ATC1 mesh
+  # against the exact slab series (tools/slab_series.py)
+  # the two 0-D cases on the ladder vnn, vnn/2, vnn/4 of the case's own vnn (plan 17 P17-D1, the convergence rule)
+  local sub src name v lad d
+  for sub in adiabatic0d/T1000 heated0d; do
+    src="$base/$sub"; name=$(echo "$sub" | tr / _)
+    stage "$src" "$dest/$name"
+    lad=("$dest/$name")
+    for v in $(awk -F'= ' '/^vnn = /{printf "%.10g %.10g", $2 / 2, $2 / 4}' "$dest/$name/input.ini"); do
+      stage "$src" "$dest/${name}_vnn$v"
+      sed -i "s/^vnn = .*/vnn = $v/" "$dest/${name}_vnn$v/input.ini"
+      lad+=("$dest/${name}_vnn$v")
+    done
+    for d in "${lad[@]}"; do
+      solve "$d" "$NTHREADS"; rc=$?
+      if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $d/run.log)"; return 1; fi
+    done
+    if ! python3 "$base/${sub%%/*}/verify.py" "${lad[@]}" > "$dest/$name/verify.log" 2>&1; then
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "$dest/$name/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  # conduction against the slab series on the ladder of 50, 100, 200 cells (plan 17 P17-D1): 100 is the committed
+  # graded100, 50 and 200 come from make_case.py with the arguments that write it
+  local n cdir cl=()
+  for n in 50 100 200; do
+    if [ "$n" = 100 ]; then
+      cdir="$dest/conduction_graded100"; stage "$base/conduction/graded100" "$cdir"
+    else
+      cdir="$dest/conduction_N$n"
+      gen_case make_case.py "$cdir" --kind conduction --tables "$base/kinetics_isothermal/T0700/INPUT" --ncells "$n" \
+        || { KEYNUM="conduction N$n: generator failed (see $cdir.gen.log)"; return 1; }
+    fi
+    solve "$cdir" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="conduction N$n: solver exit $rc  (see $cdir/run.log)"; return 1; fi
+    cl+=("$cdir")
+  done
+  if ! python3 "$base/conduction/verify.py" "${cl[@]}" > "$dest/conduction_graded100/verify.log" 2>&1; then
+    KEYNUM="conduction: $(grep -E -m1 'FAIL' "$dest/conduction_graded100/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local ad0 ht0 cnd
+  ad0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/adiabatic0d_T1000/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
+  ht0=$(grep -F -m1 'max |T - T_or1| [K]' "$dest/heated0d/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
+  cnd=$(grep -F -m1 '(a) max |T - exact|' "$dest/conduction_graded100/verify.log" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}')
+
+  # 4.4 ATC1 against FIAT (bundled)
+  stage "$base/ATC1" "$dest/ATC1"
+  solve "$dest/ATC1" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="ATC1: solver exit $rc  (see $dest/ATC1/run.log)"; return 1; fi
+  if ! python3 "$base/ATC1/verify.py" "$dest/ATC1" > "$dest/ATC1/verify.log" 2>&1; then
+    KEYNUM="ATC1: $(grep -E -m1 'FAIL|ATC1 gate:' "$dest/ATC1/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  # the gate is FUSS against PATO with the PATO-FIAT spread as tolerance (plan 17); FIAT itself is informational
+  local atc1 atc1f
+  atc1=$(grep -F -m1 'ATC1 gate:' "$dest/ATC1/verify.log" | sed -E 's/.*T_PATO\| = ([0-9.]+) K.*spread ([0-9.]+) K.*/\1 K (spread \2 K)/')
+  atc1f=$(grep -F -m1 'max over the six probes vs FIAT' "$dest/ATC1/verify.log" | awk -F': ' '{print $2}' | awk '{print $1}')
+
+  # 4.5 ATC2-chemistryOff against PATO ($FUSS_PATO_ATC2_OUT, else the bundled ref/)
+  stage "$base/ATC2-chemistryOff" "$dest/ATC2-chemistryOff"
+  solve "$dest/ATC2-chemistryOff" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="ATC2-chemistryOff: solver exit $rc  (see $dest/ATC2-chemistryOff/run.log)"; return 1; fi
+  if ! python3 "$base/ATC2-chemistryOff/verify.py" "$dest/ATC2-chemistryOff" > "$dest/ATC2-chemistryOff/verify.log" 2>&1; then
+    KEYNUM="ATC2-chemistryOff: $(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  local atc2; atc2=$(grep -F -m1 'max over' "$dest/ATC2-chemistryOff/verify.log" | awk '{print $6}'); atc2=${atc2:+$atc2 K}
+  grep -q '^SKIP' "$dest/ATC2-chemistryOff/verify.log" && atc2="SKIP"
+
+  KEYNUM="chi err ${chi_err:-?}  energy balance ${ebal:-?}  1 vs $P8THREADS threads identical  0-D adiabatic order ${ad0:-?}  0-D heated order ${ht0:-?}  conduction order ${cnd:-?}  ATC1 vs PATO ${atc1:-?} (vs FIAT ${atc1f:-?} K, info)  ATC2off max|dT| ${atc2:-?}"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# darcy (plan 07 phase 2b, gas-closure = type2): one gate per verification
+# group of plan 07 section 4, cases under test/pyrolysis/darcy/. Every
+# verify.py there honours FUSS_GATE_SELFTEST=1 (tolerances to 0 or below).
+# ---------------------------------------------------------------------------
+DARCY="$ROOT/test/pyrolysis/darcy"
+
+# darcy_verify NAME SRCVERIFY DEST [ARGS...] -- run a verify.py on DEST, log to
+# DEST/verify.log (or DEST/verify-NAME.log), return its exit code
+darcy_verify () {
+  local name=$1 vpy=$2 dest=$3; shift 3
+  python3 "$vpy" "$dest" "$@" > "$dest/verify$name.log" 2>&1
+}
+
+# 4.1 (a) sealed, no source: p stays p-init exactly, zero flux and velocity
+gate_darcy_sealed_nosource () {
+  local src="$DARCY/sealed_nosource" dest="$WORK/darcy_sealed_nosource" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  darcy_verify "" "$src/verify.py" "$dest"; rc=$?
+  KEYNUM="max|p-p0|/p0 $(grep -F -m1 '(a) max |p - p0|' "$dest/verify.log" | awk '{print $(NF-3)}')  max|mdot| $(grep -F -m1 '(c) max |mdot_pg|' "$dest/verify.log" | awk '{print $(NF-3)}')"
+  return $rc
+}
+
+# 4.1 (b) steady gas mass balance on a 1-D line: (b2) the case as committed,
+# time-accurate; (b1) its staged copy with quasi-steady = true
+gate_darcy_mass_balance_1d () {
+  local src="$DARCY/mass_balance_1d" dest="$WORK/darcy_mass_balance_1d" rc v b1 b2
+  for v in b2 b1; do
+    stage "$src" "$dest/$v"
+    [ "$v" = "b1" ] && sed -i 's/^quasi-steady = .*/quasi-steady = true/' "$dest/$v/input.ini"
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+    if ! darcy_verify "" "$src/verify.py" "$dest/$v"; then
+      KEYNUM="$v: $(grep -E -m1 'FAIL' "$dest/$v/verify.log" | sed 's/^ *//')"; return 1
+    fi
+  done
+  b2=$(grep -F -m1 '(i)   max_f' "$dest/b2/verify.log" | awk '{print $(NF-3)}')
+  b1=$(grep -F -m1 '(i)   max_f' "$dest/b1/verify.log" | awk '{print $(NF-3)}')
+  KEYNUM="max_f|mdot-pi x|/(pi L): b2 ${b2:-?} (tol 1e-6)  b1 ${b1:-?} (tol 1e-9)"
+  return 0
+}
+
+# 4.2 analytic steady pressure profile on four grids, observed order >= 1.9
+gate_darcy_sealed_profile () {
+  local src="$DARCY/sealed_profile" dest="$WORK/darcy_sealed_profile" rc g
+  rm -rf "$dest"; mkdir -p "$dest"
+  for g in N020 N040 N080 N160; do
+    stage "$src/$g" "$dest/$g"
+    solve "$dest/$g" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$g: solver exit $rc  (see $dest/$g/run.log)"; return 1; fi
+  done
+  darcy_verify "" "$src/verify.py" "$dest"; rc=$?
+  KEYNUM=$(grep -F -m1 'order on the finest pair' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# Klinkenberg oracle (plan 07, closed 2026-10-13): the sealed_profile grids with
+# [FUSS-Darcy] klinkenberg = true and B_v = B_c = B I, B = b K/mu, b = p_w/2;
+# p + b then obeys the plain equation, (p+b)^2 = (p_w+b)^2 + (pi R T mu/(W K))(L^2 - x^2)
+gate_darcy_klinkenberg () {
+  local src="$DARCY/sealed_profile" dest="$WORK/darcy_klinkenberg" rc g
+  rm -rf "$dest"; mkdir -p "$dest"
+  for g in N020 N040 N080 N160; do
+    stage "$src/$g" "$dest/$g"
+    python3 - "$dest/$g" "$dest" "$ROOT/test/pyrolysis/tools" > "$dest/$g.edit.log" 2>&1 <<'PY' || { KEYNUM="$g: Klinkenberg edit failed (see $dest/$g.edit.log)"; return 1; }
+import json, os, sys
+case, parent, tools = sys.argv[1:4]
+sys.path.insert(0, tools)
+import darcy_tools as dt
+meta = dt.case_meta(case)
+W, mu, h = dt.gas_constants(case)
+b = 0.5 * meta["p0"]
+B = b * meta["K"] / mu
+with open(os.path.join(case, "INPUT", "pyrolysis.dat"), "a") as fh:
+    fh.write("B_v %.15g 0 0 0 %.15g 0 0 0 %.15g\nB_c %.15g 0 0 0 %.15g 0 0 0 %.15g\n" % ((B,) * 6))
+ini = os.path.join(case, "input.ini")
+s = open(ini).read()
+assert s.count("[FUSS-Darcy]\n") == 1
+assert s.count("iter-threshold = 13\n") == 1
+s = s.replace("iter-threshold = 13\n", "iter-threshold = %d\n" % {"N020": 11, "N040": 11, "N080": 11, "N160": 12}[os.path.basename(case)])
+open(ini, "w").write(s.replace("[FUSS-Darcy]\n", "[FUSS-Darcy]\nklinkenberg = true\n"))
+json.dump({"b": b, "B": B}, open(os.path.join(parent, "klinkenberg.json"), "w"))
+print("b %.6g Pa, B %.6g m2/s" % (b, B))
+PY
+    solve "$dest/$g" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$g: solver exit $rc  (see $dest/$g/run.log)"; return 1; fi
+  done
+  darcy_verify "" "$src/verify_klinkenberg.py" "$dest"; rc=$?
+  KEYNUM="$(grep -F -m1 '(a) observed orders' "$dest/verify.log" | sed -E 's/^ *\(a\) //; s/  (PASS|FAIL)$//')  $(grep -F -m1 '(b) Klinkenberg' "$dest/verify.log" | sed -E 's/^ *\(b\) Klinkenberg moves the profile by ([^ ]+) Pa.*/shift \1 Pa/')"
+  return $rc
+}
+
+# 4.3 orthotropic permeability: |u_y|/|u_x| = K_yx/K_xx in every cell; the red
+# control (K diagonal, written into the staged copy) must give u_y = 0 to the
+# solver tolerance
+gate_darcy_tensor_linear_2d () {
+  local src="$DARCY/tensor_linear_2d" dest="$WORK/darcy_tensor_linear_2d" rc
+  stage "$src" "$dest/rotated"
+  solve "$dest/rotated" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="rotated: solver exit $rc  (see $dest/rotated/run.log)"; return 1; fi
+  if ! darcy_verify "" "$src/verify.py" "$dest/rotated"; then
+    KEYNUM="rotated: $(grep -E -m1 'FAIL' "$dest/rotated/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  stage "$src" "$dest/control"
+  python3 - "$dest/control" <<'PYCTRL'
+import json, os, sys
+case = sys.argv[1]
+meta = json.load(open(os.path.join(case, "case.json")))
+k1, k2 = meta["K1"], meta["K2"]
+K = [k1, 0.0, 0.0, 0.0, k2, 0.0, 0.0, 0.0, k2]
+p = os.path.join(case, "INPUT", "pyrolysis.dat")
+out, seen = [], set()
+for s in open(p):
+    key = s.split("//", 1)[0].split()
+    k = key[0] if key else ""
+    if k in ("K_v", "K_c"):
+        out.append("%s %s\n" % (k, " ".join("%.15g" % v for v in K)))
+        seen.add(k)
+    else:
+        out.append(s)
+if seen != {"K_v", "K_c"}:
+    sys.exit("control: K_v/K_c lines not found in %s" % p)
+open(p, "w").write("".join(out))
+meta["identity"], meta["K"] = True, K
+json.dump(meta, open(os.path.join(case, "case.json"), "w"), indent=1, sort_keys=True)
+ini = os.path.join(case, "input.ini"); s = open(ini).read()
+assert s.count("iter-threshold = 9\n") == 1
+open(ini, "w").write(s.replace("iter-threshold = 9\n", "iter-threshold = 10\n"))
+PYCTRL
+  solve "$dest/control" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="control: solver exit $rc  (see $dest/control/run.log)"; return 1; fi
+  if ! darcy_verify "" "$src/verify.py" "$dest/control" --control; then
+    KEYNUM="control: $(grep -E -m1 'FAIL' "$dest/control/verify.log" | sed 's/^ *//')"; return 1
+  fi
+  KEYNUM="ratio err $(grep -F -m1 '(a) max | |u_y|/|u_x|' "$dest/rotated/verify.log" | awk '{print $(NF-3)}') (tol 1e-10)  control max|u_y|/max|u_x| $(grep -F -m1 '(a) max |u_y| / max |u_x|' "$dest/control/verify.log" | awk '{print $(NF-3)}')"
+  return 0
+}
+
+# 4.1 (d) the two 0-D decompositions under type 2 against the exact type-2 ODE
+gate_darcy_0d () {
+  local dest="$WORK/darcy_0d" rc sub ad ht v lad d fs vad vht
+  rm -rf "$dest"; mkdir -p "$dest"
+  # each case on three successive halvings of its own vnn, by the convergence rule with p = 2 (plan 17 P17-D1, D7):
+  # heated0d_type2 on vnn, vnn/2, vnn/4; adiabatic0d_type2 on vnn/4, vnn/8, vnn/16, because on its first two halvings
+  # the T error does not yet fall (outside the asymptotic range)
+  for sub in adiabatic0d_type2 heated0d_type2; do
+    if [ "$sub" = adiabatic0d_type2 ]; then fs="4 8 16"; else fs="1 2 4"; fi
+    lad=()
+    for v in $(awk -F'= ' -v fs="$fs" '/^vnn = /{n = split(fs, f, " "); for (i = 1; i <= n; i++) printf "%.10g ", $2 / f[i]}' \
+               "$DARCY/$sub/input.ini"); do
+      if [ "$v" = "$(awk -F'= ' '/^vnn = /{printf "%.10g", $2}' "$DARCY/$sub/input.ini")" ]; then
+        d="$dest/$sub"; stage "$DARCY/$sub" "$d"
+      else
+        d="$dest/${sub}_vnn$v"; stage "$DARCY/$sub" "$d"
+        sed -i "s/^vnn = .*/vnn = $v/" "$d/input.ini"
+      fi
+      lad+=("$d")
+    done
+    for d in "${lad[@]}"; do
+      solve "$d" "$NTHREADS"; rc=$?
+      if [ "$rc" -ne 0 ]; then KEYNUM="$sub: solver exit $rc  (see $d/run.log)"; return 1; fi
+    done
+    if ! darcy_verify "" "$DARCY/$sub/verify.py" "${lad[@]}"; then
+      KEYNUM="$sub: $(grep -E -m1 'FAIL' "${lad[0]}/verify.log" | sed 's/^ *//')"; return 1
+    fi
+    if [ "$sub" = adiabatic0d_type2 ]; then vad="${lad[0]}/verify.log"; else vht="${lad[0]}/verify.log"; fi
+  done
+  ad=$(grep -F 'order on the finest pair' "$vad" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  ht=$(grep -F 'order on the finest pair' "$vht" | grep -o 'finest pair [0-9.eE+-]*' | awk '{print $NF}' | paste -sd / -)
+  KEYNUM="vs the exact type-2 ODE, order T/chi in [1.6, 2.4]: 0-D adiabatic (vnn/4, /8, /16) ${ad:-?}, 0-D heated (vnn, /2, /4) ${ht:-?}"
+  return 0
+}
+
+# 4.4 ATC2-chemistryOff under type 2 against the bundled PATO run (T and p
+# probed), and against the type-1 case on the same mesh (the sign check)
+gate_darcy_atc2_chemistry_off () {
+  local dest="$WORK/darcy_atc2_chemistry_off" rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  stage "$ROOT/test/pyrolysis/ATC2-chemistryOff" "$dest/type1"
+  solve "$dest/type1" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="type1: solver exit $rc  (see $dest/type1/run.log)"; return 1; fi
+  stage "$DARCY/ATC2-chemistryOff-type2" "$dest/type2"
+  solve "$dest/type2" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="type2: solver exit $rc  (see $dest/type2/run.log)"; return 1; fi
+  darcy_verify "" "$DARCY/ATC2-chemistryOff-type2/verify.py" "$dest/type2" --type1 "$dest/type1"; rc=$?
+  if grep -q '^SKIP' "$dest/type2/verify.log"; then KEYNUM="SKIP (no PATO probe files)"; return 0; fi
+  local v="$dest/type2/verify.log"
+  KEYNUM="max|dT| $(grep -F -m1 '(T)   max over' "$v" | awk '{print $7}') K (ATC 2.1 T spread $(grep -F -m1 '(T)   max over' "$v" | sed -E 's/.*T spread ([0-9.]+) K.*/\1/') K, type-1 run $(grep -F -m1 '(acc)' "$v" | sed -E 's/.*maximum ([0-9.]+) K.*/\1/') K)  dp ratio $(grep -F -m1 '        ratio' "$v" | awk '{print $2}') (tol $(grep -F -m1 '        ratio' "$v" | sed -E 's/.*tol ([0-9.]+)\).*/\1/'))  type2-type1 hot max $(grep -F -m1 '(sign) max' "$v" | awk '{print $10}') K"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# conjugate_two_layer (needs generate.py alongside verify.py:
+# verify.py imports the analytic profile and geometry constants from it)
+# ---------------------------------------------------------------------------
+gate_conjugate_two_layer () {
+  local src="$ROOT/test/numerics-features/conjugate_two_layer" dest="$WORK/conjugate_two_layer" rc
+  stage "$src" "$dest"
+  cp "$src/generate.py" "$src/verify.py" "$dest/"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then
+    KEYNUM="solver exit $rc  (see $dest/run.log)"
+    return 1
+  fi
+
+  python3 "$dest/verify.py" > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -F -m1 'interface error' "$dest/verify.log" | sed 's/^ *//')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# receding. verify.py locates itself via __file__ (HERE), so it
+# is invoked in place in $dest; GRIDS is overridden by sedding the work copy
+# of generate.py (see the header note on -a).
+# ---------------------------------------------------------------------------
+gate_receding () {
+  local src="$ROOT/test/moving-mesh/receding" dest="$WORK/receding"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  cp "$src/generate.py" "$src/verify.py" "$dest/"
+
+  local grids
+  if [ "$ALL" -eq 1 ]; then
+    grids="40 80 160 320"
+    sed -i 's/^GRIDS = .*/GRIDS = [40, 80, 160, 320]/' "$dest/generate.py"
+  else
+    grids="40 80"
+    sed -i 's/^GRIDS = .*/GRIDS = [40, 80]/' "$dest/generate.py"
+  fi
+
+  local n nd rc
+  for n in $grids; do
+    nd=$(printf 'N%03d' "$n")
+    stage "$src/$nd" "$dest/$nd"
+    solve "$dest/$nd" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      KEYNUM="$nd: solver exit $rc  (see $dest/$nd/run.log)"
+      return 1
+    fi
+  done
+
+  python3 "$dest/verify.py" > "$dest/verify.log" 2>&1
+  local rc=$? decay_row order_row reldiff order_val
+  # Pulled from the two per-grid TABLES, not the wrapped PASS/FAIL prose
+  # (verify.py splits "convergence order N.NNN on the finest pair (first
+  # order," across two print() calls, which truncates under a single grep).
+  # Decay table rows: N Pe d_measured d_predicted rel.diff pts  (6 fields).
+  # Pointwise table rows: N max|dT| L2 order budget meas/pred at-xi/d (7).
+  decay_row=$(awk '/^  [0-9]+ / && NF==6 {line=$0} END{print line}' "$dest/verify.log")
+  order_row=$(awk '/^  [0-9]+ / && NF==7 {line=$0} END{print line}' "$dest/verify.log")
+  reldiff=$(awk '{print $5}' <<< "$decay_row")
+  order_val=$(awk '{print $4}' <<< "$order_row")
+  KEYNUM="order=${order_val:-?} (band 0.85-1.15)  finest-grid decay rel.diff=${reldiff:-?} (tol 0.02)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# residual_convergence. Six sub-cases sharing one verify.py,
+# which locates itself via __file__ and reads $dest/<subcase>/OUTPUT.
+# ---------------------------------------------------------------------------
+gate_residual_convergence () {
+  local src="$ROOT/test/numerics-features/residual_convergence" dest="$WORK/residual_convergence"
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  cp "$src/verify.py" "$dest/"
+
+  local sub rc
+  for sub in nominal irs mg1 mg2 mg3 mg_irs; do
+    stage "$src/$sub" "$dest/$sub"
+    if [ "$SELFTEST" = "1" ] && [ "$sub" = "mg3" ]; then
+      # The proven-red case: take away mg3's coarse-grid work.
+      # Fires the budget check (measured here: 60000 iterations vs an
+      # expected 37500 -- see the file header for how this differs from the
+      # original recorded numbers). Input-only, no solver code touched.
+      sed -i 's/^level2-iter = .*/level2-iter = 1   ; FUSS_GATE_SELFTEST: mg3 loses its coarse work/' \
+        "$dest/$sub/input.ini"
+    fi
+    solve "$dest/$sub" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      KEYNUM="$sub: solver exit $rc  (see $dest/$sub/run.log)"
+      return 1
+    fi
+  done
+
+  python3 "$dest/verify.py" > "$dest/verify.log" 2>&1
+  local rc=$?
+  KEYNUM=$(grep -E '^  (nominal|irs|mg1|mg2|mg3|mg_irs) ' "$dest/verify.log" \
+             | awk '{printf "%s=%s ", $1, $4}')
+  [ -n "$KEYNUM" ] || KEYNUM="(see $dest/verify.log)"
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# bench_* (2026-10-13): the benchmarks of the type-2 closure, against exact
+# solutions (test/pyrolysis/exact/) and the literature (test/pyrolysis/lit/).
+# The mesh ladders are generated into $WORK by the committed generators
+# (test/pyrolysis/tools/make_*.py); the in-tree case of each benchmark is its
+# coarsest member, for the regression manifest. Every verify honours
+# FUSS_GATE_SELFTEST=1 (budgets to 0, order windows empty).
+# ---------------------------------------------------------------------------
+TOOLS="$ROOT/test/pyrolysis/tools"
+
+# gen_case GENERATOR DEST ARGS... -- write a case with a committed generator
+# (absolute MASTERDIR), then give it the snapshot binary as `stage` does
+gen_case () {
+  local gen=$1 dest=$2; shift 2
+  rm -rf "$dest"
+  python3 "$TOOLS/$gen" "$dest" "$@" --masterdir "$ROOT" > "$dest.gen.log" 2>&1 || return 1
+  mkdir -p "$dest/OUTPUT" "$dest/bin"
+  cp "$BINSNAP/FUSS" "$dest/bin/FUSS"
+  touch -d '+1 hour' "$dest/bin/FUSS"
+}
+
+# bench_ladder KIND NAME N... -- generate and run an exact-solution ladder, then verify_exact.py
+bench_ladder () {
+  local kind=$1 name=$2; shift 2
+  local dest="$WORK/$name" n rc cases=()
+  rm -rf "$dest"; mkdir -p "$dest"
+  for n in "$@"; do
+    gen_case make_exact_case.py "$dest/N$n" --kind "$kind" --tables "$ROOT/test/pyrolysis/exact/tables" --ncells "$n" \
+      || { KEYNUM="N$n: generator failed (see $dest/N$n.gen.log)"; return 1; }
+    solve "$dest/N$n" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="N$n: solver exit $rc  (see $dest/N$n/run.log)"; return 1; fi
+    cases+=("$dest/N$n")
+  done
+  python3 "$ROOT/test/pyrolysis/exact/verify_exact.py" "$kind" "${cases[@]}" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '(finest|order)' "$dest/verify.log" | sed -E 's/  (PASS|FAIL)$//; s/ on the finest (grid|pair)//' | tr -s ' ' | paste -sd ';' -)
+  return $rc
+}
+
+# exact transient Darcy pressure (frozen T): 2nd order in space at vnn 0.25 (0.5 before plan 14 S7)
+gate_bench_pressure_transient () { bench_ladder pressure_transient bench_pressure_transient 20 40 80; }
+
+# exact steady transpiration (exponential T, Darcy mdot): 2nd order since the
+# open-face gas enthalpy is taken at the wall temperature (was 1st order)
+gate_bench_transpiration () { bench_ladder transpiration bench_transpiration 20 40 80; }
+
+# exact sharp front with transpiration through the char: 1st order by design
+gate_bench_sharp_front () { bench_ladder sharp_front bench_sharp_front 50 100 200; }
+
+# Baum & Atreya 2007 (corrected): full type 2 on N100/N200 (front, T, char
+# pressure, gas-mass ledger to round-off; the surface steps to 1298 K at t = 0,
+# which stopped the run before the storage-coefficient limiter) and the
+# quasi-steady N100 gas ledger (one carried step; 11 % lost before the carry)
+gate_bench_baum_atreya () {
+  local dest="$WORK/bench_baum_atreya" c rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  gen_case make_baum_atreya.py "$dest/full_N100" --mode full --cg 1475 --ncells 100 || { KEYNUM="generator failed"; return 1; }
+  gen_case make_baum_atreya.py "$dest/full_N200" --mode full --cg 1475 --ncells 200 || { KEYNUM="generator failed"; return 1; }
+  gen_case make_baum_atreya.py "$dest/qs_N100" --mode qs --cg 0 --ncells 100 || { KEYNUM="generator failed"; return 1; }
+  for c in full_N100 full_N200 qs_N100; do
+    solve "$dest/$c" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$c: solver exit $rc  (see $dest/$c/run.log)"; return 1; fi
+  done
+  python3 "$ROOT/test/pyrolysis/lit/baum_atreya2007/verify.py" "$dest/full_N100" "$dest/full_N200" --qs "$dest/qs_N100" \
+    > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((front|T|p|qs)\)' "$dest/verify.log" | sed -E 's/  (PASS|FAIL)$//; s/^  //' | tr -s ' ' | paste -sd ';' -)
+  return $rc
+}
+
+# Zhang 2010 three-code decomposing slab (BC 305 front face, type 1): within
+# the codes' own spread of the MATLAB code (7.4 K off before the BC 305 fix)
+gate_bench_zhang2010 () {
+  local dest="$WORK/bench_zhang2010" rc
+  rm -rf "$dest"; mkdir -p "$dest"
+  gen_case make_zhang2010.py "$dest/N050" --ncells 50 || { KEYNUM="generator failed"; return 1; }
+  solve "$dest/N050" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/N050/run.log)"; return 1; fi
+  python3 "$ROOT/test/pyrolysis/lit/zhang2010/verify.py" "$dest/N050" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|mdot)\)' "$dest/verify.log" | sed -E 's/\(T\) +([a-z]+) +max\|T - T_MATLAB\| ([0-9.]+) K.*/\1 \2 K/;
+             s/\(mdot\) FUSS peak ([^ ]+) kg\/m2\/s at ([0-9]+) s;.*window (\[[^]]*\]).*/mdot peak \1 at \2 s, window \3/;
+             s/^  //; s/  (PASS|FAIL)$//' | paste -sd ';' -)
+  return $rc
+}
+
+# ---------------------------------------------------------------------------
+# ablation (plan 08, the ablating wall BC 306), cases under test/pyrolysis/ablation/
+# ---------------------------------------------------------------------------
+ABL="$ROOT/test/pyrolysis/ablation"
+
+# 3.3 Ablation Test Case 2.1: BC 306 on a static mesh against the bundled PATO run (movingMesh no)
+gate_ablation_atc21 () {
+  local dest="$WORK/ablation_atc21" rc
+  stage "$ABL/ATC21" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/ATC21/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|Tw|mdot_g|v98|c02) *\)' "$dest/verify.log" \
+             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* spread ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
+  return $rc
+}
+
+# plan 08 section 3.6: the wall smoothing (smoothing-width, thesis Eq. 5.1) damps the period-4 node mode of the
+# recession of a 2-D slab by its transfer factor (theory 5; the gate asks >= 4.5); the same slab cut into two blocks
+# (101 faces at x = 0.1 m) must give the one-block surface: the windows cross the seam
+gate_ablation_smoothing () {
+  local dest="$WORK/ablation_smoothing" rc w
+  for w in w1 w5 w5_2blk; do
+    stage "$ABL/smoothing/$w" "$dest/$w"
+    solve "$dest/$w" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$w: solver exit $rc  (see $dest/$w/run.log)"; return 1; fi
+  done
+  python3 "$ABL/smoothing/verify.py" "$dest/w1" "$dest/w5" "$dest/w5_2blk" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="$(grep -F '(ratio)' "$dest/verify.log" | sed -E 's/.*= ([0-9.]+) \(>= ([^;]+);.*/w1\/w5 amplitude \1 (>= \2, theory 5)/'); seam $(grep -F '(seam)' "$dest/verify.log" | awk '{print $8}') m"
+  return $rc
+}
+
+# plan 08 section 3.5 (ii), FUSS standalone: BC 307 fed by the TEST ONLY coupled-env-file reproduces BC 306 with
+# lambda 0 and the same values byte for byte (one SEB routine, two input paths). Plan 12: the file's per-face blocks
+# (`// face b i j k f`, hydra's env-dump replayed) on four copies of run307 (faces/, verify_faces.py): identical blocks
+# = the one table byte for byte, the blocks' order is immaterial, each face takes its own block, swapped blocks mirror
+# the solution.
+gate_ablation_coupled307 () {
+  local dest="$WORK/ablation_coupled307" rc rc2 r
+  for r in run307 run306; do stage "$ABL/coupled307/$r" "$dest/$r"; done
+  for r in same ab ab_rev ba; do
+    stage "$ABL/coupled307/run307" "$dest/$r"
+    cp "$ABL/coupled307/faces/env307-$r.dat" "$dest/$r/INPUT/env307.dat"
+  done
+  # proven-red hook: h_r one part in 1e7 off in the exchange values must break the identity (and same = run307)
+  [ "$SELFTEST" = "1" ] && sed -i 's/ 1500000.0 / 1500000.1 /' "$dest/run307/INPUT/env307.dat"
+  for r in run307 run306 same ab ab_rev ba; do
+    solve "$dest/$r" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$r: solver exit $rc  (see $dest/$r/run.log)"; return 1; fi
+  done
+  python3 "$ABL/coupled307/verify.py" "$dest/run307" "$dest/run306" > "$dest/verify.log" 2>&1; rc=$?
+  python3 "$ABL/coupled307/verify_faces.py" "$dest" > "$dest/verify_faces.log" 2>&1; rc2=$?
+  KEYNUM="$(head -n 1 "$dest/verify.log"); $(head -n 1 "$dest/verify_faces.log" | sed 's/^coupled307 //')"
+  [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ]
+}
+
+# plan 08 section 3.3, stage C: ATC 2.2 and 2.3 on the receding mesh (law nodeshift) against PATO at 0.5 ms; T at the
+# fixed depths, the fronts and the recession from the field files (X-D4), the budgets' swept-out columns, the SEB
+gate_ablation_atc2x_receding () {
+  local name=$1 dest="$WORK/ablation_$1" rc
+  stage "$ABL/$2" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/$2/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -E '^  \((T|Tw|mdot_g|mdot_c|s|v98|c02) *\)' "$dest/verify.log" \
+             | sed -E 's/^  \(([a-z0-9_A-Z]+) *\) max\|FUSS - PATO\| ([^ ]+) ([^ ]+) .* spread ([^ ]+) .*/\1 \2 (\4)/' | paste -sd ';' -)
+  return $rc
+}
+gate_ablation_atc22 () { gate_ablation_atc2x_receding atc22 ATC22; }
+gate_ablation_atc23 () { gate_ablation_atc2x_receding atc23 ATC23; }
+
+# 3.1 (a): a 306 face whose env keeps the chemistry off, on tables with zero emissivity and absorptivity, hands the
+# face to the BC 303 kernel: every output but the wall files is byte-identical to a run of the unmodified 303 case,
+# under both gas closures (type 2 also checks that bc%Tw_face and bc%pw reach the Darcy path)
+gate_ablation_306_static () {
+  local dest="$WORK/ablation_306_static" rc pair name rest src twin f n303 bad="" extra
+  rm -rf "$dest"; mkdir -p "$dest"
+  for pair in "type1:$ROOT/test/pyrolysis/ATC2-chemistryOff:$ABL/atc2off_306_static" \
+              "type2:$DARCY/ATC2-chemistryOff-type2:$ABL/atc2off_306_static_t2"; do
+    name=${pair%%:*}; rest=${pair#*:}; src=${rest%%:*}; twin=${rest#*:}
+    stage "$src" "$dest/$name-303"
+    solve "$dest/$name-303" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$name 303: solver exit $rc  (see $dest/$name-303/run.log)"; return 1; fi
+    stage "$twin" "$dest/$name-306"
+    # proven-red hook: an hconv one part in 1e9 off the 303 line must break the identity
+    [ "$SELFTEST" = "1" ] && sed -i 's/ 300\.0 2800\.0$/ 300.0000003 2800.0/' "$dest/$name-306/INPUT/env_off.dat"
+    solve "$dest/$name-306" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$name 306: solver exit $rc  (see $dest/$name-306/run.log)"; return 1; fi
+    n303=0
+    for f in $(cd "$dest/$name-303/OUTPUT" && ls); do
+      case $f in wall*) continue ;; esac
+      n303=$((n303 + 1))
+      cmp -s "$dest/$name-303/OUTPUT/$f" "$dest/$name-306/OUTPUT/$f" || bad="$bad $name:$f"
+    done
+    extra=$(cd "$dest/$name-306/OUTPUT" && ls | grep -v '^wall' | while read -r f; do [ -e "$dest/$name-303/OUTPUT/$f" ] || echo "$f"; done | paste -sd ' ' -)
+    [ "$extra" = "bc306-state.dat seb.txt" ] || bad="$bad $name:new-files=[$extra]"
+    eval "n_$name=$n303"
+  done
+  if [ -n "$bad" ]; then KEYNUM="differ:$bad"; return 1; fi
+  KEYNUM="identical: type1 $n_type1 files, type2 $n_type2 files (wall*.tec excluded; seb.txt, bc306-state.dat new)"
+  return 0
+}
+
+# 3.1 (b): lambda = 0 gives beta = 1 bitwise and the bare convective term rhoeUeCH0 (h_r - h_w)
+gate_ablation_zero_blowing () {
+  local dest="$WORK/ablation_zero_blowing" rc
+  stage "$ABL/zero_blowing" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/zero_blowing/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="beta != 1 in $(grep -F -m1 '(beta)' "$dest/verify.log" | sed -E 's/.*\(bitwise\): ([0-9]+ of [0-9]+).*/\1/') rows; conv rel $(grep -F -m1 '(conv)' "$dest/verify.log" | sed -E 's/.*\| = ([^ ]+).*/\1/'); |F|/max term $(grep -F -m1 '(seb-a)' "$dest/verify.log" | sed -E 's/.*max\|term\| +([^ ]+).*/\1/')"
+  return $rc
+}
+
+# 3.2: the surface energy balance closes on every row (chemistry on, the ramp, chemistry off) and beta sits at the
+# Picard's closed-form fixed point zeta/(e^zeta - 1)
+gate_ablation_seb_closure () {
+  local dest="$WORK/ablation_seb_closure" rc
+  stage "$ABL/seb_closure" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$ABL/seb_closure/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM="|F|/max term $(grep -F -m1 '(seb-a)' "$dest/verify.log" | sed -E 's/.*max\|term\| +([^ ]+).*/\1/') (<= 1e-7); |beta - closed form| $(grep -F -m1 '(seb-b)' "$dest/verify.log" | sed -E 's/.*zeta-1\)\| +([^ ]+).*/\1/'); rows $(grep -F -m1 '(rows)' "$dest/verify.log" | sed -E 's/.*on ([0-9]+), ramp ([0-9]+), off ([0-9]+).*/on \1 ramp \2 off \3/')"
+  return $rc
+}
+
+# plan 08 section 2.3 R5: a block receding (law nodeshift) beside a static one across an unequal-spacing 101 interface;
+# the interface stays conservative only if the ghost metrics are rebuilt after every move -- the red control skips that
+gate_conjugate_receding () {
+  local src="$ROOT/test/moving-mesh/conjugate_receding" dest="$WORK/conjugate_receding" rc rcr
+  stage "$src" "$dest/refresh"
+  solve "$dest/refresh" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/refresh/run.log)"; return 1; fi
+  python3 "$src/verify.py" "$dest/refresh" > "$dest/refresh/verify.log" 2>&1; rc=$?
+  stage "$src" "$dest/stale"
+  sed -i 's/^law = nodeshift$/law = nodeshift\nskip-bc-metrics-refresh = true/' "$dest/stale/input.ini"
+  solve "$dest/stale" "$NTHREADS"
+  # One flux per face (upstream f6b05b8, plan 14 S7): both records of a face carry the opposite shares of ONE evaluation,
+  # so (pair) is an identity, stale metrics or not. The red control asks instead that stale metrics MOVE the interface
+  # flux; that the refreshed metrics are the right ones is the restart gate's job (run_restart_gate.sh: the restart
+  # recomputes every metric at set-up from the moved mesh and must reproduce the continuous run to 1e-11).
+  # stale_min: the (pair) identity's own a-priori floor, 1e-12 of q_scale (verify.py): stale metrics must move the
+  # interface flux by more than the round-off that identity allows (plan 17; the measured 8.523e-8 of S7b is not a bound)
+  local stale_min=1e-12 dq
+  dq=$(python3 - "$dest/refresh" "$dest/stale" <<'PY'
+import sys
+def rows(d):
+    out = {}
+    for l in open(d + "/OUTPUT/interface-flux.txt"):
+        if l.startswith("#"):
+            continue
+        r = l.split()
+        out[tuple(r[0:6])] = float(r[11])
+    return out
+a, b = rows(sys.argv[1]), rows(sys.argv[2])
+keys = set(a) & set(b)
+q_scale = 2.0 * 50.0 * 5.0e-5 * 1000.0 / 5.0e-3
+print("%.3e" % (max(abs(a[k] - b[k]) for k in keys) / q_scale if keys else -1.0))
+PY
+)
+  KEYNUM="pairing $(grep -F -m1 '(pair)' "$dest/refresh/verify.log" | awk '{print $9}') of q_scale (<= 1e-12); stale metrics move q_if by $dq of q_scale (>= $stale_min)"
+  if ! awk -v d="$dq" -v m="$stale_min" 'BEGIN { exit !(d + 0 >= m + 0) }'; then
+    KEYNUM="$KEYNUM -- the red control did not move: stale metrics are invisible to this case"; return 1
+  fi
+  return $rc
+}
+
+# plan 08 section 2.9 V1: a 306 face that cannot recede (chemistry off) under law = nodeshift skips every cell of the
+# remap, so it must reproduce the static run byte for byte -- every field, probe, wall, seb and darcy file; the energy
+# budget's first 8 columns (nodeshift adds E_abl M_abl G_abl) and bc306-state.dat but its min-thickness line
+gate_ablation_nodeshift_inert () {
+  local dest="$WORK/ablation_nodeshift_inert" rc v f bad="" n=0
+  for v in static nodeshift; do
+    stage "$ABL/atc2off_306_static_t2" "$dest/$v"
+    sed -i -e 's/^iter-threshold = .*/iter-threshold = 200/' -e 's/^sol-dtime .*/sol-diter     = 50/' "$dest/$v/input.ini"
+  done
+  printf '\n[FUSS-MeshMotion]\nlaw = nodeshift\n' >> "$dest/nodeshift/input.ini"
+  # proven-red hook: a recession of 1e-9 m/s must break the identity
+  [ "$SELFTEST" = "1" ] && printf '\n[FUSS-Ablation]\nsdot-override = 1.0e-9\n' >> "$dest/nodeshift/input.ini"
+  for v in static nodeshift; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+  done
+  for f in $(cd "$dest/static/OUTPUT" && ls); do
+    n=$((n + 1))
+    case $f in
+      energy-budget.txt)
+        cmp -s <(awk '!/^#/ {print $1, $2, $3, $4, $5, $6, $7, $8}' "$dest/static/OUTPUT/$f") \
+               <(awk '!/^#/ {print $1, $2, $3, $4, $5, $6, $7, $8}' "$dest/nodeshift/OUTPUT/$f") || bad="$bad $f" ;;
+      bc306-state.dat)
+        cmp -s <(grep -v '^# min-thickness' "$dest/static/OUTPUT/$f") <(grep -v '^# min-thickness' "$dest/nodeshift/OUTPUT/$f") \
+          || bad="$bad $f" ;;
+      *) cmp -s "$dest/static/OUTPUT/$f" "$dest/nodeshift/OUTPUT/$f" || bad="$bad $f" ;;
+    esac
+  done
+  [ "$(cd "$dest/static/OUTPUT" && ls)" = "$(cd "$dest/nodeshift/OUTPUT" && ls)" ] || bad="$bad file-sets"
+  if [ -n "$bad" ]; then KEYNUM="differ:$bad"; return 1; fi
+  KEYNUM="identical: $n files of 200 steps (energy-budget: columns 1-8; bc306-state.dat: but min-thickness)"
+  return 0
+}
+
+# plan 08 section 2.9 V2: a uniform type-2 slab (TACOT, 300 K: no reaction runs, the reactive masses are carried)
+# receding at a forced rate stays uniform and loses exactly what the face sweeps out, stored gas and quasi-steady
+gate_ablation_remap_uniform () {
+  local dest="$WORK/ablation_remap_uniform" rc rq v
+  stage "$ABL/remap_uniform" "$dest/stored"
+  stage "$ABL/remap_uniform" "$dest/qs"
+  sed -i 's/^quasi-steady = false$/quasi-steady = true/' "$dest/qs/input.ini"
+  for v in stored qs; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; fi
+  done
+  python3 "$ABL/remap_uniform/verify.py" "$dest/stored" > "$dest/stored/verify.log" 2>&1; rc=$?
+  python3 "$ABL/remap_uniform/verify.py" "$dest/qs" --qs > "$dest/qs/verify.log" 2>&1; rq=$?
+  KEYNUM="E + E_abl $(grep -F -m1 'E   + E_abl' "$dest/stored/verify.log" | awk '{print $7}') / qs $(grep -F -m1 'E   + E_abl' "$dest/qs/verify.log" | awk '{print $7}') (<= 1e-12); M_s + M_abl $(grep -F -m1 'M_s + M_abl' "$dest/stored/verify.log" | awk '{print $7}'); p spread $(grep -F -m1 'p_pg' "$dest/stored/verify.log" | awk '{print $5}') (<= 1e-12)"
+  [ "$rc" -eq 0 ] && [ "$rq" -eq 0 ]
+}
+
+# plan 12 section D (P-D3's exact case): a receding ablating wall sweeps out the WALL state. Under a constant absorbed
+# flux the line settles at T_w* = T_inf + q/(rho c sdot) = 1300 K (a cell-state sweep: 1500 K), every step's swept
+# energy follows the reported T_w, a numpy replica of the scheme matches FUSS to round-off; both Robin twins, the
+# pyrolysis remap and the legacy one, sweep the wall state (plan 12 U19); the type-2 run sweeps (T_w, p_w)
+gate_ablation_receding_front () {
+  local dest="$WORK/ablation_receding_front" rc r2 r
+  for r in front twin_pyro twin_legacy t2; do stage "$ABL/receding_front/$r" "$dest/$r"; done
+  # proven-red hook: the flux one percent high must move T_w off the closed form and off the replica
+  [ "$SELFTEST" = "1" ] && sed -i 's/ 400000.0 / 404000.0 /' "$dest/front/INPUT/env_front.dat"
+  for r in front twin_pyro twin_legacy t2; do
+    solve "$dest/$r" "$NTHREADS"; rc=$?
+    if [ "$rc" -ne 0 ]; then KEYNUM="$r: solver exit $rc  (see $dest/$r/run.log)"; return 1; fi
+  done
+  python3 "$ABL/receding_front/verify.py" "$dest/front" "$dest/twin_pyro" "$dest/twin_legacy" > "$dest/verify.log" 2>&1; rc=$?
+  python3 "$ABL/receding_front/verify.py" --t2 "$dest/t2" > "$dest/verify_t2.log" 2>&1; r2=$?
+  KEYNUM="T_w $(grep -F '(G1)' "$dest/verify.log" | sed -E 's/.*= ([+-][0-9.e+-]+), .*/\1/') of 1000 K (<= 2e-3); sweep $(grep -F '(G2)' "$dest/verify.log" | sed -E 's/.*worst ([0-9.e+-]+) .*/\1/'); replica $(grep -F '(G5)' "$dest/verify.log" | sed -E 's/.*step ([0-9.e+-]+), .*/\1/'); twins $(grep -F '(twin)' "$dest/verify.log" | sed -E 's/.*= ([+-][0-9.e+-]+), .*/\1/' | paste -sd '/' -); t2 $(grep -F '(T2-b)' "$dest/verify_t2.log" | sed -E 's/.*worst ([0-9.e+-]+) .*/\1/')"
+  [ "$rc" -eq 0 ] && [ "$r2" -eq 0 ]
+}
+
+# plan 08 section 2.9 (3): R5's type-2 variant -- pyrolysis across an unequal-spacing 101 interface; the two sides
+# of every connection face carry opposite conduction, gas mass and gas enthalpy flows
+gate_conjugate_receding_t2 () {
+  local src="$ROOT/test/moving-mesh/conjugate_receding_t2" dest="$WORK/conjugate_receding_t2" rc
+  stage "$src" "$dest"
+  solve "$dest" "$NTHREADS"; rc=$?
+  if [ "$rc" -ne 0 ]; then KEYNUM="solver exit $rc  (see $dest/run.log)"; return 1; fi
+  python3 "$src/verify.py" "$dest" > "$dest/verify.log" 2>&1; rc=$?
+  KEYNUM=$(grep -F '(pair)' "$dest/verify.log" | awk '{print $2, $10}' | paste -sd ';' -)" of max|q| (<= 1e-12)"
+  return $rc
+}
+
+# plan 14 S9d Part B: periodic faces (201) with ours' features. One sector of upstream's PeriodicSector against the full
+# ring it stands for (test/moving-mesh/periodic/generate.py writes the ring and the symmetry control; the sector is the
+# committed deck, first checked against a fresh generation), compare.py on T (and the nodes on a moving mesh) over the
+# six sectors of the ring: periodic_gate NAME VARIANT TOL "COMPARE OPTIONS" SECTOR_DECK [SECTOR1_DECK]
+periodic_gate () {
+  local name=$1 v=$2 tol=$3 opts=$4 deck=$5 deck1=${6:-} g="$ROOT/test/moving-mesh/periodic" dest="$WORK/periodic_$1" rc k f
+  [ "$SELFTEST" = "1" ] && tol=0
+  for k in sector ${deck1:+sector1}; do
+    python3 "$g/generate.py" "$v" "$k" "$dest/fresh-$k" > /dev/null || { KEYNUM="$v $k: generate.py failed"; return 1; }
+  done
+  for f in INPUT MESH input.ini; do
+    diff -r "$ROOT/$deck/$f" "$dest/fresh-sector/$f" > /dev/null || { KEYNUM="$deck/$f differs from generate.py's"; return 1; }
+    [ -z "$deck1" ] || diff -r "$ROOT/$deck1/$f" "$dest/fresh-sector1/$f" > /dev/null \
+      || { KEYNUM="$deck1/$f differs from generate.py's"; return 1; }
+  done
+  stage "$ROOT/$deck" "$dest/sector"
+  [ -z "$deck1" ] || stage "$ROOT/$deck1" "$dest/sector1"
+  for k in ring sym ${deck1:+ring1}; do
+    python3 "$g/generate.py" "$v" "$k" "$dest/gen-$k" > /dev/null || { KEYNUM="$v $k: generate.py failed"; return 1; }
+    stage "$dest/gen-$k" "$dest/$k"
+  done
+  for k in sector ring sym ${deck1:+sector1 ring1}; do
+    solve "$dest/$k" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$v $k: solver exit $rc  (see $dest/$k/run.log)"; return 1; }
+  done
+  python3 "$g/compare.py" "$dest/ring" "$dest/sector" "$tol" $opts > "$dest/compare.log" 2>&1; rc=$?
+  KEYNUM="$v: $(sed -n 's/^[^:]*: \([^;]*\);.*/\1/p' "$dest/compare.log")"
+  [ "$rc" -eq 0 ] || return 1
+  if [ -n "$deck1" ]; then
+    python3 "$g/compare.py" "$dest/ring1" "$dest/sector1" "$tol" $opts > "$dest/compare1.log" 2>&1; rc=$?
+    KEYNUM="$KEYNUM; one block: $(sed -n 's/^[^:]*: \([^;]*\);.*/\1/p' "$dest/compare1.log")"
+    [ "$rc" -eq 0 ] || return 1
+  fi
+  python3 "$g/compare.py" "$dest/ring" "$dest/sym" 1e-6 --differ > "$dest/sym.log" 2>&1 \
+    || { KEYNUM="$KEYNUM; the symmetry control gives the ring (see $dest/sym.log)"; return 1; }
+  KEYNUM="$KEYNUM (<= $tol)"
+}
+
+# B1: a translation along the axis of the pair, and a prescribed displacement along it that depends on x only
+gate_periodic_motion () {
+  local k1 k2
+  periodic_gate translate translate 1e-11 --nodes test/moving-mesh/periodic/translate || return 1
+  k1=$KEYNUM
+  periodic_gate prescribed prescribed 1e-11 --nodes test/moving-mesh/periodic/prescribed || { KEYNUM="$k1 / $KEYNUM"; return 1; }
+  KEYNUM="$k1 / $KEYNUM"
+}
+
+# B2: the inner wall receding (306, law = nodeshift) across the pair, two blocks and one block periodic with itself
+gate_periodic_receding () {
+  periodic_gate receding receding 1e-11 --nodes test/moving-mesh/periodic/receding test/moving-mesh/periodic/receding1
+}
+
+# B3: gas-closure = type2, K transversely isotropic about the axis of the pair, on a static mesh and with the inner wall
+# receding (306 with the TACOT B' table, its env pattern periodic in theta, smoothing-width 5). The Darcy pressure is
+# iterated to [FUSS-Darcy] tol: the tolerance is the measured floor of plan 14 S9d Part B section 8 (M-B3-a), not 1e-11.
+# The ablation leg is the one whose rate differs across the seam (env_hi / env_lo): it is the RED of the join's rate and
+# windows (mutations m-B2-3, m-B2-4); 20 steps, its env tables scaled and its outer face adiabatic (generate.py
+# ENV_SCALE: with w5_2blk's own tables this perturbed mesh shears until it tangles at ~3.4 mm of recession; with the
+# outer face's -3.0e4 W/m^2 the outer layer froze below the tables). Every type-2 deck runs [FUSS-Darcy] tol = 1e-10,
+# where the iteration sits on its floor. TOL = 10 x the largest sector-vs-ring difference of twelve draws (the three
+# legs at tol 1e-10, 3e-11, 1e-11, 1e-12), rounded up to one digit: largest 9.942e-12 (T, one block, tol 3e-11); draws
+# (two blocks | one block | ablation) 1e-10 3.2e-13 | 6.7e-12 | 9.0e-12, 3e-11 1.5e-12 | 9.9e-12 | 2.5e-12, 1e-11 and
+# 1e-12 1.2e-12 | 9.5e-12 | 2.5e-12 (plan 14 S9d Part B M-B3-a). A floor set from measured draws, not a physics
+# budget: the [FUSS-Darcy] tol times an amplification nobody has bounded.
+TOL_PERIODIC_DARCY=1e-10
+gate_periodic_darcy () {
+  local k1
+  periodic_gate darcy darcy "$TOL_PERIODIC_DARCY" "--vars T,p_pg" test/pyrolysis/darcy/periodic_static \
+    test/pyrolysis/darcy/periodic_static1 || return 1
+  k1=$KEYNUM
+  periodic_gate ablation ablation "$TOL_PERIODIC_DARCY" "--vars T,p_pg --nodes" test/pyrolysis/ablation/periodic_receding \
+    || { KEYNUM="$k1 / $KEYNUM"; return 1; }
+  KEYNUM="$k1 / $KEYNUM"
+}
+
+# A coupled face (103) under pyrolysis, standalone (no coupling: ext_flux = 0): the gas leaves through it as through an
+# adiabatic wall (301, q = 0) on the same face. Twins built at run time from heated0d (type 1, outflow face 2) and
+# heated0d_type2 (type 2; face 1 made a symmetry face in both twins, so face 2 is the only exit: the 103 twin takes the
+# default open-bc-types, which holds 103, the 301 twin open-bc-types = 301). On this 1-D orthogonal slab the 301 wall
+# solves Tw = T exactly (no tangential term, q = 0) and puts 0 into the residual, as the 103 face puts ext_flux = 0;
+# the gas leaves both at the cell temperature: the same arithmetic, so every OUTPUT file is byte-identical but the wall
+# output (a 103 face is no wall of wall.tec; FUSS_GATE_SELFTEST=1 compares it too: the red of the harness). The
+# budgets: energy |dE + Q_out - Q_src| and gas mass |dM_s + M_gas_out + dM_g| <= 1e-10 (gate 4.3's bound) on the 103
+# twins. The refusals that remain, each exit 1 with its message: 102 and 104 faces (type 1), and a type-2 103 face
+# sealed by open-bc-types = 303 while the gas is produced. The base refuses the 103 twins (the red of 2026-11-26).
+gate_pyrolysis_103 () {
+  local dest="$WORK/pyrolysis_103" t="$ROOT/test/pyrolysis/tools" rc v cmp1 cmp2 bal excl="--exclude wall" k103="1 1 1 1 1 1 1 1 1"
+  [ "$SELFTEST" = "1" ] && excl=""
+  rm -rf "$dest"; mkdir -p "$dest"
+  for v in t1_301 t1_103 r102 r104; do stage "$ROOT/test/pyrolysis/heated0d" "$dest/$v"; done
+  for v in t2_301 t2_103 rsealed; do
+    stage "$ROOT/test/pyrolysis/darcy/heated0d_type2" "$dest/$v"
+    python3 "$t/set_face_bc.py" "$dest/$v/INPUT/bc.txt" 1 1 300 > /dev/null || { KEYNUM="$v: set_face_bc.py failed"; return 1; }
+  done
+  for v in t1_103 t2_103 rsealed; do
+    python3 "$t/set_face_bc.py" "$dest/$v/INPUT/bc.txt" 1 2 103 "$k103" > /dev/null || { KEYNUM="$v: set_face_bc.py failed"; return 1; }
+  done
+  python3 "$t/set_face_bc.py" "$dest/r102/INPUT/bc.txt" 1 2 102 "1 1" "1 3 1 1 1.0" "1 2 1 1 1.0" > /dev/null || return 1
+  python3 "$t/set_face_bc.py" "$dest/r104/INPUT/bc.txt" 1 2 104 "1 1" "1 3 1 1 1.0" "1 2 1 1 1.0" > /dev/null || return 1
+  sed -i '/^open-bc-types/d' "$dest/t2_103/input.ini"
+  sed -i 's/^open-bc-types.*/open-bc-types = 303/' "$dest/rsealed/input.ini"
+  for v in t1_301 t1_103 t2_301 t2_103; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$v: solver exit $rc  (see $dest/$v/run.log)"; return 1; }
+  done
+  for v in t1_103 t2_103; do
+    grep -q 'NOTICE\] pyrolysis: the gas leaves through 2 coupled face(s) (103)' "$dest/$v/run.log" \
+      || { KEYNUM="$v: no set-up NOTICE on the gas leaving through the 103 faces"; return 1; }
+  done
+  python3 "$t/twin_compare.py" "$dest/t1_301" "$dest/t1_103" $excl > "$dest/t1.cmp" 2>&1; rc=$?
+  cmp1=$(tail -1 "$dest/t1.cmp" | sed 's/^twin_compare: //')
+  [ "$rc" -eq 0 ] || { KEYNUM="type 1 twins: $cmp1 (see $dest/t1.cmp)"; return 1; }
+  python3 "$t/twin_compare.py" "$dest/t2_301" "$dest/t2_103" $excl > "$dest/t2.cmp" 2>&1; rc=$?
+  cmp2=$(tail -1 "$dest/t2.cmp" | sed 's/^twin_compare: //')
+  [ "$rc" -eq 0 ] || { KEYNUM="type 2 twins: $cmp2 (see $dest/t2.cmp)"; return 1; }
+  bal=$(python3 - "$dest/t1_103" "$dest/t2_103" <<'PY'
+import sys
+out = []
+for case in sys.argv[1:]:
+    rows = [[float(v) for v in l.split()] for l in open(case + "/OUTPUT/energy-budget.txt") if not l.startswith("#")]
+    r0 = rows[0]
+    we = wm = 0.0
+    for r in rows:
+        dMg = (r[7] - r0[7]) if len(r) > 7 else 0.0
+        we = max(we, abs(r[1] - r0[1] + r[3] - r[6]) / max(abs(r0[1]), abs(r[3]), abs(r[6])))
+        wm = max(wm, abs(r[2] - r0[2] + r[5] + dMg) / r0[2])
+    out.append((we, wm))
+print(" ".join("%.1e/%.1e" % p for p in out), "FAIL" if max(max(p) for p in out) > 1.0e-10 else "ok")
+PY
+)
+  case "$bal" in *ok) ;; *) KEYNUM="budget of the 103 twins (energy/mass, type 1 type 2): $bal"; return 1 ;; esac
+  for v in r102 r104 rsealed; do
+    solve "$dest/$v" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 1 ] || { KEYNUM="$v: exit $rc, expected the refusal's 1  (see $dest/$v/run.log)"; return 1; }
+  done
+  grep -q 'ERROR\] pyrolysis: chimera faces (102, 104) are refused' "$dest/r102/run.log" \
+    && grep -q 'ERROR\] pyrolysis: chimera faces (102, 104) are refused' "$dest/r104/run.log" \
+    && grep -q 'ERROR\] Darcy: no face is open to the gas while the pyrolysis gas is produced' "$dest/rsealed/run.log" \
+    || { KEYNUM="a refusal fired without its message (see $dest/r*/run.log)"; return 1; }
+  KEYNUM="103 = 301 q=0 twins: type 1 $cmp1; type 2 $cmp2; budgets (energy/mass) ${bal% ok} (<= 1e-10); 102, 104, sealed 103 refused"
+}
+
+# A face between two materials inside a block under pyrolysis: the slab of test/pyrolysis/two_layer (two materials in
+# one block, no kinetics, constant properties; tools/make_two_layer.py writes it, the committed N020 deck is first
+# checked against a fresh generation), exact solution tools/two_layer_exact.py. The time step is the plain cell step:
+# the series face is bounded by the two materials apart (docs/theory/time-integration.md).
+# (a) k ratio 20, N = 20, 40, 80 at RK3 vnn 0.05: the error falls at second order by the convergence rule
+#     (verify.py --ladder, tools/conv_rule.py with p = 2: the error falls on every rung, the order on the finest pair
+#     lies in [1.6, 2.4]; the band is the scheme's order, not a measured value); the mean of the two k_s at the jump (the scheme
+#     before 2026-11-26) falls at first order (27.1 / 13.6 / 6.83 K).
+# (b) seven configurations -- k ratio 20 and 100 on equal cells, cells 5 x larger in HIGH and in LOW for both ratios,
+#     and k ratio 100 on 2-D cells of aspect ratio 2 (dy = 2 dx, 4 rows) -- at the nominal limits RK3 0.628, RK2 0.5,
+#     euler 0.5, outputs every second: each run reaches its end and its error falls from the first output to the last
+#     (verify.py --decay: at the limit the shortest mode is not damped, as for one material, so the start-up
+#     oscillation decays only slowly; an unstable mode would grow). With the mean 18 of the 21 runs stop on an energy
+#     outside the table; the three of k 20 with LOW cells 5 x larger run on, 35 K off and first order.
+# (c) the same seven at 0.9 x the limits (RK3 0.5652, RK2 0.45, euler 0.45), N and 2N cells (the 2-D case refined in
+#     both directions): the error falls at second order by the same rule, p = 2 (one pair: the error falls and the
+#     order lies in [1.6, 2.4]; at a fixed vnn dt ~ h^2, so every scheme's time error is O(h^2) or smaller).
+# (d) block independence, type 2 (type 1 takes one block): the N = 40 slab and its cut at the interface into two blocks
+#     (test/tools/split_blocks.py; the jump becomes a 101 face) take the same steps and agree on T within
+#     TOL_CUT_T and on p_pg within TOL_CUT_P. The two runs differ by the summation order of the interface cells'
+#     residuals and of the connection terms (both pressure solves are direct: one Thomas sweep along the line, which
+#     the block without an open face continues). The bound N_steps x ulp argued for this (one ulp a step, not
+#     amplified) does not hold: the difference does not grow with the steps (T 1.1e-11 K after 21 steps, 6.8e-12 K
+#     after 14629) and exceeds N_steps x ulp on short runs. So both tolerances are floors set from measured draws,
+#     not a physics budget: 5 x the widest difference of eleven draws (N 10-80, k ratio 20 and 100, RK3/RK2/euler,
+#     vnn 0.025-0.5652, 21-14629 steps), rounded up to one digit: T 1.830e-11 K (N 40, RK3 0.5652), p_pg 9.139e-09 Pa
+#     (N 80, RK2 0.45). With the mean inside the block and the series across the cut they differed by 13.6 K.
+TOL_CUT_T=1e-10
+TOL_CUT_P=5e-8
+two_layer_cfg () {  # two_layer_cfg <configuration> <refinement m>: make_two_layer.py arguments
+  local m=$2
+  case $1 in
+    k20u)    echo "--ncells $((40*m))" ;;
+    k100u)   echo "--ncells $((40*m)) --k-ratio 100" ;;
+    k20h5)   echo "--cells-high $((8*m)) --cells-low $((40*m))" ;;
+    k20h02)  echo "--cells-high $((40*m)) --cells-low $((8*m))" ;;
+    k100h5)  echo "--cells-high $((8*m)) --cells-low $((40*m)) --k-ratio 100" ;;
+    k100h02) echo "--cells-high $((40*m)) --cells-low $((8*m)) --k-ratio 100" ;;
+    k100d2)  echo "--ncells $((40*m)) --k-ratio 100 --ny $((4*m)) --dy $(python3 -c "print(5e-4 / $m)")" ;;
+  esac
+}
+gate_pyrolysis_two_layer () {
+  local dest="$WORK/pyrolysis_two_layer" g="$ROOT/test/pyrolysis/tools/make_two_layer.py" v="$ROOT/test/pyrolysis/two_layer"
+  local rc c n f k1 k2 k3 nst tolT=$TOL_CUT_T tolp=$TOL_CUT_P sv s vn m o lo hi nd worst
+  local CFGS="k20u k100u k20h5 k20h02 k100h5 k100h02 k100d2"
+  rm -rf "$dest"; mkdir -p "$dest"
+  python3 "$g" "$dest/fresh_N020" --ncells 20 > /dev/null || { KEYNUM="make_two_layer.py failed"; return 1; }
+  for f in INPUT MESH input.ini case.json; do
+    diff -r "$v/N020/$f" "$dest/fresh_N020/$f" > /dev/null || { KEYNUM="test/pyrolysis/two_layer/N020/$f differs from make_two_layer.py's"; return 1; }
+  done
+  # (a)
+  for n in 40 80; do
+    python3 "$g" "$dest/gen_N0$n" --ncells $n > /dev/null || { KEYNUM="make_two_layer.py N = $n failed"; return 1; }
+  done
+  python3 "$g" "$dest/gen_t2" --ncells 40 --type2 > /dev/null &&
+  python3 "$ROOT/test/tools/split_blocks.py" "$dest/gen_t2" 2 1 "$dest/gen_t2cut" > /dev/null 2>&1 &&
+  cp "$dest/gen_t2/case.json" "$dest/gen_t2cut/" || { KEYNUM="generating the decks failed"; return 1; }
+  stage "$v/N020" "$dest/N020"
+  for c in N040 N080 t2 t2cut; do stage "$dest/gen_$c" "$dest/$c"; done
+  for c in N020 N040 N080 t2 t2cut; do
+    solve "$dest/$c" "$NTHREADS"; rc=$?
+    [ "$rc" -eq 0 ] || { KEYNUM="$c: solver exit $rc  (see $dest/$c/run.log)"; return 1; }
+  done
+  python3 "$v/verify.py" --ladder "$dest/N020" "$dest/N040" "$dest/N080" > "$dest/ladder.log" 2>&1; rc=$?
+  k1=$(grep -E '^  order' "$dest/ladder.log" | awk '{print $5}' | paste -sd/ -)
+  k1="(a) orders $k1 ($(grep -o 'falls on every rung [A-Za-z]*; order on the finest pair .*\]' "$dest/ladder.log")), errors $(grep -E '^  N =' "$dest/ladder.log" | awk '{print $13}' | paste -sd/ -) K"
+  [ "$rc" -eq 0 ] || { KEYNUM="ladder: $k1 (see $dest/ladder.log)"; return 1; }
+  # (b) nominal limits: stable (the error decays), 7 configurations x 3 schemes
+  nd=0
+  for c in $CFGS; do
+    for sv in RK3:0.628 RK2:0.5 euler:0.5; do
+      s=${sv%%:*}; vn=${sv##*:}; n="nom_${c}_$s"
+      python3 "$g" "$dest/gen_$n" $(two_layer_cfg $c 1) --vnn $vn --time-scheme $s --sol-dtime 1.0 > /dev/null \
+        || { KEYNUM="$k1; generating $n failed"; return 1; }
+      stage "$dest/gen_$n" "$dest/$n"
+      solve "$dest/$n" "$NTHREADS"; rc=$?
+      [ "$rc" -eq 0 ] || { KEYNUM="$k1; (b) $n: solver exit $rc  (see $dest/$n/run.log)"; return 1; }
+      python3 "$v/verify.py" --decay "$dest/$n" > "$dest/$n.log" 2>&1 \
+        || { KEYNUM="$k1; (b) $(tail -1 "$dest/$n.log" | sed 's/^ *//')"; return 1; }
+      nd=$((nd+1))
+    done
+  done
+  k2="(b) $nd runs at the nominal limits stable, errors at 8 s $(grep -h 'decays' "$dest"/nom_*.log | sed -E 's/.*-> ([0-9.e+-]+) K.*/\1/' | sort -g | sed -n '1p;$p' | paste -sd- -) K"
+  # (c) 0.9 x the limits: second order, 7 configurations x 3 schemes, N and 2N
+  lo=9; hi=0
+  for c in $CFGS; do
+    for sv in RK3:0.5652 RK2:0.45 euler:0.45; do
+      s=${sv%%:*}; vn=${sv##*:}
+      for m in 1 2; do
+        n="sub_${c}_${s}_m$m"
+        python3 "$g" "$dest/gen_$n" $(two_layer_cfg $c $m) --vnn $vn --time-scheme $s > /dev/null \
+          || { KEYNUM="$k1; $k2; generating $n failed"; return 1; }
+        stage "$dest/gen_$n" "$dest/$n"
+        solve "$dest/$n" "$NTHREADS"; rc=$?
+        [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $n: solver exit $rc  (see $dest/$n/run.log)"; return 1; }
+      done
+      n="sub_${c}_$s"
+      python3 "$v/verify.py" --ladder "$dest/${n}_m1" "$dest/${n}_m2" > "$dest/$n.log" 2>&1; rc=$?
+      o=$(grep -E '^  order' "$dest/$n.log" | awk '{print $5}')
+      [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (c) $c $s vnn $vn: order $o (in [1.6, 2.4] and falling, by tools/conv_rule.py) (see $dest/$n.log)"; return 1; }
+      lo=$(python3 -c "print(min($lo, $o))"); hi=$(python3 -c "print(max($hi, $o))")
+    done
+  done
+  k2="$k2; (c) 21 ladders at 0.9 x the limits, orders $lo-$hi"
+  # (d)
+  nst=$(grep -c 'Iter =' "$dest/t2/run.log")
+  [ "$nst" -eq "$(grep -c 'Iter =' "$dest/t2cut/run.log")" ] || { KEYNUM="$k1; $k2; the cut slab took another number of steps"; return 1; }
+  [ "$SELFTEST" = "1" ] && { tolT=0; tolp=0; }
+  python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolT" --vars T > "$dest/cut.log" 2>&1; rc=$?
+  python3 "$v/compare_cut.py" "$dest/t2" "$dest/t2cut" --tol "$tolp" --vars p_pg >> "$dest/cut.log" 2>&1 || rc=1
+  k3=$(sed 's/^compare_cut: [0-9]* field files; //; s/ *ok$//' "$dest/cut.log" | paste -sd';' -)
+  [ "$rc" -eq 0 ] || { KEYNUM="$k1; $k2; (d) cut vs uncut: $k3"; return 1; }
+  KEYNUM="$k1; $k2; (d) cut = uncut ($nst steps): $k3"
+}
+
+# ---------------------------------------------------------------------------
+# CASES is defined at the top (-h prints it)
+if [ -n "$ONLY" ]; then
+  case " ${CASES[*]} " in
+    *" $ONLY "*) CASES=("$ONLY") ;;
+    *) echo "unknown case: $ONLY (known: ${CASES[*]})" >&2; exit 1 ;;
+  esac
+fi
+
+for c in "${CASES[@]}"; do
+  KEYNUM=""
+  if "gate_$c"; then
+    # A verify.py that cannot run a check prints a SKIP line and exits 0 (ATC2-chemistryOff without its PATO files,
+    # a sub-check without its input): such a gate is reported SKIP with those lines, never PASS
+    skips=$(find "$WORK/$c" -name 'verify*.log' -exec grep -hw SKIP {} + 2>/dev/null)
+    if [ -n "$skips" ]; then
+      skip_line "$c" "$KEYNUM"
+      printf '%s\n' "$skips" | sed 's/^ */          /'
+    else
+      pass_line "$c" "$KEYNUM"
+    fi
+  else
+    fail_line "$c" "$KEYNUM"
+  fi
+done
+
+echo
+if [ "$fail" -eq 0 ] && [ "$skip" -eq 0 ]; then
+  echo "all physics gates passed"
+elif [ "$fail" -eq 0 ]; then
+  echo "$skip physics gate(s) SKIPPED a check (see the SKIP lines above); none failed"
+  exit 77
+else
+  echo "$fail physics gate(s) FAILED -- see the per-case verify.log / run.log under $WORK"
+  exit 1
+fi

@@ -84,6 +84,14 @@ The test cases carry `FUSS.sh`; its options go before the task:
 
 `solve` creates `OUTPUT/` and `bin/`, sets the stack limits and `OMP_NUM_THREADS`, copies the repository's `bin/FUSS` to `./bin/FUSS` when it is newer, and runs it (through `mpirun` with `-m`). The repository is found through `MASTERDIR=../../..`, the depth of the test cases: change it for a case elsewhere. Threads, ranks and the block partition are described in [Parallel Execution](parallel.md).
 
+!!! note "MPI"
+    - Build the MPI executable with the `mpi` preset (`bin/FUSS-mpi`, see [Installation](../getting-started/installation.md)) and run it with `FUSS_EXE=FUSS-mpi ./FUSS.sh -m N solve`; `FUSS_MPIRUN` names the launcher (default: the first `mpirun` on `PATH`).
+    - Each rank owns whole blocks, so a case with fewer blocks than ranks leaves ranks idle.
+    - Pyrolysis, the Darcy closure and the ablating wall (306, 307) run on any number of ranks: each rank owns whole blocks, and the exchanges across ranks carry their ghost values and their sums.
+    - Chimera faces (102) and multigrid run on any number of ranks: the donor cells a 102 face reads on another rank travel in their own exchange, each grid level has its own exchange schedule, and the blocks are partitioned once, on the finest level, so a block lives on the same rank at every level.
+    - Every stop ends the run with exit code 1, as in a serial run: an error that every rank finds stops every rank together (each writes a STOP line); one that a single rank finds ends the job through `MPI_ABORT` with code 1.
+    - `input.ini` is read by rank 0, which passes its text to every rank, at set-up and at every reading during the run; only rank 0 writes `OUTPUT/runtime-ini-ignored.txt`.
+
 ---
 
 ## Log
@@ -182,7 +190,7 @@ FUSS | Iter =     3051 | Global iter =     3051 | Energy  residual = 0.356132E-0
 | Value | Files |
 |-------|-------|
 | `tecplot ascii` | Tecplot ASCII, `.tec` (default) |
-| `tecplot binary` | Tecplot binary, `.szplt` (needs TecIO) |
+| `tecplot binary` | Tecplot binary, `.szplt` (needs TecIO: refused at setup, for `sol-format` and `ic-format`, when FUSS is built with `USE_TECIO = false`) |
 | `vtk ascii` | VTK ASCII: `field.vtm`, block files under `OUTPUT/vtk/` |
 | `vtk binary` | VTK base64, same layout |
 | `vtk raw` | VTK raw appended binary, same layout |
@@ -214,7 +222,7 @@ dtime = 1.0e-1
 |-----|---------|
 | `index-position` | `block i j k` of the probe cell |
 | `position` | `x y z`, used when `index-position` is not given: the probe takes the cell with the nearest centre |
-| `variables` | Recorded variables: only `T`; another name stops the run at set-up |
+| `variables` | Recorded variables: `T`, and `p_pg` (the gas pressure) under the type-2 gas closure; another name stops the run at set-up |
 | `dtime` | Write at the multiples of `dtime` seconds of simulated time (at most once per step, from the first multiple after the start or restart time) |
 | `diter` | Write every `diter` iterations |
 
@@ -223,6 +231,7 @@ Each probe writes `OUTPUT/<name>.txt` (`OUTPUT/p1.txt` above): one line per reco
 - A new run replaces the probe files. A restart appends to them, creates any that are missing, and first drops the rows written after the solution it restarts from.
 - The time-based rows fall on the multiples of `dtime`, so a restarted run writes the rows of the uninterrupted one.
 - Every row is flushed when written: a killed run keeps every row it wrote. The same holds for `residual-history.dat`.
+- A probe name has at most 16 characters: a longer one is refused at setup, as is any string value longer than the variable that holds it.
 
 ---
 

@@ -2,7 +2,7 @@ module FUSS_IO_Probes
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Parameters_m
   use FUSS_Base_Types_m, only: FUSS_vector_3D_type
-  use FUSS_Config_Types_m, only: obj_io_probes
+  use FUSS_Config_Types_m, only: obj_io_probes, obj_darcy
   use FUSS_Advanced_Types_m, only: FUSS_domain_type
 
   implicit none
@@ -42,8 +42,8 @@ contains
     type(FUSS_domain_type), intent(in)  :: domain
     logical, intent(in)                 :: newrun
     ! Local
-    integer             :: i, ii, error
-    character(len=clen) :: string(8)
+    integer             :: i, ii, error, ntok
+    character(len=clen), allocatable :: string(:)
     logical             :: open_failed
     character(len=hlen) :: open_detail
 
@@ -54,9 +54,15 @@ contains
 
     do i = 1, nprobes
 
-      obj_io_probes(i)%file = 'OUTPUT/'//trim(obj_io_probes(i)%file)//'.txt'
+      ! The path has its own component: written into the 16-character name it
+      ! was cut (`d01_lo` wrote OUTPUT/d01_lo.tx).
+      obj_io_probes(i)%path = 'OUTPUT/'//trim(obj_io_probes(i)%file)//'.txt'
 
-      ! Vars name
+      ! Vars name. parse writes one element per token without a bound check, so
+      ! the array is sized from the count (a fixed 8 let a ninth name write past it).
+      ntok = Count_Tokens(obj_io_probes(i)%varnames)
+      if ( allocated(string) ) deallocate(string)
+      allocate(string(max(ntok, 1)))
       string = ''
       probe(i)%nvar = 0
       call parse(obj_io_probes(i)%varnames,' ',string)
@@ -73,8 +79,17 @@ contains
       ! The variables are known names: every rank checks them, whether it owns the probe or not (a rank that does not own
       ! the probe would otherwise go on while the owner stops)
       do ii = 1, probe(i)%nvar
-        if (trim(probe(i)%names(ii)) /= 'T') &
-          call mpi_stop_all('unknown probe variable "'//trim(probe(i)%names(ii))//'" (accepted: T)')
+        select case ( trim(probe(i)%names(ii)) )
+        case ('T')
+        case ('p_pg')
+          ! the gas pressure of the type-2 closure (plan 07)
+          if ( .not. obj_darcy%enabled ) then
+            write(*,'(A)') ' [ERROR] probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2'
+            call mpi_stop_all('probe variable p_pg without the type-2 gas closure (see above)')
+          endif
+        case default
+          call mpi_stop_all('unknown probe variable "'//trim(probe(i)%names(ii))//'" (accepted: T, p_pg)')
+        end select
       enddo
 
       ! Frequency
@@ -98,14 +113,14 @@ contains
       ! gets here: a failure is reduced over the ranks after the loop, and stops them all (an
       ! unopened unit would write to an arbitrary file).
       if (.not.newrun) then
-        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='UNKNOWN', &
+        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='UNKNOWN', &
              position='APPEND',action='WRITE',iostat=error)
       else
-        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='REPLACE',iostat=error)
+        open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='REPLACE',iostat=error)
       endif
       if (error/=0 .and. .not. open_failed) then
         open_failed = .true.
-        open_detail = '[ERROR] cannot open probe file '//trim(obj_io_probes(i)%file)
+        open_detail = '[ERROR] cannot open probe file '//trim(obj_io_probes(i)%path)
       endif
   
     enddo
@@ -113,6 +128,25 @@ contains
     call mpi_stop_if_any(open_failed, 'cannot open a probe file (see above)', open_detail)
 
   end subroutine Setup_Probes
+
+
+  !> Number of blank-separated tokens of a string.
+  pure integer function Count_Tokens ( text ) result ( n )
+    implicit none
+    character(len=*), intent(in) :: text
+    integer :: k
+    logical :: inside
+    n = 0
+    inside = .false.
+    do k = 1, len_trim(text)
+      if ( text(k:k) /= ' ' .and. text(k:k) /= char(9) ) then
+        if ( .not. inside ) n = n + 1
+        inside = .true.
+      else
+        inside = .false.
+      endif
+    enddo
+  end function Count_Tokens
 
 
   !> The cell whose centre is nearest to the probe location (needs the nodes of every block)
@@ -166,7 +200,6 @@ contains
 
   subroutine Assign_Variables(probe, domain)
     use IR_precision
-    use FUSS_Mod_MPI, only: mpi_stop_all
     implicit none
     type(obj_probe), intent(inout), target     :: probe
     type(FUSS_domain_type), intent(in), target :: domain
@@ -182,10 +215,20 @@ contains
     allocate(probe%variables(1:probe%nvar))
 
     do v = 1, probe%nvar
-      nullify(probe%variables(v)%p)
-      if (probe%names(v)=='T') probe%variables(v)%p => probe%P
-      if (.not. associated(probe%variables(v)%p)) &
-        call mpi_stop_all('unknown probe variable "'//trim(probe%names(v))//'" (accepted: T)')
+      select case ( trim(probe%names(v)) )
+        case ('T')
+          probe%variables(v)%p => probe%P
+        case ('p_pg')
+          ! the gas pressure of the type-2 closure (plan 07)
+          if ( .not. allocated(domain%blk(b)%p_pg) ) then
+            write(*,'(A)') ' [ERROR] probe variable p_pg needs [FUSS-Pyrolysis] gas-closure = type2'
+            error stop 1   ! unreachable: Setup_Probes checked the names on every rank
+          endif
+          probe%variables(v)%p => domain%blk(b)%p_pg(i,j,k)
+        case default
+          write(*,'(A)') ' [ERROR] unknown probe variable "'//trim(probe%names(v))//'" (known: T, p_pg)'
+          error stop 1   ! unreachable: Setup_Probes checked the names on every rank
+      end select
     enddo
 
   end subroutine Assign_Variables
@@ -234,12 +277,12 @@ contains
     do i = 1, nprobes
       if (.not. is_local_block(probe(i)%ilocation(1))) cycle
       close(probe(i)%unit)
-      call Drop_Rows_After ( trim(obj_io_probes(i)%file), 1 + probe(i)%nvar, iteration, time )
-      open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%file),status='UNKNOWN', &
+      call Drop_Rows_After ( trim(obj_io_probes(i)%path), 1 + probe(i)%nvar, iteration, time )
+      open(newunit=probe(i)%unit,file=trim(obj_io_probes(i)%path),status='UNKNOWN', &
            position='APPEND',action='WRITE',iostat=error)
       if (error/=0 .and. .not. failed) then
         failed = .true.
-        detail = '[ERROR] cannot open probe file '//trim(obj_io_probes(i)%file)
+        detail = '[ERROR] cannot open probe file '//trim(obj_io_probes(i)%path)
       endif
     enddo
     call mpi_stop_if_any(failed, 'cannot open a probe file (see above)', detail)

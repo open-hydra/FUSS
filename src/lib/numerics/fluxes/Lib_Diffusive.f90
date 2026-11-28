@@ -3,12 +3,12 @@ module FUSS_Lib_Diffusive
 
   implicit none
   private
-  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa
+  public :: Diffusive_Flux, Compute_Diffusive_Flux, Inverse3, Series_Kappa, Series_k
 
 contains
 
   subroutine Diffusive_Flux ( matID1, matID2, normal, area, T1, T2, T3, T4, T5, T6, T7, &
-                              T8, T9, T10, Mf, M1, M2, Res1, Res2, aa, bb, cc )
+                              T8, T9, T10, Mf, M1, M2, Res1, Res2, aa, bb, cc, ks1, ks2 )
     use FUSS_Global_m
     use FUSS_Lib_Solid
     implicit none
@@ -20,6 +20,7 @@ contains
     real(R8), intent(in), dimension(3,3) :: Mf       ! metric of the face (Lib_Stencil_Metrics)
     real(R8), intent(in), dimension(3,3) :: M1, M2   ! metrics of the two cells (blk%M), for the widths of a material jump
     real(R8), intent(inout) :: Res1, Res2
+    real(R8), intent(in), optional :: ks1, ks2     ! the two cells' conductivities k_s(T, chi): pyrolysis (both or none)
     ! Local
     real(R8) :: Gradient(3), T, Flux, kappa, Mi1(3,3), Mi2(3,3)
 
@@ -36,9 +37,19 @@ contains
     ! gradient, Lib_Stencil_Metrics)
     Gradient = matmul ( Gradient, Mf )
 
-    ! Face conductivity. One material: k at the mean face temperature. A material jump
-    ! inside the block: the two half cells in series, as at a block connection
-    if ( matID1 == matID2 ) then
+    ! Face conductivity. One material: k at the mean face temperature; with pyrolysis the mean of
+    ! the two cells' (T, chi) caches k_s (plan 06 section 3.2). A material jump inside the block:
+    ! the two half cells in series, as at a block connection, each with its own k (the table at
+    ! its own temperature; with pyrolysis its k_s)
+    if ( present(ks1) ) then
+      if ( matID1 == matID2 ) then
+        kappa = 0.5d0 * ( ks1 + ks2 )
+      else
+        Mi1 = Inverse3 ( M1 )
+        Mi2 = Inverse3 ( M2 )
+        kappa = Series_k ( ks1, dot_product ( Mi1(:,aa), normal ), ks2, dot_product ( Mi2(:,aa), normal ) )
+      end if
+    else if ( matID1 == matID2 ) then
       T = 0.5d0 * ( T1 + T2 )
       call co_Kappa( matID1, T, kappa )
     else
@@ -71,13 +82,28 @@ contains
 
     call co_Kappa( matID1, T1, k1 )
     call co_Kappa( matID2, T2, k2 )
+    kappa = Series_k ( k1, h1, k2, h2 )
+
+  end function Series_Kappa
+
+
+  !> The series conductivity of two half cells of conductivities k1, k2 and widths h1, h2 normal to their face,
+  !> k = (h1 + h2) / (h1/k1 + h2/k2), evaluated as (h1 + h2) k1 k2 / (h1 k2 + h2 k1); 0 when a side does not conduct.
+  !> The one expression of every face between two materials, from the properties table (Series_Kappa) or from the
+  !> k_s caches under pyrolysis: inside a block (Diffusive_Flux), at a block connection (Connection_Face_Flux) and in
+  !> the time step (Mod_dt), each with the lower cell of the face first.
+  pure function Series_k ( k1, h1, k2, h2 ) result ( kappa )
+    implicit none
+    real(R8), intent(in) :: k1, h1, k2, h2
+    real(R8)             :: kappa
+
     if ( k1 <= 0d0 .or. k2 <= 0d0 ) then
       kappa = 0d0
     else
       kappa = ( h1 + h2 ) * k1 * k2 / ( h1 * k2 + h2 * k1 )
     end if
 
-  end function Series_Kappa
+  end function Series_k
 
 
   !> Inverse of a 3x3 matrix by its adjugate (transposed cofactors). Works for M

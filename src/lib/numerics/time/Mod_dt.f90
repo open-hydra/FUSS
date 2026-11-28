@@ -21,6 +21,7 @@ contains
 
   subroutine Compute_dt ( domain, vnn, rampa_iter )
     use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_pyrolysis
     use FUSS_Global_m
     use FUSS_Mod_MPI, only: is_local_block, mpi_allreduce_min_r8
     implicit none
@@ -42,11 +43,22 @@ contains
       do i = 1, domain % blk(b) % dim(1)
         
         ! Compute local cell dt according to VNN number
-        call compute (T = domain % blk(b) % T(i,j,k), &
-                      matID = domain % blk(b) % matID(i,j,k), &
-                      M = domain % blk(b) % M(i,j,k) % c, &
-                      dtmin = dtcell, &
-                      vnn = vnn )
+        if ( obj_pyrolysis%enabled ) then
+          ! plan 06 section 3.2: alpha from the (T, chi) caches; the gas heat
+          ! capacity is left out, which only shortens dt (the safe side). The limit
+          ! is upstream a4b8227's sum_d |grad xi_d|^2 from the cell metric M.
+          call compute_cache (alpha = domain % blk(b) % k_s(i,j,k) / &
+                                      ( domain % blk(b) % rho_s(i,j,k) * domain % blk(b) % cp_s(i,j,k) ), &
+                              M = domain % blk(b) % M(i,j,k) % c, &
+                              dtmin = dtcell, &
+                              vnn = vnn )
+        else
+          call compute (T = domain % blk(b) % T(i,j,k), &
+                        matID = domain % blk(b) % matID(i,j,k), &
+                        M = domain % blk(b) % M(i,j,k) % c, &
+                        dtmin = dtcell, &
+                        vnn = vnn )
+        endif
 
         ! Apply VNN reduction if required
         if ( domain%iter < rampa_iter ) dtcell = dtcell * domain%iter / rampa_iter
@@ -60,7 +72,13 @@ contains
     enddo ! end of loop over blocks
 
     ! The cells whose face conductivities differ from their own get the face step
-    call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
+    ! Not under pyrolysis (plan 14 D12): the cell step already uses the k_s cache the fluxes use. A face between two
+    ! materials needs no face step either: it takes the two half cells in series, whose term of the energy norm is
+    ! C (Ta - Tb)^2 = min over Tf of [ Da (Ta - Tf)^2 + Db (Tf - Tb)^2 ] <= Da Ta^2 + Db Tb^2 (D = 2 k_s A / h of
+    ! a half cell), so the spectrum is bounded by the two materials apart, each with a fixed temperature on the
+    ! interface, which the cell step of each side covers up to the nominal vnn (where the top mode is not damped,
+    ! as for one material). Within one material the face takes the mean of the two k_s, which has no such bound.
+    if ( .not. obj_pyrolysis%enabled ) call Face_k_dt ( domain, vnn, rampa_iter, dtglobal )
 
     ! MPI: global minimum across all ranks
     call mpi_allreduce_min_r8(dtglobal, dtglobal_mpi)
@@ -100,6 +118,31 @@ contains
         dtmin = min ( dt, dtmin )
 
       end subroutine compute
+
+      ! The pyrolysis branch of compute: alpha from the (T, chi) caches, the same limit
+      ! alpha dt f sum_d |grad xi_d|^2 <= vnn (upstream a4b8227, b8d8eb3, be42ad9; plan 14 D12, D19)
+      subroutine compute_cache ( alpha, M, dtmin, vnn )
+        use FUSS_Global_m
+        implicit none
+        real(R8), intent(in)  :: alpha, M(3,3), vnn
+        real(R8), intent(out) :: dtmin
+        ! Local
+        integer :: d
+        real(R8) :: G, dt
+
+        dtmin = 1d8
+
+        G = 0.0d0
+        do d = 1, ndir
+          G = G + M(d,1)**2 + M(d,2)**2 + M(d,3)**2
+        enddo
+        ! 3-D cells skewed in all three pairs of directions: the spectral radius exceeds 4 alpha G (Skew_Factor)
+        if ( ndir == 3 ) G = G * Skew_Factor ( M )
+        dt = vnn / (alpha * G)
+
+        dtmin = min ( dt, dtmin )
+
+      end subroutine compute_cache
 
   end subroutine Compute_dt
 

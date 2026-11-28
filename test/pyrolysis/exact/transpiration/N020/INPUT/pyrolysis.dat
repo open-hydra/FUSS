@@ -1,0 +1,17 @@
+// --no-kinetics: every nPyroReac[i] set to 0 and the reaction lines removed by make_case.py
+// FUSS pyrolysis constants (plan 06 section 3.2 grammar): one `key value` per line,
+// `//` comments allowed. Written by make_tacot_tables.py from
+// /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/data/Materials/Composites/TACOT/constantProperties
+// on 2026-10-10 with eps_g_v = eps_g_c = 0.8 (--isothermal)
+material TACOT
+nSolidPhases 2
+rhoI[1] 1600
+epsI[1] 0.1
+nPyroReac[1] 0
+rhoI[2] 1200
+epsI[2] 0.1
+nPyroReac[2] 0
+eps_g_v 0.8
+eps_g_c 0.8
+K_v 4.7e-13 0 0 0 4.7e-13 0 0 0 4.7e-13
+K_c 4.7e-13 0 0 0 4.7e-13 0 0 0 4.7e-13

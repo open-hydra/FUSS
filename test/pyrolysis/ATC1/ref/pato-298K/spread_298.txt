@@ -1,0 +1,9 @@
+probe            max|dT|0-60   at t max|dT|5-60  dT at 60s
+0 mm (surface)         0.00     60       0.00       0.00
+1 mm                  13.18      1       1.33      -0.93
+2 mm                  12.67      4      11.65      -1.16
+4 mm                   7.63      8       7.63      -0.18
+8 mm                   4.15     20       4.15       1.57
+16 mm                  1.29     59       1.29       1.28
+50 mm (back)           0.08     60       0.08      -0.08
+max over the six gated probes, 0-60 s: 13.18 K  -> 1.5x = 19.8 K

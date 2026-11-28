@@ -104,6 +104,9 @@ field:
 
 The face metrics are stored at set-up: 18 values per cell in 2-D, 27 in 3-D.
 
+The pressure and gas-enthalpy fluxes of the type-2 gas closure do not use this key: they always take
+$M_f = \tfrac12(M_L + M_R)$ (see [Pyrolysis-Gas Fluxes](#pyrolysis-gas-fluxes)).
+
 ---
 
 ## Face Conductivity
@@ -132,6 +135,9 @@ the face, projected on $\hat{\mathbf n}_f$).
 - In 1-D, with $k$ constant in each material, a field linear in each layer is exact
   ([Multilayer Slab](../vv/1D-steady-state-multilayer-slab.md)).
 - A side with $k = 0$ makes the face adiabatic.
+- Under pyrolysis the two cells' effective conductivities $k_s$ replace $k(T)$: their mean between two
+  cells of one material, the two half cells in series between two materials, with the same widths
+  (see [Effective Properties](pyrolysis.md#effective-properties)).
 
 ### Block connections (101) and chimera faces (102)
 
@@ -232,10 +238,134 @@ temperature wall.
 The [Skewed Plate](../vv/2D-steady-state-skewed-plate.md) checks the wall model with walls 302, 303,
 301 and 305 on a sheared mesh.
 
+### Ablating walls (306, 307)
+
+The conduction of an ablating wall is the same kernel, $q_\text{in} = G\,(T_w - T_P) + C$, with $T_w$
+the root of the surface energy balance of [Ablating Wall](ablation.md#surface-energy-balance). The
+ghost cells are filled with the $T_w$ of the last converged balance; the flux evaluation then solves
+the balance again at the stage's state and puts $A_f\,q_\text{in}$ into the residual.
+
 ### Coupling with hydra (103, 104)
 
 The face flux is set by the hydra fluid solver; FUSS adds it to the residual unchanged. The ghost
-cells are mirrored as for symmetry.
+cells are mirrored as for symmetry. Under pyrolysis a 103 face is accepted (104 is refused): its ghost
+cells mirror the reaction state too, and the pyrolysis gas that leaves through it leaves at the cell
+temperature and is not passed to the fluid solver ([Pyrolysis](pyrolysis.md)).
+
+---
+
+## Pyrolysis-Gas Fluxes
+
+The gas closures of [Pyrolysis](pyrolysis.md) add the gas-enthalpy flow to the residual $R$ of every
+stage, after the boundary fluxes, and the type-2 closure solves a pressure equation once per step.
+
+### Type 1: enthalpy along the outflow lines
+
+Along each line of `outflow-direction`, from the sealed end, the gas mass flow through the downstream
+face of cell $s$ is $\dot M_s = \dot M_{s-1} + \pi_s V_s$. The cell's residual gains
+
+$$
+R_s \mathrel{+}= \dot M_s\,h_g\bigl(T_{s+1/2}\bigr) - \dot M_{s-1}\,h_g\bigl(T_{s-1/2}\bigr),
+\qquad
+T_{s+1/2} = \tfrac12\,(T_s + T_{s+1}),
+$$
+
+with $h_g$ at `p-gas`. At the exit face $T_{N+1/2}$ is the wall temperature its boundary condition
+computed in the same stage (the cell temperature if none set one). The face temperature is central;
+it stays free of oscillations while the cell Péclet number $\dot m_{pg}\,c_{p,g}\,\Delta x / k_s$ is
+below 2, which the code does not check. Each line is summed serially and the lines in parallel, so
+the result does not depend on the thread count.
+
+### Type 2: Darcy face flux
+
+The gas mass flow through a face is the tensor analogue of the heat flux of
+[Diffusive Flux at Interior Faces](#diffusive-flux-at-interior-faces). Between cells $L$ and $R$
+across a face normal to $\xi_n$, with the index differences $G_n = p_R - p_L$ and
+$G_t = \tfrac14\bigl[(p_{L,t+1} - p_{L,t-1}) + (p_{R,t+1} - p_{R,t-1})\bigr]$ (no $G_k$ on a 2-D mesh):
+
+$$
+F_f = A_f\,\hat{\mathbf n}_f\cdot\bigl(\boldsymbol\Gamma_f\,\nabla p\bigr)
+= A_f \sum_d G_d\,\bigl[(M_f)_{d,:}\cdot\boldsymbol\Gamma_f\,\hat{\mathbf n}_f\bigr]
+= C_f\,(p_R - p_L) + E_f ,
+$$
+
+$$
+M_f = \tfrac12\,(M_L + M_R),
+\qquad
+\boldsymbol\Gamma_f = \tfrac12\,(\boldsymbol\Gamma_L + \boldsymbol\Gamma_R),
+\qquad
+C_f = A_f\,(M_f)_{n,:}\cdot\boldsymbol\Gamma_f\,\hat{\mathbf n}_f .
+$$
+
+- $F_f$ is the gas mass flow [kg/s] into $L$ and out of $R$: the gas flows down the pressure gradient,
+  $\dot{\mathbf m}_g = -\boldsymbol\Gamma\nabla p$.
+- $C_f$ multiplies the normal difference; $E_f$ holds the tangential differences. The line-implicit
+  solver puts $C_f$ on the matrix and takes $E_f$ from the current iterate.
+- The second equality takes $\boldsymbol\Gamma_f\hat{\mathbf n}_f$ for $\hat{\mathbf n}_f\cdot\boldsymbol\Gamma_f$: it holds
+  for a symmetric tensor ($\mathbf K$ is checked at set-up, the Klinkenberg $\mathbf B$ is not).
+- $\boldsymbol\Gamma = \rho_g\mathbf K_\text{eff}/\mu$ of each cell is evaluated once per step at the
+  start-of-step state; the face metric is always the mean of the two cell metrics, whatever
+  `diffusive-metric` says.
+
+**Open face.** The pressure $p_w$ is imposed at the face, half a cell from the centre of cell $P$:
+
+$$
+F_w = C_w\,(p_w - p_P) + s\,E_w,
+\qquad
+C_w = 2\,A_f\,(M_P)_{n,:}\cdot\boldsymbol\Gamma_f\,\hat{\mathbf n}_f,
+\qquad
+\boldsymbol\Gamma_f = \tfrac12\bigl[\boldsymbol\Gamma_P + \boldsymbol\Gamma(p_w, T_P^n, \chi_P^n)\bigr],
+$$
+
+with $M_P$ the cell metric, $s = -1$ on a low-index face and $+1$ on a high one, and $E_w$ from the
+central differences of $P$ along the face. The factor 2 is the half-cell distance, as in $G$ of the
+[wall faces](#walls-301305). The outward mass flux of the face is $\dot m_{pg} = -F_w/A_f$.
+
+**Impermeable face.** No flow.
+
+**Ghost cells.** The ghost cells of every face but a block connection, open faces included, mirror
+the interior pressure (zero normal gradient): $p_w$ enters the open-face flux, never a ghost. The
+ghosts enter the tangential differences of the neighbouring faces and the central differences of the
+cell outputs $\mathbf u_g$ and $\dot m_{pg} = \lvert\boldsymbol\Gamma\nabla p\rvert$, which therefore do not see
+$p_w$; the mass flux of an open face is its own $-F_w/A_f$.
+
+**Block connection (101).** The interior kernel with $M_f = \tfrac12(M_P + M_N)$, the face tensor
+$\tfrac12(\boldsymbol\Gamma_P + \boldsymbol\Gamma_N)$ of the two cells' own coefficients and the
+tangential differences of both sides. Both blocks evaluate the same expression, so the face carries
+the same gas mass out of one block and into the other. The neighbour's pressure comes from the ghost
+layer of the previous sweep (block Jacobi); at convergence the two blocks agree. Chimera faces have
+no pressure condition and are refused.
+
+**Storage and source.** The cell row is completed by the storage and the production of
+[Discrete pressure equation](pyrolysis.md#discrete-pressure-equation):
+
+$$
+r_i = \sum_f F_f + \pi^\ast_i V_i - \bigl(\eta^\ast_i p_i - G_i^n\bigr)\frac{V_i}{\Delta t} = 0 .
+$$
+
+### Type 2: gas-enthalpy flux
+
+The gas enthalpy is advected with the Darcy mass flux of the solved $p^{n+1}$, by the same kernel
+with the cell tensors $\mathbf g = h_g(p^{n+1}, T)\,\boldsymbol\Gamma$, $T$ the stage temperature:
+
+$$
+Q_f = C_f^{(g)}\,(p_R - p_L) + E_f^{(g)},
+\qquad
+\mathbf g_f = \tfrac12\,(\mathbf g_L + \mathbf g_R),
+$$
+
+which enters $L$ and leaves $R$ like $F_f$. The face value of $h_g\boldsymbol\Gamma$ is the mean of the
+two cells': a central scheme. At an open face the enthalpy flow is $h_g(p_w, T_w)\,F_w$, with $T_w$ the
+wall temperature its boundary condition computed in the stage (the cell temperature if none set
+one) and $F_w$ the mass flow of the pressure solve's expression. A block connection uses the
+connection kernel on $\mathbf g$.
+
+### Measured order
+
+On the exact cases of `test/pyrolysis/`: the steady pressure profile of a sealed slab with a source
+converges at 1.94, 1.97 and 1.98 (20 to 160 cells); transient pressure diffusion at 2.08 in space
+and first order in time; steady transpiration through two open faces, gas enthalpy included, at
+2.00; a sharp decomposition front at 1.04.
 
 ---
 
@@ -304,6 +434,10 @@ message names the block and the cell.
   with $\mathbf{e}_{i,j,k}$ the three edges from that corner and $s$ the orientation of the block.
   Corners with an edge of zero length (on an axis) are skipped. In 2-D the corners decide for the
   whole cell; in 3-D they are a necessary condition.
+- **Left-handed block**: the interior metrics need a positive signed volume, so a block whose index
+  directions are left-handed ($\mathbf{e}_i\cdot(\mathbf{e}_j\times\mathbf{e}_k) < 0$ at every corner of
+  every cell) stops, and the message says so. Number the block right-handed (reverse one index
+  direction, or swap two), or mirror the mesh when the problem allows it.
 - **Block one cell across**, on every grid level:
     - the block across a block connection must have at least two cells across its face, because the
       two ghost layers of the connection are its first two cells;

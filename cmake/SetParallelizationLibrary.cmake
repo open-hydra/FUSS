@@ -9,7 +9,9 @@ ENDIF()
 IF (USE_MPI)
     # Find MPI
     IF (NOT MPI_Fortran_FOUND)
-        FIND_PACKAGE (MPI REQUIRED)
+        # Fortran only: FUSS links MPI::MPI_Fortran, and the mpi preset bypasses the
+        # compiler wrappers for Fortran alone (C and C++ would want their own variables)
+        FIND_PACKAGE (MPI REQUIRED COMPONENTS Fortran)
         message(STATUS "MPI enabled, using compilers: ${MPI_Fortran_COMPILER}")
     ENDIF (NOT MPI_Fortran_FOUND)
 ENDIF()

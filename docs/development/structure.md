@@ -18,6 +18,7 @@ FUSS/
 │   │   └── docgen.f90    # writes docs/user/registry.md (bin/DocGen)
 │   └── lib/              # FUSS library (FUSSL), see below
 ├── lib/
+│   ├── MORPH/            # submodule: mesh motion (FUSS links its library MORPHL)
 │   ├── ORION/            # a release checked out by the configuration (not tracked): Tecplot/VTK I/O, bundles TecIO
 │   └── FiNeR/            # submodule at v2.3.0: INI parser; its libraries are cloned into src/third_party/
 ├── test/
@@ -37,18 +38,18 @@ FUSS/
 
 | Directory | Files | Content |
 |-----------|-------|---------|
-| `base/` | `Parameters_m`, `Global_m`, `Base_Types_m`, `Advanced_Types_m`, `Series_Data_m`, `Finite_m` | Constants, ghost layers `gc` and dimensions `ndir`, block/domain/BC types, time tables of BCs 301/302, test of a value for NaN and infinities (`Not_Finite`) |
-| `config/` | `Config_Types_m`, `Registry`, `Backend_INI`, `Read_Ini`, `Register_Sim_Param`, `Register_IO`, `Register_Numerics`, `Assign_Setup` | Settings objects (`obj_*`), `input.ini` key registry and reader, scheme selection |
+| `base/` | `Parameters_m`, `Global_m`, `Base_Types_m`, `Advanced_Types_m`, `Series_Data_m`, `Finite_m`, `Hook_Interface_m`, `Field_List_m` | Constants, ghost layers `gc` and dimensions `ndir`, block/domain/BC types, time tables of BCs 301/302, test of a value for NaN and infinities (`Not_Finite`); the checked interface of the per-stage user hook (`external_function_if`); the one list of per-cell fields the pyrolysis and Darcy rows add (allocation, restart, output, halo exchange) |
+| `config/` | `Config_Types_m`, `Registry`, `Backend_INI`, `Read_Ini`, `Register_Sim_Param`, `Register_IO`, `Register_Numerics`, `Register_Pyrolysis`, `Register_Darcy`, `Register_Ablation`, `Assign_Setup` | Settings objects (`obj_*`), `input.ini` key registry and reader, scheme selection; the `[FUSS-Pyrolysis]`, `[FUSS-Darcy]` and `[FUSS-Ablation]` registries |
 | `driver/` | `Procedures_m`, `Wrap_Setup`, `Wrap_Solve`, `Wrap_Postprocess`, `Mod_Allocate_Data` | `FUSS_type` with `setup`, `solve`, `postprocess`; allocation |
-| `io/` | `Load_Table`, `IO_Solution`, `IO_BC`, `IO_Wall`, `IO_Probes` | Property tables, initial condition and solution files, `bc.txt`, wall output, probes |
-| `numerics/fluxes/` | `Mod_Fluxes`, `Lib_Diffusive` | Interior diffusive fluxes |
-| `numerics/fluxes/bc/` | `Mod_BC_Fluxes`, `Lib_BC_Fluxes`, `Lib_BC_Fluxes_Connection`, `Lib_BC_Fluxes_Wall` | Boundary fluxes: dispatch, face helpers, block connection and chimera (101, 102), walls (301–305) |
-| `numerics/space/` | `Mod_Metrics`, `Lib_Metrics`, `Lib_Stencil_Metrics`, `Lib_Ghost` | Metrics, face normals and areas; stencil face metrics (`diffusive-metric = stencil`); ghost-cell fill for every BC type |
+| `io/` | `Load_Table`, `Load_Pyrolysis`, `IO_Solution`, `IO_BC`, `IO_Wall`, `IO_Probes` | Property tables, initial condition and solution files, `bc.txt`, wall output, probes; the pyrolysis material files (`pyrolysis.dat`, `virgin.dat`, `char.dat`, `gas.dat`) |
+| `numerics/fluxes/` | `Mod_Fluxes`, `Lib_Diffusive`, `Lib_Diffusive_Tensor` | Interior diffusive fluxes; the face kernel of the Darcy pressure equation and its gas-enthalpy flux |
+| `numerics/fluxes/bc/` | `Mod_BC_Fluxes`, `Lib_BC_Fluxes`, `Lib_BC_Fluxes_Connection`, `Lib_BC_Fluxes_Wall`, `Lib_BC_Fluxes_Wall_Ablating` | Boundary fluxes: dispatch, face helpers, block connection and chimera (101, 102), walls (301–305), the ablating wall (306, 307) |
+| `numerics/space/` | `Mod_Metrics`, `Lib_Metrics`, `Lib_Stencil_Metrics`, `Lib_Ghost`, `Lib_Periodic`, `Mod_Periodic_Checks`, `Mod_Recession` | Metrics, face normals and areas; stencil face metrics (`diffusive-metric = stencil`); ghost-cell fill for every BC type; periodic faces (201: the rigid-motion fit of a pair, set up once at every multigrid level) and the invariance of a material's permeability tensor under a pair's rotation under the type-2 gas closure; the ablating wall's per-step env values, its restart state (`bc306-state.dat`) and its output files (`seb.txt`) |
 | `numerics/time/` | `Mod_dt` | Local and global time step |
-| `numerics/time/explicit/` | `Mod_Explicit`, `Mod_Newstate`, `Lib_Newstate`, `Lib_RK`, `Lib_IRS` | Iteration loop, state update (`cons`/`prim`), Runge–Kutta stages, residual smoothing |
+| `numerics/time/explicit/` | `Mod_Explicit`, `Mod_Newstate`, `Lib_Newstate`, `Lib_RK`, `Lib_IRS`, `Mod_Pyrolysis`, `Mod_Darcy` | Iteration loop, state update (`cons`/`prim`), Runge–Kutta stages, residual smoothing; the pyrolysis stage work and energy budget, and the Darcy pressure solve of the type-2 gas closure |
 | `numerics/multigrid/` | `Mod_Multigrid`, `Lib_Multigrid`, `Mod_FAS` | Coarse levels, restriction, prolongation; FAS V and W cycles |
 | `parallel/` | `Mod_MPI`, `Mod_GhostExchange`, `Mod_Timers` | MPI set-up, block partition, reductions, the stops of the errors (`mpi_stop_all`, `mpi_stop_if_any`, `stop_from_thread`); ghost and chimera exchange, gathers to rank 0; wall-clock timers |
-| `physics/` | `Lib_Solid` | Property interpolation `co_Kappa`, `co_Rho`, `co_Cp`, `co_H` and inversion `co_T` |
+| `physics/` | `Lib_Solid`, `Lib_Pyrolysis`, `Lib_Bprime` | Property interpolation `co_Kappa`, `co_Rho`, `co_Cp`, `co_H` and inversion `co_T`; the pyrolysis property model, kinetics and type-2 closures; the B′ table of the ablating wall |
 | `diagnostic/` | `Mod_Diagnostic` | Residual norm, `diagnostic.tec` |
 
 All files are `.f90`. `src/lib/CMakeLists.txt` collects every `.f90` under `src/lib/` with `GLOB_RECURSE`.
@@ -62,6 +63,7 @@ graph TD
     FUSS["<b>FUSSL</b><br/>FUSS library"]
     ORION["<b>ORION</b><br/>Tecplot / VTK I/O"]
     FiNeR["<b>FiNeR</b><br/>INI parser"]
+    MORPH["<b>MORPH</b><br/>Mesh motion (library MORPHL)"]
     FDeps["PENF · StringiFor · FACE · FLAP · BeFoR64"]
     TecIO["TecIO (optional, USE_TECIO)"]
     OMP["OpenMP (optional, USE_OPENMP)"]
@@ -69,6 +71,7 @@ graph TD
 
     FUSS --> ORION
     FUSS --> FiNeR
+    FUSS --> MORPH
     FiNeR --> FDeps
     ORION -.-> TecIO
     FUSS -.-> OMP
@@ -98,6 +101,7 @@ graph TB
 
     subgraph io ["io/"]
         LoadTable["Load_Table"]
+        LoadPyro["Load_Pyrolysis"]
         IOSol["IO_Solution"]
         IOBC["IO_BC"]
         IOWall["IO_Wall"]
@@ -110,35 +114,52 @@ graph TB
         Ghost["Lib_Ghost"]
         Fluxes["Mod_Fluxes"]
         Diff["Lib_Diffusive"]
+        DiffTensor["Lib_Diffusive_Tensor"]
         BCF["Mod_BC_Fluxes"]
         Wall["Lib_BC_Fluxes_Wall"]
+        WallAbl["Lib_BC_Fluxes_Wall_Ablating"]
         Conn["Lib_BC_Fluxes_Connection"]
         Newstate["Mod_Newstate / Lib_Newstate"]
         RK["Lib_RK"]
         IRS["Lib_IRS"]
         MG["Mod_Multigrid"]
         Metrics["Mod_Metrics"]
+        Periodic["Lib_Periodic /<br/>Mod_Periodic_Checks"]
+        Recession["Mod_Recession"]
+        Pyro["Mod_Pyrolysis"]
+        DarcyM["Mod_Darcy"]
     end
 
     subgraph other ["physics/ · parallel/ · diagnostic/"]
         Solid["Lib_Solid"]
+        LibPyro["Lib_Pyrolysis"]
+        Bprime["Lib_Bprime"]
         GX["Mod_GhostExchange"]
         MPI["Mod_MPI"]
         Diag["Mod_Diagnostic"]
     end
 
     Procedures --> WSetup & WSolve & WPost
-    WSetup --> LoadTable & ReadIni & Assign & IOSol & Alloc & MG & IOBC & Metrics & IOProbes & IOWall & Ghost & GX
+    WSetup --> LoadTable & LoadPyro & ReadIni & Assign & IOSol & Alloc & MG & IOBC & Metrics & IOProbes & IOWall & Ghost & GX
+    WSetup --> Recession & Periodic
     WSolve --> Explicit & MG
     WPost --> IOSol & IOWall & IOProbes & Diag & MG & ReadIni
     Assign --> Newstate
     Explicit --> DT & Ghost & Fluxes & BCF & Newstate & Diag
+    Explicit --> Pyro & DarcyM & Recession
     Fluxes --> Diff
     Diff --> Solid
-    BCF --> Wall & Conn
+    DarcyM --> DiffTensor & LibPyro
+    BCF --> Wall & Conn & WallAbl
+    WallAbl --> LibPyro & Bprime
+    Pyro --> LibPyro
+    Conn --> LibPyro
+    Newstate --> RK & IRS & Solid & LibPyro
+    IOBC --> Bprime
+    IOSol --> Recession
+    Metrics --> Periodic
     Ghost --> Wall & GX
     IOWall --> Wall
-    Newstate --> RK & IRS & Solid
     IRS --> Ghost
     GX --> MPI
 ```
@@ -158,7 +179,7 @@ graph TB
 | `obj_*` | Settings objects in `Config_Types_m` | `obj_time_scheme`, `obj_io` |
 | `*_type` | Derived types | `FUSS_block_type` |
 
-The module name is `FUSS_` plus the file name, except in `config/`: `Registry.f90` holds `FUSS_Input_Registry`, and `Register_IO.f90`, `Register_Numerics.f90`, `Register_Sim_Param.f90` hold `FUSS_Read_IO`, `FUSS_Read_Numerics`, `FUSS_Read_Sim_Param`. Routine names have no prefix.
+The module name is `FUSS_` plus the file name, except in `config/`: `Registry.f90` holds `FUSS_Input_Registry`, and `Register_IO.f90`, `Register_Numerics.f90`, `Register_Sim_Param.f90`, `Register_Pyrolysis.f90` hold `FUSS_Read_IO`, `FUSS_Read_Numerics`, `FUSS_Read_Sim_Param`, `FUSS_Read_Pyrolysis`. `Register_Darcy.f90` and `Register_Ablation.f90` do not follow this: their modules are `FUSS_Register_Darcy` and `FUSS_Register_Ablation`, `FUSS_` plus the file name, as elsewhere in the tree. Routine names have no prefix.
 
 ---
 
@@ -177,15 +198,18 @@ sequenceDiagram
     activate Setup
     Setup->>Setup: Load_Table (phase.txt, properties.dat)
     Setup->>Setup: Read_Inifile (input.ini)
+    Setup->>Setup: Load_Pyrolysis_Tables (pyrolysis.dat, virgin/char/gas.dat, if [FUSS-Pyrolysis])
     Setup->>Setup: Assign_Setup (schemes, procedure pointers)
     Setup->>Setup: Read_IC (ic.tec, st.tec or restart file)
     Setup->>Setup: Setup_Data_Structure
+    Setup->>Setup: Setup_Ablation (bc306-state.dat on restart)
     Setup->>Setup: Setup_Multigrid (if levels > 1)
     Setup->>Setup: Setup_BC (bc.txt, and bc2.txt ... on coarse levels)
     Setup->>Setup: partition_blocks, exchange schedules, Fill_matIDg
-    Setup->>Setup: Setup_Metrics (every level)
+    Setup->>Setup: Setup_Metrics (every level; fits each periodic pair's rigid motion)
+    Setup->>Setup: Check_Periodic_Permeability (201 faces, gas-closure = type2)
     Setup->>Setup: Setup_Probes, Setup_Output_Solution, Initialize_Wall_File
-    Setup->>Setup: Fill_Ghost_Cell, Restriction to coarse levels
+    Setup->>Setup: Fill_Ghost_Cell, Ablation_Update_Env, Restriction to coarse levels
     deactivate Setup
 
     loop while TODO ≤ 2
@@ -208,19 +232,23 @@ The external subroutine passed to `solve` is called at every stage; `main.f90` p
 
 ```mermaid
 flowchart TB
-    Start([Explicit_Step]) --> DT["Compute_dt<br/>local Δt, global minimum if time-accurate"]
+    Start([Explicit_Step]) --> Env["Ablation_Update_Env (t^(n+1))<br/>serial, before the parallel region"]
+    Env --> DT["Compute_dt<br/>local Δt, global minimum if time-accurate"]
     DT --> Copy["Copy_State (TO = T)"]
+    Copy --> Darcy["Solve_Pressure<br/>once per step, before the RK stages (gas-closure = type2)"]
 
     subgraph RK ["each Runge–Kutta stage"]
         direction TB
         Ghost["Fill_Ghost_Cell<br/>(MPI ghost and chimera exchange)"] --> Diff["Fluxes<br/>interior faces"]
-        Diff --> BCF["BC_Fluxes<br/>101/102, 301–305, 103/104"]
-        BCF --> Ext["External_Function"]
+        Diff --> BCF["BC_Fluxes<br/>101/102, 201, 301–307"]
+        BCF --> Pyro["Pyrolysis_Stage<br/>kinetics, gas outflow, advection flux, budget ([FUSS-Pyrolysis])"]
+        Pyro --> Ext["External_Function"]
         Ext --> Update["RK_Newstate<br/>source qvol, IRS, state update"]
     end
 
-    Copy --> RK
-    RK --> Res["Compute_Residual (every res-diter)<br/>MPI sum"]
+    Darcy --> RK
+    RK --> DarcyCorr["Darcy_Mass_Correction (gas-closure = type2)"]
+    DarcyCorr --> Res["Compute_Residual (every res-diter)<br/>MPI sum"]
     Res --> Flags["TODO and level switch on rank 0,<br/>broadcast"]
     Flags --> End([return])
 ```
@@ -259,6 +287,7 @@ classDiagram
         +n_bf(:,:) : integer
         +blk(:) FUSS_block_type
         +bc(:) FUSS_bc_type
+        +per(:) periodic_pair_type
     }
     class FUSS_block_type {
         +dim : integer
@@ -266,20 +295,29 @@ classDiagram
         +T, TO, R, qvol, matID : real64
         +dtlocal : real64
         +RS0, RS1, RS2 : real64
+        +chi, chiO, dchi, rho_s, k_s, cp_s, mdot_pg : real64
+        +p_pg, p_pgO, eta_prev, eta_st, eta_stO, u_pg, T_prev : real64
     }
     class FUSS_bc_type {
         +b, i, j, k, f, type : integer
         +bs, is, js, ks, fs, d11..d22 : integer
+        +per : integer
         +Tg, matIDg, Mg
         +ni, donorID, volume_fraction
         +ext_flux
         +qw, Tw, hconv, qrad, Tref, eps
+        +pw, mdot_pg, edot_pg : real64
+        +lambda, Tinf, rhoeUeCH0, hr, qrad_env, hconv_env, Tedge, chem : real64
+        +Tw_prev, qw_last, sdot, mdot_ch, Bprime, s_total : real64
+        +env : time_table_t
+        +env_now(4) : real64
         +BCtime : time_series_type
     }
 
     FUSS_simulation_type "1" --> "levels" FUSS_domain_type : domain
     FUSS_domain_type "1" --> "nb" FUSS_block_type : blk
     FUSS_domain_type "1" --> "nbound" FUSS_bc_type : bc
+    FUSS_domain_type "1" --> "pairs" periodic_pair_type : per
 ```
 
 `domain(m)` is multigrid level `m` (1 = finest). `bc(:)` has one entry per boundary cell face, in the order of `bc.txt`.
@@ -296,6 +334,12 @@ classDiagram
 | `bm(f)` | six block faces | Stencil metrics of the walls (`wM`) and of the block connections (`cM`) that the record owns |
 | `node` | `0:n` | Grid nodes |
 | `dir(d)%f` | faces normal to `d` | Unit normal `N` and area `A` |
+| `chi`, `chiO`, `dchi` | `1-gc:n+gc` (`chiO`, `dchi`: `1:n`) | Reaction advancements (`nsub` components), their start-of-step copy and stage increment ([FUSS-Pyrolysis]) |
+| `rho_s`, `k_s`, `cp_s`, `mdot_pg` | `1:n` | Solid density, blended conductivity and specific heat, gas mass flux through the cell's downstream face |
+| `p_pg`, `eta_prev`, `eta_st`, `T_prev` | `1-gc:n+gc` (`p_pg`) or `1:n` | Gas pressure (restart/output field) and the extrapolation history of the Darcy pressure solve (`gas-closure = type2`) |
+| `u_pg` | `1:n` (3 components) | Cell gas velocity, written for output |
+
+`bc%per` is 0 for a block connection, the index into `domain%per(:)` for a periodic face (201), -1 read from `bc.txt` before `Setup_Periodic` resolves it.
 
 ---
 
@@ -317,5 +361,9 @@ classDiagram
 | `FETCHCONTENT_SOURCE_DIR_FINER` | (none) | An external FiNeR clone instead of the submodule `lib/FiNeR` |
 | `FUSS_FINER_DEPS` | `FREE` | FiNeR's libraries at their default branches (`FREE`) or at the releases of `FUSS_FINER_BACKUP_PINS` (`BACKUP`) |
 | `FUSS_PIN_CHECK` | `FATAL_ERROR` | `WARNING` builds a library off its pin on purpose ([Versioning](versioning.md)) |
+| `MORPH_PATH` | `lib/MORPH/` | MORPH source tree; only its library `MORPHL` is built |
+| `FUSS_EXE_SUFFIX` | empty (`mpi` preset: `-mpi`) | Suffix of the executables of a build tree |
+
+`install.sh build` also writes a second preset, `mpi`, when gfortran and an Intel MPI are available: its own tree `build-mpi/` and its own executables `bin/FUSS-mpi`, `bin/DocGen-mpi`. See [Installation](../getting-started/installation.md#the-mpi-preset-a-second-build-tree).
 
 When FUSS is added to another CMake project (as in hydra) only `FUSSL` is built; the parent defines ORION and FiNeR, and an ORION selected with SemVerDeps is checked against FUSS's requirement. The executables and the tests are built only when FUSS is the top-level project. See [Installation](../getting-started/installation.md).

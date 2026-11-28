@@ -3,7 +3,7 @@ module FUSS_Lib_Newstate
 
   implicit none
   private
-  public :: Newstate_Conservative, Newstate_Primitive
+  public :: Newstate_Conservative, Newstate_Primitive, Newstate_Conservative_Pyrolysis
 
   !> FAS coarse-level updates halved because the forcing pushed T outside the table (no-IRS
   !> conservative path, which otherwise stops); reported and reset by FUSS_postprocess every
@@ -180,6 +180,142 @@ contains
 
 
   ! ===========================================================================
+  !  CONSERVATIVE NEWSTATE WITH PYROLYSIS (plan 06 section 3.4)
+  !
+  !  Integrates the stored energy E(T, chi) and the reaction advancements chi
+  !  with the same RK_stage weights, from the start-of-step state (TO, chiO)
+  !  and the stage increments (R folded as the no-IRS residual, dchi from
+  !  Pyrolysis_Stage), inverts E -> T per cell and refreshes the property
+  !  caches. Pyrolysis_Stage already added the gas-advection flux to R. The
+  !  two legacy routines above and below are untouched; IRS is refused.
+  ! ===========================================================================
+  subroutine Newstate_Conservative_Pyrolysis ( domain, irk )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_time_scheme, obj_pyrolysis, obj_darcy
+    use FUSS_Global_m
+    use FUSS_Lib_Pyrolysis,  only: Energy_Of, Temperature_Of, Solid_State
+    use FUSS_Lib_RK
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain 
+    integer, intent(in)                   :: irk
+    ! Local
+    integer  :: i, j, k, b, m, r, n_rk
+    real(R8) :: residual, E_n, E_k, E_new, T_new, tau, eps_pg, p_gas
+
+    ! Type 2 (plan 07): its own routine, so that this one stays plan 06's text
+    if ( obj_darcy%enabled ) then
+      call Newstate_Conservative_Darcy( domain, irk )
+      return
+    endif
+
+    n_rk  = obj_time_scheme%n_RK
+    p_gas = obj_pyrolysis%p_gas
+
+    do b = 1, domain%nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,residual,E_n,E_k,E_new,T_new,tau,eps_pg)
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        m = nint( domain%blk(b)%matID(i,j,k) )
+        residual = ( - domain%blk(b)%R(i,j,k) / domain%blk(b)%vol(i,j,k) + domain%blk(b)%qvol(i,j,k) ) &
+                 * domain%blk(b)%dtlocal(i,j,k)
+        E_n   = Energy_Of( m, domain%blk(b)%TO(i,j,k), domain%blk(b)%chiO(:,i,j,k), p_gas )
+        E_k   = Energy_Of( m, domain%blk(b)%T(i,j,k),  domain%blk(b)%chi(:,i,j,k),  p_gas )
+        E_new = RK_stage( irk, n_rk, E_k, E_n, residual )
+        do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+          domain%blk(b)%chi(r,i,j,k) = RK_stage( irk, n_rk, domain%blk(b)%chi(r,i,j,k), &
+                                                 domain%blk(b)%chiO(r,i,j,k), domain%blk(b)%dchi(r,i,j,k) )
+        enddo
+        call Temperature_Of( m, E_new, domain%blk(b)%chi(:,i,j,k), p_gas, domain%blk(b)%T(i,j,k), T_new, b, i, j, k )
+        domain%blk(b)%T(i,j,k) = T_new
+        call Check_And_Fix_State( T_new, b, i, j, k )
+        call Solid_State( m, T_new, domain%blk(b)%chi(:,i,j,k), domain%blk(b)%rho_s(i,j,k), &
+                          domain%blk(b)%cp_s(i,j,k), domain%blk(b)%k_s(i,j,k), tau, eps_pg )
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Newstate_Conservative_Pyrolysis
+
+
+  ! ===========================================================================
+  !  CONSERVATIVE NEWSTATE WITH THE TYPE-2 GAS CLOSURE (plan 07 section 3.5)
+  !
+  !  E = H_s(T, tau) + G h_g(p, T) - eps_pg p with the stored gas mass G a state
+  !  (FUSS_Lib_Pyrolysis, type-2 section). The pressure solve of the step fixed
+  !  G^(n+1) = eta_st p^(n+1) and the outflow that carries the gas out; at every
+  !  RK stage the state the energy is inverted at carries the share of that
+  !  step the stage has accounted for: with c_s the stage's time fraction
+  !  (SSP-RK3: 1, 1/2, 1 -- the RK_stage recursion applied to a unit
+  !  increment), G_s = G^n + c_s (G^(n+1) - G^n) and p_s likewise. Stage 1
+  !  starts from E^n itself (re-evaluating (T^n, chi^n) at another (p, G)
+  !  would add stored energy without a flux and break the budget identity).
+  ! ===========================================================================
+  subroutine Newstate_Conservative_Darcy ( domain, irk )
+    use FUSS_Advanced_Types_m
+    use FUSS_Config_Types_m, only: obj_time_scheme, obj_pyrolysis
+    use FUSS_Global_m
+    use FUSS_Lib_Pyrolysis,  only: Energy_Of2, Temperature_Of2, Solid_State
+    use FUSS_Lib_RK
+    use FUSS_Mod_MPI, only: is_local_block
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    integer, intent(in)                   :: irk
+    ! Local
+    integer  :: i, j, k, b, m, r, n_rk, s
+    real(R8) :: residual, E_n, E_k, E_new, T_new, tau, eps_pg
+    real(R8) :: c_prev, c_cur, p_n, p_1, G_n, G_1
+
+    n_rk = obj_time_scheme%n_RK
+    ! stage time fractions: c_cur of this stage's output, c_prev of its input
+    c_prev = 0.0d0
+    c_cur  = 0.0d0
+    do s = 1, irk
+      c_prev = c_cur
+      c_cur  = RK_stage( s, n_rk, c_cur, 0.0d0, 1.0d0 )
+    enddo
+
+    do b = 1, domain%nb
+      if (.not. is_local_block(b)) cycle
+      !$omp do collapse(3) schedule(static) private(i,j,k,m,r,residual,E_n,E_k,E_new,T_new,tau,eps_pg,p_n,p_1,G_n,G_1)
+      do k = 1, domain%blk(b)%dim(3)
+      do j = 1, domain%blk(b)%dim(2)
+      do i = 1, domain%blk(b)%dim(1)
+        m = nint( domain%blk(b)%matID(i,j,k) )
+        residual = ( - domain%blk(b)%R(i,j,k) / domain%blk(b)%vol(i,j,k) + domain%blk(b)%qvol(i,j,k) ) &
+                 * domain%blk(b)%dtlocal(i,j,k)
+        p_n = domain%blk(b)%p_pgO(i,j,k)
+        p_1 = domain%blk(b)%p_pg(i,j,k)
+        G_n = domain%blk(b)%eta_stO(i,j,k) * p_n
+        G_1 = domain%blk(b)%eta_st(i,j,k)  * p_1
+        E_n = Energy_Of2( m, domain%blk(b)%TO(i,j,k), domain%blk(b)%chiO(:,i,j,k), p_n, G_n )
+        if ( irk == 1 ) then
+          E_k = E_n
+        else
+          E_k = Energy_Of2( m, domain%blk(b)%T(i,j,k), domain%blk(b)%chi(:,i,j,k), &
+                            p_n + c_prev * ( p_1 - p_n ), G_n + c_prev * ( G_1 - G_n ) )
+        endif
+        E_new = RK_stage( irk, n_rk, E_k, E_n, residual )
+        do r = obj_pyrolysis%mat_sub_offset(m-1) + 1, obj_pyrolysis%mat_sub_offset(m)
+          domain%blk(b)%chi(r,i,j,k) = RK_stage( irk, n_rk, domain%blk(b)%chi(r,i,j,k), &
+                                                 domain%blk(b)%chiO(r,i,j,k), domain%blk(b)%dchi(r,i,j,k) )
+        enddo
+        call Temperature_Of2( m, E_new, domain%blk(b)%chi(:,i,j,k), p_n + c_cur * ( p_1 - p_n ), &
+                              G_n + c_cur * ( G_1 - G_n ), domain%blk(b)%T(i,j,k), T_new, b, i, j, k )
+        domain%blk(b)%T(i,j,k) = T_new
+        call Check_And_Fix_State( T_new, b, i, j, k )
+        call Solid_State( m, T_new, domain%blk(b)%chi(:,i,j,k), domain%blk(b)%rho_s(i,j,k), &
+                          domain%blk(b)%cp_s(i,j,k), domain%blk(b)%k_s(i,j,k), tau, eps_pg )
+      enddo; enddo; enddo
+      !$omp end do
+    enddo
+
+  end subroutine Newstate_Conservative_Darcy
+
+
+  ! ===========================================================================
   !  PRIMITIVE NEWSTATE
   ! ===========================================================================
   subroutine Newstate_Primitive ( domain, irk )
@@ -338,7 +474,12 @@ contains
     real(R8), intent(in) :: T
     integer, intent(in)  :: b, i, j, k
 
+    ! Stop on NaN or on a temperature outside the properties table, where the lookups would read
+    ! past its ends (upstream f3401c5; the check was NaN or T < 0 only).
     ! stop_from_thread (exit code 1), not mpi_stop_all or mpi_abort_all: this runs in OpenMP threads, MPI is FUNNELED
+    ! No continuation here: giving this routine the cell's previous temperature (an
+    ! intent(inout) T and a T_old argument) changed the code generated for the type-2
+    ! RK loop and moved 512 manifest rows by round-off (measured 2026-10-17).
     if ( .not. Admissible_T( T ) ) then
       write(*,'(A,4I5)') ' [ERROR] Integration failed at b, i, j, k:', b, i, j, k
       write(*,'(A,ES14.6,A,I0,A,I0,A)') ' [ERROR] T = ', T, ' K, outside the properties table [', &

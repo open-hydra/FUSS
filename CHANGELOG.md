@@ -72,3 +72,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - VTK wall output of multigrid runs (crash or empty file).
 - Build of the MPI code with gfortran ≥ 10.
 - The gfortran RELEASE build with IPO did not link (plain `ar` cannot index `-flto` objects).
+
+### Pyrolysis, ablating walls and mesh motion (branch `worktree-porous-pyrolysis`)
+
+In this branch only; upstream `main` up to `4f5673c` is merged in (2026-11-17 to 2026-11-21).
+
+- Pyrolysing porous materials, `[FUSS-Pyrolysis]`: `gas-closure = type1` (quasi-steady one-dimensional outflow of the
+  pyrolysis gas) or `type2` (Darcy pressure, `[FUSS-Darcy]`).
+- Ablating wall, BC `306`: surface energy balance with B′ tables, `[FUSS-Ablation]`; the wall recedes with
+  `[FUSS-MeshMotion] law = nodeshift`. Coupled ablating wall, BC `307`: the same balance, with the exchange values given
+  by hydra.
+- Mesh motion through MORPH (the submodule `lib/MORPH`): `[FUSS-MeshMotion] law` = `static`, `prescribed`,
+  `translation` or `nodeshift`; the solution is remapped onto the moved mesh (conservative, first order).
+- MPI for all of the above: pyrolysis and Darcy, the ablating walls, the receding mesh.
+- The combinations refused at set-up, each with a message (pyrolysis with IRS or with more than one grid level,
+  type-1 pyrolysis with periodic faces, a receding wall with multigrid, among others), are listed in
+  `docs/user/input.md`.
+- Periodic faces (`201`) with these features: a moving mesh whose motion takes a node of a periodic face and its image
+  to images (translation along the axis of the pair, prescribed motions of that kind, the receding wall of
+  `law = nodeshift`, whose nodes on a periodic seam are joined with their images), checked at set-up and every step;
+  type-2 pyrolysis across periodic faces when the permeability tensors are invariant under the pair's rotation.
+- The hook that a coupling driver (hydra) passes to the solve has an explicit interface: one argument,
+  `type(FUSS_domain_type), intent(inout) :: domain`.
+- A coupled face (`103`) is accepted under pyrolysis: type 1 may end its outflow lines there, type 2 opens it by default
+  (`open-bc-types` default `303 305 306 103`, pressure `p-wall`); the gas leaves it at the cell temperature. The gas is
+  not passed to the gas solver: its mass and enthalpy leave FUSS's energy budget only, and a notice at set-up says so.
+  Chimera faces (`102`, `104`) stay refused.
+
+Where this branch behaves differently from upstream:
+
+- An unknown key in a FUSS section of `input.ini` stops the run:
+  `[ERROR] unknown option in input.ini: [<section>] <key>`.
+- A block whose cells are all left-handed stops the run, with a message that names the block (upstream accepts it).
+- Under pyrolysis a face takes the mean of the two cells' conductivities `k_s` within one material and the two half
+  cells in series between two materials, inside a block and at a block connection alike; the cell step stays, and
+  it is stable up to the nominal `vnn` limits at a material jump. Test `pyrolysis_two_layer`: second order against
+  the exact two-layer solution, stable at the nominal `vnn` limits for conductivity ratios 20 and 100 and cells five
+  times larger on either side, and a block cut at the interface gives the uncut result.
+- A steady run with a 301/302 time table warns at set-up that the table is held at its value at time −1. A 304/305
+  wall whose temperature does not converge in 50 Newton steps warns (the first time on each rank; the count is printed
+  at the end of the run); as upstream, the last iterate is used and the run goes on.
+- Build: `-fno-underscoring` is set only without MPI (the MPI Fortran library exports the underscored names);
+  `install.sh` takes `--include-morph=<path>` with `build` and `--preset=NAME` with `compile`.

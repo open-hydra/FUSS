@@ -169,7 +169,7 @@ contains
       select case ( domain % bc(r) % type )
         case (101)
           if ( domain % bc(r) % owner ) call Connection_Face_Metric ( domain, xc, r )   ! only the owner computes the face
-        case (301:305)
+        case (301:307)
           call Wall_Face_Metric ( domain, xc, r )
       end select
     enddo
@@ -197,7 +197,7 @@ contains
       if ( .not. is_local_block(b) ) cycle
       f = domain % bc(r) % f
       select case ( domain % bc(r) % type )
-        case (301:305)
+        case (301:307)
           wall(b,f) = .true.
         case (101)
           if ( domain % bc(r) % owner ) conn(b,f) = .true.
@@ -246,7 +246,7 @@ contains
         call Face_Centre_Normal ( domain % blk(b) % node, Im, Jm, Km, Fm, xf, nf )
         xc(b) % x(:,Ig,Jg,Kg) = Mirror ( x1, xf, nf )
 
-      case (301:305, 102)                       ! walls (2 Tw - T1) and chimera receivers (ATLAS): 2 x_f - x1
+      case (301:307, 102)                       ! walls (2 Tw - T1) and chimera receivers (ATLAS): 2 x_f - x1
         call Face_Centre_Normal ( domain % blk(b) % node, Im, Jm, Km, Fm, xf, nf )
         xc(b) % x(:,Ig,Jg,Kg) = 2d0 * xf - x1
 

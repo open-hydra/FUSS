@@ -7,6 +7,7 @@ module FUSS_Mod_MPI
   use mpi
 #endif
   use iso_fortran_env, only: R8 => real64, I4 => int32, output_unit, error_unit
+  !$ use omp_lib, only: omp_get_thread_num
 
   implicit none
   private
@@ -33,9 +34,24 @@ module FUSS_Mod_MPI
   public :: mpi_allreduce_sum_r8_array
   public :: mpi_reduce_sum_r8, mpi_reduce_sum_r8_array
   public :: mpi_allreduce_norm2
-  public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_chars
+  public :: mpi_bcast_logical, mpi_bcast_integer, mpi_bcast_real, mpi_bcast_chars
+  public :: mpi_gather_block_columns
+  public :: mpi_allreduce_max_r8_array, mpi_bcast_real_array
+  public :: mpi_gather_block_segments, mpi_allgather_block_segments
+
+  !> Tags of the block gathers below (plan 14 S5, D4; the table is in Mod_GhostExchange): one
+  !> message per block, posted in increasing block order on both sides, so one tag per gather
+  !> matches the k-th receive from a rank with the k-th block that rank sends.
+  integer, parameter :: TAG_BLOCK_GATHER = 15, TAG_SEGMENT_GATHER = 16
   public :: mpi_abort_all, mpi_stop_all, mpi_stop_if_any, stop_from_thread
   public :: check_mpi_error
+  public :: fuss_abort, fuss_abort_in_thread, fuss_abort_check
+  public :: mpi_barrier_all
+
+  ! --- Fatal stops (plan 11 section 2.6) ---
+  !> The code a worker thread recorded in an OpenMP region (fuss_abort_in_thread);
+  !> the master stops the run after the region (fuss_abort_check). 0 = none.
+  integer :: fuss_abort_code = 0
 
 contains
 
@@ -595,6 +611,150 @@ contains
   end subroutine mpi_bcast_integer
 
 
+  !> MPI_BARRIER of every rank; nothing in serial or on one rank.
+  subroutine mpi_barrier_all()
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ > 1) then
+      call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+      call check_mpi_error(ierr)
+    end if
+#endif
+  end subroutine mpi_barrier_all
+
+
+  !> Per-block values to root (plan 11 stage 3): vals(:, b) holds block b's values on
+  !> the rank that owns b; root receives every block it does not own from its owner.
+  !> Exact copies, so a total root forms from the columns in block order is the same at
+  !> any rank count. Collective, outside any parallel region; off root vals is unchanged.
+  subroutine mpi_gather_block_columns(vals)
+    real(R8), intent(inout), contiguous :: vals(:,:)
+#ifdef USE_MPI
+    integer :: ierr, b, nreq
+    integer, allocatable :: reqs(:), stats(:,:)
+
+    if (mpi_size_ <= 1) return
+    allocate(reqs(size(vals,2)), stats(MPI_STATUS_SIZE, size(vals,2)))
+    nreq = 0
+    do b = 1, size(vals,2)
+      if (mpi_is_root .and. block_owner(b) /= 0) then
+        nreq = nreq + 1
+        call MPI_IRECV(vals(1,b), size(vals,1), MPI_DOUBLE_PRECISION, block_owner(b), TAG_BLOCK_GATHER, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      else if (.not. mpi_is_root .and. block_owner(b) == mpi_rank_) then
+        nreq = nreq + 1
+        call MPI_ISEND(vals(1,b), size(vals,1), MPI_DOUBLE_PRECISION, 0, TAG_BLOCK_GATHER, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+    end do
+    if (nreq > 0) then
+      call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+      call check_mpi_error(ierr)
+    end if
+    deallocate(reqs, stats)
+#endif
+  end subroutine mpi_gather_block_columns
+
+
+  !> Per-block segments to root (plan 11 stage 4): vals(off(b)+1 : off(b+1)) holds block b's
+  !> values on the rank that owns b; root receives every segment of a block it does not own
+  !> from that block's rank. Exact copies (the faces of a block are contiguous in bc order).
+  !> Collective, outside any parallel region; off root vals is unchanged. Tag TAG_SEGMENT_GATHER.
+  subroutine mpi_gather_block_segments(vals, off)
+    real(R8), intent(inout), contiguous :: vals(:)
+    integer,  intent(in) :: off(:)
+#ifdef USE_MPI
+    integer :: ierr, b, n, nreq
+    integer, allocatable :: reqs(:), stats(:,:)
+
+    if (mpi_size_ <= 1) return
+    allocate(reqs(size(off) - 1), stats(MPI_STATUS_SIZE, size(off) - 1))
+    nreq = 0
+    do b = 1, size(off) - 1
+      n = off(b+1) - off(b)
+      if (n <= 0) cycle
+      if (mpi_is_root .and. block_owner(b) /= 0) then
+        nreq = nreq + 1
+        call MPI_IRECV(vals(off(b)+1), n, MPI_DOUBLE_PRECISION, block_owner(b), TAG_SEGMENT_GATHER, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      else if (.not. mpi_is_root .and. block_owner(b) == mpi_rank_) then
+        nreq = nreq + 1
+        call MPI_ISEND(vals(off(b)+1), n, MPI_DOUBLE_PRECISION, 0, TAG_SEGMENT_GATHER, &
+                       MPI_COMM_WORLD, reqs(nreq), ierr)
+        call check_mpi_error(ierr)
+      end if
+    end do
+    if (nreq > 0) then
+      call MPI_WAITALL(nreq, reqs(1:nreq), stats(:,1:nreq), ierr)
+      call check_mpi_error(ierr)
+    end if
+    deallocate(reqs, stats)
+#endif
+  end subroutine mpi_gather_block_segments
+
+
+  !> mpi_gather_block_segments, then root's whole array to every rank (MPI_BCAST): every
+  !> block's segment on every rank, exact copies. Collective.
+  subroutine mpi_allgather_block_segments(vals, off)
+    real(R8), intent(inout), contiguous :: vals(:)
+    integer,  intent(in) :: off(:)
+#ifdef USE_MPI
+    integer :: ierr
+
+    if (mpi_size_ <= 1) return
+    call mpi_gather_block_segments(vals, off)
+    call MPI_BCAST(vals, off(size(off)), MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_allgather_block_segments
+
+
+  !> MPI_ALLREDUCE with MPI_MAX for an array of real(R8) (plan 11: the Darcy sweep control,
+  !> one decision on every rank): arr is overwritten with the result. The send buffer is a
+  !> copy of arr, not MPI_IN_PLACE (plan 14 D22, as mpi_allreduce_sum_r8_array): with
+  !> gfortran the MPI sentinels in COMMON blocks are not recognised while -fno-underscoring
+  !> is set (cmake/SetFortranFlags.cmake).
+  subroutine mpi_allreduce_max_r8_array(arr, n)
+    integer, intent(in)     :: n
+    real(R8), intent(inout) :: arr(n)
+#ifdef USE_MPI
+    integer :: ierr
+    real(R8), allocatable :: send(:)
+    if (mpi_size_ <= 1) return
+    send = arr
+    call MPI_ALLREDUCE(send, arr, n, MPI_DOUBLE_PRECISION, MPI_MAX, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_allreduce_max_r8_array
+
+
+  !> Broadcast an array of real(R8) from root (rank 0) to all ranks.
+  subroutine mpi_bcast_real_array(arr, n)
+    integer, intent(in)     :: n
+    real(R8), intent(inout) :: arr(n)
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ <= 1) return
+    call MPI_BCAST(arr, n, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_bcast_real_array
+
+
+  !> Broadcast a real(R8) value from root (rank 0) to all ranks.
+  subroutine mpi_bcast_real(val)
+    real(R8), intent(inout) :: val
+#ifdef USE_MPI
+    integer :: ierr
+    call MPI_BCAST(val, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call check_mpi_error(ierr)
+#endif
+  end subroutine mpi_bcast_real
+
+
   !> Broadcast a character string from root (rank 0) to all ranks: its length first, then its characters, so that every
   !> rank passes MPI_BCAST the count of root (MPI-4.1, section 6.4: the type signature must be the same on every
   !> process). The other ranks receive the string allocated to that length.
@@ -650,6 +810,73 @@ contains
     error stop 1
 #endif
   end subroutine mpi_abort_all
+
+
+  !> Stop the run with exit code 1 (plan 14 S6, D3: every stop of FUSS ends with 1; the 1/2/3 contract of plan 10 D2 is
+  !> retired). `code` is kept so that the callers, hydra's among them (MF_Lib_Ablation.f90 Stop_Ablation), compile
+  !> unchanged; it is NOT the exit code. The caller prints its own message first; `message` adds one line.
+  !> This is the stop of an error that one rank, or some ranks, find on their own (a check of the rank's own blocks, a
+  !> file that only rank 0 writes): with more than one rank it ends every rank through MPI_ABORT with 1, after flushing
+  !> the output (as mpi_abort_all). An error that every rank finds from the same data stops with mpi_stop_all, one that
+  !> some ranks find at a point that every rank reaches with mpi_stop_if_any: both write a STOP line on every rank and
+  !> finalize MPI, which MPI_ABORT does not.
+  !> MASTER THREAD ONLY with more than one rank: MPI is initialised MPI_THREAD_FUNNELED. Inside an OpenMP region use
+  !> fuss_abort_in_thread.
+  subroutine fuss_abort(code, message)
+    integer, intent(in) :: code
+    character(len=*), intent(in), optional :: message
+#ifdef USE_MPI
+    integer :: ierr
+    if (mpi_size_ > 1) then
+      if (present(message)) write(*,'(A,I0,A,A)') ' [RANK ', mpi_rank_, '] ABORT: ', trim(message)
+      call flush_output_units()
+      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+    end if
+#endif
+    if (present(message)) write(*,'(A,A)') ' ABORT: ', trim(message)
+    if (code /= 1) write(*,'(A,I0,A)') ' (stop requested with code ', code, ': every stop exits 1 since plan 14 S6, D3)'
+    call flush_output_units()
+    error stop 1
+  end subroutine fuss_abort
+
+
+  !> A fatal error found where the caller may be a worker thread of an OpenMP region; exit code 1 (D3). The caller
+  !> prints its message first.
+  !> - serial build, one rank, or the master thread: stop now (fuss_abort);
+  !> - a worker thread with more than one rank may not call MPI (FUNNELED). A site that can finish the region safely
+  !>   passes can_continue = .true. and continues after this call: the error is recorded and the master stops the run
+  !>   after the region (fuss_abort_check). Any other site stops this process with exit code 1, as upstream's
+  !>   stop_from_thread does; the launcher ends the other ranks.
+  subroutine fuss_abort_in_thread(code, can_continue)
+    integer, intent(in) :: code
+    logical, intent(in), optional :: can_continue
+#ifdef USE_MPI
+    integer :: tid
+    tid = 0
+    !$ tid = omp_get_thread_num()
+    if (mpi_size_ > 1 .and. tid /= 0) then
+      if (present(can_continue)) then
+        if (can_continue) then
+          !$omp critical (fuss_abort_lock)
+          if (fuss_abort_code == 0) fuss_abort_code = 1
+          !$omp end critical (fuss_abort_lock)
+          return
+        end if
+      end if
+      flush(output_unit)
+      error stop 1
+    end if
+#endif
+    call fuss_abort(code)
+  end subroutine fuss_abort_in_thread
+
+
+  !> The master, after an OpenMP region whose worker threads may have recorded a
+  !> fatal error (fuss_abort_in_thread): stop the run with that code.
+  subroutine fuss_abort_check()
+    if (fuss_abort_code /= 0) call fuss_abort(fuss_abort_code, &
+      'a worker thread stopped the step above; ending the run after the parallel region')
+  end subroutine fuss_abort_check
 
 
   !> Write out what this process still holds for output_unit and error_unit, before MPI_ABORT. MPI_ABORT makes only a

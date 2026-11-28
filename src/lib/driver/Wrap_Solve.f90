@@ -12,10 +12,11 @@ contains
     use FUSS_Config_Types_m,   only: obj_time_scheme, obj_multigrid
     use FUSS_Mod_Multigrid,    only: Prolongation
     use FUSS_Mod_Explicit,     only: Explicit_Step
+    use FUSS_Hook_Interface_m, only: external_function_if
     use FUSS_Mod_FAS,          only: FAS_Solve
     implicit none
     type(FUSS_simulation_type), intent(inout) :: simulation
-    external :: External_Function
+    procedure(external_function_if) :: External_Function
 
     select case (trim(obj_time_scheme%solver_type))
 

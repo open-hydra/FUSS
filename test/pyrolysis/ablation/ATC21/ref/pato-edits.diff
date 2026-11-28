@@ -1,0 +1,51 @@
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/constant/porousMat/porousMatProperties	2023-09-27 19:12:29.000000000 +0200
++++ constant/porousMat/porousMatProperties	2026-10-13 18:07:38.135443765 +0200
+@@ -17,7 +17,7 @@
+ 
+ /****************************** GENERAL ************************************/
+ //debug yes;
+-movingMesh      yes;
++movingMesh      no;
+ /****************************** end GENERAL ********************************/
+ 
+ /****************************** IO *****************************************/
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/system/controlDict	2023-09-27 19:12:29.000000000 +0200
++++ system/controlDict	2026-10-13 18:07:38.139443726 +0200
+@@ -52,7 +52,7 @@
+ 
+ maxCo           10;
+ 
+-maxDeltaT   0.005; // reduce it if the surface temperature starts oscilliating
++maxDeltaT   0.0005;
+ 
+ minDeltaT   1e-6;
+ 
+--- /data10/passarani/.conda/envs/pato/src/volume_pato/pato-3.1/tutorials/1D/AblationTestCase_2.x/system/porousMat/fvSolution	2023-09-27 19:12:29.000000000 +0200
++++ system/porousMat/fvSolution	2026-10-13 18:07:38.135443765 +0200
+@@ -17,7 +17,7 @@
+   Ta
+   {
+     solver 		 PBiCGStab; // asymmetric matrix solver (for mesh motion)
+-    preconditioner   DILU;
++    preconditioner   DIC;
+     tolerance        1e-06;
+     relTol           0;
+   };
+@@ -25,7 +25,7 @@
+   p
+   {
+     solver 		 PBiCGStab; // asymmetric matrix solver (for mesh motion)
+-    preconditioner   DILU;
++    preconditioner   DIC;
+     tolerance        1e-07;
+     relTol           0;
+   };
+@@ -33,7 +33,7 @@
+   Xsii
+   {
+     solver 		 PBiCGStab; // asymmetric matrix solver (for mesh motion)
+-    preconditioner   DILU;
++    preconditioner   DIC;
+     tolerance        1e-10;
+     relTol           1e-06;
+   };

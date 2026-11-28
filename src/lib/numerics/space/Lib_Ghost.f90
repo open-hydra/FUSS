@@ -1,4 +1,5 @@
 module FUSS_Lib_Ghost
+  use FUSS_Mod_MPI, only: fuss_abort_in_thread
   use iso_fortran_env, only: I4 => int32, R8 => real64
   use FUSS_Advanced_Types_m
   use FUSS_Parameters_m
@@ -88,7 +89,7 @@ contains
           call Ghost_Connection ( Im, Jm, Km, Fm, domain % blk(Bm), &
                                   Is, Js, Ks, Fs, domain % blk(Bs), &
                                   domain % bc(i) % Tg, domain % bc(i) % matIDg )
-        case(301:305)
+        case(301:307)   ! 306, 307: the T_w of the last converged surface balance (Wall_Temperature)
           call Ghost_Wall ( Im, Jm, Km, Fm, domain % blk(Bm), domain % bc(i), domain % time )
         case(102)
           ! Chimera: processed after the donor-cell MPI exchange completes (below)
@@ -150,6 +151,7 @@ contains
     ! after both, and needs no other chimera step. (MOSE fills its connection Pg(:,3:6)
     ! before Ghost_Chimera: a connection face that ends on a chimera face reads that ghost
     ! one stage old there.)
+    ! (Read one stage old, a deforming 2x2 split on 4 ranks moved by 1.5e-5 K against 1 rank: plan 11, 114f520.)
     !$omp do schedule (dynamic) private(ii, i, Bs, Is, Js, Ks, Fs, d11s, d12s, d21s, d22s)
     do ii = 1, domain % n_local_bs
       i  = domain % local_bs_idx(ii)
@@ -192,6 +194,118 @@ contains
     end if
 
   end subroutine Fill_Ghost_Cell
+
+
+  !> Ghost reaction state (plan 06 section 3.1): mirrored at wall, symmetry
+  !> and null faces exactly as Ghost_Symmetry mirrors T; across a block
+  !> connection (101, type 2 only: guard 9) the neighbour's chi, as
+  !> Fill_Ghost_p copies p, with bc%chig = the first ghost layer (the
+  !> conductivity of the connection kernel, plan 08 section 2.9). Chimera
+  !> (102) is refused under pyrolysis. A neighbour block on another rank
+  !> sends its chi in the chi halo (plan 11 stage 3), posted before the local
+  !> work and unpacked after it, as Fill_Ghost_Cell moves T.
+  subroutine Fill_Ghost_chi ( domain )
+    use FUSS_Parameters_m, only: guide
+    use FUSS_Mod_MPI,      only: is_local_block
+#ifdef USE_MPI
+    use FUSS_Mod_MPI,           only: mpi_size_
+    use FUSS_Field_List_m,      only: Field_List_Lookup
+    use FUSS_Mod_GhostExchange, only: exchange_ghost_post_recv, exchange_ghost_pack, exchange_ghost_post_send, &
+                                      exchange_ghost_wait_unpack, exchange_ghost_wait_send, ghost_sched
+#endif
+    implicit none
+    type(FUSS_domain_type), intent(inout) :: domain
+    ! Local
+    integer :: ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg
+#ifdef USE_MPI
+    integer :: fl, fg
+
+    ! (MPI calls on the master thread only: MPI_THREAD_FUNNELED)
+    fl = Field_List_Lookup('chi')
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_post_recv ( domain, fl )
+      !$omp end master
+      !$omp do schedule(static) private(fg)
+      do fg = 1, ghost_sched%n_send_faces
+        call exchange_ghost_pack ( domain, fl, fg, fg )
+      enddo
+      !$omp end do
+      !$omp master
+      call exchange_ghost_post_send ( domain, fl )
+      !$omp end master
+    endif
+#endif
+
+    !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm, g, Bs, Is, Js, Ks, Fs, Ig, Jg, Kg)
+    do ii = 1, domain % n_local_bc
+      i  = domain % local_bc_idx(ii)
+      Bm = domain % bc(i) % b
+      Im = domain % bc(i) % i
+      Jm = domain % bc(i) % j
+      Km = domain % bc(i) % k
+      Fm = domain % bc(i) % f
+      select case ( domain % bc(i) % type )
+        case (101)
+          Bs = domain % bc(i) % bs
+          if ( .not. is_local_block(Bs) ) cycle   ! inter-rank: the chi halo, below
+          Is = domain % bc(i) % is ; Js = domain % bc(i) % js ; Ks = domain % bc(i) % ks ; Fs = domain % bc(i) % fs
+          do g = 1, gc
+            Ig = Im - guide(Fm,1)*g ; Jg = Jm - guide(Fm,2)*g ; Kg = Km - guide(Fm,3)*g
+            domain % blk(Bm) % chi(:,Ig,Jg,Kg) = domain % blk(Bs) % chi(:, Is + guide(Fs,1)*(g-1), &
+                                                                           Js + guide(Fs,2)*(g-1), &
+                                                                           Ks + guide(Fs,3)*(g-1) )
+          enddo
+          domain % bc(i) % chig = domain % blk(Bm) % chi(:, Im - guide(Fm,1), Jm - guide(Fm,2), Km - guide(Fm,3))
+        case (102)
+          write(*,'(A)') ' [ERROR] pyrolysis: chimera (102) faces are refused'
+#ifdef USE_MPI
+          call fuss_abort_in_thread ( 1 )   ! with MPI (plan 11); the line below is then not reached
+#endif
+          error stop 1
+        case default
+          do g = 1, gc
+            select case (Fm)
+              case(1); domain % blk(Bm) % chi(:,Im-g,Jm,Km) = domain % blk(Bm) % chi(:,Im+g-1,Jm,Km)
+              case(2); domain % blk(Bm) % chi(:,Im+g,Jm,Km) = domain % blk(Bm) % chi(:,Im-g+1,Jm,Km)
+              case(3); domain % blk(Bm) % chi(:,Im,Jm-g,Km) = domain % blk(Bm) % chi(:,Im,Jm+g-1,Km)
+              case(4); domain % blk(Bm) % chi(:,Im,Jm+g,Km) = domain % blk(Bm) % chi(:,Im,Jm-g+1,Km)
+              case(5); domain % blk(Bm) % chi(:,Im,Jm,Km-g) = domain % blk(Bm) % chi(:,Im,Jm,Km+g-1)
+              case(6); domain % blk(Bm) % chi(:,Im,Jm,Km+g) = domain % blk(Bm) % chi(:,Im,Jm,Km-g+1)
+            end select
+          enddo
+      end select
+    enddo
+
+#ifdef USE_MPI
+    ! the inter-rank connections: the ghost layers the halo brought, and chig = the
+    ! first of them, as the local branch above sets it
+    if ( mpi_size_ > 1 ) then
+      !$omp master
+      call exchange_ghost_wait_unpack ( domain, fl )
+      !$omp end master
+      !$omp barrier
+      !$omp do schedule (dynamic) private(ii, i, Bm, Im, Jm, Km, Fm)
+      do ii = 1, domain % n_local_bc
+        i = domain % local_bc_idx(ii)
+        if ( domain % bc(i) % type /= 101 ) cycle
+        if ( is_local_block( domain % bc(i) % bs ) ) cycle
+        Bm = domain % bc(i) % b
+        Im = domain % bc(i) % i
+        Jm = domain % bc(i) % j
+        Km = domain % bc(i) % k
+        Fm = domain % bc(i) % f
+        domain % bc(i) % chig = domain % blk(Bm) % chi(:, Im - guide(Fm,1), Jm - guide(Fm,2), Km - guide(Fm,3))
+      enddo
+      !$omp end do
+      !$omp master
+      call exchange_ghost_wait_send ( domain, fl )
+      !$omp end master
+      !$omp barrier
+    endif
+#endif
+
+  end subroutine Fill_Ghost_chi
 
 
   subroutine Ghost_Connection ( Im, Jm, Km, Fm, blkm, Is, Js, Ks, Fs, blks, Tg, matIDg )

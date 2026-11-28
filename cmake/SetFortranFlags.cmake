@@ -152,13 +152,17 @@ ENDIF(CMAKE_Fortran_FLAGS_RELEASE AND CMAKE_Fortran_FLAGS_TESTING AND CMAKE_Fort
 ### GENERAL FLAGS ###
 #####################
 
-# Don't add underscores in symbols for C-compatability.
+# Don't add underscores in symbols for C-compatability. Not with MPI: the MPI Fortran
+# library exports the underscored names (Intel MPI's libmpifort: mpi_init_, pmpi_init_),
+# and its gfortran modules were compiled with them (plan 11, 2026-10-15; plan 14 D6).
 # With gfortran the MPI sentinels in COMMON blocks (MPI_IN_PLACE, MPI_BOTTOM, MPI_STATUS_IGNORE,
 # MPI_STATUSES_IGNORE, MPI_ERRCODES_IGNORE, MPI_ARGV_NULL, MPI_ARGVS_NULL) are not recognised while this
 # flag is set: the MPI library exports the blocks with an underscore (mpipriv1_), FUSS refers to them
-# without one. Do not use them (src/lib/parallel/Mod_MPI.f90).
+# without one. Do not use them (src/lib/parallel/Mod_MPI.f90), in any build.
+IF (NOT USE_MPI)
 SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"
                  Fortran "-fno-underscoring")
+ENDIF ()
 
 # There is some bug where -march=native doesn't work on Mac
 IF(APPLE)
