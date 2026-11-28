@@ -86,6 +86,11 @@ Measured maxima over every field-output time, from each case's `verify.py`:
 |---|---:|---:|---:|
 | `kinetics_isothermal` (T0700/T0900/T1200) | $\le 10^{-8}$ | $\le 10^{-7}$ | $\lvert\dot m_{pg}(s)-s\,\dot m_{pg}(1)\rvert/(s\,\dot m_{pg}(1))\le10^{-12}$ |
 
+$\chi_r$ of the three `kinetics_isothermal` cases at every field output (markers) against the closed form
+(lines); reactions 2 and 3 share their kinetics, so their curves coincide.
+
+![Reaction advancement at 700, 900 and 1200 K against the closed form](images/pyrolysis-kinetics-0d-isothermal.svg)
+
 Each type-1 case runs on the ladder `vnn`, `vnn`/2, `vnn`/4 (0.25, 0.125, 0.0625 for `adiabatic0d/T1000`;
 0.003125, 0.0015625, 0.00078125 for `heated0d`), against the oracle at every field-output time:
 
@@ -97,6 +102,11 @@ Each type-1 case runs on the ladder `vnn`, `vnn`/2, `vnn`/4 (0.25, 0.125, 0.0625
 (order: on the finest pair.) Both refine at second order in $\mathrm dt$, the RK3 stages freezing the
 kinetics/energy split within a stage. The spatial non-uniformity stays at round-off: at most
 $2.4\times10^{-12}$ K (`adiabatic0d`) and exactly 0 (`heated0d`).
+
+$T$ and $\chi_r$ of `adiabatic0d/T1000` and `heated0d` at each case's own `vnn` (markers) against the
+type-1 oracle (lines).
+
+![Temperature and reaction advancement of the two type-1 cases against the oracle](images/pyrolysis-kinetics-0d-trajectories.svg)
 
 The type-2 twins run against the type-2 oracle, `heated0d_type2` on the same ladder `vnn`, `vnn`/2, `vnn`/4
 and `adiabatic0d_type2` on `vnn`/4, `vnn`/8, `vnn`/16 (0.0625, 0.03125, 0.015625):
@@ -112,6 +122,11 @@ temperature error does not yet fall ($1.6575\times10^{-2}$, $1.9851\times10^{-2}
 $1.9\times10^{-7}$ K (adiabatic) and $6.8\times10^{-7}$ K (heated). With $K=10^{-7}$ m² the pressure excursion
 $\max p_{pg}-p_w$ stays at most 0.075 Pa (adiabatic) and 0.503 Pa (heated), so these cases test the
 kinetics/energy splitting under type 2, not the time order of the pressure step.
+
+The errors of the four ladders against `vnn`, with the order of the finest pair and the window
+$[1.6, 2.4]$ the check allows for it (shaded).
+
+![Error ladders of the four 0-D cases](images/pyrolysis-kinetics-0d-order.svg)
 
 Reported but not gated: the exact type-2 minus type-1 shift (adiabatic: $0.0696$ K; heated: $-3.914$ K
 at the end) is what each type-2 run must reproduce, and (for `heated0d`, when PATO's own TACOT tables
