@@ -31,8 +31,9 @@ discrete update, not approximations.
 
 None external: checks (i)-(iii) are identities of FUSS's own update (the balance must close to
 round-off and the field file must reproduce the budget's own state sum); check (iv) is a `vnn`
-refinement of FUSS against itself, judged by its observed order (the scheme is first order in $\mathrm dt$
-here), not by a stored value.
+refinement of FUSS against itself, judged by its observed order, not by a stored value. The order is taken on the largest difference over
+the probes and the times, which the probe nearest the heated face sets: there the scheme is first order
+in $\mathrm dt$. The deeper probes refine faster and do not enter the check.
 
 ### Results
 
