@@ -99,6 +99,11 @@ centres fall on each mesh.
 
 The largest error sits at 1 mm and $t=0.5$ s on every mesh.
 
+Quantities (a), (b) and (c) against the number of cells, with the order of the finest pair and the window
+$[1.6, 2.4]$ the check allows for it (shaded).
+
+![Error ladders of the pure-conduction case](images/pyrolysis-energy-audit-conduction-order.svg)
+
 ### Pass criteria
 
 Each of (a), (b), (c) falls from 50 to 100 to 200 cells and its order on the finest pair lies in
