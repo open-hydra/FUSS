@@ -107,6 +107,20 @@ organiser (Amaryllis 2.1) and PATO files each time it runs.
 Also exactly 0 (no-char): $\dot m_{ch}$. The SEB closure checks of
 `seb_closure` above hold on every row.
 
+FUSS (lines) against PATO (filled circles) and Amaryllis (open squares), each every 4 s, at the seven
+depths; each label sits at the curve's maximum.
+
+![In-depth temperatures of FUSS, PATO and Amaryllis](images/ablating-wall-atc21-temperatures.svg)
+
+$T_w$ and $\dot m_g$ of FUSS against PATO (filled circles) and Amaryllis (open squares) on a logarithmic
+time axis.
+
+![Wall temperature and gas blowing rate of the three codes](images/ablating-wall-atc21-wall.svg)
+
+The virgin-98 % and char-2 % front depths of FUSS against PATO and Amaryllis.
+
+![Front depths of the three codes](images/ablating-wall-atc21-fronts.svg)
+
 **Pass criteria.** Each of the five quantities within the plain PATO-Amaryllis spread of that quantity
 (no stored FUSS value enters); $\dot m_{ch}=0$ exactly; the SEB closure on every row.
 
