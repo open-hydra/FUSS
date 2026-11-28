@@ -173,6 +173,19 @@ build writes `bin/FUSS` of the source tree, where `src/app/CMakeLists.txt` puts 
 its exit trap deletes `build/` and builds it again from the preset. Run both by hand, with nothing
 else using the tree.
 
+The figures of the pyrolysis, Darcy and ablating-wall [V&V pages](../vv/index.md) are drawn from the
+work folders of a gate run by `test/pyrolysis/tools/plot_vv.py`, which reads the outputs with each
+case's own `verify.py` and evaluates the references as the gate does, and prints beside every figure
+the numbers its gate grades. After the gates it reads, regenerate them with
+
+```bash
+ctest --test-dir build -R '^Gate_(Pyrolysis|PyrolysisTwoLayer|Darcy0d|DarcyAtc2ChemistryOff|Bench.*|AblationAtc21)$'
+python3 test/pyrolysis/tools/plot_vv.py --runs build/test/runs/gates --out docs/vv/images   # --only <page>
+```
+
+`--runs` is the `FUSS_GATE_WORK` of that run; a page whose runs are missing is skipped and the exit
+code is 1. The SVG files are deterministic: the same runs write the same bytes.
+
 ---
 
 ## Tests of the discretisation
