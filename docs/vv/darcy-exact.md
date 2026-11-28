@@ -168,6 +168,11 @@ time, and $\mathrm dt\sim\mathrm dx^2$ at fixed `vnn`, so the time error appears
 **Pass**: the error falls on every grid and its order on the finest pair lies in $[1.6, 2.4]$
 ($0.8p$ to $1.2p$ for the expected $p=2$).
 
+The pressure at the sampled time on the three meshes against the series (left), and the error ladder with
+the order of the finest pair and the window the check allows for it (shaded, right).
+
+![Transient pressure profile against the series, and its error ladder](images/darcy-exact-pressure-transient.svg)
+
 ### Steady transpiration through a porous slab
 
 `exact/transpiration/{N020,N040,N080}`: both faces open ($p_{\rm in}=202650$ Pa at $x=0$,
@@ -190,6 +195,11 @@ $\lvert T-T_{\rm exact}\rvert$ on N020/N040/N080: 2.732, 0.680, 0.170 K, observe
 $[1.6, 2.4]$ (expected $p=2$: the temperature by the transpiration profile's own convergence, the mass
 flux as the Darcy flux of the same second-order line solve).
 
+The steady temperature on the three meshes against the exact profile, and the ladders of the temperature
+and mass-flux errors with the window of each check (shaded).
+
+![Steady transpiration profile against the exact solution, and its error ladders](images/darcy-exact-transpiration.svg)
+
 ### Decomposition front with transpiration through the char
 
 `exact/sharp_front/{N050,N100,N200}`: a semi-infinite virgin slab at $T_0=300$ K, surface held at
@@ -204,3 +214,9 @@ condition). **Results** (time-averaged over $t\ge5$ s on N050/N100/N200): $L_2$ 
 1.037. **Pass**: for both errors, the error falls on every grid and its order on the finest pair lies in
 $[0.8, 1.2]$ (expected $p=1$: a cell-by-cell front is first order by design, and the temperature error
 follows the front).
+
+The mass-based front depth (the shaded $t<5$ s is outside the averages) and the temperature at the last
+output on the three meshes against the similarity solution, and the ladders of the two time-averaged errors
+with the window of each check (shaded).
+
+![Front depth and temperature against the similarity solution, and the two error ladders](images/darcy-exact-sharp-front.svg)
