@@ -43,6 +43,16 @@ over the six probes and the full window, is 16.03 K (at 2 mm, 4 s); the pyrolysi
 ($\rho_s$ 98 %/2 % thresholds between $\rho_c=220$ and $\rho_v=280$ kg/m³, 15.21 mm and 2.91 mm below
 the surface at the last field write) and the surface $\dot m_{pg}$ there, $5.387\times10^{-3}$ kg/(m²s).
 
+FUSS (lines) against PATO 3.1 (filled circles, every 2 s) and FIAT (open squares, every 2 s from 1 s) at
+the six thermocouple depths.
+
+![Temperatures of FUSS, PATO and FIAT at the six depths](images/pyrolysis-atc1-temperatures.svg)
+
+$\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ on FIAT's grid at each depth, against the tolerance (dashed) and the
+PATO-FIAT difference it is taken from (dotted, the largest over the six depths at each time).
+
+![Deviation of FUSS from PATO against the PATO-FIAT spread](images/pyrolysis-atc1-deviation.svg)
+
 ## Pass criteria
 
 max over the six probes and FIAT's 1 s grid $t=1\ldots60$ s of $\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert\le$
