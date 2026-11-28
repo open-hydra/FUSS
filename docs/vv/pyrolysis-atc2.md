@@ -72,6 +72,21 @@ Type-2 minus type-1 shift at every depth, over the samples where $T_{\rm PATO}\g
 The largest (least negative) value over every hot sample is $-3.12$ K, at 1 mm: still below the
 $0.05$ K slack.
 
+The type-2 run (lines) against PATO (circles, every 2 s) at the seven depths; the type-1 run differs from
+it by the shift of the table above.
+
+![Temperatures of the type-2 run and PATO at the seven depths](images/pyrolysis-atc2-temperatures.svg)
+
+$\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ on PATO's 0.1 s grid for each closure, on a logarithmic time axis,
+against the borrowed tolerance (dashed); the circle marks each maximum.
+
+![Deviation of each closure from PATO against the ATC 2.1 spread](images/pyrolysis-atc2-deviation.svg)
+
+The gas pressure rise $p-p_w$ of the type-2 run (lines) against PATO's (circles, every 2 s) at the seven
+depths, the quantity of check (p).
+
+![Pressure rise of the type-2 run and PATO at the seven depths](images/pyrolysis-atc2-pressure.svg)
+
 ## Pass criteria
 
 - Type 1: $\max\lvert T_{\rm FUSS}-T_{\rm PATO}\rvert$ over the seven depths and $t=0.1$–60 s $\le$ the
