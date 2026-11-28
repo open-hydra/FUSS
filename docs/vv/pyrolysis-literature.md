@@ -53,6 +53,12 @@ full run's, above); its bound is the run's own one-step share of the solid lost,
 (3432 steps over 31 budget rows). The char pressure at the 1 mm cell is printed, not gated: that cell
 sits at 1.0 mm on N100 and 1.1 mm on N200, so the two values are not errors at one point.
 
+The mass-based front depth of the two full runs against the exact $X=C^\star\sqrt{\alpha_c t}$ (left; the
+shaded times are outside the averages), and their temperature at the last output against the exact profile
+(right; the shaded $x>3X$ is outside the $L_2$ window).
+
+![Front depth and temperature profile of the full runs against the exact solution](images/pyrolysis-literature-baum-atreya.svg)
+
 ### Pass criteria
 
 - Front error and $L_2$ temperature error each fall from N100 to N200 with an observed order in
@@ -100,10 +106,20 @@ For $t>20$ s:
 | mid-plane | 2.51 K | $-0.67$ K | 5.26 K |
 | unexposed | 2.08 K | $+0.28$ K | 5.10 K |
 
+FUSS (lines) against the three codes (markers, every 100 s) at the three planes (left), and
+$\lvert T_{\rm FUSS}-T_{\rm MATLAB}\rvert$ for $t>20$ s against each plane's tolerance (dashed, right).
+
+![Temperatures of FUSS and the three codes, and the deviation from MATLAB](images/pyrolysis-literature-zhang-temperature.svg)
+
 Peak exposed-face gas mass flux: FUSS $4.369\times10^{-3}$ kg/(m²s) at 904 s, against the three codes'
 own peaks of MATLAB $4.598\times10^{-3}$ at 890 s, UEL $4.489\times10^{-3}$ at 910 s, UMATHT
 $4.582\times10^{-3}$ at 900 s (MATLAB's peak is a plateau at $4.6\times10^{-3}$ from 880.5 to
 909.7 s).
+
+The exposed-face gas mass flux of FUSS against the three codes (markers, every 40 s); the box is the window
+of the peak check.
+
+![Gas mass flux at the exposed face against the three codes](images/pyrolysis-literature-zhang-massflux.svg)
 
 ### Pass criteria
 
