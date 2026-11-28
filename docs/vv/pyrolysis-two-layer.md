@@ -62,6 +62,11 @@ one-material series to round-off. The error is the maximum of $|T - T_\text{exac
 With the arithmetic mean of the two $k_s$ at the jump instead of the series value, the same ladder falls at
 first order: 27.1, 13.6, 6.83 K (orders 0.992, 0.996).
 
+The temperature of (a) across the interface (dashed) on the three meshes against the exact solution (left,
+the line at the time of the 80-cell output), and its error at each mesh's own output time (right).
+
+![Temperature and its error across the interface on 20, 40 and 80 cells](images/pyrolysis-two-layer-profiles.svg)
+
 **(b)** and **(c)**, error in K (nominal: first output at 1 s → last at 8 s; 0.9 × limit: $N$ → $2N$, order):
 
 | Mesh | Scheme | Nominal limit | 0.9 × limit | Order |
@@ -90,6 +95,11 @@ first order: 27.1, 13.6, 6.83 K (orders 0.992, 0.996).
 
 All 21 runs at the nominal limits reach 8 s with a decaying error; the large errors there are the undamped
 cell-to-cell oscillation that the step at $t = 0$ leaves near the heated face, as on one material.
+
+The errors of (a) against $N$ with the order of each pair and the window the check allows for the finest
+pair (shaded), and the order of each run of (c) from $N$ to $2N$ against the window $[1.6, 2.4]$.
+
+![Error ladder of (a) and the observed orders of (c)](images/pyrolysis-two-layer-order.svg)
 
 **(d)** 3658 steps in both runs; max $\lvert\Delta T\rvert = 6.4\times10^{-12}$ K,
 max $\lvert\Delta p_{pg}\rvert = 2.1\times10^{-9}$ Pa.
