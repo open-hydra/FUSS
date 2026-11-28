@@ -267,7 +267,7 @@ def page_two_layer(ctx):
 
     # 2: the ladder of (a) and the orders of (c)
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(FW, 3.3), gridspec_kw={"width_ratios": [1, 1.25]})
-    ladder(a1, ns, es, tlv.P_EXPECTED, SERIES[0], "o", r"max $|T - T_\mathrm{exact}|$ at 8 s")
+    ladder(a1, ns, es, tlv.P_EXPECTED, SERIES[0], "o", r"max $|T - T_\mathrm{exact}|$ at 8 s", offset=(9, 0))
     a1.set_xscale("log")
     a1.set_yscale("log")
     a1.set_xticks(ns)
